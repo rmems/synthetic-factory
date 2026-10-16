@@ -8,12 +8,19 @@ import json
 import subprocess
 import sys
 import tempfile
+import textwrap
 import unittest
+from dataclasses import replace
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "pipelines"))
 
+from dbc import (
+    catalog as dbc_catalog,
+    catalog_ast as dbc_ast,
+    catalog_extract as dbc_extract,
+)
 from dbc.catalog import CATALOG, load_pairs_jsonl  # noqa: E402
 from dbc.catalog_extract import (  # noqa: E402
     SHAPE_CTOR,
@@ -375,6 +382,112 @@ class DbcLegacyExtractTests(unittest.TestCase):
             dest = Path(tmp)
             refuse_vendor_paths(dest.rglob("*") if dest.exists() else ())
             self.assertEqual(list(dest.glob("dbc-mill*.py")), [])
+
+
+def _tree(text: str) -> ast.Module:
+    return ast.parse(textwrap.dedent(text))
+
+
+def _expr(text: str) -> ast.expr:
+    return ast.parse(text, mode="eval").body
+
+
+class DbcRefusalBranchTests(unittest.TestCase):
+    """Each shape detector's fall-through and each pin refusal, one branch each."""
+
+    def test_jsonl_row_refuses_an_empty_slug(self):
+        row = dict(load_pairs_jsonl()[0])
+        for key in ("success_slug", "fail_slug"):
+            line = json.dumps(dict(row, **{key: ""}), sort_keys=True, separators=(",", ":"))
+            with self.subTest(key=key), self.assertRaisesRegex(ValueError, f"{key} must be"):
+                dbc_catalog._jsonl_row(line, 7)
+
+    def test_bind_sources_refuses_a_drifted_mill_pin(self):
+        mill_id = "dbc-mill-r233"
+        mills = dict(CATALOG.mills, **{mill_id: replace(CATALOG.mills[mill_id], path="x.py")})
+        drifted = replace(CATALOG, mills=mills)
+        with self.assertRaisesRegex(ValueError, f"{mill_id} pin disagrees"):
+            dbc_catalog._bind_sources(drifted)
+
+    def test_literal_value_negation_and_concatenation(self):
+        unset = dbc_ast.UNSET
+        for text, expected in (("-2", -2), ("-'a'", unset), ("not 1", unset),
+                               ("'a' + 'b'", "ab"), ("'a' + 1", unset), ("1 - 2", unset)):
+            with self.subTest(text=text):
+                value = dbc_ast.literal_value(_expr(text))
+                if expected is unset:
+                    self.assertIs(value, unset)
+                else:
+                    self.assertEqual(value, expected)
+
+    def test_leftover_lang_falls_through_on_each_incomplete_module(self):
+        zipped = "PAIRS = list(zip(LANGS, LEFTOVERS))\n"
+        modules = (
+            "LANGS = 3\nLEFTOVERS = [{'slug': 'b'}]\n" + zipped,
+            "LANGS = [{'slug': 'a'}]\n" + zipped,
+            "LANGS = [{'slug': 'a'}]\nLEFTOVERS = [{'slug': 'b'}]\nPAIRS = list(LANGS, LEFTOVERS)\n",
+            "LANGS = [{'lang': 'a'}]\nLEFTOVERS = [{'slug': 'b'}]\n" + zipped,
+            "LANGS = ['a']\nLEFTOVERS = [{'slug': 'b'}]\n" + zipped,
+        )
+        for text in modules:
+            with self.subTest(text=text):
+                self.assertIsNone(dbc_extract._leftover_lang(_tree(text)))
+
+    def test_zip_tables_fall_through_without_a_success_slug(self):
+        text = """
+        _LANGS = [("",)]
+        _LEFTS = [("left",)]
+        PAIRS = [(a, b) for a, b in zip(_LANGS, _LEFTS)]
+        """
+        self.assertIsNone(dbc_extract._zip_tables(_tree(text)))
+
+    def test_zip_table_names_unwraps_only_enumerate_of_zip(self):
+        cases = (
+            ("zip(_CRYPTO, _GPIO)", ("_CRYPTO", "_GPIO")),
+            ("enumerate(zip(_CRYPTO, _GPIO))", ("_CRYPTO", "_GPIO")),
+            ("enumerate()", None),
+            ("enumerate(list(_CRYPTO))", None),
+            ("zip(_CRYPTO)", None),
+        )
+        for text, expected in cases:
+            with self.subTest(text=text):
+                self.assertEqual(dbc_extract._zip_table_names(_expr(text)), expected)
+
+    def test_skip_extra_and_new_extend_refuse_non_literal_lists(self):
+        extra = "EXTRA = [({'slug': 'a'}, {'slug': 'b'})]\nPAIRS = [p for p in BASE] + EXTRA\n"
+        self.assertIsNone(dbc_extract._skip_extra(_tree("SKIP = {1}\n" + extra)))
+        self.assertIsNone(dbc_extract._skip_extra(_tree("SKIP = {'a'}\nEXTRA = [1]\n")))
+        self.assertIsNotNone(dbc_extract._skip_extra(_tree("SKIP = {'a'}\n" + extra)))
+        self.assertIsNone(
+            dbc_extract._new_extend(_tree("NEW_PAIRS = [1]\nPAIRS = build_pairs(NEW_PAIRS)\n"))
+        )
+
+    def test_plant_build_refuses_each_non_ctor_return(self):
+        for body in ("return 1", "return []", "return [(1, 2)]", "x = 1\n    return [x]"):
+            with self.subTest(body=body):
+                self.assertIsNone(dbc_extract._plant_build(_tree(f"def build(a):\n    {body}\n")))
+
+    def test_build_ctor_aliases_keep_only_name_to_parameter_unpacks(self):
+        node = _tree("""
+        def build(lang, left):
+            L, R, N = lang, left, 1
+            single = lang
+            a, b = c
+            return []
+        """).body[0]
+        self.assertEqual(dbc_extract._build_ctor_aliases(node), {"L", "R"})
+
+    def test_ctor_identity_reads_positional_slug_and_harbor(self):
+        cases = (
+            ('suc("slug-a")', {"slug": "slug-a", "harbor": None, "plant": None}),
+            ('suc("slug-a", "harbor-x")', {"slug": "slug-a", "harbor": "harbor-x", "plant": None}),
+            ('suc("slug-a", "dock-x")', {"slug": "slug-a", "harbor": None, "plant": None}),
+            ('suc("slug-a", 2)', {"slug": "slug-a", "harbor": None, "plant": None}),
+            ("suc(1)", {"slug": None, "harbor": None, "plant": None}),
+        )
+        for text, expected in cases:
+            with self.subTest(text=text):
+                self.assertEqual(dbc_extract._ctor_identity(_expr(text)), expected)
 
 
 if __name__ == "__main__":

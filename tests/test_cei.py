@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import ast
 import contextlib
 import io
 import json
@@ -11,7 +12,9 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from dataclasses import replace
 from pathlib import Path
+from unittest import mock
 
 REPO = Path(__file__).resolve().parents[1]
 PIPELINES = REPO / "pipelines"
@@ -243,6 +246,26 @@ def invoke(argv):
     return code, out.getvalue(), err.getvalue()
 
 
+def _plants_for(plants, mill_id):
+    return [plant for plant in plants if plant.mill_id == mill_id]
+
+
+def _ok_slugs(plants):
+    return [plant.ok.slug for plant in plants]
+
+
+def _shapes(plants):
+    return {plant.shape for plant in plants}
+
+
+def _plant_ids(plants):
+    return {plant.plant_id for plant in plants}
+
+
+def _side_slugs(plants):
+    return [plant.ok.slug for plant in plants] + [plant.bad.slug for plant in plants]
+
+
 class CatalogLoading(unittest.TestCase):
     def test_committed_catalog_loads_r81_r48_and_slice3_ast_extracted_pairs(self):
         loaded = catalog.load_catalog(COMMITTED)
@@ -251,31 +274,25 @@ class CatalogLoading(unittest.TestCase):
         self.assertEqual(FACTORY, REVIEWED_MILL_PREFIX_HOMES[MILL_PREFIX])
         self.assertEqual(len(loaded.plants), 89)
         self.assertEqual(len(loaded.mills), 5)
-        r81 = [plant for plant in loaded.plants if plant.mill_id == SOURCE_MILL_ID]
-        r48 = [plant for plant in loaded.plants if plant.mill_id == LEFTOVER3_MILL_ID]
-        r42 = [plant for plant in loaded.plants if plant.mill_id == SLICE3_R42_MILL_ID]
-        r65 = [plant for plant in loaded.plants if plant.mill_id == SLICE3_R65_MILL_ID]
-        r137 = [plant for plant in loaded.plants if plant.mill_id == SLICE3_R137_MILL_ID]
+        r81 = _plants_for(loaded.plants, SOURCE_MILL_ID)
+        r48 = _plants_for(loaded.plants, LEFTOVER3_MILL_ID)
+        r42 = _plants_for(loaded.plants, SLICE3_R42_MILL_ID)
+        r65 = _plants_for(loaded.plants, SLICE3_R65_MILL_ID)
+        r137 = _plants_for(loaded.plants, SLICE3_R137_MILL_ID)
         self.assertEqual(len(r81), 39)
         self.assertEqual(len(r48), 16)
         self.assertEqual(len(r42), 7)
         self.assertEqual(len(r65), 12)
         self.assertEqual(len(r137), 15)
-        self.assertEqual([plant.ok.slug for plant in r81], list(EXPECTED_OK_SLUGS))
-        self.assertEqual([plant.ok.slug for plant in r48], list(EXPECTED_R48_OK_SLUGS))
-        self.assertEqual([plant.ok.slug for plant in r42], list(EXPECTED_R42_OK_SLUGS))
-        self.assertEqual([plant.ok.slug for plant in r65], list(EXPECTED_R65_OK_SLUGS))
-        self.assertEqual([plant.ok.slug for plant in r137], list(EXPECTED_R137_OK_SLUGS))
-        self.assertEqual({plant.shape for plant in r81}, {SHAPE_OK_BAD})
-        self.assertEqual(
-            {plant.shape for plant in r48 + r42 + r65 + r137},
-            {LEFTOVER3_SHAPE},
-        )
-        self.assertEqual(len({plant.plant_id for plant in loaded.plants}), 89)
-        slugs = [plant.ok.slug for plant in loaded.plants] + [
-            plant.bad.slug for plant in loaded.plants
-        ]
-        self.assertEqual(len(set(slugs)), 178)
+        self.assertEqual(_ok_slugs(r81), list(EXPECTED_OK_SLUGS))
+        self.assertEqual(_ok_slugs(r48), list(EXPECTED_R48_OK_SLUGS))
+        self.assertEqual(_ok_slugs(r42), list(EXPECTED_R42_OK_SLUGS))
+        self.assertEqual(_ok_slugs(r65), list(EXPECTED_R65_OK_SLUGS))
+        self.assertEqual(_ok_slugs(r137), list(EXPECTED_R137_OK_SLUGS))
+        self.assertEqual(_shapes(r81), {SHAPE_OK_BAD})
+        self.assertEqual(_shapes(r48 + r42 + r65 + r137), {LEFTOVER3_SHAPE})
+        self.assertEqual(len(_plant_ids(loaded.plants)), 89)
+        self.assertEqual(len(set(_side_slugs(loaded.plants))), 178)
         self.assertEqual(loaded.meta["source"]["method"], "git-show+ast.parse")
         self.assertEqual(loaded.meta["source"]["commit"], SOURCE_COMMIT)
         self.assertEqual(
@@ -650,6 +667,131 @@ class ImportTwins(unittest.TestCase):
         import pipelines.cei.catalog as packaged
 
         self.assertIs(packaged, catalog)
+
+
+class RefusalBranches(unittest.TestCase):
+    """Each extracted check's refusal fires with its code and message."""
+
+    @contextlib.contextmanager
+    def _refusal(self, code, message):
+        with self.assertRaises(CeiRefusal) as caught:
+            yield
+        self.assertEqual(caught.exception.code, code)
+        self.assertIn(message, str(caught.exception))
+
+    def _catalog_copy(self, edit_meta=None) -> Path:
+        root = Path(tempfile.mkdtemp(prefix="cei-refusal-"))
+        self.addCleanup(shutil.rmtree, root, True)
+        dest = root / "catalog"
+        shutil.copytree(FIXTURE, dest)
+        if edit_meta is not None:
+            meta_path = dest / catalog.CATALOG_FILENAME
+            meta = json.loads(meta_path.read_text(encoding="utf-8"))
+            edit_meta(meta)
+            meta_path.write_text(json.dumps(meta, indent=2) + "\n", encoding="utf-8")
+        return dest
+
+    def test_const_eval_reads_containers_and_refuses_the_rest(self):
+        for text, expected in (("[1, (2, -3)]", [1, (2, -3)]), ("{'a': [-1.5]}", {"a": [-1.5]})):
+            with self.subTest(text=text):
+                self.assertEqual(catalog._const_eval(ast.parse(text, mode="eval").body), expected)
+        for text, message in (
+            ("{**extra}", "uses dict unpacking"),
+            ("{1: name, **extra}", "uses dict unpacking"),
+            ("not 1", "(UnaryOp)"),
+            ("{1, 2}", "(Set)"),
+        ):
+            node = ast.parse(text, mode="eval").body
+            with self.subTest(text=text), self._refusal(FINDING_SOURCE_NOT_PARSEABLE, message):
+                catalog._const_eval(node)
+
+    def test_expansions_name_the_first_missing_argument(self):
+        with self._refusal(FINDING_SOURCE_NOT_PARSEABLE, "_ok missing slug"):
+            catalog.expand_ok({})
+        with self._refusal(FINDING_SOURCE_NOT_PARSEABLE, "_bad missing goal"):
+            catalog.expand_bad({"slug": "s"})
+        with self._refusal(FINDING_SOURCE_NOT_PARSEABLE, "S() missing slug"):
+            catalog.expand_leftover3({}, ticket_required=True)
+
+    def test_seen_identities_refuse_a_repeated_slug_mod_or_ticket(self):
+        ok = {"slug": "a", "mod": "m1"}
+        bad = {"slug": "b", "mod": "m2", "ticket": "T-1"}
+        cases = (
+            ({"slug": "b", "mod": "m3"}, {"slug": "c", "mod": "m4", "ticket": "T-2"},
+             catalog.FINDING_PLANT_DUPLICATE_ID, "duplicate slug b"),
+            ({"slug": "c", "mod": "m2"}, {"slug": "d", "mod": "m4", "ticket": "T-2"},
+             catalog.FINDING_PLANT_FIELD_INVALID, "duplicate mod m2"),
+            ({"slug": "c", "mod": "m3"}, {"slug": "d", "mod": "m4", "ticket": "T-1"},
+             catalog.FINDING_PLANT_FIELD_INVALID, "duplicate ticket T-1"),
+        )
+        for again_ok, again_bad, code, message in cases:
+            seen = catalog._SeenIdentities()
+            seen.claim(ok, bad)
+            with self.subTest(message=message), self._refusal(code, message):
+                seen.claim(again_ok, again_bad)
+
+    def test_plants_from_source_refuses_each_malformed_pair(self):
+        cases = (
+            ("X = 1\n", "cei_r0007", FINDING_SOURCE_NOT_PARSEABLE, "has no PAIRS list"),
+            (TINY_SOURCE, "cei-7", catalog.FINDING_PLANT_FIELD_INVALID, "is not cei_rNNN"),
+            ("PAIRS = [1]\n", "cei_r0007", FINDING_SOURCE_NOT_PARSEABLE,
+             "PAIRS[0] is not an (_ok, _bad) tuple"),
+            ("PAIRS = [(x.y(), _bad())]\n", "cei_r0007", FINDING_SOURCE_NOT_PARSEABLE,
+             "PAIRS[0][0]"),
+            ("PAIRS = [(_ok(), 1)]\n", "cei_r0007", FINDING_SOURCE_NOT_PARSEABLE, "PAIRS[0][1]"),
+            ("PAIRS = [(_bad(), _ok())]\n", "cei_r0007", FINDING_SOURCE_NOT_PARSEABLE,
+             "must be _ok(...), _bad(...)"),
+            (TINY_SOURCE.replace('"DBF-TINY-7",', '"DBF-TINY-7", src_body="other",'),
+             "cei_r0007", FINDING_SOURCE_NOT_PARSEABLE, "first_old is not in src_body"),
+        )
+        for text, mill_id, code, message in cases:
+            with self.subTest(message=message), self._refusal(code, message):
+                catalog.plants_from_source(text, mill_id=mill_id, source="s.py")
+
+    def test_plant_rows_refuse_each_identity_defect(self):
+        row = json.loads((FIXTURE / catalog.PLANTS_FILENAME).read_text(encoding="utf-8"))
+        invalid = catalog.FINDING_PLANT_FIELD_INVALID
+        ok_side = dict(row["ok"], coverage=True)
+        cases = (
+            ([], "p must be an object"),
+            (dict(row, mill_id="cei-1"), "p.mill_id is not cei_rNNN"),
+            (dict(row, shape="loose"), "p.shape 'loose' is not a CEI shape"),
+            (dict(row, ok=ok_side), "p.ok.coverage must be a positive int"),
+            (dict(row, base_round=True), "p.base_round must be a positive int"),
+            (dict(row, index=-1), "p.index must be a non-negative int"),
+        )
+        for value, message in cases:
+            with self.subTest(message=message), self._refusal(invalid, message):
+                catalog._plant_from_row(value, "p")
+
+    def test_catalog_header_count_registry_and_base_round_refusals(self):
+        invalid = catalog.FINDING_CATALOG_FIELD_INVALID
+        cases = (
+            (lambda meta: meta.update(format="cei-catalog/0"), "format must be cei-catalog/1"),
+            (lambda meta: meta.update(plant_count=2), "plant_count is 2, file has 1"),
+            (lambda meta: meta["mills"][0].update(base_round=2), "base_round != mill base_round"),
+        )
+        for edit, message in cases:
+            copy = self._catalog_copy(edit)
+            with self.subTest(message=message), self._refusal(invalid, message):
+                catalog.load_catalog(copy)
+        with (
+            mock.patch.object(catalog, "_registry_factory_ids", return_value=set()),
+            self._refusal(catalog.FINDING_FACTORY_NOT_REGISTERED, "is not a registry path_id"),
+        ):
+            catalog.load_catalog(FIXTURE)
+        unplanted = self._catalog_copy()
+        (unplanted / catalog.PLANTS_FILENAME).unlink()
+        with self._refusal(catalog.FINDING_CATALOG_FILE_MISSING, "plants.jsonl is missing"):
+            catalog.load_catalog(unplanted)
+
+    def test_builders_refuse_a_missing_ticket_and_a_short_episode(self):
+        plant = catalog.load_catalog(FIXTURE).plants[0]
+        side = replace(plant.bad, ticket=None)
+        with self._refusal(FINDING_USAGE, "handoff missing ticket"):
+            generate.build_fail(81, side, "cid", plant)
+        with self._refusal(FINDING_USAGE, "e-1 expected 16 steps"):
+            generate._checked_episode({"id": "e-1", "steps": []}, 16)
 
 
 if __name__ == "__main__":

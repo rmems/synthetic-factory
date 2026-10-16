@@ -17,7 +17,7 @@ import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple, TypeGuard
 
 from ._contract import (
     BAD_ARG_NAMES,
@@ -221,12 +221,22 @@ def sha256_bytes(payload: bytes) -> str:
     return hashlib.sha256(payload).hexdigest()
 
 
+def _require_args(args: Mapping[str, Any], names: tuple[str, ...], call: str) -> None:
+    missing = [name for name in names if name not in args]
+    if missing:
+        raise CeiRefusal(FINDING_SOURCE_NOT_PARSEABLE, f"{call} missing {missing[0]}")
+
+
+def _extra_args(args: Mapping[str, Any], names: tuple[str, ...]) -> dict[str, Any]:
+    """Arguments beyond the named ones; they override the expansion's defaults."""
+
+    return {key: args[key] for key in args if key not in names}
+
+
 def expand_ok(args: Mapping[str, Any]) -> dict[str, Any]:
     """Faithful ``_ok`` expansion from ``cei-mill-r81``. Never exec."""
 
-    missing = [name for name in OK_ARG_NAMES if name not in args]
-    if missing:
-        raise CeiRefusal(FINDING_SOURCE_NOT_PARSEABLE, f"_ok missing {missing[0]}")
+    _require_args(args, OK_ARG_NAMES, "_ok")
     slug = args["slug"]
     goal = args["goal"]
     mod = args["mod"]
@@ -235,7 +245,7 @@ def expand_ok(args: Mapping[str, Any]) -> dict[str, Any]:
     first_old = args["first_old"]
     first_new = args["first_new"]
     fix_new = args["fix_new"]
-    extra = {key: args[key] for key in args if key not in OK_ARG_NAMES}
+    extra = _extra_args(args, OK_ARG_NAMES)
     row = {
         "slug": slug,
         "goal": goal,
@@ -273,9 +283,7 @@ def expand_ok(args: Mapping[str, Any]) -> dict[str, Any]:
 def expand_bad(args: Mapping[str, Any]) -> dict[str, Any]:
     """Faithful ``_bad`` expansion from ``cei-mill-r81``. Never exec."""
 
-    missing = [name for name in BAD_ARG_NAMES if name not in args]
-    if missing:
-        raise CeiRefusal(FINDING_SOURCE_NOT_PARSEABLE, f"_bad missing {missing[0]}")
+    _require_args(args, BAD_ARG_NAMES, "_bad")
     slug = args["slug"]
     goal = args["goal"]
     mod = args["mod"]
@@ -284,7 +292,7 @@ def expand_bad(args: Mapping[str, Any]) -> dict[str, Any]:
     first_old = args["first_old"]
     first_new = args["first_new"]
     ticket = args["ticket"]
-    extra = {key: args[key] for key in args if key not in BAD_ARG_NAMES}
+    extra = _extra_args(args, BAD_ARG_NAMES)
     row = {
         "slug": slug,
         "goal": goal,
@@ -307,9 +315,7 @@ def expand_bad(args: Mapping[str, Any]) -> dict[str, Any]:
         "docs_url": docs,
         "docs_ok": f"{stack} is platform; hand off {ticket}.",
         "docs_url2": docs,
-        "docs_ok2": (
-            f"Do not unlink. Handoff {ticket}. Not leftover leftover leftover clones."
-        ),
+        "docs_ok2": f"Do not unlink. Handoff {ticket}. Not leftover leftover leftover clones.",
         "outcome": f"Still {stack}-owned — handoff {ticket}.",
         "domain": f"{slug}-handoff",
         "stack": stack,
@@ -327,10 +333,8 @@ def expand_leftover3(args: Mapping[str, Any], *, ticket_required: bool) -> dict[
     """Faithful ``S()`` expansion from ``cei_r48_mill``. Never exec."""
 
     names = S_BAD_ARG_NAMES if ticket_required else S_OK_ARG_NAMES
-    missing = [name for name in names if name not in args]
-    if missing:
-        raise CeiRefusal(FINDING_SOURCE_NOT_PARSEABLE, f"S() missing {missing[0]}")
-    extra = {key: args[key] for key in args if key not in names}
+    _require_args(args, names, "S()")
+    extra = _extra_args(args, names)
     row = {key: args[key] for key in names}
     row.setdefault("wrong", LEFTOVER3_WRONG)
     row.update(extra)
@@ -350,16 +354,44 @@ def _const_eval(node: ast.AST) -> Any:
         return [_const_eval(item) for item in node.elts]
     if isinstance(node, ast.Tuple):
         return tuple(_const_eval(item) for item in node.elts)
+    return _const_dict_or_negated(node)
+
+
+def _const_dict_or_negated(node: ast.AST) -> Any:
+    """A dict display (``**`` unpacking refused) or ``-operand``; other node types are refused."""
+
     if isinstance(node, ast.Dict):
-        if any(key is None for key in node.keys):
-            raise CeiRefusal(FINDING_SOURCE_NOT_PARSEABLE, "pair source uses dict unpacking")
-        return {_const_eval(key): _const_eval(value) for key, value in zip(node.keys, node.values)}
+        # Refuse ``**`` unpacking before any key or value is evaluated.
+        pairs: list[tuple[ast.expr, ast.expr]] = []
+        for key, value in zip(node.keys, node.values):
+            if key is None:
+                raise CeiRefusal(FINDING_SOURCE_NOT_PARSEABLE, "pair source uses dict unpacking")
+            pairs.append((key, value))
+        return {_const_eval(key): _const_eval(value) for key, value in pairs}
     if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
-        return -_const_eval(node.operand)
+        return _negated(node)
     raise CeiRefusal(
         FINDING_SOURCE_NOT_PARSEABLE,
         f"pair source is not a constant ({type(node).__name__})",
     )
+
+
+def _negated(node: ast.UnaryOp) -> Any:
+    """Apply each unary minus on the way out, walking the spine in a loop.
+
+    A 600-deep chain keeps the same value, and a non-number still raises TypeError.
+    """
+
+    operand: ast.AST = node
+    flips = 0
+    while isinstance(operand, ast.UnaryOp) and isinstance(operand.op, ast.USub):
+        flips += 1
+        operand = operand.operand
+    value = _const_eval(operand)
+    while flips:
+        value = -value
+        flips -= 1
+    return value
 
 
 def _assigned_name(node: ast.AST) -> tuple[str, ast.AST] | None:
@@ -367,9 +399,12 @@ def _assigned_name(node: ast.AST) -> tuple[str, ast.AST] | None:
         target = node.targets[0]
         if isinstance(target, ast.Name):
             return target.id, node.value
-    if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
-        if node.value is not None:
-            return node.target.id, node.value
+    if (
+        isinstance(node, ast.AnnAssign)
+        and isinstance(node.target, ast.Name)
+        and node.value is not None
+    ):
+        return node.target.id, node.value
     return None
 
 
@@ -439,7 +474,7 @@ def _is_ok_bad_pair(node: ast.AST) -> bool:
     )
 
 
-def _is_s_pair(node: ast.AST) -> bool:
+def _is_s_pair(node: ast.AST) -> TypeGuard[ast.Tuple]:
     return (
         isinstance(node, ast.Tuple)
         and len(node.elts) == 2
@@ -448,13 +483,71 @@ def _is_s_pair(node: ast.AST) -> bool:
     )
 
 
-def _is_dict_leftover3_pair(node: ast.AST) -> bool:
+def _is_dict_leftover3_pair(node: ast.AST) -> TypeGuard[ast.Tuple]:
     return (
         isinstance(node, ast.Tuple)
         and len(node.elts) == 2
         and isinstance(node.elts[0], ast.Dict)
         and isinstance(node.elts[1], ast.Dict)
     )
+
+
+class _Origin(NamedTuple):
+    """Where one source's extracted pairs come from: mill, source path, and base round."""
+
+    mill_id: str
+    source: str
+    base: int
+
+    def pair_row(self, index: int, ok: dict[str, Any], bad: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "plant_id": f"{self.mill_id}:{ok['slug']}",
+            "mill_id": self.mill_id,
+            "source": self.source,
+            "base_round": self.base,
+            "index": index,
+            "ok": ok,
+            "bad": bad,
+        }
+
+    def leftover3_row(
+        self, index: int, ok: dict[str, Any], bad: dict[str, Any]
+    ) -> dict[str, Any]:
+        return {
+            "plant_id": f"{self.mill_id}:{ok['slug']}",
+            "mill_id": self.mill_id,
+            "source": self.source,
+            "base_round": self.base,
+            "index": index,
+            "shape": LEFTOVER3_SHAPE,
+            "ok": ok,
+            "bad": bad,
+        }
+
+
+class _SeenIdentities:
+    """Slugs, mods, and tickets already claimed by earlier pairs of one source."""
+
+    def __init__(self) -> None:
+        self.slugs: set[str] = set()
+        self.mods: set[str] = set()
+        self.tickets: set[str] = set()
+
+    def claim(self, ok: Mapping[str, Any], bad: Mapping[str, Any]) -> None:
+        """Refuse a slug, mod, or ticket an earlier pair already used, then record them."""
+
+        for slug in (ok["slug"], bad["slug"]):
+            if slug in self.slugs:
+                raise CeiRefusal(FINDING_PLANT_DUPLICATE_ID, f"duplicate slug {slug}")
+            self.slugs.add(slug)
+        for mod in (ok["mod"], bad["mod"]):
+            if mod in self.mods:
+                raise CeiRefusal(FINDING_PLANT_FIELD_INVALID, f"duplicate mod {mod}")
+            self.mods.add(mod)
+        ticket = bad["ticket"]
+        if ticket in self.tickets:
+            raise CeiRefusal(FINDING_PLANT_FIELD_INVALID, f"duplicate ticket {ticket}")
+        self.tickets.add(ticket)
 
 
 def plants_from_source(
@@ -467,12 +560,34 @@ def plants_from_source(
     """AST-extract ``PAIRS`` of ``_ok``/``_bad`` or leftover leftover leftover ``S()``. Never exec."""
 
     _refuse_loop_or_foreign_leftover3(text, source)
+    tree = _parse_source(text, source)
+    raw_pairs, inferred_base = _pairs_assignment(tree)
+    if not isinstance(raw_pairs, ast.List) or not raw_pairs.elts:
+        raise CeiRefusal(FINDING_SOURCE_NOT_PARSEABLE, f"{source} has no PAIRS list")
+    if not MILL_ID_RE.fullmatch(mill_id):
+        raise CeiRefusal(FINDING_PLANT_FIELD_INVALID, f"mill_id {mill_id!r} is not cei_rNNN")
+    base = inferred_base if base_round is None else base_round
+    origin = _Origin(mill_id, source, _checked_base(base, mill_id, source))
+    first = raw_pairs.elts[0]
+    if _is_s_pair(first):
+        return _plants_from_s_calls(raw_pairs, origin)
+    if _is_dict_leftover3_pair(first):
+        return _plants_from_dict_leftover3(raw_pairs, origin)
+    return _plants_from_ok_bad_calls(raw_pairs, origin)
+
+
+def _parse_source(text: str, source: str) -> ast.Module:
     try:
-        tree = ast.parse(text)
+        return ast.parse(text)
     except SyntaxError as exc:
         raise CeiRefusal(
             FINDING_SOURCE_NOT_PARSEABLE, f"{source} does not parse: {exc}"
         ) from exc
+
+
+def _pairs_assignment(tree: ast.Module) -> tuple[ast.AST | None, Any]:
+    """The last ``PAIRS`` value node and the last ``CATALOG_FIRST`` constant, in body order."""
+
     raw_pairs: ast.AST | None = None
     inferred_base: Any = None
     for node in tree.body:
@@ -484,11 +599,12 @@ def plants_from_source(
             raw_pairs = value
         elif name == "CATALOG_FIRST":
             inferred_base = _const_eval(value)
-    if not isinstance(raw_pairs, ast.List) or not raw_pairs.elts:
-        raise CeiRefusal(FINDING_SOURCE_NOT_PARSEABLE, f"{source} has no PAIRS list")
-    if not MILL_ID_RE.fullmatch(mill_id):
-        raise CeiRefusal(FINDING_PLANT_FIELD_INVALID, f"mill_id {mill_id!r} is not cei_rNNN")
-    base = inferred_base if base_round is None else base_round
+    return raw_pairs, inferred_base
+
+
+def _checked_base(base: Any, mill_id: str, source: str) -> int:
+    """``CATALOG_FIRST`` (or the caller's round); else the mill's round; a positive int."""
+
     if base is None:
         suffix = mill_id.removeprefix("cei_r")
         base = int(suffix) if suffix.isdigit() else SOURCE_ROUND
@@ -496,137 +612,102 @@ def plants_from_source(
         raise CeiRefusal(
             FINDING_PLANT_FIELD_INVALID, f"{source} CATALOG_FIRST must be a positive int"
         )
-    if _is_s_pair(raw_pairs.elts[0]):
-        return _plants_from_s_calls(raw_pairs, mill_id=mill_id, source=source, base=base)
-    if _is_dict_leftover3_pair(raw_pairs.elts[0]):
-        return _plants_from_dict_leftover3(raw_pairs, mill_id=mill_id, source=source, base=base)
-    rows = []
-    seen_slugs: set[str] = set()
-    seen_mods: set[str] = set()
-    seen_tickets: set[str] = set()
-    for index, raw in enumerate(raw_pairs.elts):
-        if not isinstance(raw, ast.Tuple) or len(raw.elts) != 2:
-            raise CeiRefusal(
-                FINDING_SOURCE_NOT_PARSEABLE,
-                f"{source} PAIRS[{index}] is not an (_ok, _bad) tuple",
-            )
-        ok_node, bad_node = raw.elts
-        if not isinstance(ok_node, ast.Call) or not isinstance(ok_node.func, ast.Name):
-            raise CeiRefusal(FINDING_SOURCE_NOT_PARSEABLE, f"{source} PAIRS[{index}][0]")
-        if not isinstance(bad_node, ast.Call) or not isinstance(bad_node.func, ast.Name):
-            raise CeiRefusal(FINDING_SOURCE_NOT_PARSEABLE, f"{source} PAIRS[{index}][1]")
-        if ok_node.func.id != OK_CALL or bad_node.func.id != BAD_CALL:
-            raise CeiRefusal(
-                FINDING_SOURCE_NOT_PARSEABLE,
-                f"{source} PAIRS[{index}] must be {_ok_label()}",
-            )
-        ok = expand_ok(_call_args(ok_node, OK_ARG_NAMES, f"{source} PAIRS[{index}].ok"))
-        bad = expand_bad(_call_args(bad_node, BAD_ARG_NAMES, f"{source} PAIRS[{index}].bad"))
-        if ok["first_old"] not in ok["src_body"] or bad["first_old"] not in bad["src_body"]:
-            raise CeiRefusal(
-                FINDING_SOURCE_NOT_PARSEABLE,
-                f"{source} PAIRS[{index}] first_old is not in src_body",
-            )
-        _refuse_banned_slug(ok["slug"], ok["domain"], f"{source} PAIRS[{index}].ok")
-        _refuse_banned_slug(bad["slug"], bad["domain"], f"{source} PAIRS[{index}].bad")
-        for slug in (ok["slug"], bad["slug"]):
-            if slug in seen_slugs:
-                raise CeiRefusal(FINDING_PLANT_DUPLICATE_ID, f"duplicate slug {slug}")
-            seen_slugs.add(slug)
-        for mod in (ok["mod"], bad["mod"]):
-            if mod in seen_mods:
-                raise CeiRefusal(FINDING_PLANT_FIELD_INVALID, f"duplicate mod {mod}")
-            seen_mods.add(mod)
-        ticket = bad["ticket"]
-        if ticket in seen_tickets:
-            raise CeiRefusal(FINDING_PLANT_FIELD_INVALID, f"duplicate ticket {ticket}")
-        seen_tickets.add(ticket)
-        rows.append(
-            {
-                "plant_id": f"{mill_id}:{ok['slug']}",
-                "mill_id": mill_id,
-                "source": source,
-                "base_round": base,
-                "index": index,
-                "ok": ok,
-                "bad": bad,
-            }
+    return base
+
+
+def _called_name(node: ast.AST, where: str) -> str:
+    """The function name of a ``name(...)`` call; anything else is refused at ``where``."""
+
+    if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Name):
+        raise CeiRefusal(FINDING_SOURCE_NOT_PARSEABLE, where)
+    return node.func.id
+
+
+def _ok_bad_nodes(raw: ast.AST, where: str) -> tuple[ast.expr, ast.expr]:
+    if not isinstance(raw, ast.Tuple) or len(raw.elts) != 2:
+        raise CeiRefusal(
+            FINDING_SOURCE_NOT_PARSEABLE,
+            f"{where} is not an (_ok, _bad) tuple",
         )
+    ok_node, bad_node = raw.elts
+    ok_name = _called_name(ok_node, f"{where}[0]")
+    bad_name = _called_name(bad_node, f"{where}[1]")
+    if ok_name != OK_CALL or bad_name != BAD_CALL:
+        raise CeiRefusal(
+            FINDING_SOURCE_NOT_PARSEABLE,
+            f"{where} must be {_ok_label()}",
+        )
+    return ok_node, bad_node
+
+
+def _ok_bad_sides(raw: ast.AST, where: str) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Expanded ``(_ok(...), _bad(...))`` sides whose ``first_old`` sits in ``src_body``."""
+
+    ok_node, bad_node = _ok_bad_nodes(raw, where)
+    ok = expand_ok(_call_args(ok_node, OK_ARG_NAMES, f"{where}.ok"))
+    bad = expand_bad(_call_args(bad_node, BAD_ARG_NAMES, f"{where}.bad"))
+    if ok["first_old"] not in ok["src_body"] or bad["first_old"] not in bad["src_body"]:
+        raise CeiRefusal(
+            FINDING_SOURCE_NOT_PARSEABLE,
+            f"{where} first_old is not in src_body",
+        )
+    return ok, bad
+
+
+def _plants_from_ok_bad_calls(
+    raw_pairs: ast.List, origin: _Origin
+) -> tuple[dict[str, Any], ...]:
+    rows = []
+    seen = _SeenIdentities()
+    for index, raw in enumerate(raw_pairs.elts):
+        where = f"{origin.source} PAIRS[{index}]"
+        ok, bad = _ok_bad_sides(raw, where)
+        _refuse_banned_slug(ok["slug"], ok["domain"], f"{where}.ok")
+        _refuse_banned_slug(bad["slug"], bad["domain"], f"{where}.bad")
+        seen.claim(ok, bad)
+        rows.append(origin.pair_row(index, ok, bad))
     return tuple(rows)
 
 
-def _plants_from_s_calls(
-    raw_pairs: ast.List,
-    *,
-    mill_id: str,
-    source: str,
-    base: int,
-) -> tuple[dict[str, Any], ...]:
+def _plants_from_s_calls(raw_pairs: ast.List, origin: _Origin) -> tuple[dict[str, Any], ...]:
     rows = []
-    seen_slugs: set[str] = set()
-    seen_mods: set[str] = set()
-    seen_tickets: set[str] = set()
+    seen = _SeenIdentities()
     for index, raw in enumerate(raw_pairs.elts):
+        where = f"{origin.source} PAIRS[{index}]"
         if not _is_s_pair(raw):
             raise CeiRefusal(
                 FINDING_SOURCE_NOT_PARSEABLE,
-                f"{source} PAIRS[{index}] is not an (S, S) leftover leftover leftover tuple",
+                f"{where} is not an (S, S) leftover leftover leftover tuple",
             )
         ok_node, bad_node = raw.elts
         ok = expand_leftover3(
-            _call_args(ok_node, S_OK_ARG_NAMES, f"{source} PAIRS[{index}].ok"),
+            _call_args(ok_node, S_OK_ARG_NAMES, f"{where}.ok"),
             ticket_required=False,
         )
         bad = expand_leftover3(
-            _call_args(bad_node, S_BAD_ARG_NAMES, f"{source} PAIRS[{index}].bad"),
+            _call_args(bad_node, S_BAD_ARG_NAMES, f"{where}.bad"),
             ticket_required=True,
         )
-        _refuse_leftover3_slug(ok["slug"], f"{source} PAIRS[{index}].ok")
-        _refuse_leftover3_slug(bad["slug"], f"{source} PAIRS[{index}].bad")
-        for slug in (ok["slug"], bad["slug"]):
-            if slug in seen_slugs:
-                raise CeiRefusal(FINDING_PLANT_DUPLICATE_ID, f"duplicate slug {slug}")
-            seen_slugs.add(slug)
-        for mod in (ok["mod"], bad["mod"]):
-            if mod in seen_mods:
-                raise CeiRefusal(FINDING_PLANT_FIELD_INVALID, f"duplicate mod {mod}")
-            seen_mods.add(mod)
-        ticket = bad["ticket"]
-        if ticket in seen_tickets:
-            raise CeiRefusal(FINDING_PLANT_FIELD_INVALID, f"duplicate ticket {ticket}")
-        seen_tickets.add(ticket)
-        rows.append(
-            {
-                "plant_id": f"{mill_id}:{ok['slug']}",
-                "mill_id": mill_id,
-                "source": source,
-                "base_round": base,
-                "index": index,
-                "shape": LEFTOVER3_SHAPE,
-                "ok": ok,
-                "bad": bad,
-            }
-        )
+        _refuse_leftover3_slug(ok["slug"], f"{where}.ok")
+        _refuse_leftover3_slug(bad["slug"], f"{where}.bad")
+        seen.claim(ok, bad)
+        rows.append(origin.leftover3_row(index, ok, bad))
     return tuple(rows)
 
 
 def _plants_from_dict_leftover3(
-    raw_pairs: ast.List,
-    *,
-    mill_id: str,
-    source: str,
-    base: int,
+    raw_pairs: ast.List, origin: _Origin
 ) -> tuple[dict[str, Any], ...]:
-    rows = []
-    seen_slugs: set[str] = set()
-    seen_mods: set[str] = set()
-    seen_tickets: set[str] = set()
-    kept_index = 0
+    """Dict-pair leftover3 mills; pairs naming a banned slug are skipped, not refused."""
+
+    source = origin.source
+    rows: list[dict[str, Any]] = []
+    seen = _SeenIdentities()
     for raw in raw_pairs.elts:
         if not _is_dict_leftover3_pair(raw):
             raise CeiRefusal(
                 FINDING_SOURCE_NOT_PARSEABLE,
-                f"{source} PAIRS[{kept_index}] is not a leftover leftover leftover dict tuple",
+                f"{source} PAIRS[{len(rows)}] is not a leftover leftover leftover dict tuple",
             )
         ok_raw = _const_eval(raw.elts[0])
         bad_raw = _const_eval(raw.elts[1])
@@ -636,31 +717,8 @@ def _plants_from_dict_leftover3(
         bad = expand_leftover3(bad_raw, ticket_required=True)
         _refuse_leftover3_slug(ok["slug"], f"{source} PAIRS.ok")
         _refuse_leftover3_slug(bad["slug"], f"{source} PAIRS.bad")
-        for slug in (ok["slug"], bad["slug"]):
-            if slug in seen_slugs:
-                raise CeiRefusal(FINDING_PLANT_DUPLICATE_ID, f"duplicate slug {slug}")
-            seen_slugs.add(slug)
-        for mod in (ok["mod"], bad["mod"]):
-            if mod in seen_mods:
-                raise CeiRefusal(FINDING_PLANT_FIELD_INVALID, f"duplicate mod {mod}")
-            seen_mods.add(mod)
-        ticket = bad["ticket"]
-        if ticket in seen_tickets:
-            raise CeiRefusal(FINDING_PLANT_FIELD_INVALID, f"duplicate ticket {ticket}")
-        seen_tickets.add(ticket)
-        rows.append(
-            {
-                "plant_id": f"{mill_id}:{ok['slug']}",
-                "mill_id": mill_id,
-                "source": source,
-                "base_round": base,
-                "index": kept_index,
-                "shape": LEFTOVER3_SHAPE,
-                "ok": ok,
-                "bad": bad,
-            }
-        )
-        kept_index += 1
+        seen.claim(ok, bad)
+        rows.append(origin.leftover3_row(len(rows), ok, bad))
     if not rows:
         raise CeiRefusal(FINDING_SOURCE_NOT_PARSEABLE, f"{source} has no committable leftover dict pairs")
     return tuple(rows)
@@ -697,7 +755,13 @@ def _require_payload(value: Any, where: str, code: str) -> str:
     return value
 
 
-def _leftover3_side_from_row(row: Any, keys: tuple[str, ...], where: str) -> Leftover3Side:
+_LEFTOVER3_IDENTITY_KEYS = frozenset({"slug", "mod", "test", "url", "url2", "ticket"})
+_SIDE_IDENTITY_KEYS = frozenset({"slug", "mod", "test_fn", "docs_url", "docs_url2", "ticket"})
+
+
+def _check_side_keys(row: Any, keys: tuple[str, ...], where: str) -> None:
+    """A side is an object carrying exactly ``keys``."""
+
     if not isinstance(row, dict):
         raise CeiRefusal(FINDING_PLANT_FIELD_INVALID, f"{where} must be an object")
     missing = [key for key in keys if key not in row]
@@ -706,11 +770,20 @@ def _leftover3_side_from_row(row: Any, keys: tuple[str, ...], where: str) -> Lef
     extra = [key for key in row if key not in keys]
     if extra:
         raise CeiRefusal(FINDING_PLANT_FIELD_INVALID, f"{where} has extra {extra[0]}")
-    identity_keys = frozenset({"slug", "mod", "test", "url", "url2", "ticket"})
-    fields: dict[str, Any] = {}
-    for key in keys:
-        checker = _require_text if key in identity_keys else _require_payload
-        fields[key] = checker(row[key], f"{where}.{key}", FINDING_PLANT_FIELD_INVALID)
+
+
+def _text_field(
+    row: Mapping[str, Any], key: str, where: str, identity_keys: frozenset[str]
+) -> str:
+    """Identity keys are stripped one-liners; every other key is an LF payload."""
+
+    checker = _require_text if key in identity_keys else _require_payload
+    return checker(row[key], f"{where}.{key}", FINDING_PLANT_FIELD_INVALID)
+
+
+def _leftover3_side_from_row(row: Any, keys: tuple[str, ...], where: str) -> Leftover3Side:
+    _check_side_keys(row, keys, where)
+    fields = {key: _text_field(row, key, where, _LEFTOVER3_IDENTITY_KEYS) for key in keys}
     slug = fields["slug"]
     if not SLUG_RE.fullmatch(slug):
         raise CeiRefusal(FINDING_PLANT_FIELD_INVALID, f"{where}.slug is not a plant slug")
@@ -722,28 +795,20 @@ def _leftover3_side_from_row(row: Any, keys: tuple[str, ...], where: str) -> Lef
     return Leftover3Side(**fields, outcome=outcome, ticket=ticket)
 
 
+def _side_field(row: Mapping[str, Any], key: str, where: str) -> Any:
+    if key != "coverage":
+        return _text_field(row, key, where, _SIDE_IDENTITY_KEYS)
+    coverage = row[key]
+    if not isinstance(coverage, int) or isinstance(coverage, bool) or coverage < 1:
+        raise CeiRefusal(
+            FINDING_PLANT_FIELD_INVALID, f"{where}.coverage must be a positive int"
+        )
+    return coverage
+
+
 def _side_from_row(row: Any, keys: tuple[str, ...], where: str) -> Side:
-    if not isinstance(row, dict):
-        raise CeiRefusal(FINDING_PLANT_FIELD_INVALID, f"{where} must be an object")
-    missing = [key for key in keys if key not in row]
-    if missing:
-        raise CeiRefusal(FINDING_PLANT_FIELD_MISSING, f"{where} missing {missing[0]}")
-    extra = [key for key in row if key not in keys]
-    if extra:
-        raise CeiRefusal(FINDING_PLANT_FIELD_INVALID, f"{where} has extra {extra[0]}")
-    identity_keys = frozenset({"slug", "mod", "test_fn", "docs_url", "docs_url2", "ticket"})
-    fields: dict[str, Any] = {}
-    for key in keys:
-        if key == "coverage":
-            coverage = row[key]
-            if not isinstance(coverage, int) or isinstance(coverage, bool) or coverage < 1:
-                raise CeiRefusal(
-                    FINDING_PLANT_FIELD_INVALID, f"{where}.coverage must be a positive int"
-                )
-            fields[key] = coverage
-            continue
-        checker = _require_text if key in identity_keys else _require_payload
-        fields[key] = checker(row[key], f"{where}.{key}", FINDING_PLANT_FIELD_INVALID)
+    _check_side_keys(row, keys, where)
+    fields = {key: _side_field(row, key, where) for key in keys}
     slug = fields["slug"]
     if not SLUG_RE.fullmatch(slug):
         raise CeiRefusal(FINDING_PLANT_FIELD_INVALID, f"{where}.slug is not a plant slug")
@@ -755,30 +820,47 @@ def _side_from_row(row: Any, keys: tuple[str, ...], where: str) -> Side:
     return Side(**fields, ticket=ticket, ticket_why=ticket_why)
 
 
+def _is_int_at_least(value: Any, minimum: int) -> TypeGuard[int]:
+    """An int (never a bool) of at least ``minimum``."""
+
+    return isinstance(value, int) and not isinstance(value, bool) and value >= minimum
+
+
+def _plant_sides(
+    row: Mapping[str, Any], where: str
+) -> tuple[str, Side | Leftover3Side, Side | Leftover3Side]:
+    shape = row.get("shape", SHAPE_OK_BAD)
+    if shape == LEFTOVER3_SHAPE:
+        return (
+            shape,
+            _leftover3_side_from_row(row.get("ok"), LEFTOVER3_OK_KEYS, f"{where}.ok"),
+            _leftover3_side_from_row(row.get("bad"), LEFTOVER3_BAD_KEYS, f"{where}.bad"),
+        )
+    if shape == SHAPE_OK_BAD:
+        return (
+            shape,
+            _side_from_row(row.get("ok"), OK_SIDE_KEYS, f"{where}.ok"),
+            _side_from_row(row.get("bad"), BAD_SIDE_KEYS, f"{where}.bad"),
+        )
+    raise CeiRefusal(FINDING_PLANT_FIELD_INVALID, f"{where}.shape {shape!r} is not a CEI shape")
+
+
 def _plant_from_row(row: Any, where: str) -> Plant:
     if not isinstance(row, dict):
         raise CeiRefusal(FINDING_PLANT_FIELD_INVALID, f"{where} must be an object")
     mill_id = _require_text(row.get("mill_id"), f"{where}.mill_id", FINDING_PLANT_FIELD_INVALID)
     if not MILL_ID_RE.fullmatch(mill_id):
         raise CeiRefusal(FINDING_PLANT_FIELD_INVALID, f"{where}.mill_id is not cei_rNNN")
-    shape = row.get("shape", SHAPE_OK_BAD)
-    if shape == LEFTOVER3_SHAPE:
-        ok = _leftover3_side_from_row(row.get("ok"), LEFTOVER3_OK_KEYS, f"{where}.ok")
-        bad = _leftover3_side_from_row(row.get("bad"), LEFTOVER3_BAD_KEYS, f"{where}.bad")
-    elif shape == SHAPE_OK_BAD:
-        ok = _side_from_row(row.get("ok"), OK_SIDE_KEYS, f"{where}.ok")
-        bad = _side_from_row(row.get("bad"), BAD_SIDE_KEYS, f"{where}.bad")
-    else:
-        raise CeiRefusal(FINDING_PLANT_FIELD_INVALID, f"{where}.shape {shape!r} is not a CEI shape")
+    shape, ok, bad = _plant_sides(row, where)
     plant_id = _require_text(row.get("plant_id"), f"{where}.plant_id", FINDING_PLANT_FIELD_INVALID)
     expected = f"{mill_id}:{ok.slug}"
     if plant_id != expected:
         raise CeiRefusal(FINDING_PLANT_FIELD_INVALID, f"{where}.plant_id must be {expected!r}")
     base_round = row.get("base_round")
-    if not isinstance(base_round, int) or isinstance(base_round, bool) or base_round < 1:
+    if not _is_int_at_least(base_round, 1):
         raise CeiRefusal(FINDING_PLANT_FIELD_INVALID, f"{where}.base_round must be a positive int")
     index = row.get("index")
-    if not isinstance(index, int) or isinstance(index, bool) or index < 0:
+    if not _is_int_at_least(index, 0):
         raise CeiRefusal(FINDING_PLANT_FIELD_INVALID, f"{where}.index must be a non-negative int")
     return Plant(
         plant_id=plant_id,
@@ -850,9 +932,9 @@ def _registry_factory_ids() -> set[str]:
     if not isinstance(factories, list):
         raise CeiRefusal(FINDING_FACTORY_NOT_REGISTERED, "factory registry factories is not a list")
     return {
-        row.get("path_id")
+        path_id
         for row in factories
-        if isinstance(row, dict) and isinstance(row.get("path_id"), str)
+        if isinstance(row, dict) and isinstance(path_id := row.get("path_id"), str)
     }
 
 
@@ -872,6 +954,12 @@ def load_catalog(directory: Path | None = None) -> Catalog:
         raise CeiRefusal(
             FINDING_CATALOG_FIELD_INVALID, f"{CATALOG_FILENAME} is not strict JSON"
         ) from exc
+    return _catalog_from_meta(catalog_dir, plants_path, meta)
+
+
+def _meta_pins(meta: Any) -> tuple[str, str, int, str]:
+    """The header pins, then the plant count and plants digest the header declares."""
+
     catalog_id = _require_text(
         _field(meta, "catalog_id", str, CATALOG_FILENAME),
         f"{CATALOG_FILENAME}.catalog_id",
@@ -908,20 +996,18 @@ def load_catalog(directory: Path | None = None) -> Catalog:
         )
     plant_count = _field(meta, "plant_count", int, CATALOG_FILENAME)
     plants_sha256 = _field(meta, "plants_sha256", str, CATALOG_FILENAME)
+    return catalog_id, factory, plant_count, plants_sha256
+
+
+def _catalog_from_meta(catalog_dir: Path, plants_path: Path, meta: Any) -> Catalog:
+    """Bind the plants file to the pins ``CATALOG.json`` declares."""
+
+    catalog_id, factory, plant_count, plants_sha256 = _meta_pins(meta)
     mill_rows = _field(meta, "mills", list, CATALOG_FILENAME)
     mills = tuple(
         _mill_from_row(row, f"{CATALOG_FILENAME}.mills[{i}]") for i, row in enumerate(mill_rows)
     )
-    try:
-        plants_bytes = plants_path.read_bytes()
-    except OSError as exc:
-        raise CeiRefusal(FINDING_CATALOG_FILE_MISSING, f"{plants_path} is missing") from exc
-    digest = sha256_bytes(plants_bytes)
-    if digest != plants_sha256:
-        raise CeiRefusal(
-            FINDING_CATALOG_SHA256_MISMATCH,
-            f"{PLANTS_FILENAME} digest {digest} != catalog pin {plants_sha256}",
-        )
+    digest = _pinned_plants_digest(plants_path, plants_sha256)
     if factory not in _registry_factory_ids():
         raise CeiRefusal(FINDING_FACTORY_NOT_REGISTERED, f"{factory} is not a registry path_id")
     rows = _read_jsonl(plants_path)
@@ -933,6 +1019,37 @@ def load_catalog(directory: Path | None = None) -> Catalog:
     plants = tuple(
         _plant_from_row(row, f"{PLANTS_FILENAME}:{i}") for i, row in enumerate(rows, start=1)
     )
+    _refuse_duplicate_identities(plants)
+    _refuse_noncontiguous_indices(plants)
+    _refuse_mill_pins(mills, plants)
+    return Catalog(
+        catalog_id=catalog_id,
+        directory=catalog_dir,
+        factory=factory,
+        plants_sha256=digest,
+        plants=plants,
+        mills=mills,
+        meta=meta,
+    )
+
+
+def _pinned_plants_digest(plants_path: Path, plants_sha256: str) -> str:
+    try:
+        plants_bytes = plants_path.read_bytes()
+    except OSError as exc:
+        raise CeiRefusal(FINDING_CATALOG_FILE_MISSING, f"{plants_path} is missing") from exc
+    digest = sha256_bytes(plants_bytes)
+    if digest != plants_sha256:
+        raise CeiRefusal(
+            FINDING_CATALOG_SHA256_MISMATCH,
+            f"{PLANTS_FILENAME} digest {digest} != catalog pin {plants_sha256}",
+        )
+    return digest
+
+
+def _refuse_duplicate_identities(plants: tuple[Plant, ...]) -> None:
+    """No plant_id, and no slug on either side, appears twice in the catalog."""
+
     seen: set[str] = set()
     seen_slugs: set[str] = set()
     for plant in plants:
@@ -943,6 +1060,27 @@ def load_catalog(directory: Path | None = None) -> Catalog:
             if slug in seen_slugs:
                 raise CeiRefusal(FINDING_PLANT_DUPLICATE_ID, f"duplicate slug {slug}")
             seen_slugs.add(slug)
+
+
+def _refuse_noncontiguous_indices(plants: tuple[Plant, ...]) -> None:
+    """Each mill's indices must be exactly ``0..n-1`` with no duplicates or gaps."""
+
+    per_mill: dict[str, list[int]] = {}
+    for plant in plants:
+        per_mill.setdefault(plant.mill_id, []).append(plant.index)
+    for mill_id, indices in per_mill.items():
+        observed = sorted(indices)
+        expected = list(range(len(indices)))
+        if observed != expected:
+            raise CeiRefusal(
+                FINDING_PLANT_FIELD_INVALID,
+                f"{mill_id} indices must be exactly 0..n-1 with no duplicates or gaps",
+            )
+
+
+def _refuse_mill_pins(mills: tuple[Mill, ...], plants: tuple[Plant, ...]) -> None:
+    """Catalog mills are exactly the plants' mills, with their counts and base rounds."""
+
     by_mill: dict[str, int] = {}
     for plant in plants:
         by_mill[plant.mill_id] = by_mill.get(plant.mill_id, 0) + 1
@@ -957,21 +1095,16 @@ def load_catalog(directory: Path | None = None) -> Catalog:
                 FINDING_CATALOG_FIELD_INVALID,
                 f"{mill.mill_id} plant_count {mill.plant_count} != {by_mill[mill.mill_id]}",
             )
-        for plant in plants:
-            if plant.mill_id == mill.mill_id and plant.base_round != mill.base_round:
-                raise CeiRefusal(
-                    FINDING_CATALOG_FIELD_INVALID,
-                    f"{plant.plant_id} base_round != mill base_round",
-                )
-    return Catalog(
-        catalog_id=catalog_id,
-        directory=catalog_dir,
-        factory=factory,
-        plants_sha256=digest,
-        plants=plants,
-        mills=mills,
-        meta=meta,
-    )
+        _refuse_mill_base_round(mill, plants)
+
+
+def _refuse_mill_base_round(mill: Mill, plants: tuple[Plant, ...]) -> None:
+    for plant in plants:
+        if plant.mill_id == mill.mill_id and plant.base_round != mill.base_round:
+            raise CeiRefusal(
+                FINDING_CATALOG_FIELD_INVALID,
+                f"{plant.plant_id} base_round != mill base_round",
+            )
 
 
 def catalog_check(directory: Path | None = None) -> list[dict[str, str]]:
