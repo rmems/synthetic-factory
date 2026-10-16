@@ -27,6 +27,8 @@ from tests.tool_world_mcp_support import (
     tool_names,
 )
 
+# The support modules go first: they put pipelines/ on sys.path for the imports below.
+# isort: split
 from tool_world import generate, predicates, records, replay
 from tool_world.policies import scripted
 

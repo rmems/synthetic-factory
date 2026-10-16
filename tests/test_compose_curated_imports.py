@@ -177,18 +177,15 @@ class ComposeCuratedImportContracts(unittest.TestCase):
                 adapter_mode=adapter_mode,
                 facade_mode=facade_mode,
             ):
-                try:
-                    exit_code = spawned_process_exit_code(
-                        _assert_adapter_first_process,
-                        (adapter_name, adapter_mode, facade_mode),
-                        timeout=ProcessTimeout(
-                            30,
-                            5,
-                            "adapter-first import probe timed out",
-                        ),
-                    )
-                except TimeoutError as exc:
-                    self.fail(str(exc))
+                exit_code = spawned_process_exit_code(
+                    _assert_adapter_first_process,
+                    (adapter_name, adapter_mode, facade_mode),
+                    timeout=ProcessTimeout(
+                        30,
+                        5,
+                        "adapter-first import probe timed out",
+                    ),
+                )
                 self.assertEqual(
                     exit_code,
                     0,

@@ -230,6 +230,10 @@ class SecondSliceExtract(unittest.TestCase):
         self.assertEqual(len(rows), 263)
 
 
+def _family_rows(families):
+    return [(fam.bin, fam.keep, fam.grep, fam.cmds) for fam in families]
+
+
 class AstExtract(unittest.TestCase):
     def test_families_from_source_reads_extra_catalog(self):
         source = (
@@ -270,20 +274,20 @@ class AstExtract(unittest.TestCase):
         )
         self.assertEqual([plant.slug for plant in plants], ["htmlq-text"])
 
-    def test_committed_catalog_matches_legacy_ast(self):
+    def _legacy_source_or_skip(self):
         try:
-            text = catalog.git_show_source(SOURCE_PATH)
+            return catalog.git_show_source(SOURCE_PATH)
         except TupRefusal as exc:
             if exc.code == FINDING_SOURCE_NOT_PARSEABLE and "not fetchable" in str(exc):
                 self.skipTest("legacy-mill-lane pin is not fetchable")
             raise
+
+    def test_committed_catalog_matches_legacy_ast(self):
+        text = self._legacy_source_or_skip()
         families = catalog.families_from_source(text)
         loaded = catalog.load_catalog(COMMITTED)
         self.assertEqual(len(families), 138)
-        self.assertEqual(
-            [(fam.bin, fam.keep, fam.grep, fam.cmds) for fam in families],
-            [(fam.bin, fam.keep, fam.grep, fam.cmds) for fam in loaded.families],
-        )
+        self.assertEqual(_family_rows(families), _family_rows(loaded.families))
         plants = catalog.expand_families(
             families,
             banned_slugs=loaded.meta["banned_slugs"],

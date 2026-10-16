@@ -258,7 +258,8 @@ class QualityGateIdentityRegressions(unittest.TestCase):
                     }
                 top_object = self._wrap_bridge(top_level, scope)
                 meta_object = self._wrap_bridge(meta_carried, scope)
-                originals = copy.deepcopy((top_object, meta_object))
+                objects = (top_object, meta_object)
+                originals = copy.deepcopy(objects)
 
                 top_exact = quality_gate_identity.exact_identity_view(top_object)
                 meta_exact = quality_gate_identity.exact_identity_view(meta_object)
@@ -278,7 +279,7 @@ class QualityGateIdentityRegressions(unittest.TestCase):
                     side["language_view"]["trajectory"]["executed_action"]["record_id"],
                     "modeled-raster-asset-42",
                 )
-                self.assertEqual((top_object, meta_object), originals)
+                self.assertEqual(objects, originals)
 
         root_record = self._bridge_fixture()
         meta_record = self._bridge_fixture()

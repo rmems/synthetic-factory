@@ -276,12 +276,14 @@ class Generate(unittest.TestCase):
         self.assertEqual(first["meta"]["factory"], FACTORY)
         notes = (out / "NOTES-r14.md").read_text(encoding="utf-8")
         self.assertIn("research_only", notes)
+        request = generate.RunRequest(14, out)
         with self.assertRaises(MaosRefusal) as exists:
-            generate.run(generate.RunRequest(14, out))
+            generate.run(request)
         self.assertEqual(exists.exception.code, FINDING_DESTINATION_EXISTS)
         raw = self.root / "outputs" / "raw" / "x"
+        request = generate.RunRequest(14, raw)
         with self.assertRaises(MaosRefusal) as under_raw:
-            generate.run(generate.RunRequest(14, raw))
+            generate.run(request)
         self.assertEqual(under_raw.exception.code, FINDING_DESTINATION_UNDER_RAW)
         self.assertFalse(raw.exists())
 
@@ -291,9 +293,12 @@ class Generate(unittest.TestCase):
         def interrupt(*_args, **_kwargs):
             raise KeyboardInterrupt
 
-        with mock.patch.object(generate, "_fsync_destination", interrupt):
-            with self.assertRaises(KeyboardInterrupt):
-                generate.run(generate.RunRequest(14, out))
+        request = generate.RunRequest(14, out)
+        with (
+            mock.patch.object(generate, "_fsync_destination", interrupt),
+            self.assertRaises(KeyboardInterrupt),
+        ):
+            generate.run(request)
         self.assertFalse(out.exists())
         summary = generate.run(generate.RunRequest(14, out))
         self.assertEqual(summary["records"], 1)

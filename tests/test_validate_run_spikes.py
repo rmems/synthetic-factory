@@ -34,6 +34,15 @@ import validate_run_spikes  # noqa: E402
 from exact_json import dumps_exact_json, parse_finite_json_float  # noqa: E402
 
 
+def _keys_of_type(properties, type_name):
+    """The property names a schema declares with ``type_name``, in schema order."""
+    return [
+        key
+        for key, definition in properties.items()
+        if definition.get("type") == type_name
+    ]
+
+
 class ValidateSpikeOrderIdempotent(unittest.TestCase):
     def test_repo_remains_a_compatibility_reexport(self):
         self.assertEqual(validate_run.REPO, validate_run_spikes.REPO)
@@ -182,7 +191,10 @@ class SchemaRefResolution(unittest.TestCase):
         self.assertEqual(events["type"], "array")
         self.assertEqual(events["items"]["$ref"], "#/$defs/spike_event")
 
-        spike_event = base["$defs"]["spike_event"]
+        self._assert_spike_event_contract(base["$defs"]["spike_event"])
+        self._assert_bridge_event_contract(base["$defs"]["bridge_spike_event"])
+
+    def _assert_spike_event_contract(self, spike_event):
         self.assertEqual(
             list(validate_run.SPIKE_TIME_KEYS),
             [key for branch in spike_event["oneOf"] for key in branch["required"]],
@@ -191,23 +203,15 @@ class SchemaRefResolution(unittest.TestCase):
             self.assertEqual(spike_event["properties"][key]["type"], "number", key)
         self.assertEqual(
             list(validate_run.SPIKE_EVENT_STRING_KEYS),
-            [
-                key
-                for key, definition in spike_event["properties"].items()
-                if definition.get("type") == "string"
-            ],
+            _keys_of_type(spike_event["properties"], "string"),
         )
         self.assertEqual(
             list(validate_run.SPIKE_EVENT_NUMBER_KEYS),
-            [
-                key
-                for key, definition in spike_event["properties"].items()
-                if definition.get("type") == "number"
-            ],
+            _keys_of_type(spike_event["properties"], "number"),
         )
         self.assertEqual(spike_event["properties"]["channel"]["pattern"], r"\S")
 
-        bridge_event = base["$defs"]["bridge_spike_event"]
+    def _assert_bridge_event_contract(self, bridge_event):
         self.assertEqual(
             list(validate_run.BRIDGE_SPIKE_EVENT_KEYS),
             [key for part in bridge_event["allOf"] for key in part.get("required", ())],

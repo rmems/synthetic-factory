@@ -50,6 +50,7 @@ if __package__:
         _unknown_members,
     )
     from .reward_vocabulary import (
+        _ClassificationCatalogues,
         _validate_expected_classification,
         _validate_source_vocabulary,
     )
@@ -90,6 +91,7 @@ else:
         _unknown_members,
     )
     from reward_vocabulary import (
+        _ClassificationCatalogues,
         _validate_expected_classification,
         _validate_source_vocabulary,
     )
@@ -206,7 +208,7 @@ def _validate_arithmetic_block(policy, where):
     return arithmetic
 
 
-def _validate_rule_calibration_codes(rule_id, codes, optional, comparability, where):
+def _validate_external_evidence_codes(rule_id, codes, optional, where):
     if "external_calibration_evidence" in codes:
         raise _policy_error(
             where,
@@ -222,8 +224,11 @@ def _validate_rule_calibration_codes(rule_id, codes, optional, comparability, wh
             "external_calibration_evidence is reserved for optional codes "
             "of P05 and S08",
         )
+
+
+def _validate_magnitude_calibration_reason(rule_id, comparability, cited, where):
     if comparability == MAGNITUDE_COMPARABLE and not (
-        (set(codes) | set(optional))
+        cited
         & {
             "explicit_usd_unit_calibration",
             "external_calibration_evidence",
@@ -235,7 +240,8 @@ def _validate_rule_calibration_codes(rule_id, codes, optional, comparability, wh
         )
 
 
-def _validate_one_comparability_rule(rule, where, classes, reason_codes, seen_ids):
+def _validate_one_comparability_rule(rule, where, catalogues, seen_ids):
+    classes, reason_codes = catalogues
     if not isinstance(rule, dict):
         raise _policy_error(where, "each comparability rule must be an object")
     rule_id = _mapping_str(rule, "id", where)
@@ -261,14 +267,16 @@ def _validate_one_comparability_rule(rule, where, classes, reason_codes, seen_id
     optional = ()
     if "optional_reason_codes" in rule:
         optional = _mapping_str_list(rule, "optional_reason_codes", where)
-    unknown = _unknown_members(set(codes) | set(optional), reason_codes)
+    cited = set(codes) | set(optional)
+    unknown = _unknown_members(cited, reason_codes)
     if unknown:
         raise _policy_error(where, f"rule {rule_id} cites uncatalogued reason codes {unknown}")
-    _validate_rule_calibration_codes(rule_id, codes, optional, comparability, where)
-    return set(codes) | set(optional)
+    _validate_external_evidence_codes(rule_id, codes, optional, where)
+    _validate_magnitude_calibration_reason(rule_id, comparability, cited, where)
+    return cited
 
 
-def _validate_rule_block(policy, where, classes, reason_codes):
+def _validate_rule_block(policy, where, catalogues):
     rules = policy.get("comparability_rules")
     if not isinstance(rules, list) or not rules:
         raise _policy_error(where, "comparability_rules must be a nonempty list")
@@ -276,9 +284,7 @@ def _validate_rule_block(policy, where, classes, reason_codes):
     covered = set()
     for rule in rules:
         covered.update(
-            _validate_one_comparability_rule(
-                rule, where, classes, reason_codes, seen_ids
-            )
+            _validate_one_comparability_rule(rule, where, catalogues, seen_ids)
         )
     missing_runtime_rules = sorted(REQUIRED_CLASSIFICATION_RULE_IDS - seen_ids)
     if missing_runtime_rules:
@@ -287,7 +293,7 @@ def _validate_rule_block(policy, where, classes, reason_codes):
             "comparability_rules is missing runtime-required ids "
             f"{missing_runtime_rules}",
         )
-    orphans = _unknown_members(reason_codes, covered)
+    orphans = _unknown_members(catalogues.reason_codes, covered)
     if orphans:
         raise _policy_error(where, f"reason codes cited by no rule: {orphans}")
     return tuple(rules)
@@ -370,7 +376,7 @@ def _validate_policy_catalogues(policy, where):
     for code, description in sorted(reason_codes.items()):
         if not isinstance(description, str) or not description.strip():
             raise _policy_error(where, f"reason code {code!r} has no description")
-    return classes, reason_codes
+    return _ClassificationCatalogues(classes, reason_codes)
 
 
 def validate_conversion_policy(document, *, where="conversion policy"):
@@ -381,13 +387,13 @@ def validate_conversion_policy(document, *, where="conversion policy"):
     arithmetic = _validate_arithmetic_block(policy, where)
     conversion = _validate_conversion_block(policy, where)
     _validate_policy_conversion_link(arithmetic, conversion, where)
-    classes, reason_codes = _validate_policy_catalogues(policy, where)
-    _validate_rule_block(policy, where, classes, reason_codes)
+    catalogues = _validate_policy_catalogues(policy, where)
+    _validate_rule_block(policy, where, catalogues)
     vocabulary = _validate_source_vocabulary(
         document, arithmetic, reward_keys, where
     )
     _validate_expected_classification(
-        document, classes, reason_codes, vocabulary["run"], where
+        document, catalogues, vocabulary["run"], where
     )
     return document
 

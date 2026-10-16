@@ -43,6 +43,28 @@ symlinks are not descended. FIFOs, devices and other nonregular JSONL inputs
 block the gate. On platforms with ``O_NONBLOCK``, nonblocking open prevents a
 FIFO from hanging the audit before the descriptor type can be checked.
 
+The run root itself may be a symlink, as it could before directory pinning:
+the gate follows that one operator-named alias and audits its target exactly
+as if the target had been named. Each discovered directory, the root included,
+is pinned by its device/inode identity; a directory replaced or an alias
+retargeted after discovery makes the affected inputs unreadable and blocks.
+Manifest targets are still compared after resolving both paths, so an alias
+cannot place a manifest inside the audited tree.
+
+Where the platform offers descriptor-relative ``os.scandir``, ``os.open`` and
+``os.stat`` (``os.supports_fd`` / ``os.supports_dir_fd``), every listing and
+read goes through descriptors opened from those pinned directories. Elsewhere
+the gate keeps the same inputs, accounting and blockers but discovers and
+reads by path, re-checking each directory's identity and type first. Those
+checks cannot exclude a concurrent replacement, so such a run carries a
+``warnings`` entry saying descriptor-relative traversal was unavailable rather
+than claiming the same race resistance. A platform that cannot stat an entry
+without following symlinks cannot tell a directory symlink from a directory,
+so each such entry counts as unreadable and blocks. The capability is probed
+once at import. CI covers the descriptor path natively on Linux; the path fallback is
+exercised by a capability simulation, not on a native platform without those
+APIs.
+
 ## Embedding dedup
 
 ### Definition

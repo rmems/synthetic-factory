@@ -251,6 +251,13 @@ def build(out: Path, force: bool = False) -> dict[str, Any]:
         "training_ready": False,
         "training_ready_note": _training_ready_note(meter, router_oracle),
     }
+    _write_manifest(out, manifest)
+    return manifest
+
+
+def _write_manifest(out: Path, manifest: dict[str, Any]) -> None:
+    """Create ``MANIFEST.json`` exclusively; an existing one (or a link) is refused."""
+
     manifest_path = out / "MANIFEST.json"
     try:
         with manifest_path.open("x", encoding="utf-8") as handle:
@@ -258,7 +265,6 @@ def build(out: Path, force: bool = False) -> dict[str, Any]:
             handle.write("\n")
     except FileExistsError as exc:
         raise SystemExit(f"refusing to overwrite {manifest_path}") from exc
-    return manifest
 
 
 def main(argv: list[str] | None = None) -> int:

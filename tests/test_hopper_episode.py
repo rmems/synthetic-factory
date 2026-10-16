@@ -93,7 +93,6 @@ class HopperEpisodeTests(unittest.TestCase):
 
     def test_emit_stage_and_fixture_replay(self):
         import tempfile
-        from pathlib import Path
         row = _g46c_pair()
         with tempfile.TemporaryDirectory() as tmp:
             stage = Path(tmp) / "stage"
@@ -111,13 +110,20 @@ class HopperEpisodeTests(unittest.TestCase):
     def test_factory_dir_requires_root(self):
         import os
         from hopper.episode import set_raw_root
+        set_raw_root(Path("/hopper-set"))
+        self.assertEqual(
+            str(factory_dir("rate-limit-backoff-factory")),
+            "/hopper-set/rate-limit-backoff-factory",
+        )
         set_raw_root(None)
         env = {key: value for key, value in os.environ.items() if key != "HOPPER_RAW_ROOT"}
-        with mock.patch.dict(os.environ, env, clear=True):
-            with refusal(self, FINDING_RAW_ROOT_REQUIRED, "HOPPER_RAW_ROOT"):
-                factory_dir("rate-limit-backoff-factory")
-        root = factory_dir("rate-limit-backoff-factory", raw_root="/tmp/hopper-raw")
-        self.assertEqual(str(root), "/tmp/hopper-raw/rate-limit-backoff-factory")
+        with (
+            mock.patch.dict(os.environ, env, clear=True),
+            refusal(self, FINDING_RAW_ROOT_REQUIRED, "HOPPER_RAW_ROOT"),
+        ):
+            factory_dir("rate-limit-backoff-factory")
+        root = factory_dir("rate-limit-backoff-factory", raw_root="/srv/hopper-raw")
+        self.assertEqual(str(root), "/srv/hopper-raw/rate-limit-backoff-factory")
 
     def test_public_start_pairs_drive_a_round(self):
         factory = "rate-limit-backoff-factory"

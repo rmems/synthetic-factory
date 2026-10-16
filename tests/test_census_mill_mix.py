@@ -48,63 +48,70 @@ def _commit_marker_batch(factory: Path, batch: Path):
     )
 
 
+# (id, goal) per episode of each factory's batch-r01.jsonl in the run tree.
+_STAMPEDE_EPISODES = (
+    (
+        "cst-r01-ttl-expiry-thundering-herd",
+        (
+            "Resolve TTL expiry thundering herd: add singleflight "
+            "so one origin request refills the cache."
+        ),
+    ),
+    (
+        "cst-r02-singleflight-lock",
+        (
+            "Resolve stampede: the singleflight lock times out and "
+            "every request refills the origin cache."
+        ),
+    ),
+    # Dest-stamped, no 'leftover' in the id, no dest-family key.
+    (
+        "gql-r1405-postgraphile-wrap-resolver-after-plugin-order",
+        (
+            "Fix PostGraphile makeWrapResolvers leftover after "
+            "plugin order swap: leftover wrapMass after bind to "
+            "wrapPull. Do not drop wrap resolvers."
+        ),
+    ),
+)
+_GRAPHQL_EPISODES = (
+    (
+        "gql-r1400-postgraphile-wrap-resolver",
+        (
+            "Fix PostGraphile makeWrapResolvers leftover after "
+            "plugin order swap: leftover wrapMass after bind to "
+            "wrapPull."
+        ),
+    ),
+    (
+        "gql-r1401-postgraphile-plugin-order",
+        (
+            "Fix PostGraphile makeWrapResolvers leftover on unions: "
+            "leftover wrapMass after bind to wrapPull."
+        ),
+    ),
+)
+
+
+def _write_episode_batch(root: Path, factory: str, episodes) -> None:
+    """Create ``root/factory`` holding one batch of the given episodes."""
+    directory = root / factory
+    directory.mkdir()
+    (directory / "batch-r01.jsonl").write_text(
+        "".join(
+            json.dumps(_episode(identifier, goal, factory)) + "\n"
+            for identifier, goal in episodes
+        ),
+        encoding="utf-8",
+    )
+
+
 class CensusMillMix(unittest.TestCase):
     """A dest-stamped leftover mill on a generic episode slug must be counted."""
 
     def _run_tree(self, root):
-        stampede = root / "cache-stampede-factory"
-        stampede.mkdir()
-        (stampede / "batch-r01.jsonl").write_text(
-            "".join(
-                json.dumps(record) + "\n"
-                for record in (
-                    _episode(
-                        "cst-r01-ttl-expiry-thundering-herd",
-                        "Resolve TTL expiry thundering herd: add singleflight "
-                        "so one origin request refills the cache.",
-                        "cache-stampede-factory",
-                    ),
-                    _episode(
-                        "cst-r02-singleflight-lock",
-                        "Resolve stampede: the singleflight lock times out and "
-                        "every request refills the origin cache.",
-                        "cache-stampede-factory",
-                    ),
-                    # Dest-stamped, no 'leftover' in the id, no dest-family key.
-                    _episode(
-                        "gql-r1405-postgraphile-wrap-resolver-after-plugin-order",
-                        "Fix PostGraphile makeWrapResolvers leftover after "
-                        "plugin order swap: leftover wrapMass after bind to "
-                        "wrapPull. Do not drop wrap resolvers.",
-                        "cache-stampede-factory",
-                    ),
-                )
-            ),
-            encoding="utf-8",
-        )
-        graphql = root / "graphql-nplusone-factory"
-        graphql.mkdir()
-        (graphql / "batch-r01.jsonl").write_text(
-            "".join(
-                json.dumps(record) + "\n"
-                for record in (
-                    _episode(
-                        "gql-r1400-postgraphile-wrap-resolver",
-                        "Fix PostGraphile makeWrapResolvers leftover after "
-                        "plugin order swap: leftover wrapMass after bind to "
-                        "wrapPull.",
-                        "graphql-nplusone-factory",
-                    ),
-                    _episode(
-                        "gql-r1401-postgraphile-plugin-order",
-                        "Fix PostGraphile makeWrapResolvers leftover on unions: "
-                        "leftover wrapMass after bind to wrapPull.",
-                        "graphql-nplusone-factory",
-                    ),
-                )
-            ),
-            encoding="utf-8",
-        )
+        _write_episode_batch(root, "cache-stampede-factory", _STAMPEDE_EPISODES)
+        _write_episode_batch(root, "graphql-nplusone-factory", _GRAPHQL_EPISODES)
 
     def test_dest_stamped_mill_is_reported(self):
         with tempfile.TemporaryDirectory() as temporary:

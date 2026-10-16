@@ -17,6 +17,10 @@ from hopper import plants as hp
 from hopper._contract import FINDING_PLANTS_SHA_MISMATCH, FINDING_UNKNOWN_WAVE
 
 
+def _wave_count(pairs, wave):
+    return sum(1 for row in pairs if row.wave == wave)
+
+
 class HopperPlantsTests(unittest.TestCase):
     def test_catalog_counts_include_g46c(self):
         catalog = hp.load_catalog()
@@ -24,9 +28,9 @@ class HopperPlantsTests(unittest.TestCase):
         self.assertEqual(len(catalog.pairs), 76)
         g46c = [row for row in catalog.pairs if row.wave == "g46c"]
         self.assertEqual(len(g46c), 16)
-        self.assertEqual(sum(1 for row in catalog.pairs if row.wave == "g46"), 24)
-        self.assertEqual(sum(1 for row in catalog.pairs if row.wave == "g46b"), 16)
-        self.assertEqual(sum(1 for row in catalog.pairs if row.wave == "g46d"), 20)
+        self.assertEqual(_wave_count(catalog.pairs, "g46"), 24)
+        self.assertEqual(_wave_count(catalog.pairs, "g46b"), 16)
+        self.assertEqual(_wave_count(catalog.pairs, "g46d"), 20)
 
     def test_plants_pin_matches_bytes(self):
         payload = (CATALOG / "plants.jsonl").read_bytes()
@@ -36,7 +40,7 @@ class HopperPlantsTests(unittest.TestCase):
 
     def test_uniqueness_and_first_old(self):
         slugs, mods, domains, tickets = [], [], [], []
-        for factory, ok, bad in hp.all_pairs():
+        for _factory, ok, bad in hp.all_pairs():
             for plant in (ok, bad):
                 slugs.append(plant["slug"])
                 mods.append(plant["mod"])

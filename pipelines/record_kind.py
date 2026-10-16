@@ -8,7 +8,15 @@ this function returns ``preference``.
 
 from __future__ import annotations
 
+import sys
 from typing import Any, Mapping
+
+if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("record_kind")
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)("record_kind")
 
 THALAMIC_REQUIRED = (
     "state",
@@ -139,3 +147,7 @@ def preference_side_kinds(record: Any) -> tuple[str, str]:
             kind = "episode"
         kinds.append(kind)
     return kinds[0], kinds[1]
+
+
+if __package__:
+    _expose_package_sibling(__name__)

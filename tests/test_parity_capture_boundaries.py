@@ -25,10 +25,10 @@ class CaptureInputBoundaries(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             adapter = oracle.RecordedCaptureAdapter(support.RecordedCapture()._capture(tmp))
             for field, value in (("dt_ms", 2.0), ("encoding", "different-encoding"), ("name", "different-input")):
+                model, stimulus = support._model(), support._stimulus()
+                stimulus[field] = value
                 with self.subTest(field=field), self.assertRaises(oracle.OracleUnavailable) as failure:
-                    stimulus = support._stimulus()
-                    stimulus[field] = value
-                    adapter.run(support._model(), stimulus)
+                    adapter.run(model, stimulus)
                 self.assertEqual(failure.exception.reason_code, "CAPTURE_INPUT_FIXTURE_MISMATCH")
 
     def test_null_top_quantization_cannot_select_valid_nested_conversion(self):
@@ -39,8 +39,10 @@ class CaptureInputBoundaries(unittest.TestCase):
             capture["quantization"] = None
             capture["manifest"]["payload_sha256"] = oracle.digest(capture["payload"])
             path.write_text(json.dumps(capture))
+            adapter = oracle.RecordedCaptureAdapter(path)
+            model, stimulus = support._model(), support._stimulus()
             with self.assertRaises(oracle.OracleUnavailable) as failure:
-                oracle.RecordedCaptureAdapter(path).run(support._model(), support._stimulus())
+                adapter.run(model, stimulus)
             self.assertEqual(failure.exception.reason_code, "CAPTURE_QUANTIZATION_CONFLICT")
 
     def test_simulated_deployment_cannot_gain_capture_lineage(self):
