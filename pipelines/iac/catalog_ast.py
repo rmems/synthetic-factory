@@ -33,6 +33,25 @@ def assignment_names(node: ast.stmt) -> tuple[str, ...]:
     return ()
 
 
+def _literal_collection(node: ast.AST, bound: Mapping[str, Any]) -> Any:
+    if isinstance(node, ast.Tuple):
+        return _sequence(node.elts, bound, tuple)
+    if isinstance(node, ast.List):
+        return _sequence(node.elts, bound, list)
+    if isinstance(node, ast.Set):
+        values = _sequence(node.elts, bound, list)
+        return set(values) if values is not UNSET else UNSET
+    return UNSET
+
+
+def _literal_string_add(node: ast.BinOp, bound: Mapping[str, Any]) -> Any:
+    left = literal_value(node.left, bound)
+    right = literal_value(node.right, bound)
+    if isinstance(left, str) and isinstance(right, str):
+        return left + right
+    return UNSET
+
+
 def literal_value(node: ast.AST, env: Mapping[str, Any] | None = None) -> Any:
     """Resolve constants, names, containers, and constant f-strings; else ``UNSET``."""
 
@@ -44,22 +63,15 @@ def literal_value(node: ast.AST, env: Mapping[str, Any] | None = None) -> Any:
     if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
         inner = literal_value(node.operand, bound)
         return -inner if isinstance(inner, (int, float)) else UNSET
-    if isinstance(node, ast.Tuple):
-        return _sequence(node.elts, bound, tuple)
-    if isinstance(node, ast.List):
-        return _sequence(node.elts, bound, list)
-    if isinstance(node, ast.Set):
-        values = _sequence(node.elts, bound, list)
-        return set(values) if values is not UNSET else UNSET
+    collection = _literal_collection(node, bound)
+    if collection is not UNSET:
+        return collection
     if isinstance(node, ast.Dict):
         return _mapping(node, bound)
     if isinstance(node, ast.JoinedStr):
         return _joined_string(node, bound)
     if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
-        left = literal_value(node.left, bound)
-        right = literal_value(node.right, bound)
-        if isinstance(left, str) and isinstance(right, str):
-            return left + right
+        return _literal_string_add(node, bound)
     return UNSET
 
 
