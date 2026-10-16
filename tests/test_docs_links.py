@@ -21,6 +21,7 @@ _REFERENCE_DEF = re.compile(r"^\s{0,3}\[[^\]]+\]:\s*<?(\S+?)>?(?:\s+\"[^\"]*\")?
 _REFERENCE_LABEL = re.compile(r"^\s{0,3}\[([^\]]+)\]:")
 _REFERENCE_USE = re.compile(r"(?<![\]!\\])\[([^\[\]]+)\](?:\[([^\[\]]*)\])?(?![(\[:])")
 _CITATION_LABEL = re.compile(r"^(?:PR )?#\d+$")
+_CODE_SPAN = re.compile(r"(?<!`)(`+)(?!`).+?(?<!`)\1(?!`)")
 _HEADING = re.compile(r"^#{1,6}\s+(.*?)\s*#*\s*$")
 _HTML_ANCHOR = re.compile(r"<a\s+(?:name|id)=\"([^\"]+)\"")
 _SCHEME = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*:")
@@ -59,7 +60,7 @@ def _closes_fence(match, fence: str) -> bool:
 
 def _without_code_spans(line: str) -> str:
     """``line`` with inline code spans removed, so examples in code are not checked."""
-    return re.sub(r"`[^`]*`", "", line)
+    return _CODE_SPAN.sub("", line)
 
 
 def github_slug(heading: str) -> str:
@@ -114,7 +115,11 @@ def broken_links(path: Path, root: Path = REPO) -> list[str]:
 def undefined_references(path: Path, root: Path = REPO) -> list[str]:
     """Reference-style uses in ``path`` whose label has no definition there."""
     lines = list(_prose_lines(path))
-    defined = {match.group(1).lower() for _, line in lines if (match := _REFERENCE_LABEL.match(line))}
+    defined = {
+        match.group(1).lower()
+        for _, line in lines
+        if _REFERENCE_DEF.match(line) and (match := _REFERENCE_LABEL.match(line))
+    }
     return [
         f"{path.relative_to(root)}:{number}: [{label}] (no definition)"
         for number, label in _reference_uses(lines)
@@ -177,7 +182,8 @@ class DocsLinkTests(unittest.TestCase):
                 "[ok](other.md#real-heading) [self](#here) [web](https://x.y)\n"
                 "[gone](missing.md) [bad](#nowhere) [far](other.md#nope)\n"
                 "```\n[fenced](missing.md)\n```\n"
-                "````\n```text\n[nested](missing.md)\n~~~\n[tilde](missing.md)\n````\n",
+                "````\n```text\n[nested](missing.md)\n~~~\n[tilde](missing.md)\n````\n"
+                "``[spanned](missing.md)`` and `[single](missing.md)` are code.\n",
                 encoding="utf-8",
             )
             self.assertEqual(broken_links(page, root), [
@@ -194,7 +200,8 @@ class DocsLinkTests(unittest.TestCase):
             page.write_text(
                 "See [#1], [PR #2], [docs][guide], [Guide][] and [0, 1].\n"
                 "Missing [#3], [PR #4], [text][nowhere] and [Absent][]; `[#5]` is code.\n"
-                "\n[#1]: https://x.y/1\n[PR #2]: https://x.y/2\n[guide]: other.md\n",
+                "Empty [x][hollow] has no destination.\n"
+                "\n[#1]: https://x.y/1\n[PR #2]: https://x.y/2\n[guide]: other.md\n[hollow]:\n",
                 encoding="utf-8",
             )
             self.assertEqual(undefined_references(page, root), [
@@ -202,6 +209,7 @@ class DocsLinkTests(unittest.TestCase):
                 "page.md:2: [PR #4] (no definition)",
                 "page.md:2: [nowhere] (no definition)",
                 "page.md:2: [Absent] (no definition)",
+                "page.md:3: [hollow] (no definition)",
             ])
 
 
