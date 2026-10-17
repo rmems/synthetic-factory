@@ -66,7 +66,7 @@ class TripleCliContractMixin:
         self.assertEqual(result, (0, self.spec.check_prose, ""))
 
     def test_python_m_runs_the_same_catalog_check(self):
-        result = main_in_process(module_entry(self.spec.module_name), [CHECK])
+        result = main_in_process(module_entry(self.spec.cli), [CHECK])
         self.assertEqual(result, (0, self.spec.check_prose, ""))
 
     def test_an_out_of_domain_round_is_refused_as_json_without_a_destination(self):
@@ -104,4 +104,3 @@ class TripleCliContractMixin:
     def test_generate_requires_a_round(self):
         fragment = "the following arguments are required: --round"
         assert_usage_error(self, self.spec.cli.run, [GENERATE, OUT, "unused"], fragment)
-
