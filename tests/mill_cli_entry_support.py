@@ -12,7 +12,6 @@ as ``__main__`` registers.
 
 from __future__ import annotations
 
-import importlib
 import runpy
 import sys
 import tempfile
@@ -120,16 +119,16 @@ def script_entry(path: Path, *, pythonpath: tuple[Path, ...] = ()) -> Entry:
     return entry
 
 
-def module_entry(name: str) -> Entry:
-    """``python3 -m <name> ...`` for an imported module; ``sys.modules`` is restored afterwards.
+def module_entry(module: ModuleType) -> Entry:
+    """``python3 -m <module.__name__> ...``; ``sys.modules`` is restored afterwards.
 
-    ``name`` and its ``pipelines.`` twin share one module object, and runpy only
+    The module and its ``pipelines.`` twin share one object, and runpy only
     accepts the spelling that object was imported under first, so the run uses
     that spelling whichever order the test suite imported them in.
     """
 
     def entry(argv: list[str]) -> object:
-        spelling = importlib.import_module(name).__name__
+        spelling = module.__name__
         with ExitStack() as stack:
             stack.enter_context(mock.patch.object(sys, "argv", [spelling, *argv]))
             stack.enter_context(mock.patch.dict(sys.modules))

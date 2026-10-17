@@ -12,6 +12,7 @@ for _path in (TESTS, TESTS.parent / "pipelines"):
     if str(_path) not in sys.path:
         sys.path.insert(0, str(_path))
 
+import obs
 from mill_cli_entry_support import (
     argv_main,
     assert_usage_error,
@@ -53,10 +54,10 @@ class ObsCliCheckTests(unittest.TestCase):
         self.assertEqual(main_in_process(argv_main(cli.main), [CHECK]), (0, CHECK_PROSE, ""))
 
     def test_python_m_on_the_cli_module_matches_the_package_entry(self):
-        self.assertEqual(main_in_process(module_entry("obs.cli"), [CHECK]), (0, CHECK_PROSE, ""))
+        self.assertEqual(main_in_process(module_entry(cli), [CHECK]), (0, CHECK_PROSE, ""))
 
     def test_python_m_on_the_package_matches_the_package_entry(self):
-        self.assertEqual(main_in_process(module_entry("obs"), [CHECK]), (0, CHECK_PROSE, ""))
+        self.assertEqual(main_in_process(module_entry(obs), [CHECK]), (0, CHECK_PROSE, ""))
 
 
 class ObsCliCatalogRefusalTests(unittest.TestCase):

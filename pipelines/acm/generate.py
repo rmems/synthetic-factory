@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import ast
 import re
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any
 
@@ -21,8 +21,21 @@ from ._contract import VENDOR_PREFIX, refuse_vendor_paths
 UNSET = object()
 PLANT_CALLS = frozenset({"plant", "p", "ok", "bad"})
 PLANT_FIELDS = (
-    "slug", "domain", "success", "name", "stack", "field", "old", "new",
-    "fail_err", "plan", "residual", "vs", "fetch1", "fetch1_ok", "fetch2",
+    "slug",
+    "domain",
+    "success",
+    "name",
+    "stack",
+    "field",
+    "old",
+    "new",
+    "fail_err",
+    "plan",
+    "residual",
+    "vs",
+    "fetch1",
+    "fetch1_ok",
+    "fetch2",
     "fetch2_ok",
 )
 MILL_NAME_RE = re.compile(r"^acm-mill-.+\.py$")
@@ -69,7 +82,9 @@ def literal_value(node: ast.AST, env: Mapping[str, Any]) -> Any:
     """Resolve a constant, name, f-string, or string add; else ``UNSET``."""
 
     resolver = _LITERAL.get(type(node))
-    return UNSET if resolver is None else resolver(node, env)
+    if resolver is None:
+        return UNSET
+    return resolver(node, env)
 
 
 def _literal_constant(node: ast.Constant, _env: Mapping[str, Any]) -> Any:
@@ -109,7 +124,8 @@ def _literal_add(node: ast.BinOp, env: Mapping[str, Any]) -> Any:
     return UNSET
 
 
-_LITERAL = {
+_LiteralResolver = Callable[[ast.AST, Mapping[str, Any]], Any]
+_LITERAL: dict[type[ast.AST], _LiteralResolver] = {
     ast.Constant: _literal_constant,
     ast.Name: _literal_name,
     ast.Attribute: _literal_attr,
@@ -203,7 +219,7 @@ def _catalog_id_for(name: str) -> str:
     prefixes = ("acm-mill-", "acm-pairs-", "acm-loop-", "_gen_acm_plants_")
     for prefix in prefixes:
         if stem.startswith(prefix):
-            rest = stem[len(prefix):]
+            rest = stem[len(prefix) :]
             return f"plants-{rest}" if prefix.startswith("_gen_") else rest
     return stem
 
@@ -221,9 +237,7 @@ def _collect_records(root: Path) -> list[dict[str, Any]]:
     return records
 
 
-def _extract_file(
-    root: Path, path: Path, shared_env: dict[str, Any]
-) -> dict[str, Any]:
+def _extract_file(root: Path, path: Path, shared_env: dict[str, Any]) -> dict[str, Any]:
     text = path.read_text(encoding="utf-8")
     tree = ast.parse(text, filename=str(path))
     env = dict(shared_env)
@@ -292,9 +306,7 @@ def _pairs_from_mills(tree: ast.AST, env: dict[str, Any], source: str) -> list[c
     return found
 
 
-def _pair_from_mill_tuple(
-    catalog_id: str, source: str, row: tuple[str, ...]
-) -> cat.Pair | None:
+def _pair_from_mill_tuple(catalog_id: str, source: str, row: tuple[str, ...]) -> cat.Pair | None:
     if len(row) < 5:
         return None
     success_slug, fail_slug, field, old, new = row[:5]
@@ -387,7 +399,7 @@ def _loop_mill_names(tree: ast.AST) -> list[str]:
 
 
 def _bans_from_tree(tree: ast.AST, env: dict[str, Any]) -> dict[str, list[str]]:
-    bans = {"slug_needles": [], "blob_keys": []}
+    bans: dict[str, list[str]] = {"slug_needles": [], "blob_keys": []}
     for node in getattr(tree, "body", ()):
         name, value = assignment_of(node)
         if name == "BANNED_SLUG_NEEDLES" and value is not None:

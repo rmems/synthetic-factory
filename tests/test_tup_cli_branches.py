@@ -50,7 +50,7 @@ class TupCliCheckTests(unittest.TestCase):
         self.assertEqual(main_in_process(cli.main, [CHECK]), (0, CHECK_PROSE, ""))
 
     def test_running_the_module_with_python_m_matches_the_package_entry(self):
-        self.assertEqual(main_in_process(module_entry("tup.cli"), [CHECK]), (0, CHECK_PROSE, ""))
+        self.assertEqual(main_in_process(module_entry(cli), [CHECK]), (0, CHECK_PROSE, ""))
 
 
 class TupCliCatalogRefusalTests(unittest.TestCase):

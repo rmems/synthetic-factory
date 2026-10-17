@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -105,12 +105,11 @@ def dumps_catalog(payload: Mapping[str, Any]) -> str:
     return json.dumps(payload, indent=2, sort_keys=True, ensure_ascii=False) + "\n"
 
 
-def dumps_rows(rows: list[Mapping[str, Any]]) -> str:
+def dumps_rows(rows: Sequence[Mapping[str, Any]]) -> str:
     """One pair row per line, sorted keys, so ``rows_sha256`` is stable."""
 
     lines = [
-        json.dumps(row, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
-        for row in rows
+        json.dumps(row, sort_keys=True, separators=(",", ":"), ensure_ascii=False) for row in rows
     ]
     return "\n".join(lines) + ("\n" if lines else "")
 
@@ -293,9 +292,7 @@ def _deferred_rows_from_extract(
     return rows
 
 
-def _check_deferred_union(
-    payload: Mapping[str, Any], rows: list[object], slugs: set[str]
-) -> None:
+def _check_deferred_union(payload: Mapping[str, Any], rows: list[object], slugs: set[str]) -> None:
     deferred = payload.get("deferred_rows")
     if deferred is None:
         return
