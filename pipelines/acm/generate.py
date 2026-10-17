@@ -21,21 +21,8 @@ from ._contract import VENDOR_PREFIX, refuse_vendor_paths
 UNSET = object()
 PLANT_CALLS = frozenset({"plant", "p", "ok", "bad"})
 PLANT_FIELDS = (
-    "slug",
-    "domain",
-    "success",
-    "name",
-    "stack",
-    "field",
-    "old",
-    "new",
-    "fail_err",
-    "plan",
-    "residual",
-    "vs",
-    "fetch1",
-    "fetch1_ok",
-    "fetch2",
+    "slug", "domain", "success", "name", "stack", "field", "old", "new",
+    "fail_err", "plan", "residual", "vs", "fetch1", "fetch1_ok", "fetch2",
     "fetch2_ok",
 )
 MILL_NAME_RE = re.compile(r"^acm-mill-.+\.py$")
@@ -219,7 +206,7 @@ def _catalog_id_for(name: str) -> str:
     prefixes = ("acm-mill-", "acm-pairs-", "acm-loop-", "_gen_acm_plants_")
     for prefix in prefixes:
         if stem.startswith(prefix):
-            rest = stem[len(prefix) :]
+            rest = stem[len(prefix):]
             return f"plants-{rest}" if prefix.startswith("_gen_") else rest
     return stem
 
@@ -237,7 +224,9 @@ def _collect_records(root: Path) -> list[dict[str, Any]]:
     return records
 
 
-def _extract_file(root: Path, path: Path, shared_env: dict[str, Any]) -> dict[str, Any]:
+def _extract_file(
+    root: Path, path: Path, shared_env: dict[str, Any]
+) -> dict[str, Any]:
     text = path.read_text(encoding="utf-8")
     tree = ast.parse(text, filename=str(path))
     env = dict(shared_env)
@@ -306,7 +295,9 @@ def _pairs_from_mills(tree: ast.AST, env: dict[str, Any], source: str) -> list[c
     return found
 
 
-def _pair_from_mill_tuple(catalog_id: str, source: str, row: tuple[str, ...]) -> cat.Pair | None:
+def _pair_from_mill_tuple(
+    catalog_id: str, source: str, row: tuple[str, ...]
+) -> cat.Pair | None:
     if len(row) < 5:
         return None
     success_slug, fail_slug, field, old, new = row[:5]
