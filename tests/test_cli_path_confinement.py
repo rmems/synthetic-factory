@@ -39,7 +39,7 @@ def _quiet():
     return contextlib.redirect_stderr(io.StringIO())
 
 
-class _FunnelCase(unittest.TestCase):
+class _FunnelMixin:
     """Shared assertions for the three post-parse funnels."""
 
     def assertRefused(self, call, *args):
@@ -52,7 +52,7 @@ class _FunnelCase(unittest.TestCase):
         self.assertIn("error:", stderr.getvalue())
 
 
-class RewardsFunnel(_FunnelCase):
+class RewardsFunnel(_FunnelMixin, unittest.TestCase):
     parser = argparse.ArgumentParser(prog="curate_rewards.py")
 
     def test_each_path_argument_is_refused_outside_the_operator_trees(self):
@@ -86,7 +86,7 @@ class RewardsFunnel(_FunnelCase):
         self.assertEqual(paths.inputs, ())
 
 
-class RewardsCli(_FunnelCase):
+class RewardsCli(_FunnelMixin, unittest.TestCase):
     def test_every_subcommand_refuses_before_its_sink_runs(self):
         sinks = ("classify_jsonl", "convert_jsonl", "convert_run", "census_jsonl", "load_units_migration")
         commands = {
@@ -128,7 +128,7 @@ class RewardsCli(_FunnelCase):
             self.assertEqual(census["records"], 2)
 
 
-class PreferencesFunnel(_FunnelCase):
+class PreferencesFunnel(_FunnelMixin, unittest.TestCase):
     parser = argparse.ArgumentParser(prog="curate_preferences.py")
 
     def test_each_path_argument_is_refused_outside_the_operator_trees(self):
@@ -152,7 +152,7 @@ class PreferencesFunnel(_FunnelCase):
             self.assertIsNone(getattr(paths, name))
 
 
-class PreferencesCli(_FunnelCase):
+class PreferencesCli(_FunnelMixin, unittest.TestCase):
     def test_every_subcommand_refuses_before_its_sink_runs(self):
         commands = {
             "scan": ["scan", "{bad}"],
@@ -195,7 +195,7 @@ class PreferencesCli(_FunnelCase):
                           stdout.getvalue())
 
 
-class VerifyExecutionFunnel(_FunnelCase):
+class VerifyExecutionFunnel(_FunnelMixin, unittest.TestCase):
     parser = argparse.ArgumentParser(prog="verify_execution.py")
 
     def test_each_path_argument_is_refused_outside_the_operator_trees(self):
@@ -214,7 +214,7 @@ class VerifyExecutionFunnel(_FunnelCase):
         self.assertEqual(batch, Path(os.path.realpath(td)) / "b.jsonl")
 
 
-class VerifyExecutionCli(_FunnelCase):
+class VerifyExecutionCli(_FunnelMixin, unittest.TestCase):
     def test_every_mode_refuses_before_its_sink_runs(self):
         commands = {"run_dir": ["{bad}"], "--record": ["--record", "{bad}"], "--batch": ["--batch", "{bad}"]}
         for label, argv in commands.items():

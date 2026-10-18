@@ -26,6 +26,30 @@ MULTI_AGENT_FIELD_ORDER = [
     "disagreements", "resolution", "joint_outcome", "reward", "meta",
 ]
 
+# The fourteen designed records, rounds r3297-r3310, in declaration order.
+DESIGNED_RECORD_IDS = [
+    f"mac-r{round_}-{tail}"
+    for round_, tail in zip(
+        range(3297, 3311),
+        (
+            "merge-queue-vs-rebase",
+            "deploy-vs-rollback",
+            "feature-flag-vs-kill",
+            "incident-vs-page",
+            "lock-vs-fence",
+            "schema-vs-expand",
+            "cache-vs-stampede",
+            "rate-limit-vs-shed",
+            "auth-vs-session-wipe",
+            "payment-vs-refund",
+            "search-vs-reindex",
+            "queue-vs-purge",
+            "cert-vs-revoke",
+            "k8s-vs-drain",
+        ),
+    )
+]
+
 # The same card rendered for a later snapshot, so the schema prose can be
 # checked for counts frozen from the earlier one.
 GROWN_SUMMARY = publisher.PayloadSummary(
@@ -125,31 +149,7 @@ class MultiAgentCoordinationDeclarationTests(DeclarationTestCase):
         )
         designed = [feature for feature in self.declaration["disclosures"] if feature["ids"]]
         self.assertEqual(len(designed), 1)
-        self.assertEqual(
-            designed[0]["ids"],
-            [
-                f"mac-r{round_}-{tail}"
-                for round_, tail in zip(
-                    range(3297, 3311),
-                    (
-                        "merge-queue-vs-rebase",
-                        "deploy-vs-rollback",
-                        "feature-flag-vs-kill",
-                        "incident-vs-page",
-                        "lock-vs-fence",
-                        "schema-vs-expand",
-                        "cache-vs-stampede",
-                        "rate-limit-vs-shed",
-                        "auth-vs-session-wipe",
-                        "payment-vs-refund",
-                        "search-vs-reindex",
-                        "queue-vs-purge",
-                        "cert-vs-revoke",
-                        "k8s-vs-drain",
-                    ),
-                )
-            ],
-        )
+        self.assertEqual(designed[0]["ids"], DESIGNED_RECORD_IDS)
         summary = designed[0]["summary"]
         self.assertIn(
             "each of the fourteen has 3 agents and 10 transcript turns "

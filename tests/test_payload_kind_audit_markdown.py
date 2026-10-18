@@ -62,31 +62,34 @@ class PayloadKindMarkdown(PayloadKindAuditCase):
         self.assertIsNone(audit["records"][0]["id"])
         self.assertIn("| episode | — |", payload_kind_audit.render_markdown(audit))
 
-    def _assert_gate_cell_preserves_falsy(self, keyword, values, cell, none_cell):
-        """A present-but-falsy gate value renders literally; only a missing
-        one becomes the em-dash placeholder. Each caller names its builder
-        keyword and the exact cells it expects."""
+    # A present-but-falsy gate value renders literally; only a missing one
+    # becomes the em-dash placeholder. Each caller names its builder keyword
+    # and the exact cells it expects.
+
+    def _audit_gate_value(self, keyword, value):
+        record = _thalamic("act-r02-001", _episode([]), **{keyword: value})
+        return self._audit_corpus({"batch-r02.jsonl": [record]})
+
+    def _assert_falsy_gate_values_render(self, keyword, values, cell):
         field = _GATE_FIELDS[keyword]
         for value in values:
             with self.subTest(value=value):
-                record = _thalamic("act-r02-001", _episode([]), **{keyword: value})
-                audit = self._audit_corpus({"batch-r02.jsonl": [record]})
+                audit = self._audit_gate_value(keyword, value)
                 self.assertEqual(audit["records"][0][field], value)
                 self.assertIn(cell.format(value), payload_kind_audit.render_markdown(audit))
-        record = _thalamic("act-r02-001", _episode([]), **{keyword: None})
-        audit = self._audit_corpus({"batch-r02.jsonl": [record]})
-        self.assertIsNone(audit["records"][0][field])
+
+    def _assert_missing_gate_value_renders(self, keyword, none_cell):
+        audit = self._audit_gate_value(keyword, None)
+        self.assertIsNone(audit["records"][0][_GATE_FIELDS[keyword]])
         self.assertIn(none_cell, payload_kind_audit.render_markdown(audit))
 
     def test_markdown_preserves_falsy_supervisor_ids(self):
-        self._assert_gate_cell_preserves_falsy(
-            "supervisor", (0, False), "| {} / MODIFY |", "| — / MODIFY |"
-        )
+        self._assert_falsy_gate_values_render("supervisor", (0, False), "| {} / MODIFY |")
+        self._assert_missing_gate_value_renders("supervisor", "| — / MODIFY |")
 
     def test_markdown_preserves_falsy_gate_decisions(self):
-        self._assert_gate_cell_preserves_falsy(
-            "decision", (0, False, ""), "| gate-v1 / {} |", "| gate-v1 |"
-        )
+        self._assert_falsy_gate_values_render("decision", (0, False, ""), "| gate-v1 / {} |")
+        self._assert_missing_gate_value_renders("decision", "| gate-v1 |")
 
     def test_markdown_escapes_dynamic_table_values(self):
         rendered = _render(

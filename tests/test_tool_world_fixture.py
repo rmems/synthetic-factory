@@ -22,8 +22,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-import tool_world_test_support as support  # noqa: E402
-from tool_world import generate, replay  # noqa: E402
+import tool_world_test_support as support
+from tool_world import generate, replay
 
 catalog_mod = support.catalog_mod
 FIXTURE = support.REPO / "tests" / "fixtures" / "tool-world-run"

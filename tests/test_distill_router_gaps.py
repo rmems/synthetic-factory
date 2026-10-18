@@ -89,9 +89,8 @@ class RouterGaps(unittest.TestCase):
 
     def test_a_reference_router_needs_at_least_one_layer(self):
         for num_layers in (0, -1):
-            with self.subTest(num_layers=num_layers):
-                with self.assertRaises(oc.ContractError):
-                    mr.GateShape(num_layers=num_layers)
+            with self.subTest(num_layers=num_layers), self.assertRaises(oc.ContractError):
+                mr.GateShape(num_layers=num_layers)
 
     def test_a_mutable_teacher_revision_is_refused(self):
         # A branch name is not a checkpoint: the same name can serve different

@@ -11,9 +11,19 @@ dropped or defaulted.
 from __future__ import annotations
 
 import re
+import sys
 from typing import cast
 
-from card_schema_core import DATASET_NAME_RE, DEFAULT_CONFIG_NAME, _require
+if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("card_schema_validate")
+    from .card_schema_core import DATASET_NAME_RE, DEFAULT_CONFIG_NAME, _require
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "card_schema_validate"
+    )
+    from card_schema_core import DATASET_NAME_RE, DEFAULT_CONFIG_NAME, _require
 
 DEFAULT_SPLIT = "train"
 DEFAULT_DATA_FILES = ("data/raw/batch-*.jsonl",)
@@ -284,3 +294,7 @@ def _validate_disclosure(item: object) -> dict:
         "ids": ids,
         "issues": _validate_issues(item.get("issues", []), "disclosure issues"),
     }
+
+
+if __package__:
+    _expose_package_sibling(__name__)

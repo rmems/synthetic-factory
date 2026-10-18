@@ -176,8 +176,9 @@ def stampede_only_index(stray):
     return index_of((CACHE_STAMPEDE, STAMPEDE_CONTROLS + [stray]))
 
 
-def strays_against_graphql(strays, natives=GRAPHQL_NATIVE):
+def strays_against_graphql(strays, natives=None):
     """Strays in the cache-stampede directory, judged against the graphql mill."""
+    natives = GRAPHQL_NATIVE if natives is None else natives
     return index_of(
         (CACHE_STAMPEDE, STAMPEDE_CONTROLS + list(strays)),
         (GRAPHQL, natives),

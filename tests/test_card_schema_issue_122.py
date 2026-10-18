@@ -81,10 +81,10 @@ class DataPipelineRepairDeclarationTests(DeclarationTestCase):
 
     def test_card_body_discloses_the_sixteen_dest_stamped_leftovers(self):
         leftovers = next(
-            disclosure
-            for disclosure in self.declaration["disclosures"]
-            if disclosure["ids"]
+            (disclosure for disclosure in self.declaration["disclosures"] if disclosure["ids"]),
+            None,
         )
+        self.assertIsNotNone(leftovers)
         self.assertEqual(len(leftovers["ids"]), 16)
         self.assertEqual(leftovers["issues"], [43, 44])
         self.assertTrue(
@@ -103,7 +103,8 @@ class DataPipelineRepairDeclarationTests(DeclarationTestCase):
         sentences = [
             disclosure["summary"] for disclosure in self.declaration["disclosures"]
         ]
-        native = next(text for text in sentences if "6096" in text)
+        native = next((text for text in sentences if "6096" in text), None)
+        self.assertIsNotNone(native)
         self.assertIn("meta.kind=episode", native)
         self.assertIn("own advertised repair mechanic", native)
         self.assertIn("6096 records are `data-pipeline-repair-factory`", self.card)

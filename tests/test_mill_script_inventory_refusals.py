@@ -54,9 +54,11 @@ def _repo_gitdir(repo: Path) -> Path:
 class InventorySchemaRefusals(unittest.TestCase):
     def test_invalid_encoded_documents_are_refused(self):
         for payload in (None, b" " * 256001, b"\xff", b"{", b"[]"):
-            with self.subTest(payload_type=type(payload).__name__):
-                with self.assertRaises(msi.MillScriptInventoryError):
-                    msi.load_inventory_bytes(payload)
+            with (
+                self.subTest(payload_type=type(payload).__name__),
+                self.assertRaises(msi.MillScriptInventoryError),
+            ):
+                msi.load_inventory_bytes(payload)
 
     def test_invalid_top_level_collections_are_refused(self):
         for field, value in (("scripts", None), ("scripts", []), ("mill_families", []),
@@ -64,8 +66,9 @@ class InventorySchemaRefusals(unittest.TestCase):
             with self.subTest(field=field, value=value):
                 document = json.loads(msi.INVENTORY_BYTES)
                 document[field] = value
+                payload = json.dumps(document).encode()
                 with self.assertRaises(msi.MillScriptInventoryError):
-                    msi.load_inventory_bytes(json.dumps(document).encode())
+                    msi.load_inventory_bytes(payload)
 
     def test_invalid_script_identity_and_scope_are_refused(self):
         cases = (("classification", "unknown"), ("quality_scope", "unknown"),
@@ -75,14 +78,16 @@ class InventorySchemaRefusals(unittest.TestCase):
             with self.subTest(field=field):
                 document = json.loads(msi.INVENTORY_BYTES)
                 document["scripts"][0][field] = value
+                payload = json.dumps(document).encode()
                 with self.assertRaises(msi.MillScriptInventoryError):
-                    msi.load_inventory_bytes(json.dumps(document).encode())
+                    msi.load_inventory_bytes(payload)
 
     def test_duplicate_script_coordinates_are_refused(self):
         document = json.loads(msi.INVENTORY_BYTES)
         document["scripts"].append(document["scripts"][0])
+        payload = json.dumps(document).encode()
         with self.assertRaisesRegex(msi.MillScriptInventoryError, "unique"):
-            msi.load_inventory_bytes(json.dumps(document).encode())
+            msi.load_inventory_bytes(payload)
 
     def test_invalid_archive_and_family_policies_are_refused(self):
         cases = (("historical_generator_policy", "classification", "production"),
@@ -93,23 +98,26 @@ class InventorySchemaRefusals(unittest.TestCase):
                 document = json.loads(msi.INVENTORY_BYTES)
                 row = document[group][0] if group == "mill_families" else document[group]
                 row[field] = value
+                payload = json.dumps(document).encode()
                 with self.assertRaises(msi.MillScriptInventoryError):
-                    msi.load_inventory_bytes(json.dumps(document).encode())
+                    msi.load_inventory_bytes(payload)
 
 
 class InventoryEvidenceRefusals(unittest.TestCase):
     def test_missing_git_cannot_be_reported_as_clean_scope(self):
-        with patch.object(msi._git, "_git_available", return_value=False):
-            with self.assertRaisesRegex(msi.MillScriptInventoryError, "git is required"):
-                msi.tracked_paths()
+        with (
+            patch.object(msi._git, "_git_available", return_value=False),
+            self.assertRaisesRegex(msi.MillScriptInventoryError, "git is required"),
+        ):
+            msi.tracked_paths()
 
     def test_git_helper_refuses_commands_outside_the_allowlist(self):
         for arguments in ((), ("status",), ("ls-files",), ("check-ignore", "-z")):
-            with self.subTest(arguments=arguments):
-                with self.assertRaisesRegex(
-                    msi.MillScriptInventoryError, "ls-files or check-ignore"
-                ):
-                    msi._git_output(REPO, arguments)
+            with (
+                self.subTest(arguments=arguments),
+                self.assertRaisesRegex(msi.MillScriptInventoryError, "ls-files or check-ignore"),
+            ):
+                msi._git_output(REPO, arguments)
 
     def test_git_helper_lists_tracked_paths_from_the_index(self):
         tracked = msi.tracked_paths(REPO)
@@ -145,9 +153,11 @@ class InventoryEvidenceRefusals(unittest.TestCase):
                 msi.tracked_paths(root)
 
     def test_non_repository_cannot_be_reported_as_clean_scope(self):
-        with tempfile.TemporaryDirectory() as temp:
-            with self.assertRaises(msi.MillScriptInventoryError):
-                msi.tracked_paths(Path(temp))
+        with (
+            tempfile.TemporaryDirectory() as temp,
+            self.assertRaises(msi.MillScriptInventoryError),
+        ):
+            msi.tracked_paths(Path(temp))
 
     def test_index_version_3_extended_entries_are_tracked(self):
         with tempfile.TemporaryDirectory() as temp:

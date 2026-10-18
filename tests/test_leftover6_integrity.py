@@ -14,9 +14,11 @@ class CatalogIntegrity(unittest.TestCase):
     def test_extraction_statement_cannot_claim_execution(self):
         header = json.loads(support.CATALOG_JSON.read_bytes())
         header['extraction'] = 'mill was executed'
-        with support._fixture(header=json.dumps(header)) as root:
-            with self.assertRaisesRegex(catalog.CatalogError, 'extraction'):
-                catalog.load_catalog(root)
+        with (
+            support._fixture(header=json.dumps(header)) as root,
+            self.assertRaisesRegex(catalog.CatalogError, 'extraction'),
+        ):
+            catalog.load_catalog(root)
 
     def test_self_consistent_truncation_is_refused(self):
         header = json.loads(support.CATALOG_JSON.read_bytes())
@@ -24,9 +26,11 @@ class CatalogIntegrity(unittest.TestCase):
         del rows[15]
         header["catalogs"][0].update(n_rows=15, last_slug=rows[14]["slug"])
         header.update(n_pair_rows_committed=31, n_pair_rows_extracted=31)
-        with support._fixture(header=json.dumps(header), pairs=dumps_jsonl(rows)) as root:
-            with self.assertRaises(catalog.CatalogError):
-                catalog.load_catalog(root)
+        with (
+            support._fixture(header=json.dumps(header), pairs=dumps_jsonl(rows)) as root,
+            self.assertRaises(catalog.CatalogError),
+        ):
+            catalog.load_catalog(root)
 
     def test_each_mill_descriptor_field_is_independently_pinned(self):
         original = json.loads(support.CATALOG_JSON.read_bytes())
@@ -35,25 +39,31 @@ class CatalogIntegrity(unittest.TestCase):
                 with self.subTest(index=index, field=key):
                     header = copy.deepcopy(original)
                     header["catalogs"][index][key] = value + 1 if isinstance(value, int) else value + "-forged"
-                    with support._fixture(header=json.dumps(header)) as root:
-                        with self.assertRaises(catalog.CatalogError):
-                            catalog.load_catalog(root)
+                    with (
+                        support._fixture(header=json.dumps(header)) as root,
+                        self.assertRaises(catalog.CatalogError),
+                    ):
+                        catalog.load_catalog(root)
 
     def test_plant_kind_is_closed(self):
         rows = [json.loads(line) for line in support.PLANTS_JSONL.read_bytes().splitlines()]
         rows[0]["kind"] = "not-sbox"
-        with support._fixture(plants=dumps_jsonl(rows)) as root:
-            with self.assertRaises(catalog.CatalogError):
-                catalog.load_catalog(root)
+        with (
+            support._fixture(plants=dumps_jsonl(rows)) as root,
+            self.assertRaises(catalog.CatalogError),
+        ):
+            catalog.load_catalog(root)
 
     def test_oversized_integers_raise_catalog_error(self):
         lines = support.PAIRS_JSONL.read_text(encoding="utf-8").splitlines()
         row = json.loads(lines[16])
         row["novel"] = 10**4096
         lines[16] = json.dumps(row, sort_keys=True)
-        with support._fixture(pairs="\n".join(lines) + "\n") as root:
-            with self.assertRaisesRegex(catalog.CatalogError, "exact-decimal integer limit"):
-                catalog.load_catalog(root)
+        with (
+            support._fixture(pairs="\n".join(lines) + "\n") as root,
+            self.assertRaisesRegex(catalog.CatalogError, "exact-decimal integer limit"),
+        ):
+            catalog.load_catalog(root)
 
     def test_an_explicit_file_path_must_name_the_catalog_header(self):
         with support._fixture() as root:

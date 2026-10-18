@@ -23,15 +23,6 @@ else:
     from raw_tree_guard import contains_raw_segments, is_under_raw as _guard_is_under_raw
 
 
-def _resolved_non_strict(path: Path) -> Path:
-    """Resolve a prospective path while normalizing filesystem failures."""
-
-    try:
-        return path.resolve(strict=False)
-    except (OSError, RuntimeError) as exc:
-        raise ExportError(f"cannot resolve path safely: {path}: {exc}") from exc
-
-
 def is_under_raw(path: Path) -> bool:
     """Reject both a lexical raw path and a symlink-resolved destination."""
 

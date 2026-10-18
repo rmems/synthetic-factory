@@ -56,24 +56,24 @@ else:
     from compose_curated_record_services import build_record_services
 
 
-_FACADE: ModuleType | None = None
+# One slot per module instance: the live facade it delegates to.
+_BINDING: dict[str, ModuleType | None] = {"facade": None}
 
 
 def bind_facade(facade: ModuleType) -> None:
-    global _FACADE
-    _FACADE = facade
+    _BINDING["facade"] = facade
 
 
 def _facade() -> ModuleType:
-    global _FACADE
     resolver: Callable[[str, Any], Any] | None = getattr(
         sys.modules.get("pipelines"), "_canonical_sibling_binding", None
     )
     if resolver is not None:
-        _FACADE = resolver("compose_curated", _FACADE)
-    if _FACADE is None:
+        _BINDING["facade"] = resolver("compose_curated", _BINDING["facade"])
+    facade = _BINDING["facade"]
+    if facade is None:
         raise RuntimeError("compose_curated facade is not bound")
-    return _FACADE
+    return facade
 
 
 def facade_delegate(callable_: Any, *args: Any, **kwargs: Any):

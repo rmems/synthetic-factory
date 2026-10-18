@@ -21,10 +21,10 @@ PIPELINES = REPO / "pipelines"
 if str(PIPELINES) not in sys.path:
     sys.path.insert(0, str(PIPELINES))
 
-from tool_world import catalog as catalog_mod  # noqa: E402
-from tool_world import env as env_mod  # noqa: E402
-from tool_world import pack as pack_mod  # noqa: E402
-from tool_world import vocabulary as cv  # noqa: E402
+from tool_world import catalog as catalog_mod
+from tool_world import env as env_mod
+from tool_world import pack as pack_mod
+from tool_world import vocabulary as cv
 
 CATALOG_DIR = catalog_mod.DEFAULT_CATALOG
 PRODUCED_AT = "2026-10-09T00:00:00Z"

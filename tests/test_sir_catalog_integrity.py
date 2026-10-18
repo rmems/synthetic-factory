@@ -35,7 +35,8 @@ class SirCatalogIntegrity(unittest.TestCase):
 
     def test_validated_catalog_mappings_cannot_be_changed_after_loading(self):
         catalog = load_catalog()
-        mill = next(iter(catalog.mills.values()))
+        mill = next(iter(catalog.mills.values()), None)
+        self.assertIsNotNone(mill)
         with self.assertRaises(TypeError):
             catalog.mills[mill.mill_id] = mill
         with self.assertRaises(TypeError):

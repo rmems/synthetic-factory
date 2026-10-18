@@ -236,45 +236,12 @@ class PreferencePurityNineteenRegression(unittest.TestCase):
             root = Path(td)
             # The fixture corpus itself must reproduce the historical audit
             # figures: 23/42 same-context (54.8%) and the 19/42 blocker.
-            source_factory = root / "source-run" / "failure-as-fuel-preference-cascade"
-            source_factory.mkdir(parents=True)
-            for path in sorted(PURITY_FIXTURES.glob("*.jsonl")):
-                (source_factory / path.name).write_bytes(path.read_bytes())
-            source_audit = training_audit.audit_run(root / "source-run")
-            self.assertEqual(source_audit["preferences"]["pairs"], 42)
-            self.assertEqual(source_audit["preferences"]["same_context"], 23)
-            self.assertEqual(
-                source_audit["preferences"]["context_purity_pct"], 54.8
-            )
-            self.assertIn(
-                "19/42 preference pairs change state or proposal",
-                source_audit["blockers"],
-            )
-            self.assertIs(source_audit["training_ready"], False)
+            self._assert_source_audit_reproduces_history(root)
 
             # The curated output must audit at 100% purity with the
             # preference blocker gone.
-            destination = root / "destination"
-            destination.mkdir()
-            output = destination / "preferences.jsonl"
-            manifest = destination / "manifest.jsonl"
-            curate_preferences.write_run(
-                self.curation_run, PURITY_FIXTURES, output, manifest
-            )
-            audit_factory = root / "curated-run" / "failure-as-fuel-preference-cascade"
-            audit_factory.mkdir(parents=True)
-            (audit_factory / "preferences.jsonl").write_bytes(output.read_bytes())
-            curated_audit = training_audit.audit_run(root / "curated-run")
-            self.assertEqual(curated_audit["preferences"]["pairs"], 30)
-            self.assertEqual(curated_audit["preferences"]["same_context"], 30)
-            self.assertEqual(
-                curated_audit["preferences"]["context_purity_pct"], 100.0
-            )
-            for blocker in curated_audit["blockers"]:
-                self.assertNotIn("preference pairs change state or proposal", blocker)
-            # Context purity is repaired; the reviewed hosted-row policy still
-            # keeps this otherwise valid evidence out of training.
-            assert_research_only(self, curated_audit)
+            output = self._write_curated_output(root / "destination")
+            self._assert_curated_audit_is_fully_pure(root, output)
 
             emitted = [
                 json.loads(line) for line in output.read_text().splitlines()
@@ -284,6 +251,48 @@ class PreferencePurityNineteenRegression(unittest.TestCase):
                 all(curate_preferences.context_is_pure(item) for item in emitted)
             )
         self.assertFalse(source_audit_root.exists())
+
+    def _assert_source_audit_reproduces_history(self, root):
+        source_factory = root / "source-run" / "failure-as-fuel-preference-cascade"
+        source_factory.mkdir(parents=True)
+        for path in sorted(PURITY_FIXTURES.glob("*.jsonl")):
+            (source_factory / path.name).write_bytes(path.read_bytes())
+        source_audit = training_audit.audit_run(root / "source-run")
+        self.assertEqual(source_audit["preferences"]["pairs"], 42)
+        self.assertEqual(source_audit["preferences"]["same_context"], 23)
+        self.assertEqual(
+            source_audit["preferences"]["context_purity_pct"], 54.8
+        )
+        self.assertIn(
+            "19/42 preference pairs change state or proposal",
+            source_audit["blockers"],
+        )
+        self.assertIs(source_audit["training_ready"], False)
+
+    def _write_curated_output(self, destination):
+        destination.mkdir()
+        output = destination / "preferences.jsonl"
+        manifest = destination / "manifest.jsonl"
+        curate_preferences.write_run(
+            self.curation_run, PURITY_FIXTURES, output, manifest
+        )
+        return output
+
+    def _assert_curated_audit_is_fully_pure(self, root, output):
+        audit_factory = root / "curated-run" / "failure-as-fuel-preference-cascade"
+        audit_factory.mkdir(parents=True)
+        (audit_factory / "preferences.jsonl").write_bytes(output.read_bytes())
+        curated_audit = training_audit.audit_run(root / "curated-run")
+        self.assertEqual(curated_audit["preferences"]["pairs"], 30)
+        self.assertEqual(curated_audit["preferences"]["same_context"], 30)
+        self.assertEqual(
+            curated_audit["preferences"]["context_purity_pct"], 100.0
+        )
+        for blocker in curated_audit["blockers"]:
+            self.assertNotIn("preference pairs change state or proposal", blocker)
+        # Context purity is repaired; the reviewed hosted-row policy still
+        # keeps this otherwise valid evidence out of training.
+        assert_research_only(self, curated_audit)
 
     def test_fixture_sources_stay_byte_identical_and_writer_refuses_unsafe_paths(self):
         with tempfile.TemporaryDirectory() as td:

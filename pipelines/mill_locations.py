@@ -44,11 +44,20 @@ def factory_identity_for_path(
     relative = path.relative_to(run_dir)
     if run_dir.name in factories:
         return run_dir.name, True
-    if run_dir.name.endswith("-factory"):
-        if len(relative.parts) == 1:
-            return run_dir.name, False
-        nested_root = relative.parts[0]
-        if nested_root not in factories and not nested_root.endswith("-factory"):
-            return run_dir.name, False
+    if run_dir.name.endswith("-factory") and _belongs_to_outer_root(relative, factories):
+        return run_dir.name, False
     factory = relative.parts[0] if len(relative.parts) > 1 else run_dir.name
     return factory, factory in factories
+
+
+def _belongs_to_outer_root(relative: Path, factories: frozenset[str]) -> bool:
+    """Whether a path under an off-registry ``*-factory`` root stays with that root.
+
+    A direct child does; a nested path does unless its first component is
+    itself factory-shaped (a known factory or a ``*-factory`` name).
+    """
+
+    if len(relative.parts) == 1:
+        return True
+    nested_root = relative.parts[0]
+    return nested_root not in factories and not nested_root.endswith("-factory")

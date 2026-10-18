@@ -26,9 +26,15 @@ reviewers.
 ## Generator lanes and rights
 
 Every factory is one reviewed row in `config/FACTORY-REGISTRY.json`
-(`factory-registry-v0.3`), keyed by exact `path_id` and `payload_factory`,
-that names its generator, provider/channel assignment, and rights profile
-(the Fable 5 generator appears on five rows, Grok 4.6 on 44). The
+(`factory-registry-v0.4`), keyed by exact `path_id` and `payload_factory`,
+that names its generator and, where the row has them, its provider/channel
+assignment and rights profile (the Fable 5 generator appears on five rows,
+Grok 4.6 on 44). Four rows have no provider/channel: the two procedural rows
+(`python-function-repair-factory`, `oracle-grounded`) also have no rights
+profile and rest on their sealed source policy instead, and the two
+native-parity rows (`hardware-parity-spike-trajectories`,
+`nir-cross-runtime-equivalence`) carry the `native-parity-research-only-v1`
+rights profile. The
 fail-closed rights policy from [PR #168] (`pipelines/rights_*.py`,
 `schemas/rights-policy-v1.mapping.json`) resolves that row to `intended_use`
 and `project_training_policy`; unknown provenance resolves to blocked. There
@@ -134,6 +140,32 @@ are re-published once, after [#165] makes publication and release verification
 rights-aware. Card viewer schemas are declared by hand for 35 of the 44
 datasets (`python3 scripts/publish_grok46_hub.py schemas` lists the gaps).
 
+```bash
+# Read-only: the viewer-schema audit (reads no root) and local mirror/source counts
+python3 scripts/publish_grok46_hub.py schemas --strict
+python3 scripts/publish_grok46_hub.py status --hf-root ~/hf --factory-root outputs/raw/2026-08-19-agentic
+# Writes the local Hub mirror under <hf-root>/grok-4.6/
+python3 scripts/publish_grok46_hub.py snapshot --only long-horizon-coding-trajectories --hf-root ~/hf
+# Hub writes (network): create, upload, collect, or all four in order
+python3 scripts/publish_grok46_hub.py create --hf-root ~/hf
+python3 scripts/publish_grok46_hub.py upload --only long-horizon-coding-trajectories --hf-root ~/hf
+python3 scripts/publish_grok46_hub.py collect --hf-root ~/hf
+python3 scripts/publish_grok46_hub.py all --hf-root ~/hf
+```
+
+The publisher reads published rounds from a factory source root and mirrors
+them under `<hf-root>/grok-4.6/<dataset>/`. Each root resolves once per run:
+the `--hf-root` / `--factory-root` flag, then `SYNTHETIC_FACTORY_HF_ROOT` /
+`SYNTHETIC_FACTORY_SOURCE_ROOT`, then the owner's defaults
+(`/home/raulmc/rmems/hf`, and the first existing `outputs/raw/2026-08-19-agentic`
+under this checkout, `~/synthetic-factory`, or `~/synthetic-data`). A configured
+root is refused unless it already exists as a real, non-symlinked directory;
+the publisher does not create it. The Hub root is refused when it names or
+aliases `outputs/raw/` or overlaps the factory source root, so a Hub working
+tree cannot mutate raw bytes. A refusal exits 2 and names the flag or
+variable, not its value. `schemas` reads neither root and refuses the root
+flags, even with an empty value.
+
 ## License
 
 This repository is licensed under the [Apache License 2.0](LICENSE) — see
@@ -160,8 +192,9 @@ GitHub Actions runs those checks on pull requests and `main`
 (`.github/workflows/python.yml` and `.github/workflows/python-smoke.yml`).
 
 Cursor Cloud Agents build from `.cursor/Dockerfile` via
-`.cursor/environment.json`. The install script is idempotent and re-runs the
-same unit tests and operator smoke check.
+`.cursor/environment.json`. The install script is idempotent; it compiles the
+tree and prefetches and builds the Rust `sf-oracle`, while the unit tests and
+operator smoke check run in GitHub Actions.
 
 ## Structure
 - `schemas/` — Thalamic schema, the two parity-family schemas, + `provenance.md`; `oracle-grounded-v1.schema.json` and `oracle-grounded/` for the oracle-grounded families, plus actor-provenance-v1, vset-record-v1, and vset-release-manifest-v1
@@ -431,4 +464,5 @@ approved decision, and only training-candidate rows
 [#173]: https://github.com/rmems/synthetic-factory/issues/173
 [#175]: https://github.com/rmems/synthetic-factory/issues/175
 [#184]: https://github.com/rmems/synthetic-factory/issues/184
+[#186]: https://github.com/rmems/synthetic-factory/issues/186
 [PR #168]: https://github.com/rmems/synthetic-factory/pull/168

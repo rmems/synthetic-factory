@@ -7,7 +7,7 @@ Nothing here executes source. ``ast.parse`` is the only interpreter step.
 from __future__ import annotations
 
 import ast
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 UNSET = object()
@@ -44,6 +44,14 @@ def literal_value(node: ast.AST, env: Mapping[str, Any] | None = None) -> Any:
     if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
         inner = literal_value(node.operand, bound)
         return -inner if isinstance(inner, (int, float)) else UNSET
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+        return _added_text(node, bound)
+    return _sequence_literal(node, bound)
+
+
+def _sequence_literal(node: ast.AST, bound: Mapping[str, Any]) -> Any:
+    """Tuple, list, and set displays of literals."""
+
     if isinstance(node, ast.Tuple):
         return _sequence(node.elts, bound, tuple)
     if isinstance(node, ast.List):
@@ -51,19 +59,49 @@ def literal_value(node: ast.AST, env: Mapping[str, Any] | None = None) -> Any:
     if isinstance(node, ast.Set):
         values = _sequence(node.elts, bound, list)
         return set(values) if values is not UNSET else UNSET
+    return _mapping_or_text(node, bound)
+
+
+def _mapping_or_text(node: ast.AST, bound: Mapping[str, Any]) -> Any:
+    """Dict displays, constant f-strings, and ``str + str``; else ``UNSET``."""
+
     if isinstance(node, ast.Dict):
         return _mapping(node, bound)
     if isinstance(node, ast.JoinedStr):
         return _joined_string(node, bound)
-    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
-        left = literal_value(node.left, bound)
-        right = literal_value(node.right, bound)
-        if isinstance(left, str) and isinstance(right, str):
-            return left + right
     return UNSET
 
 
-def _sequence(elts: list[ast.AST], env: Mapping[str, Any], ctor):
+def _add_operands(node: ast.BinOp) -> list[ast.AST]:
+    """Operands of a left-nested ``+`` chain, left to right."""
+
+    pending: list[ast.AST] = [node]
+    operands: list[ast.AST] = []
+    while pending:
+        current = pending.pop()
+        if isinstance(current, ast.BinOp) and isinstance(current.op, ast.Add):
+            pending.append(current.right)
+            pending.append(current.left)
+        else:
+            operands.append(current)
+    return operands
+
+
+def _added_text(node: ast.BinOp, bound: Mapping[str, Any]) -> Any:
+    """Left-nested ``str + str``, evaluated left to right. Otherwise ``UNSET``."""
+
+    operands = _add_operands(node)
+    acc = literal_value(operands[0], bound)
+    for operand in operands[1:]:
+        right = literal_value(operand, bound)
+        if isinstance(acc, str) and isinstance(right, str):
+            acc = acc + right
+        else:
+            return UNSET
+    return acc
+
+
+def _sequence(elts: Sequence[ast.AST], env: Mapping[str, Any], ctor) -> Any:
     values: list[Any] = []
     for elt in elts:
         item = literal_value(elt, env)

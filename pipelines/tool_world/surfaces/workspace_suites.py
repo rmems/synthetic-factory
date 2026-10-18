@@ -87,19 +87,26 @@ def _case_failure(
 # --- load-time checks ------------------------------------------------------
 
 
+def _case_id(case: Any) -> str | None:
+    """The nonempty string id of a case object, or None when ``case`` does not carry one."""
+    case_id = case.get("id") if isinstance(case, Mapping) else None
+    return case_id if isinstance(case_id, str) and case_id else None
+
+
 def _check_case(case: Any, where: str) -> str:
     """Refuse a case the suite evaluator could not run; return its id."""
-    cv.refuse_when(
-        not isinstance(case, Mapping) or not isinstance(case.get("id"), str) or not case["id"],
-        cv.FINDING_PACK_FIELD_INVALID,
-        f"{where}: a case must be an object with a nonempty string id",
-    )
+    case_id = _case_id(case)
+    if case_id is None:
+        raise cv.ToolWorldRefusal(
+            cv.FINDING_PACK_FIELD_INVALID,
+            f"{where}: a case must be an object with a nonempty string id",
+        )
     check = case.get("check")
     kind = check.get("kind") if isinstance(check, Mapping) else None
     cv.refuse_when(
         not isinstance(kind, str) or kind not in _CHECK_FIELDS,
         cv.FINDING_PACK_FIELD_INVALID,
-        f"{where}: case {case['id']!r} needs a check whose kind is one of {list(_CHECK_FIELDS)}",
+        f"{where}: case {case_id!r} needs a check whose kind is one of {list(_CHECK_FIELDS)}",
     )
     fields = _CHECK_FIELDS[check["kind"]]
     cv.refuse_when(
@@ -107,7 +114,7 @@ def _check_case(case: Any, where: str) -> str:
         cv.FINDING_PACK_FIELD_INVALID,
         f"{where}: a {check['kind']} check carries exactly the string fields {list(fields)}",
     )
-    return case["id"]
+    return case_id
 
 
 def check_suite(name: str, spec: Any, where: str) -> None:

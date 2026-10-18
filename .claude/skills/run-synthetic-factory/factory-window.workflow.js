@@ -209,7 +209,7 @@ const FACTORIES = [
 // NOTES hold the streak (neither increment nor reset) to avoid false stops
 // or hidden plateaus.
 const TOKEN_EFFICIENCY = {
-  enabled: !(args && args.tokenEfficiency === false),
+  enabled: !(args?.tokenEfficiency === false),
   novelThresholdPct: 5,
   consecutiveLimit: 2,
   expectedSavingPct: 40,
@@ -232,11 +232,16 @@ function novelCoveragePct(notesText) {
   if (labeledLines.length !== 1) return null
   const match = labeledLines[0].match(/^[ \t]*novel[ _-]?coverage[ \t]*(?:\([^)\r\n]*\))?[ \t]*[:=]?[ \t]*(\d+(?:\.\d+)?)[ \t]*%[ \t]*$/i)
   if (!match) return null
-  const v = parseFloat(match[1])
-  if (!Number.isFinite(v)) return null
-  // Clamp to valid percentage range; out-of-range treated as unparseable.
-  if (v < 0 || v > 100) return null
-  return v
+  return coveragePctInRange(parseFloat(match[1]))
+}
+
+// Clamp to valid percentage range; out-of-range treated as unparseable.
+// Number.isFinite is false for anything but a finite number primitive, so a
+// missing, null, or non-numeric verifier reading is unparseable too.
+function coveragePctInRange(value) {
+  if (!Number.isFinite(value)) return null
+  if (value < 0 || value > 100) return null
+  return value
 }
 
 function isLowNovel(pct) {
@@ -250,10 +255,10 @@ function preferenceDiagnosisFiles(count, rr) {
   )
 }
 
-// The (factory, round, rr) triple identifies one preference round. The
-// validators below take it as a single `expected` context rather than three
-// positional arguments, so each stays a two-argument predicate.
-function preferenceReceiptIdentifiesRound(receipt, expected) {
+// The (factory, round, rr) triple identifies one round. The validators below
+// take it as a single `expected` context rather than three positional
+// arguments, so each stays a two-argument predicate.
+function receiptIdentifiesRound(receipt, expected) {
   return Boolean(receipt)
     && receipt.factory === expected.factory.slug
     && receipt.round === expected.round
@@ -269,24 +274,22 @@ function preferenceExpectedDiagnosisFiles(expected) {
 }
 
 function preferenceReservationIsValid(receipt, expected) {
-  if (!preferenceReceiptIdentifiesRound(receipt, expected)) return false
-  if (!/^[0-9a-f]{32}$/.test(receipt.reserve_token || '')) return false
-  return receipt.staging_dir === preferenceExpectedStagingDir(expected, receipt.reserve_token)
+  return receiptIdentifiesRound(receipt, expected)
+    && /^[0-9a-f]{32}$/.test(receipt.reserve_token || '')
+    && receipt.staging_dir === preferenceExpectedStagingDir(expected, receipt.reserve_token)
 }
 
 function preferenceHandoffIsValid(handoff, reservation, expected) {
-  if (!preferenceReceiptIdentifiesRound(handoff, expected)) return false
-  if (handoff.reserve_token !== reservation.reserve_token) return false
-  if (handoff.staging_dir !== reservation.staging_dir) return false
-  const expectedFiles = preferenceExpectedDiagnosisFiles(expected)
-  return JSON.stringify(handoff.diagnosis_files) === JSON.stringify(expectedFiles)
+  return receiptIdentifiesRound(handoff, expected)
+    && handoff.reserve_token === reservation.reserve_token
+    && handoff.staging_dir === reservation.staging_dir
+    && JSON.stringify(handoff.diagnosis_files) === JSON.stringify(preferenceExpectedDiagnosisFiles(expected))
 }
 
 // One verified diagnosis entry: the expected name, a positive safe-integer
 // byte count, and a well-formed SHA-256 digest.
 function preferenceDiagnosisEntryIsVerified(item, expectedName) {
-  return Boolean(item)
-    && item.name === expectedName
+  return item?.name === expectedName
     && Number.isSafeInteger(item.bytes)
     && item.bytes > 0
     && /^[0-9a-f]{64}$/.test(item.sha256 || '')
@@ -300,10 +303,10 @@ function preferenceDiagnosisFilesAreVerified(files, expectedNames) {
 // Identity half of the verification receipt: right round, right schema
 // version, and bound to the reservation we actually hold.
 function preferenceVerificationBindsReservation(receipt, reservation, expected) {
-  if (!preferenceReceiptIdentifiesRound(receipt, expected)) return false
-  if (receipt.version !== 2) return false
-  if (receipt.staging_dir !== reservation.staging_dir) return false
-  return receipt.reservation_token === reservation.reserve_token
+  return receiptIdentifiesRound(receipt, expected)
+    && receipt.version === 2
+    && receipt.staging_dir === reservation.staging_dir
+    && receipt.reservation_token === reservation.reserve_token
 }
 
 function preferenceDiagnosisVerificationIsValid(receipt, reservation, expected) {
@@ -314,8 +317,8 @@ function preferenceDiagnosisVerificationIsValid(receipt, reservation, expected) 
   )
 }
 
-const END_ROUND = (args && args.end) || 26
-const STARTS = (args && args.starts) || {}
+const END_ROUND = args?.end || 26
+const STARTS = args?.starts || {}
 log(`Transactional factory window: starts ${JSON.stringify(STARTS)}, backstop r${END_ROUND}.`)
 if (TOKEN_EFFICIENCY.enabled) {
   log(`Token-efficiency: early-stop armed — ${TOKEN_EFFICIENCY.consecutiveLimit} consecutive NOTES <${TOKEN_EFFICIENCY.novelThresholdPct}% novel coverage → stop (target ~${TOKEN_EFFICIENCY.expectedSavingPct}% saving, see ${TOKEN_EFFICIENCY.docs}). Disable with args.tokenEfficiency=false.`)
@@ -363,23 +366,108 @@ If that publish succeeds, the reservation is gone — return aborted=true and re
   }
 }
 
-const perFactory = await parallel(FACTORIES.map(factory => async () => {
+// One factory lane: rounds run sequentially from the lane's start round to
+// the backstop. A round that fails any check opens the lane's circuit and the
+// loop breaks, so later rounds for that factory are never queued.
+async function runFactoryLane(factory) {
   const start = STARTS[factory.slug]
   if (!Number.isInteger(start) || start < 1) {
     log(`${factory.slug}: missing or invalid positive-integer start; skipping`)
     return { factory: factory.slug, rounds_completed: 0, records_written: 0, stopped_reason: 'invalid start' }
   }
 
-  const outDir = `${args.root}/outputs/raw/${args.date}/${factory.slug}`
-  let completed = 0
-  let records = 0
-  let stoppedReason = 'backstop reached'
-  let consecutiveLowNovel = 0
-
+  const lane = {
+    factory,
+    outDir: `${args.root}/outputs/raw/${args.date}/${factory.slug}`,
+    completed: 0,
+    records: 0,
+    stoppedReason: 'backstop reached',
+    consecutiveLowNovel: 0,
+  }
   for (let round = start; round <= END_ROUND; round++) {
-    const rr = String(round).padStart(2, '0')
-    const expectedMarker = `${outDir}/ROUND-r${rr}.complete.json`
-    const prompt = `You are the "${factory.name}" subagent for the Spikenaut / Agoge / Thalamic-Relay Synthetic Data Factory, run ${args.date}, round ${round}.
+    const ctx = laneRound(lane, round)
+    const result = await generateRound(ctx)
+    if (!result) break
+    if (!(await commitVerifiedRound(ctx, result))) break
+  }
+
+  return {
+    factory: factory.slug,
+    rounds_completed: lane.completed,
+    records_written: lane.records,
+    stopped_reason: lane.stoppedReason,
+  }
+}
+
+// Count a generated round only after its summary names this round and a
+// separate read-only verifier confirms the published completion marker.
+// Resolves to false when the lane stops: an open circuit or an early-stop.
+async function commitVerifiedRound(ctx, result) {
+  const { factory, round, rr } = ctx
+  if (result.factory !== factory.slug || result.round !== round) {
+    return openCircuit(ctx, 'returned mismatched identity')
+  }
+  const verification = await agent(verificationPrompt(ctx), {
+    label: `${factory.slug}:verify-r${rr}`,
+    phase: 'Verify',
+    schema: VERIFICATION,
+  })
+  if (!receiptIdentifiesRound(verification, ctx) || markerUnverified(verification, ctx)) {
+    // Matching SUMMARY without a successful publish still leaves the
+    // reservation in place; abort so the frontier stays retryable.
+    return openCircuit(ctx, 'completion marker could not be independently verified')
+  }
+  recordVerifiedRound(ctx, verification)
+  return !coveragePlateauReached(ctx, verification)
+}
+
+// The identifiers one round of one lane threads through its prompts and
+// checks. reserveToken is set once a content-blind controller has reserved
+// the round, so any later identity, handoff, verification, or circuit-break
+// failure can abort it.
+function laneRound(lane, round) {
+  const rr = String(round).padStart(2, '0')
+  return {
+    lane,
+    factory: lane.factory,
+    outDir: lane.outDir,
+    round,
+    rr,
+    expectedMarker: `${lane.outDir}/ROUND-r${rr}.complete.json`,
+    reserveToken: null,
+  }
+}
+
+// Open the lane's circuit: record why, log it, and release the reservation
+// the round still holds so the frontier stays retryable. Resolves to null so
+// a caller can hand it back as "no round".
+async function openCircuit(ctx, reason, detail = '') {
+  ctx.lane.stoppedReason = `r${ctx.rr} ${reason}`
+  log(`${ctx.factory.slug}: ${ctx.lane.stoppedReason}; circuit open${detail}`)
+  if (ctx.reserveToken) await releaseReservation(ctx.factory, ctx.round, ctx.rr, ctx.reserveToken)
+  return null
+}
+
+// Generate one round. Resolves to the generation summary, or to null once a
+// failure has opened the circuit.
+async function generateRound(ctx) {
+  if (ctx.factory.slug === 'failure-as-fuel-preference-cascade') return generatePreferenceRound(ctx)
+  const summary = await agent(generationPrompt(ctx), {
+    label: `${ctx.factory.slug}:r${ctx.rr}`,
+    phase: 'Generate',
+    schema: SUMMARY,
+  })
+  return requireSummary(ctx, summary)
+}
+
+// No summary means an agent error or a session limit.
+function requireSummary(ctx, summary) {
+  return summary || openCircuit(ctx, 'agent error or session limit', ', later rounds will not be queued')
+}
+
+function generationPrompt(ctx) {
+  const { factory, round, rr, outDir, expectedMarker } = ctx
+  return `You are the "${factory.name}" subagent for the Spikenaut / Agoge / Thalamic-Relay Synthetic Data Factory, run ${args.date}, round ${round}.
 
 FILE-SAFETY AND COMMIT PROTOCOL — highest priority:
 1. NEVER write, edit, rename, truncate, or delete any existing file under ${outDir}. Never invent a collision suffix.
@@ -413,38 +501,65 @@ Data contract:
 - Long, concrete, internally consistent records; no placeholders and no copied prior scenario.
 - Reward total must follow one explicitly declared aggregation and reconcile numerically.
 - Return only the structured summary after successful publication. Set completion_marker exactly to "${expectedMarker}".`
+}
 
-    let result
-    // A content-blind controller owns the reservation; hoist the token so any
-    // later identity, handoff, verification, or circuit-break failure can abort.
-    let reserveToken = null
-    if (factory.slug === 'failure-as-fuel-preference-cascade') {
-      const preferenceRound = { factory, round, rr }
-      // Two-session isolation (docs/preference-isolation.md): Session A and
-      // Session B are SEPARATE agents with independent generation contexts —
-      // the only inter-session bridge is the diagnosis artifacts.
-      // A third, content-blind context owns reservation so neither arm producer
-      // self-issues the orchestration marker used by the publisher.
-      const reservation = await agent(`You are the reservation controller for the "${factory.name}" two-session protocol, run ${args.date}, round ${round}. Generate no record, diagnosis, chosen arm, or rejected arm. Run exactly this reservation command:
+// Two-session isolation (docs/preference-isolation.md): Session A and
+// Session B are SEPARATE agents with independent generation contexts —
+// the only inter-session bridge is the diagnosis artifacts.
+// A third, content-blind context owns reservation so neither arm producer
+// self-issues the orchestration marker used by the publisher.
+async function generatePreferenceRound(ctx) {
+  const { factory, round, rr } = ctx
+  const reservation = await agent(preferenceReservationPrompt(ctx), {
+    label: `${factory.slug}:r${rr}-reserve`,
+    phase: 'Generate',
+    schema: PREF_RESERVATION,
+  })
+  if (!preferenceReservationIsValid(reservation, ctx)) {
+    await openCircuit(ctx, 'reservation controller returned an invalid receipt')
+    // The returned token is part of the invalid receipt and cannot be
+    // trusted for cleanup. Read the actual token from the exclusive marker.
+    await releaseReservation(factory, round, rr, null)
+    return null
+  }
+  ctx.reserveToken = reservation.reserve_token
+
+  const sessionA = await agent(preferenceSessionAPrompt(ctx, reservation), {
+    label: `${factory.slug}:r${rr}-sessionA`,
+    phase: 'Generate',
+    schema: PREF_STAGE,
+  })
+  if (!preferenceHandoffIsValid(sessionA, reservation, ctx)) {
+    return openCircuit(ctx, 'session A failed or returned an invalid diagnosis-only handoff')
+  }
+  const diagnosisVerification = await agent(preferenceDiagnosisVerificationPrompt(ctx, reservation), {
+    label: `${factory.slug}:r${rr}-diagnosis-verify`,
+    phase: 'Verify',
+    schema: PREF_DIAGNOSIS_VERIFICATION,
+  })
+  if (!preferenceDiagnosisVerificationIsValid(diagnosisVerification, reservation, ctx)) {
+    return openCircuit(ctx, 'diagnosis files failed the read-only handoff verification')
+  }
+  const result = await agent(preferenceSessionBPrompt(ctx, reservation, diagnosisVerification), {
+    label: `${factory.slug}:r${rr}-sessionB`,
+    phase: 'Generate',
+    schema: SUMMARY,
+  })
+  return requireSummary(ctx, result)
+}
+
+function preferenceReservationPrompt(ctx) {
+  const { factory, round, outDir } = ctx
+  return `You are the reservation controller for the "${factory.name}" two-session protocol, run ${args.date}, round ${round}. Generate no record, diagnosis, chosen arm, or rejected arm. Run exactly this reservation command:
 
 FILE-SAFETY — highest priority: NEVER write, edit, rename, truncate, or delete any existing file under ${outDir}:
   python3 ${args.root}/pipelines/round_txn.py reserve ${outDir} --round ${round} --expected ${factory.count} --preference-isolation two-session
-If reservation fails, stop. Otherwise return only factory="${factory.slug}", round=${round}, and the command's exact staging_dir and token as reserve_token.`, {
-        label: `${factory.slug}:r${rr}-reserve`,
-        phase: 'Generate',
-        schema: PREF_RESERVATION,
-      })
-      if (!preferenceReservationIsValid(reservation, preferenceRound)) {
-        stoppedReason = `r${rr} reservation controller returned an invalid receipt`
-        log(`${factory.slug}: ${stoppedReason}; circuit open`)
-        // The returned token is part of the invalid receipt and cannot be
-        // trusted for cleanup. Read the actual token from the exclusive marker.
-        await releaseReservation(factory, round, rr, null)
-        break
-      }
-      reserveToken = reservation.reserve_token
+If reservation fails, stop. Otherwise return only factory="${factory.slug}", round=${round}, and the command's exact staging_dir and token as reserve_token.`
+}
 
-      const sessionA = await agent(`You are Session A (failure mining) of the "${factory.name}" two-session protocol, run ${args.date}, round ${round}. A separate content-blind controller already reserved this round. Do not call reserve again.
+function preferenceSessionAPrompt(ctx, reservation) {
+  const { factory, round, rr, outDir } = ctx
+  return `You are Session A (failure mining) of the "${factory.name}" two-session protocol, run ${args.date}, round ${round}. A separate content-blind controller already reserved this round. Do not call reserve again.
 
 FILE-SAFETY — highest priority: NEVER write, edit, rename, truncate, or delete any existing file under ${outDir}. Write ONLY inside this exact reserved staging directory: ${reservation.staging_dir}.
 
@@ -452,34 +567,22 @@ Read ${args.root}/docs/preference-isolation.md (the "Session A" two-session prot
 
 Produce EXACTLY ${factory.count} rejected ThalamicTrajectories and their diagnoses in staging: rejected-01-r${rr}.json, rejected-02-r${rr}.json, rejected-03-r${rr}.json scratch files (one JSON object each; never .jsonl) and diagnosis-01-r${rr}.md, diagnosis-02-r${rr}.md, diagnosis-03-r${rr}.md files. Each diagnosis must use the prompt's exact bounded six-section Markdown structure with only the Shared-context state/proposed_action JSON block and Target reward delta JSON block; never paste or serialize the rejected gate/execution/outcome/reward payload. Do NOT write batch-r${rr}.jsonl, do NOT publish, and do NOT draft any chosen content.
 
-Return the structured handoff: factory="${factory.slug}", round=${round}, staging_dir="${reservation.staging_dir}", reserve_token="${reservation.reserve_token}", and diagnosis_files exactly ${JSON.stringify(preferenceDiagnosisFiles(factory.count, rr))}.`, {
-        label: `${factory.slug}:r${rr}-sessionA`,
-        phase: 'Generate',
-        schema: PREF_STAGE,
-      })
-      if (!preferenceHandoffIsValid(sessionA, reservation, preferenceRound)) {
-        stoppedReason = `r${rr} session A failed or returned an invalid diagnosis-only handoff`
-        log(`${factory.slug}: ${stoppedReason}; circuit open`)
-        await releaseReservation(factory, round, rr, reservation.reserve_token)
-        break
-      }
-      const diagnosisVerification = await agent(`You are the arm-payload-blind diagnosis handoff verifier for the "${factory.name}" two-session protocol, run ${args.date}, round ${round}. You are a separate control context from Sessions A and B. Generate no arm content and do not open, summarize, or quote any diagnosis or rejected-arm file yourself.
+Return the structured handoff: factory="${factory.slug}", round=${round}, staging_dir="${reservation.staging_dir}", reserve_token="${reservation.reserve_token}", and diagnosis_files exactly ${JSON.stringify(preferenceDiagnosisFiles(factory.count, rr))}.`
+}
+
+function preferenceDiagnosisVerificationPrompt(ctx, reservation) {
+  const { factory, round, rr } = ctx
+  return `You are the arm-payload-blind diagnosis handoff verifier for the "${factory.name}" two-session protocol, run ${args.date}, round ${round}. You are a separate control context from Sessions A and B. Generate no arm content and do not open, summarize, or quote any diagnosis or rejected-arm file yourself.
 
 Run exactly this repository verifier. It parses only the allowlisted diagnoses' bounded envelopes, never opens rejected-arm files, and emits names, byte counts, and SHA-256 digests rather than file content:
   python3 ${args.root}/pipelines/preference_arms.py verify-handoff ${reservation.staging_dir} ${preferenceDiagnosisFiles(factory.count, rr).map((name) => `--file ${name}`).join(' ')} --write-receipt
-If it exits nonzero, stop. Otherwise return its stdout JSON exactly.`, {
-        label: `${factory.slug}:r${rr}-diagnosis-verify`,
-        phase: 'Verify',
-        schema: PREF_DIAGNOSIS_VERIFICATION,
-      })
-      if (!preferenceDiagnosisVerificationIsValid(diagnosisVerification, reservation, preferenceRound)) {
-        stoppedReason = `r${rr} diagnosis files failed the read-only handoff verification`
-        log(`${factory.slug}: ${stoppedReason}; circuit open`)
-        await releaseReservation(factory, round, rr, reservation.reserve_token)
-        break
-      }
-      const verifiedDiagnosisFiles = diagnosisVerification.diagnosis_files.map((item) => item.name)
-      result = await agent(`You are Session B (repair synthesis) of the "${factory.name}" two-session protocol, run ${args.date}, round ${round} — a FRESH context with no Session A memory.
+If it exits nonzero, stop. Otherwise return its stdout JSON exactly.`
+}
+
+function preferenceSessionBPrompt(ctx, reservation, diagnosisVerification) {
+  const { factory, round, rr, outDir, expectedMarker } = ctx
+  const verifiedDiagnosisFiles = diagnosisVerification.diagnosis_files.map((item) => item.name)
+  return `You are Session B (repair synthesis) of the "${factory.name}" two-session protocol, run ${args.date}, round ${round} — a FRESH context with no Session A memory.
 
 FILE-SAFETY — highest priority: NEVER write, edit, rename, truncate, or delete any existing file under ${outDir}. The content-blind controller reserved this round; its staging_dir is ${diagnosisVerification.staging_dir} and the publish token is ${reservation.reserve_token}.
 
@@ -489,32 +592,12 @@ ISOLATION RULE (absolute): read ONLY these independently verified diagnosis file
   python3 ${args.root}/pipelines/preference_arms.py scan ${diagnosisVerification.staging_dir}/batch-r${rr}.jsonl
 A PREFERENCE_ARMS_NEAR_VERBATIM or PREFERENCE_ARMS_LABEL_ONLY_COPY block means the repair restated the rejected arm — re-synthesize that chosen from its diagnosis rather than rewording it. Then publish; publish re-runs the same gate against captured bytes and records its result in the completion marker, so skipping the preview cannot bypass it:
   python3 ${args.root}/pipelines/round_txn.py publish ${outDir} --round ${round} --token ${reservation.reserve_token}
-A round exists only if publish succeeds and creates ${expectedMarker}. Repeat the identical "Novel coverage: <N>%" line verbatim inside your returned coverage_notes. Return only the structured summary after successful publication; set completion_marker exactly to "${expectedMarker}".`, {
-        label: `${factory.slug}:r${rr}-sessionB`,
-        phase: 'Generate',
-        schema: SUMMARY,
-      })
-    } else {
-      result = await agent(prompt, {
-        label: `${factory.slug}:r${rr}`,
-        phase: 'Generate',
-        schema: SUMMARY,
-      })
-    }
+A round exists only if publish succeeds and creates ${expectedMarker}. Repeat the identical "Novel coverage: <N>%" line verbatim inside your returned coverage_notes. Return only the structured summary after successful publication; set completion_marker exactly to "${expectedMarker}".`
+}
 
-    if (!result) {
-      stoppedReason = `r${rr} agent error or session limit`
-      log(`${factory.slug}: ${stoppedReason}; circuit open, later rounds will not be queued`)
-      if (reserveToken) await releaseReservation(factory, round, rr, reserveToken)
-      break
-    }
-    if (result.factory !== factory.slug || result.round !== round) {
-      stoppedReason = `r${rr} returned mismatched identity`
-      log(`${factory.slug}: ${stoppedReason}; circuit open`)
-      if (reserveToken) await releaseReservation(factory, round, rr, reserveToken)
-      break
-    }
-    const verificationPrompt = `Read-only verification only. Do not write, edit, delete, rename, or publish anything.
+function verificationPrompt(ctx) {
+  const { factory, round, rr, outDir, expectedMarker } = ctx
+  return `Read-only verification only. Do not write, edit, delete, rename, or publish anything.
 
 For factory ${factory.slug}, independently verify committed round ${round}:
 1. Run: python3 ${args.root}/pipelines/round_txn.py frontier ${outDir}
@@ -522,75 +605,73 @@ For factory ${factory.slug}, independently verify committed round ${round}:
 3. Read ${expectedMarker}. Require factory=${factory.slug}, round=${round}, records=${factory.count}, and exactly one batch-r${rr}.jsonl entry with the recorded SHA-256. Verify every file listed in the marker exists under ${outDir} with the recorded byte count and SHA-256.
 4. Read the published NOTES-r${rr}.md and find its line-anchored "Novel coverage: <N>%" line; set novel_coverage_pct to that number, or null if the line is absent or ambiguous.
 5. Return only the structured verification. Set verified=true only when every check passes; records must come from the marker, not the generation agent's summary. Set completion_marker exactly to ${expectedMarker}.`
-    const verification = await agent(verificationPrompt, {
-      label: `${factory.slug}:verify-r${rr}`,
-      phase: 'Verify',
-      schema: VERIFICATION,
-    })
-    if (
-      !verification
-      || verification.factory !== factory.slug
-      || verification.round !== round
-      || verification.verified !== true
-      || verification.next_round !== round + 1
-      || verification.records !== factory.count
-      || verification.completion_marker !== expectedMarker
-    ) {
-      stoppedReason = `r${rr} completion marker could not be independently verified`
-      log(`${factory.slug}: ${stoppedReason}; circuit open`)
-      // Matching SUMMARY without a successful publish still leaves the
-      // reservation in place; abort so the frontier stays retryable.
-      if (reserveToken) await releaseReservation(factory, round, rr, reserveToken)
-      break
-    }
-    completed += 1
-    records += verification.records
-    log(`${factory.slug} r${rr}: marker-verified ${verification.records} records (window total ${records})`)
+}
 
-    // Token-efficiency early-stop. Source: the VERIFIER's independent
-    // read of the published NOTES file (novel_coverage_pct) — never the
-    // generation agent's self-report. Missing, null, or out-of-range
-    // verifier readings are unparseable and hold the streak. Evaluated
-    // AFTER verification so only committed rounds count. 5-lane breaker
-    // semantics: early-stop is a clean per-lane break, not a
-    // cross-factory error.
-    if (TOKEN_EFFICIENCY.enabled) {
-      // Verifier-sourced ONLY. A null/out-of-range value means the verifier
-      // could not read a coverage line; that holds the streak (see below)
-      // rather than falling back to the generation agent's self-report.
-      const pct = typeof verification.novel_coverage_pct === 'number'
-        && verification.novel_coverage_pct >= 0 && verification.novel_coverage_pct <= 100
-        ? verification.novel_coverage_pct
-        : null
-      if (pct !== null && pct < TOKEN_EFFICIENCY.novelThresholdPct) {
-        consecutiveLowNovel += 1
-        log(`${factory.slug} r${rr}: novel coverage ${pct}% <${TOKEN_EFFICIENCY.novelThresholdPct}% (streak ${consecutiveLowNovel}/${TOKEN_EFFICIENCY.consecutiveLimit})`)
-      } else if (pct !== null) {
-        if (consecutiveLowNovel > 0) log(`${factory.slug} r${rr}: novel coverage ${pct}% resets low-streak`)
-        consecutiveLowNovel = 0
-      } else {
-        // Unparseable coverage — do not count toward streak, but log for visibility.
-        log(`${factory.slug} r${rr}: novel coverage unparseable from verifier; streak held at ${consecutiveLowNovel}`)
-      }
-      if (consecutiveLowNovel >= TOKEN_EFFICIENCY.consecutiveLimit) {
-        const savedRounds = END_ROUND - round
-        // Only claim a saving when rounds were actually avoided; a streak
-        // completing exactly at the backstop saved nothing.
-        stoppedReason = savedRounds > 0
-          ? `early-stop: ${TOKEN_EFFICIENCY.consecutiveLimit} consecutive rounds <${TOKEN_EFFICIENCY.novelThresholdPct}% novel coverage (~${savedRounds} rounds + verifiers avoided; token-efficiency mode)`
-          : `coverage plateau (${TOKEN_EFFICIENCY.consecutiveLimit} consecutive rounds <${TOKEN_EFFICIENCY.novelThresholdPct}%) reached at backstop r${rr}; no rounds saved`
-        log(`${factory.slug}: ${stoppedReason}`)
-        break
-      }
-    }
-  }
+// Marker half of the verifier's receipt: every check passed, the frontier
+// advanced by exactly one round, the marker records the full quota, and it
+// is the marker this round expected.
+function markerUnverified(verification, ctx) {
+  const { factory, round, expectedMarker } = ctx
+  return verification.verified !== true
+    || verification.next_round !== round + 1
+    || verification.records !== factory.count
+    || verification.completion_marker !== expectedMarker
+}
 
-  return {
-    factory: factory.slug,
-    rounds_completed: completed,
-    records_written: records,
-    stopped_reason: stoppedReason,
+function recordVerifiedRound(ctx, verification) {
+  const { lane, factory, rr } = ctx
+  lane.completed += 1
+  lane.records += verification.records
+  log(`${factory.slug} r${rr}: marker-verified ${verification.records} records (window total ${lane.records})`)
+}
+
+// Token-efficiency early-stop. Source: the VERIFIER's independent
+// read of the published NOTES file (novel_coverage_pct) — never the
+// generation agent's self-report. Missing, null, or out-of-range
+// verifier readings are unparseable and hold the streak. Evaluated
+// AFTER verification so only committed rounds count. 5-lane breaker
+// semantics: early-stop is a clean per-lane break, not a
+// cross-factory error.
+function coveragePlateauReached(ctx, verification) {
+  if (!TOKEN_EFFICIENCY.enabled) return false
+  // Verifier-sourced ONLY. A null/out-of-range value means the verifier
+  // could not read a coverage line; that holds the streak (see below)
+  // rather than falling back to the generation agent's self-report.
+  updateLowNovelStreak(ctx, coveragePctInRange(verification.novel_coverage_pct))
+  if (ctx.lane.consecutiveLowNovel < TOKEN_EFFICIENCY.consecutiveLimit) return false
+  ctx.lane.stoppedReason = plateauStopReason(ctx)
+  log(`${ctx.factory.slug}: ${ctx.lane.stoppedReason}`)
+  return true
+}
+
+function updateLowNovelStreak(ctx, pct) {
+  const { lane, factory, rr } = ctx
+  if (isLowNovel(pct)) {
+    lane.consecutiveLowNovel += 1
+    log(`${factory.slug} r${rr}: novel coverage ${pct}% <${TOKEN_EFFICIENCY.novelThresholdPct}% (streak ${lane.consecutiveLowNovel}/${TOKEN_EFFICIENCY.consecutiveLimit})`)
+  } else if (pct !== null) {
+    resetLowNovelStreak(lane, `${factory.slug} r${rr}: novel coverage ${pct}% resets low-streak`)
+  } else {
+    // Unparseable coverage — do not count toward streak, but log for visibility.
+    log(`${factory.slug} r${rr}: novel coverage unparseable from verifier; streak held at ${lane.consecutiveLowNovel}`)
   }
-}))
+}
+
+function resetLowNovelStreak(lane, message) {
+  if (lane.consecutiveLowNovel > 0) log(message)
+  lane.consecutiveLowNovel = 0
+}
+
+function plateauStopReason(ctx) {
+  const { round, rr } = ctx
+  const savedRounds = END_ROUND - round
+  // Only claim a saving when rounds were actually avoided; a streak
+  // completing exactly at the backstop saved nothing.
+  return savedRounds > 0
+    ? `early-stop: ${TOKEN_EFFICIENCY.consecutiveLimit} consecutive rounds <${TOKEN_EFFICIENCY.novelThresholdPct}% novel coverage (~${savedRounds} rounds + verifiers avoided; token-efficiency mode)`
+    : `coverage plateau (${TOKEN_EFFICIENCY.consecutiveLimit} consecutive rounds <${TOKEN_EFFICIENCY.novelThresholdPct}%) reached at backstop r${rr}; no rounds saved`
+}
+
+const perFactory = await parallel(FACTORIES.map((factory) => () => runFactoryLane(factory)))
 
 return { mode: 'transactional-window', end_round: END_ROUND, per_factory: perFactory.filter(Boolean) }

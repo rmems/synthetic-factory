@@ -48,15 +48,28 @@ def line_coordinate(path, line, file_sha256):
     return compose_curated.SourceLineCoordinate(path, line, file_sha256)
 
 
+def _side_curation_patch(side_result):
+    """Stub the facade's side curation with side_result, or patch nothing when None."""
+    if side_result is None:
+        return nullcontext()
+    return mock.patch.object(
+        compose_curated,
+        "_curate_trajectory_sides",
+        return_value=side_result,
+    )
+
+
 class ComposeCuratedFacadeContract(unittest.TestCase):
     def _assert_facade_seam(self, binding, message, invocation):
-        with mock.patch.object(
-            compose_curated,
-            binding,
-            side_effect=FacadeSentinel(message),
+        with (
+            mock.patch.object(
+                compose_curated,
+                binding,
+                side_effect=FacadeSentinel(message),
+            ),
+            self.assertRaisesRegex(FacadeSentinel, message),
         ):
-            with self.assertRaisesRegex(FacadeSentinel, message):
-                invocation()
+            invocation()
 
     def test_the_complete_historical_module_surface_is_restored(self):
         missing = sorted(HISTORICAL_BINDINGS - set(vars(compose_curated)))
@@ -186,24 +199,16 @@ class ComposeCuratedFacadeContract(unittest.TestCase):
             ("_strip_hidden_only_side", bridge_hidden, None),
         )
         for binding, invocation, side_result in cases:
-            with self.subTest(binding=binding):
-                side_patch = (
-                    mock.patch.object(
-                        compose_curated,
-                        "_curate_trajectory_sides",
-                        return_value=side_result,
-                    )
-                    if side_result is not None
-                    else nullcontext()
-                )
-                with side_patch:
-                    self._assert_facade_seam(binding, f"nested {binding}", invocation)
+            with self.subTest(binding=binding), _side_curation_patch(side_result):
+                self._assert_facade_seam(binding, f"nested {binding}", invocation)
 
         coding_binding = mock.Mock()
         coding_binding.steps_path.side_effect = FacadeSentinel("coding binding")
-        with mock.patch.object(compose_curated, "curate_coding", coding_binding):
-            with self.assertRaisesRegex(FacadeSentinel, "coding binding"):
-                bridge_hidden()
+        with (
+            mock.patch.object(compose_curated, "curate_coding", coding_binding),
+            self.assertRaisesRegex(FacadeSentinel, "coding binding"),
+        ):
+            bridge_hidden()
 
     def test_side_curation_evidence_rejects_duplicate_keyword_overrides(self):
         reason = compose_curated.REASON_TRAJECTORY_SIDE_INVALID
@@ -320,9 +325,9 @@ class ComposeCuratedFacadeContract(unittest.TestCase):
                 "_coding_lane_curator",
                 side_effect=FacadeSentinel("coding curator"),
             ),
+            self.assertRaisesRegex(FacadeSentinel, "coding curator"),
         ):
-            with self.assertRaisesRegex(FacadeSentinel, "coding curator"):
-                compose_curated.compose_record({}, context)
+            compose_curated.compose_record({}, context)
 
     def test_dedup_identity_helpers_resolve_through_the_facade(self):
         decision = compose_curated.ComposeDecision(
@@ -333,18 +338,20 @@ class ComposeCuratedFacadeContract(unittest.TestCase):
             None,
             "record",
         )
-        with mock.patch.object(
-            compose_curated,
-            "_identity_stage_detail_of",
-            side_effect=FacadeSentinel("identity detail"),
+        with (
+            mock.patch.object(
+                compose_curated,
+                "_identity_stage_detail_of",
+                side_effect=FacadeSentinel("identity detail"),
+            ),
+            self.assertRaisesRegex(FacadeSentinel, "identity detail"),
         ):
-            with self.assertRaisesRegex(FacadeSentinel, "identity detail"):
-                compose_curated._deduplicate_curated_record(
-                    decision,
-                    source_path="batch.jsonl",
-                    source_line=1,
-                    seen_curated_semantics={},
-                )
+            compose_curated._deduplicate_curated_record(
+                decision,
+                source_path="batch.jsonl",
+                source_line=1,
+                seen_curated_semantics={},
+            )
 
     @staticmethod
     def _restored_helper_graph_cases(retained):
@@ -413,9 +420,9 @@ class ComposeCuratedFacadeContract(unittest.TestCase):
                 "_compose_same_state_preference",
                 side_effect=FacadeSentinel("same-state branch"),
             ),
+            self.assertRaisesRegex(FacadeSentinel, "same-state branch"),
         ):
-            with self.assertRaisesRegex(FacadeSentinel, "same-state branch"):
-                compose_curated._compose_preferences_stage({}, [], context)
+            compose_curated._compose_preferences_stage({}, [], context)
 
     def test_bridge_coding_dispatch_uses_the_live_facade_helper(self):
         context = record_context("batch.jsonl", 1, "0" * 64)
@@ -427,9 +434,9 @@ class ComposeCuratedFacadeContract(unittest.TestCase):
                 "_bridge_view_trajectory",
                 side_effect=FacadeSentinel("bridge trajectory"),
             ),
+            self.assertRaisesRegex(FacadeSentinel, "bridge trajectory"),
         ):
-            with self.assertRaisesRegex(FacadeSentinel, "bridge trajectory"):
-                compose_curated._compose_coding_stage({}, None, [], context)
+            compose_curated._compose_coding_stage({}, None, [], context)
 
     def test_run_helpers_use_the_live_facade_graph(self):
         class Finding:

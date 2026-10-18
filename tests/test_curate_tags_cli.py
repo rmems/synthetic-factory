@@ -104,7 +104,8 @@ class CliWriteTests(unittest.TestCase):
 
 
 class TagCliInProcessTests(unittest.TestCase):
-    def _source(self, root, tags=None):
+    @staticmethod
+    def _source(root, tags=None):
         source = root / "in.jsonl"
         source.write_text(
             json.dumps(record(tags or ["MODIFY"])) + "\n", encoding="utf-8"
@@ -180,7 +181,9 @@ class TagCliInProcessTests(unittest.TestCase):
 
     def test_unlink_missing_is_noop(self):
         with tempfile.TemporaryDirectory() as temporary:
-            curate_tags._unlink_created_file(Path(temporary) / "absent.jsonl", (0, 0))
+            absent = Path(temporary) / "absent.jsonl"
+            curate_tags._unlink_created_file(absent, (0, 0))
+            self.assertFalse(absent.exists())
 
 
 if __name__ == "__main__":

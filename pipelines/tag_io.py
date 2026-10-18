@@ -2,15 +2,30 @@
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 from typing import Any
 
-from tag_write import (
-    _is_under_raw,
-    _prepare_destination_parents,
-    _unlink_created_file,
-    _write_new_jsonl,
-)
+if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("tag_io")
+    from .tag_write import (
+        _is_under_raw,
+        _prepare_destination_parents,
+        _unlink_created_file,
+        _write_new_jsonl,
+    )
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "tag_io"
+    )
+    from tag_write import (
+        _is_under_raw,
+        _prepare_destination_parents,
+        _unlink_created_file,
+        _write_new_jsonl,
+    )
 
 __all__ = (
     "_is_under_raw",
@@ -84,3 +99,9 @@ def _write_destinations(
     except BaseException:
         _rollback_created(created)
         raise
+
+
+if __package__:
+    # One module object for both import forms, so the CLI and package callers
+    # share one preflight and one rollback path whichever form loads first.
+    _expose_package_sibling(__name__)
