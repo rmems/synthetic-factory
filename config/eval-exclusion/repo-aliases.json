@@ -1,0 +1,13 @@
+{
+  "entries": [
+    {
+      "canonical": "thealgorithms/python",
+      "evidence": "catalogs/python-repair-v1/CATALOG.json upstream.repository and schemas/procedural-source-policy-v1.json pin TheAlgorithms/Python at 2067ce6dfb3b0426a88c7a40531e355a5c703cff; not resolved through the GitHub API",
+      "method": "reviewed_source_pin",
+      "name": "thealgorithms/python",
+      "resolved_at": "2026-10-18T23:14:32Z"
+    }
+  ],
+  "schema_version": "repo-alias-cache-v1",
+  "updated_at": "2026-10-18T23:14:32Z"
+}

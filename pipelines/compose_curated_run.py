@@ -21,6 +21,7 @@ if __package__:
     _assert_direct_sibling("compose_curated_run")
     from .curate_identity_simulator_process import replay_session
     from . import compose_oracle_selection as _selection
+    from . import compose_eval_gate as _eval_gate
     from . import compose_contract as _contract
     from . import compose_curated_run_artifacts as _artifacts
     from . import compose_curated_run_context as _run_context
@@ -33,6 +34,7 @@ else:
     )
     from curate_identity_simulator_process import replay_session
     import compose_oracle_selection as _selection
+    import compose_eval_gate as _eval_gate
     import compose_contract as _contract
     import compose_curated_run_artifacts as _artifacts
     import compose_curated_run_context as _run_context
@@ -102,6 +104,7 @@ def compose_one_line(
     decision = _selection.apply_selection(
         _line_decision(state, source_line, services, active), state.oracle_selection
     )
+    decision = _eval_gate.apply_gate(decision, state.exclusion_policy)
     entry.update(
         {
             "action": decision.action,
@@ -311,6 +314,7 @@ def _write_transaction(
     summary = hooks.compose_run_summary(state, summary_context, services.report)
     if state.oracle_selection != "all":
         summary["oracle_selection"] = _selection.descriptor(state.oracle_selection)
+    summary[_eval_gate.SUMMARY_KEY] = _eval_gate.descriptor(state.exclusion_policy)
     commit_context = SummaryCommitContext(
         pinned_destination,
         summary,
@@ -347,7 +351,10 @@ def compose_run(
     pinned_destination = services.destination.create_pinned_destination(
         resolved_source, context.destination
     )
-    state = ComposeRunState(oracle_selection=context.oracle_selection)
+    state = ComposeRunState(
+        oracle_selection=context.oracle_selection,
+        exclusion_policy=_eval_gate.active_policy(),
+    )
     transaction = TransactionContext(
         pinned_destination,
         resolved_source,

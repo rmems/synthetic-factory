@@ -14,6 +14,17 @@
     "environment",
     "release"
   ],
+  "allOf": [
+    {
+      "if": {
+        "required": ["source_kind"],
+        "properties": { "source_kind": { "const": "real_public_engineering" } }
+      },
+      "then": {
+        "properties": { "environment": { "required": ["source_repo"] } }
+      }
+    }
+  ],
   "$defs": {
     "sha256": {
       "type": "string",
@@ -22,6 +33,11 @@
     "nonempty": {
       "type": "string",
       "minLength": 1
+    },
+    "canonicalRepo": {
+      "type": "string",
+      "pattern": "^[a-z0-9](?:[a-z0-9-]{0,37}[a-z0-9])?/[a-z0-9._-]{1,100}$",
+      "description": "Canonical lowercase GitHub owner/name; pipelines/repo_identity.py also refuses the names . and .. and consecutive hyphens in the owner."
     },
     "reasonCodes": {
       "type": "array",
@@ -134,7 +150,11 @@
       "properties": {
         "repo_snapshot_hash": { "$ref": "#/$defs/sha256" },
         "task_id": { "$ref": "#/$defs/nonempty" },
-        "repo_pack_id": { "$ref": "#/$defs/nonempty" }
+        "repo_pack_id": { "$ref": "#/$defs/nonempty" },
+        "source_repo": {
+          "$ref": "#/$defs/canonicalRepo",
+          "description": "Public source repository as canonical lowercase GitHub owner/name (#494). Required when source_kind is real_public_engineering; the compose eval-exclusion gate resolves it through config/eval-exclusion/repo-aliases.json and matches it whole against the eval denylist and do-not-train list."
+        }
       }
     },
     "release": {

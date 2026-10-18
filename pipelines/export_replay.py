@@ -20,6 +20,7 @@ if str(_PIPELINES) not in sys.path:
     sys.path.insert(0, str(_PIPELINES))
 
 import compose_oracle_selection  # noqa: E402
+import compose_eval_gate  # noqa: E402
 import compose_curated  # noqa: E402
 import compose_curated_rights  # noqa: E402
 import compose_mill  # noqa: E402
@@ -80,6 +81,7 @@ class _ReplayState:
     """Mutable accumulators shared by every replayed source line."""
 
     oracle_selection: str = "all"
+    exclusion_policy: Any = None
 
     counts: Counter[str] = field(default_factory=Counter)
     exclusions: Counter[str] = field(default_factory=Counter)
@@ -269,6 +271,7 @@ def _replay_one_line_context(
     decision = _selection_result(
         compose_oracle_selection.apply_selection, decision, state.oracle_selection
     )
+    decision = compose_eval_gate.apply_gate(decision, state.exclusion_policy)
     entry = _replayed_manifest_entry(
         decision,
         replay.relative,
@@ -508,7 +511,9 @@ def _replay_source_lines(source_root: Path, catalog: Any, oracle_selection="all"
         compose_oracle_selection.require_authenticated_source,
         oracle_selection, source_members, physical_source_paths,
     )
-    state = _ReplayState(oracle_selection=oracle_selection)
+    state = _ReplayState(
+        oracle_selection=oracle_selection, exclusion_policy=compose_eval_gate.active_policy()
+    )
     for relative in source_members:
         _replay_source_file_context(
             state,

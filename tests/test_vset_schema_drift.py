@@ -211,6 +211,44 @@ class ManifestSchemaDriftTests(unittest.TestCase):
         self.assertIn("vset.payload_invalid", _codes(vset.validate_manifest(manifest)))
 
 
+class SourceRepoSchemaDriftTests(unittest.TestCase):
+    """#494: both schemas and the validator agree on ``environment.source_repo``."""
+
+    ACTOR_SCHEMA = SCHEMAS / "actor-provenance-v1.schema.json"
+    SAMPLES = (
+        "clap-rs/clap", "rmems/thalamic-relay-trajectories", "a/b.c_d-e", "thealgorithms/python",
+        "Clap-rs/clap", "clap-rs", "-a/b", "a-/b", "a/b/c", "a/b c", "a_b/c", "", "a/",
+    )
+
+    def _real_requires_source_repo(self, branches: list[dict[str, Any]]) -> bool:
+        for branch in branches:
+            condition = branch["if"]["properties"]["source_kind"]
+            environment = branch["then"]["properties"]["environment"]
+            if condition == {"const": "real_public_engineering"}:
+                return "source_repo" in environment["required"]
+        return False
+
+    def test_real_public_engineering_requires_source_repo_on_both_sides(self) -> None:
+        actor = _schema(self.ACTOR_SCHEMA)
+        entry = _schema(MANIFEST_SCHEMA)["$defs"]["entry"]
+        self.assertTrue(self._real_requires_source_repo(actor["allOf"]))
+        self.assertTrue(self._real_requires_source_repo(entry["allOf"]))
+
+    def test_schema_patterns_match_the_validator_spelling_rule(self) -> None:
+        import re
+
+        from repo_identity import is_canonical_repo
+
+        actor = _schema(self.ACTOR_SCHEMA)["$defs"]["canonicalRepo"]["pattern"]
+        entry = _schema(MANIFEST_SCHEMA)["$defs"]["entry"]["properties"]["environment"][
+            "properties"
+        ]["source_repo"]["pattern"]
+        self.assertEqual(actor, entry)
+        for sample in self.SAMPLES:
+            with self.subTest(sample=sample):
+                self.assertEqual(bool(re.search(actor, sample)), is_canonical_repo(sample))
+
+
 class FixturePinFreshnessTests(unittest.TestCase):
     def test_fixture_pins_match_the_live_repository(self) -> None:
         """Registry and repo-pack edits have a stated regeneration step."""

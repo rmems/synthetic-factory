@@ -98,6 +98,23 @@ class ActorProvenanceContractTests(unittest.TestCase):
         codes = _codes(vset.validate_record(record))
         self.assertIn("vset.source_kind_masquerade", codes)
 
+    def test_real_public_engineering_requires_a_canonical_source_repo(self) -> None:
+        """#494: the compose eval-exclusion gate needs an owner/name to match."""
+
+        record = _load(ACCEPT / "provisional.json")
+        record["source_kind"] = "real_public_engineering"
+        record["environment"]["repo_pack_id"] = "upstream-public-1"
+        self.assertIn("vset.source_repo_invalid", _codes(vset.validate_record(record)))
+        for value in ("Clap-rs/clap", "clap-rs", "https://github.com/clap-rs/clap", 7):
+            with self.subTest(value=value):
+                record["environment"]["source_repo"] = value
+                self.assertIn("vset.source_repo_invalid", _codes(vset.validate_record(record)))
+        record["environment"]["source_repo"] = "clap-rs/clap"
+        self.assertNotIn("vset.source_repo_invalid", _codes(vset.validate_record(record)))
+        synthetic = _load(ACCEPT / "provisional.json")
+        self.assertNotIn("source_repo", synthetic["environment"])
+        self.assertEqual(_codes(vset.validate_record(synthetic)), [])
+
     def test_accept_requires_synthetic_and_validated_oracle(self) -> None:
         record = _load(ACCEPT / "provisional.json")
         record["curation"]["decision"] = "accept"

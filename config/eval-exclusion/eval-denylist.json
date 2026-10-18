@@ -1,0 +1,9 @@
+{
+  "list": "eval_denylist",
+  "note": "PLACEHOLDER, excludes nothing. The reviewed rmems-eval-v0.1 eval denylist (sha256 f70ab978..., Evaluation Architect research log 2026-10-15/16) is not in this repository and has not been vendored. Replace this file with the real list, set status to reviewed, and keep every repo canonical (lowercase owner/name resolved through repo-aliases.json). See #494.",
+  "program_ids": [],
+  "repos": [],
+  "schema_version": "eval-exclusion-list-v1",
+  "status": "placeholder",
+  "task_ids": []
+}

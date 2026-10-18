@@ -175,6 +175,8 @@ class SummaryCommitContext:
 @dataclass
 class ComposeRunState:
     oracle_selection: str = "all"
+    # Captured once per run so every line and the summary share one policy.
+    exclusion_policy: Any = None
     counts: Counter[str] = field(default_factory=Counter)
     exclusions: Counter[str] = field(default_factory=Counter)
     lane_actions: dict[str, Counter[str]] = field(

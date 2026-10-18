@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "eval-exclusion-list-v1.schema.json",
+  "title": "Synthetic Factory Eval Exclusion List v1",
+  "description": "Shape of config/eval-exclusion/eval-denylist.json and config/eval-exclusion/do-not-train.json (#494). pipelines/eval_exclusion_lists.py is the authoritative loader: it also requires the file bytes to be the canonical exact-JSON form (two-space indent, sorted keys, trailing newline), every value list to be sorted, and every repo to be a canonical name that config/eval-exclusion/repo-aliases.json does not record as an old name. Values are matched whole, never by substring.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "list", "status", "note", "repos", "program_ids", "task_ids"],
+  "$defs": {
+    "value": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^\\S(?:.*\\S)?$"
+    }
+  },
+  "properties": {
+    "schema_version": { "const": "eval-exclusion-list-v1" },
+    "list": { "enum": ["eval_denylist", "do_not_train"] },
+    "status": {
+      "enum": ["placeholder", "reviewed"],
+      "description": "placeholder lists must be empty; they exclude nothing and say so in every compose summary."
+    },
+    "note": { "$ref": "#/$defs/value" },
+    "repos": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z0-9](?:[a-z0-9-]{0,37}[a-z0-9])?/[a-z0-9._-]{1,100}$"
+      }
+    },
+    "program_ids": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/value" } },
+    "task_ids": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/value" } }
+  }
+}
