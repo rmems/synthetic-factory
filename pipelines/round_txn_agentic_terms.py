@@ -209,18 +209,17 @@ PLAN_CHANGE_TERMS = (
 )
 # Each term starts a word and carries at most an inflection, so "add" matches
 # "add", "added" and "adding" but not "address", "padding" or "additional".
-# A term's final "e" is optional so "change" also matches "changing" and
-# "revise" matches "revision"; "escalat" is a stem on purpose.
-def _plan_change_stem(term: str) -> str:
+# A term ending in "e" gives up that "e" to the inflection, so "change" also
+# matches "changing" and "revise" matches "revision", while the bare stem
+# ("chang", a surname) does not. "escalat" is a stem on purpose.
+def _plan_change_word(term: str) -> str:
     if term.endswith("e"):
-        return re.escape(term[:-1]) + "e?"
-    return re.escape(term)
+        return re.escape(term[:-1]) + r"(?:e|es|ed|ing|ion|ions)"
+    return re.escape(term) + r"(?:e|es|s|d|ed|ing|ion|ions|red|ring)?"
 
 
-_PLAN_CHANGE_STEMS = "|".join(_plan_change_stem(term) for term in PLAN_CHANGE_TERMS)
-PLAN_CHANGE_RE = re.compile(
-    rf"\b(?:{_PLAN_CHANGE_STEMS})(?:e|es|s|d|ed|ing|ion|ions|red|ring)?\b"
-)
+_PLAN_CHANGE_WORDS = "|".join(_plan_change_word(term) for term in PLAN_CHANGE_TERMS)
+PLAN_CHANGE_RE = re.compile(rf"\b(?:{_PLAN_CHANGE_WORDS})\b")
 IGNORED_PLAN_TERMS = (
     "ignored",
     "no change",

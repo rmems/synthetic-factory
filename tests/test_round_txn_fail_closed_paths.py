@@ -344,6 +344,7 @@ class AgenticPredicateTests(unittest.TestCase):
             "padding the buffer hides the race",
             "the additional test is unchanged",
             "proceed with the original plan",
+            "chang and revis will investigate",
         ):
             with self.subTest(text=text):
                 self.assertFalse(round_txn_agentic._names_plan_change(text))
