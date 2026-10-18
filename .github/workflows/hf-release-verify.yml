@@ -43,7 +43,7 @@ jobs:
           python-version: "3.14"
 
       - name: Run verifier unit tests
-        run: python -m unittest tests.test_verify_hf_release -q
+        run: python -m unittest tests.test_verify_hf_release tests.test_verify_hf_release_rights -q
 
       - name: Verify public raw-release contract
         run: python pipelines/verify_hf_release.py
