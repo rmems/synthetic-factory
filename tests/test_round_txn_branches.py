@@ -211,8 +211,7 @@ class MarkerModeTests(TempCaseMixin, unittest.TestCase):
             round_txn.validated_marker_mode(factory)
 
     def test_execution_gate_policy_rejects_malformed_bindings(self):
-        rounds = round_txn.EXECUTION_VERIFIED_ROUNDS_FIELD
-        cutover = round_txn.EXECUTION_CUTOVER_FIELD
+        rounds, cutover = round_txn.EXECUTION_VERIFIED_ROUNDS_FIELD, round_txn.EXECUTION_CUTOVER_FIELD
         cases = (
             ({rounds: "1"}, rounds), ({cutover: 3, rounds: [0]}, rounds),
             ({cutover: 3, rounds: [2, 1]}, rounds), ({rounds: [1]}, rounds),
