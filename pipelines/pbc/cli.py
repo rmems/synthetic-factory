@@ -6,7 +6,9 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 if __package__:
     from . import catalog
@@ -28,64 +30,82 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _plan_payload(loaded: catalog.MillUsageBurstPlan) -> dict:
+    return {
+        "family_prefix": loaded.family_prefix,
+        "factory": loaded.factory,
+        "slice": loaded.slice,
+        "label": loaded.label,
+        "run_label": loaded.run_label,
+        "counts": loaded.counts(),
+        "mills": [
+            {
+                "id": mill.mill_id,
+                "source": mill.source,
+                "start_round": mill.start_round,
+                "end_round": mill.end_round_inclusive,
+                "n_rounds": mill.n_rounds,
+                "pair_count": mill.pair_count,
+                "full_n_rounds": mill.full_n_rounds,
+                "episodes": mill.episodes,
+            }
+            for mill in loaded.mills
+        ],
+    }
+
+
+def _load_or_report(load: Callable[..., Any], *args: Any) -> Any:
+    """Run a fail-closed loader; report a validation refusal on stderr as ``None``."""
+
+    try:
+        return load(*args)
+    except catalog.PlanValidationError as exc:
+        print(str(exc), file=sys.stderr)
+        return None
+
+
+def _run_plan(args: argparse.Namespace) -> int:
+    loaded = _load_or_report(catalog.load_mill_usage_burst_plan, args.plan)
+    if loaded is None:
+        return 2
+    payload = _plan_payload(loaded)
+    if args.json:
+        print(json.dumps(payload, indent=2, sort_keys=True))
+    else:
+        counts = payload["counts"]
+        print(
+            f"slice {loaded.slice} {loaded.label}: "
+            f"{counts['mills']} mills, {counts['rounds']} committed rounds, "
+            f"{counts['episodes']} episodes"
+        )
+    return 0
+
+
+def _run_catalog() -> int:
+    loaded = _load_or_report(catalog.load_catalog)
+    if loaded is None:
+        return 2
+    print(
+        json.dumps(
+            {
+                "catalog_id": loaded.catalog_id,
+                "row_count": len(loaded.pairs),
+                "plants_sha256": loaded.plants_sha256,
+                "mills": [mill.mill_id for mill in loaded.mills],
+            },
+            indent=2,
+            sort_keys=True,
+        )
+    )
+    return 0
+
+
 def run(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     if args.command == "plan":
-        try:
-            loaded = catalog.load_mill_usage_burst_plan(args.plan)
-        except catalog.PlanValidationError as exc:
-            print(str(exc), file=sys.stderr)
-            return 2
-        payload = {
-            "family_prefix": loaded.family_prefix,
-            "factory": loaded.factory,
-            "slice": loaded.slice,
-            "label": loaded.label,
-            "run_label": loaded.run_label,
-            "counts": loaded.counts(),
-            "mills": [
-                {
-                    "id": mill.mill_id,
-                    "source": mill.source,
-                    "start_round": mill.start_round,
-                    "end_round": mill.end_round_inclusive,
-                    "n_rounds": mill.n_rounds,
-                    "pair_count": mill.pair_count,
-                    "full_n_rounds": mill.full_n_rounds,
-                    "episodes": mill.episodes,
-                }
-                for mill in loaded.mills
-            ],
-        }
-        if args.json:
-            print(json.dumps(payload, indent=2, sort_keys=True))
-        else:
-            counts = payload["counts"]
-            print(
-                f"slice {loaded.slice} {loaded.label}: "
-                f"{counts['mills']} mills, {counts['rounds']} committed rounds, "
-                f"{counts['episodes']} episodes"
-            )
-        return 0
+        return _run_plan(args)
     if args.command == "catalog":
-        try:
-            loaded = catalog.load_catalog()
-        except catalog.PlanValidationError as exc:
-            print(str(exc), file=sys.stderr)
-            return 2
-        print(
-            json.dumps(
-                {
-                    "catalog_id": loaded.catalog_id,
-                    "row_count": len(loaded.pairs),
-                    "plants_sha256": loaded.plants_sha256,
-                    "mills": [mill.mill_id for mill in loaded.mills],
-                },
-                indent=2,
-                sort_keys=True,
-            )
-        )
-        return 0
+        return _run_catalog()
     return 2
 
 

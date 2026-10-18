@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import ast
 import hashlib
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from . import lineage as lin
 from . import vocabulary as cv
@@ -171,17 +171,26 @@ def _finding(category: str, node: ast.AST, evidence: str) -> OperationFinding:
     )
 
 
-def _classify_call(call: ast.Call) -> list[OperationFinding]:
-    findings: list[OperationFinding] = []
-    name, _simple = _qualified_name(call.func)
+def _call_category(call: ast.Call, name: str) -> str | None:
     category = _CALL_BY_QUALIFIED.get(name)
     if name == "open" and _open_mode(call) in _WRITE_MODES:
         category = cv.FINDING_FILE_WRITE
     if category is None and isinstance(call.func, ast.Attribute):
         category = _CALL_BY_ATTR.get(call.func.attr)
+    return category
+
+
+def _names_raw_tree(call: ast.Call) -> bool:
+    return any(_RAW_MARKER in text for text in _call_strings(call))
+
+
+def _classify_call(call: ast.Call) -> list[OperationFinding]:
+    findings: list[OperationFinding] = []
+    name, _simple = _qualified_name(call.func)
+    category = _call_category(call, name)
     if category is not None:
         findings.append(_finding(category, call, name or ast.unparse(call.func)))
-        if category == cv.FINDING_FILE_WRITE and any(_RAW_MARKER in text for text in _call_strings(call)):
+        if category == cv.FINDING_FILE_WRITE and _names_raw_tree(call):
             findings.append(_finding(cv.FINDING_RAW_DATASET_MUTATION, call, name))
     return findings
 
@@ -222,6 +231,53 @@ def _empty_features() -> Features:
     return Features(0, 0, 0, 0, (), ())
 
 
+@dataclass
+class _Tally:
+    """Running feature counts and findings for one ``ast.walk`` pass."""
+
+    functions: int = 0
+    classes: int = 0
+    imports: int = 0
+    calls: int = 0
+    episode_functions: list[str] = field(default_factory=list)
+    factory_literals: list[str] = field(default_factory=list)
+    operations: list[OperationFinding] = field(default_factory=list)
+
+    def visit(self, node: ast.AST) -> None:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            self._function(node)
+        elif isinstance(node, ast.ClassDef):
+            self.classes += 1
+        elif isinstance(node, (ast.Import, ast.ImportFrom)):
+            self.imports += 1
+            self.operations.extend(_classify_import(node))
+        elif isinstance(node, ast.Call):
+            self.calls += 1
+            self.operations.extend(_classify_call(node))
+        elif isinstance(node, ast.Constant):
+            self._constant(node)
+
+    def _function(self, node: ast.FunctionDef | ast.AsyncFunctionDef) -> None:
+        self.functions += 1
+        if node.name.startswith("ep") and node.name[2:].isdigit():
+            self.episode_functions.append(node.name)
+
+    def _constant(self, node: ast.Constant) -> None:
+        if isinstance(node.value, str) and node.value == _FACTORY_LITERAL:
+            self.factory_literals.append(node.value)
+        self.operations.extend(_string_findings(node))
+
+    def features(self) -> Features:
+        return Features(
+            functions=self.functions,
+            classes=self.classes,
+            imports=self.imports,
+            calls=self.calls,
+            episode_functions=tuple(self.episode_functions),
+            factory_literals=tuple(self.factory_literals),
+        )
+
+
 def scan_source(source_text: str, *, filename: str = "<actf>") -> ScanResult:
     """Parse ``source_text`` with ``ast.parse`` only. Never execute it."""
 
@@ -240,43 +296,15 @@ def scan_source(source_text: str, *, filename: str = "<actf>") -> ScanResult:
             filename=filename,
             empty=empty,
         )
-    functions = 0
-    classes = 0
-    imports = 0
-    calls = 0
-    episode_functions: list[str] = []
-    factory_literals: list[str] = []
-    operations: list[OperationFinding] = []
+    tally = _Tally()
     for node in ast.walk(tree):
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            functions += 1
-            if node.name.startswith("ep") and node.name[2:].isdigit():
-                episode_functions.append(node.name)
-        elif isinstance(node, ast.ClassDef):
-            classes += 1
-        elif isinstance(node, (ast.Import, ast.ImportFrom)):
-            imports += 1
-            operations.extend(_classify_import(node))
-        elif isinstance(node, ast.Call):
-            calls += 1
-            operations.extend(_classify_call(node))
-        elif isinstance(node, ast.Constant):
-            if isinstance(node.value, str) and node.value == _FACTORY_LITERAL:
-                factory_literals.append(node.value)
-            operations.extend(_string_findings(node))
+        tally.visit(node)
     return ScanResult(
         syntax_status=cv.SYNTAX_OK,
         syntax_error=None,
         syntax_line=None,
-        features=Features(
-            functions=functions,
-            classes=classes,
-            imports=imports,
-            calls=calls,
-            episode_functions=tuple(episode_functions),
-            factory_literals=tuple(factory_literals),
-        ),
-        operations=tuple(operations),
+        features=tally.features(),
+        operations=tuple(tally.operations),
         source_sha256=digest,
         filename=filename,
         empty=empty,

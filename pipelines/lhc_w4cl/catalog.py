@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from .catalog_extract import catalog_json_path
-from .sources import MILL_SOURCES, catalog_sources
+from .sources import MILL_SOURCES, MillSource, catalog_sources
 from .vocabulary import (
     CATALOG_SCHEMA_ID,
     FACTORY,
@@ -118,26 +118,36 @@ def _mill_from_row(row: Mapping[str, Any]) -> MillCatalog:
     )
 
 
-def _bind_sources(catalog: LhcW4clCatalog) -> None:
-    expected = {source.mill_id: source for source in catalog_sources()}
-    if set(catalog.mills) != set(expected):
+def _refuse_mill_set_drift(mills: Mapping[str, MillCatalog], expected: Mapping[str, MillSource]) -> None:
+    if set(mills) != set(expected):
         raise ValueError(
             "catalog mills drifted from sources: "
-            f"extra={sorted(set(catalog.mills) - set(expected))} "
-            f"missing={sorted(set(expected) - set(catalog.mills))}"
+            f"extra={sorted(set(mills) - set(expected))} "
+            f"missing={sorted(set(expected) - set(mills))}"
         )
     if len(MILL_SOURCES) != SOURCE_COUNT:
         raise ValueError(f"expected {SOURCE_COUNT} w4cl mill, found {len(MILL_SOURCES)}")
-    mill = catalog.mills[SLICE_MILL_ID]
-    source = expected[SLICE_MILL_ID]
-    if mill.path != source.path or mill.blob_sha != source.blob_sha:
-        raise ValueError(f"{SLICE_MILL_ID} pin disagrees with sources.py")
-    if mill.catalog_first != source.catalog_first:
-        raise ValueError(f"{SLICE_MILL_ID} catalog_first disagrees with sources.py")
-    if mill.n_rows != source.n_rows or len(mill.pairs) != mill.n_rows:
-        raise ValueError(f"{SLICE_MILL_ID} pair rows do not match n_rows")
-    if mill.n_plants != source.n_plants or len(mill.plants) != mill.n_plants:
-        raise ValueError(f"{SLICE_MILL_ID} plant rows do not match n_plants")
+
+
+def _refuse_slice_pin_drift(mill: MillCatalog, source: MillSource) -> None:
+    checks = (
+        (mill.path != source.path or mill.blob_sha != source.blob_sha,
+         "pin disagrees with sources.py"),
+        (mill.catalog_first != source.catalog_first, "catalog_first disagrees with sources.py"),
+        (mill.n_rows != source.n_rows or len(mill.pairs) != mill.n_rows,
+         "pair rows do not match n_rows"),
+        (mill.n_plants != source.n_plants or len(mill.plants) != mill.n_plants,
+         "plant rows do not match n_plants"),
+    )
+    for drifted, problem in checks:
+        if drifted:
+            raise ValueError(f"{SLICE_MILL_ID} {problem}")
+
+
+def _bind_sources(catalog: LhcW4clCatalog) -> None:
+    expected = {source.mill_id: source for source in catalog_sources()}
+    _refuse_mill_set_drift(catalog.mills, expected)
+    _refuse_slice_pin_drift(catalog.mills[SLICE_MILL_ID], expected[SLICE_MILL_ID])
 
 
 CATALOG = load_catalog()

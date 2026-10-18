@@ -18,10 +18,12 @@ class BuildersRefuseOutsideTheVocabulary(unittest.TestCase):
     """The block builders raise ContractError instead of writing an illegal value."""
 
     def test_generator_kind_model_and_notes(self):
+        alien = oc.GeneratorIdentity("g", version="1", kind="alien")
         with self.assertRaises(oc.ContractError):
-            oc.new_generator(oc.GeneratorIdentity("g", version="1", kind="alien"))
+            oc.new_generator(alien)
+        unnamed_llm = oc.GeneratorIdentity("g", version="1", kind="llm")
         with self.assertRaises(oc.ContractError):
-            oc.new_generator(oc.GeneratorIdentity("g", version="1", kind="llm"))
+            oc.new_generator(unnamed_llm)
         llm = oc.new_generator(
             oc.GeneratorIdentity("g", version="1", kind="llm", model="teacher-x"), seed=7, notes="why"
         )
@@ -59,8 +61,9 @@ class BuildersRefuseOutsideTheVocabulary(unittest.TestCase):
                     "implementation": "x", "version": "1",
                 }
                 fields.update(changes)
+                oracle_identity = oc.OracleIdentity(**fields)
                 with self.assertRaises(oc.ContractError):
-                    oc.new_oracle(oc.OracleIdentity(**fields))
+                    oc.new_oracle(oracle_identity)
 
     def test_generator_identity_and_seed_are_refused_by_the_builder(self):
         for identity, seed in (
@@ -81,10 +84,12 @@ class BuildersRefuseOutsideTheVocabulary(unittest.TestCase):
             fields.update(changes)
             return oc.OracleIdentity("o", **fields)
 
+        astrology = identity(oracle_type="astrology")
         with self.assertRaises(oc.ContractError):
-            oc.new_oracle(identity(oracle_type="astrology"))
+            oc.new_oracle(astrology)
+        guess = identity(authority="guess")
         with self.assertRaises(oc.ContractError):
-            oc.new_oracle(identity(authority="guess"))
+            oc.new_oracle(guess)
         fingerprint = {"model": "m", "layers": [1, 2]}
         block = oc.new_oracle(
             identity(),
@@ -101,12 +106,16 @@ class BuildersRefuseOutsideTheVocabulary(unittest.TestCase):
         with self.assertRaises(oc.ContractError):
             oc.new_result(status="done")
         base = minimal_record()
+        unknown_family = oc.RecordIdentity("rec-2", "no-such-family")
+        proposal = oc.Proposal(generator=base["generator"], scenario=base["scenario"])
+        verdict = oc.Verdict(oracle=base["oracle"], result=base["result"])
+        provenance = oc.new_provenance("unit-test")
         with self.assertRaises(oc.ContractError):
             oc.build_record(
-                identity=oc.RecordIdentity("rec-2", "no-such-family"),
-                proposal=oc.Proposal(generator=base["generator"], scenario=base["scenario"]),
-                verdict=oc.Verdict(oracle=base["oracle"], result=base["result"]),
-                provenance=oc.new_provenance("unit-test"),
+                identity=unknown_family,
+                proposal=proposal,
+                verdict=verdict,
+                provenance=provenance,
             )
         record = oc.build_record(
             identity=oc.RecordIdentity("rec-2", base["family"]),
@@ -187,12 +196,13 @@ class BuilderCopyBoundary(unittest.TestCase):
         ):
             with self.subTest(case=name):
                 payload = {"payload": Uncopyable(error)}
+                if section == "scenario":
+                    scenario, result = payload, None
+                else:
+                    base = minimal_record()
+                    scenario, result = {"mission": "x"}, {**base["result"], **payload}
                 with self.assertRaises(oc.ContractError) as caught:
-                    if section == "scenario":
-                        self.build(payload)
-                    else:
-                        base = minimal_record()
-                        self.build({"mission": "x"}, result={**base["result"], **payload})
+                    self.build(scenario, result=result)
                 self.assertIs(caught.exception.__cause__, error)
                 self.assertIn(section, str(caught.exception))
 

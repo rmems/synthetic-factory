@@ -277,6 +277,106 @@ class DprSkeletonTests(unittest.TestCase):
                 load_deferred_pairs(dest)
 
 
+def _deferred_lines() -> list[str]:
+    return pairs_jsonl_path().read_text(encoding="utf-8").splitlines()
+
+
+def _deferred_index(lines: list[str], mill_id: str, position: int) -> int:
+    hits = [
+        index for index, line in enumerate(lines)
+        if '"ok"' not in line and json.loads(line)["mill_id"] == mill_id
+    ]
+    return hits[position]
+
+
+def _plants_source(extra: str) -> str:
+    """One CATALOG row carrying every leftover plant key, plus ``extra`` entries."""
+    row = {key: f"v-{key}" for key in dv.LEFTOVER_PLANT_KEYS}
+    return "CATALOG = [" + repr(row)[:-1] + extra + "}]\n"
+
+
+def _load_edited(lines: list[str]):
+    with tempfile.TemporaryDirectory() as tmp:
+        dest = Path(tmp) / "pairs.jsonl"
+        dest.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        return load_deferred_pairs(dest)
+
+
+def _edited_row(lines: list[str], index: int, **changes: str) -> list[str]:
+    row = json.loads(lines[index])
+    row.update(changes)
+    edited = list(lines)
+    edited[index] = json.dumps(row, ensure_ascii=True, separators=(",", ":"), sort_keys=True)
+    return edited
+
+
+class DprExtractEdgeTests(unittest.TestCase):
+    """Literal lowering, path-constant shapes, and per-mill deferred checks on small inputs."""
+
+    PATH = "experiments/mill_dpr_edge_r9.py"
+
+    def _refused(self, source: str, fragment: str) -> None:
+        with self.assertRaises(DprExtractError) as caught:
+            extract_mill_catalog(source, path=self.PATH)
+        self.assertIn(fragment, str(caught.exception))
+
+    def test_signed_numbers_sets_and_tuples_lower_to_json_values(self):
+        source = _plants_source(", 'neg': -2, 'pos': +3, 'tags': {'a'}, 'pair': (1, 2)")
+        extracted = extract_mill_catalog(source, path=self.PATH)
+        plant = extracted["plants"][0]
+        self.assertEqual((plant["neg"], plant["pos"], plant["tags"], plant["pair"]),
+                         (-2, 3, ["a"], [1, 2]))
+        self.assertEqual((extracted["kind"], extracted["catalog_first"]), (KIND_PLANTS, 9))
+        self.assertEqual((extracted["factory"], extracted["generator"]),
+                         (dv.FACTORY, dv.GENERATOR))
+
+    def test_non_constant_catalogs_are_refused(self):
+        self._refused("CATALOG = [{**base}]\n", "catalog dict uses unpacking")
+        self._refused(_plants_source(", 'x': name"), "not a constant (Name)")
+        self._refused(_plants_source(", 'x': not True"), "not a constant (UnaryOp)")
+        self._refused("CATALOG = []\n", f"{self.PATH}: CATALOG is empty")
+        self._refused("PAIRS = []\n", f"{self.PATH}: PAIRS is empty")
+        self._refused("CATALOG = [1]\n", "CATALOG[0] is not a dict")
+        self._refused("CATALOG = [{'slug': 'x'}]\n", "CATALOG[0] missing")
+        self._refused(_plants_source("").replace("'v-slug'", "''"), "CATALOG[0].slug is empty")
+
+    def test_path_constants_skip_assignments_of_other_shapes(self):
+        joined = (
+            "MILL = REPO * 'x'\nMILL = REPO / name\nMILL: Path = REPO / 'a.py'\n"
+            "MILL = REPO / 'experiments/b.py'\n"
+        )
+        self.assertEqual(extract_joined_path_constant(joined, "MILL"), "experiments/b.py")
+        self.assertIsNone(extract_joined_path_constant("OTHER = REPO / 'x.py'\n", "MILL"))
+        called = (
+            "MILL = open('x')\nMILL = Path('a', 'b')\nMILL = Path(name)\nMILL = os.path\n"
+            "MILL = Path('/opt/mills/z.py')\n"
+        )
+        self.assertEqual(extract_call_path_constant(called, "MILL"), "/opt/mills/z.py")
+        self.assertIsNone(extract_call_path_constant("MILL = 1\n", "MILL"))
+
+    def test_deferred_rows_bind_per_mill_counts_and_end_slugs(self):
+        lines = _deferred_lines()
+        sources = [source for source in deferred_sources() if source.mill_id != "dpr-mill-r2631"]
+        first, second = sources[0], sources[1]
+        moved = _edited_row(lines, _deferred_index(lines, first.mill_id, 0),
+                                 mill_id=second.mill_id, path=second.path)
+        with self.assertRaisesRegex(ValueError, "deferred rows, expected"):
+            _load_edited(moved)
+        for position, label in ((0, "first"), (-1, "last")):
+            drifted = _edited_row(lines, _deferred_index(lines, first.mill_id, position),
+                                       slug="zz-drifted-slug")
+            with self.assertRaisesRegex(ValueError, f"{first.mill_id} {label} deferred slug"):
+                _load_edited(drifted)
+        ends = _edited_row(lines, _deferred_index(lines, "dpr-mill-r2631", 0),
+                                slug="zz-ends-mill-interior")
+        self.assertEqual(len(_load_edited(ends)), dv.DEFERRED_PAIR_ROWS)
+
+
+    def test_a_600_deep_negation_is_lowered_before_the_missing_keys_refusal(self):
+        # One stack frame per nesting level, as on main: the chain lowers and the
+        # row is refused for its missing keys rather than by a RecursionError.
+        self._refused("CATALOG = [{'slug': 'a', 'x': " + "-" * 600 + "1}]\n", "CATALOG[0] missing")
+
 @unittest.skipUnless(_legacy_available(), "origin/legacy-mill-lane is not fetched")
 class DprLegacyExtractTests(unittest.TestCase):
     def test_committed_catalog_matches_live_ast_extract(self):
@@ -328,7 +428,9 @@ class DprLegacyExtractTests(unittest.TestCase):
         self.assertEqual(load_deferred_pairs(), DEFERRED_PAIRS)
 
     def test_leftover3_loop_names_the_leftover3_mill(self):
-        source = next(item for item in loop_sources() if item.mill_id == "dpr-loop-leftover3-r2475")
+        matches = [item for item in loop_sources() if item.mill_id == "dpr-loop-leftover3-r2475"]
+        self.assertEqual(len(matches), 1)
+        source = matches[0]
         text = subprocess.check_output(
             ["git", "show", f"{dv.LEGACY_REF}:{source.path}"],
             text=True,

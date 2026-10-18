@@ -46,6 +46,14 @@ def _sbox_increment_source(increment):
     return ast.unparse(tree)
 
 
+def _required_item(items):
+    """Return the first selected item, failing clearly when the selection is empty."""
+    try:
+        return next(iter(items))
+    except StopIteration as exc:
+        raise AssertionError("required fixture selection is empty") from exc
+
+
 class LiteralCatalogExtract(unittest.TestCase):
     def test_encoding_cookie_applies_to_the_authenticated_bytes(self):
         source = "# coding: latin-1\n" + SSL_SOURCE.replace("fixture docs", "café")
@@ -56,9 +64,11 @@ class LiteralCatalogExtract(unittest.TestCase):
         for field, original in (("slug", "bind"), ("docs", "fixture docs")):
             for escaped in (r"\ud800", r"\udfff"):
                 source = SSL_SOURCE.replace(f"'{field}': '{original}'", f"'{field}': '{escaped}'")
-                with self.subTest(field=field, escaped=escaped):
-                    with self.assertRaisesRegex(ValueError, "Unicode"):
-                        extract_source(source, path=SSL_PATH)
+                with (
+                    self.subTest(field=field, escaped=escaped),
+                    self.assertRaisesRegex(ValueError, "Unicode"),
+                ):
+                    extract_source(source, path=SSL_PATH)
 
     def test_source_path_must_be_a_plain_string(self):
         path = SSL_PATH
@@ -72,17 +82,21 @@ class LiteralCatalogExtract(unittest.TestCase):
 
         for extractor in (extract_source, module_constants):
             for forged in (ForgedPath('/unreviewed/untrusted-leftover.py'), None, 7):
-                with self.subTest(extractor=extractor.__name__, kind=type(forged)):
-                    with self.assertRaisesRegex(ValueError, 'path'):
-                        extractor(SSL_SOURCE, path=forged)
+                with (
+                    self.subTest(extractor=extractor.__name__, kind=type(forged)),
+                    self.assertRaisesRegex(ValueError, 'path'),
+                ):
+                    extractor(SSL_SOURCE, path=forged)
 
     def test_compiler_invalid_original_source_is_refused(self):
         for suffix in ('__debug__ = 0', 'def f(x, x): pass', 'def f(): break',
                        'if __name__ == "__main__":\n    break'):
             for extractor in (extract_source, module_constants):
-                with self.subTest(suffix=suffix, extractor=extractor.__name__):
-                    with self.assertRaises(ValueError):
-                        extractor(SSL_SOURCE + '\n' + suffix, path=SSL_PATH)
+                with (
+                    self.subTest(suffix=suffix, extractor=extractor.__name__),
+                    self.assertRaises(ValueError),
+                ):
+                    extractor(SSL_SOURCE + '\n' + suffix, path=SSL_PATH)
 
     def test_compiler_validation_never_executes_source(self):
         deferred = '\ndef unused():\n    open("unexpected", "w")'
@@ -108,12 +122,16 @@ class LiteralCatalogExtract(unittest.TestCase):
         self.assertEqual(found['sha256'], hashlib.sha256(plain.encode('utf-8')).hexdigest())
 
     def test_blob_identity_does_not_trust_custom_equality(self):
+        # Both forgeries stay hashable, like the plain str they impersonate.
         class ForgedBlob(str):
+            __hash__ = str.__hash__
+
             def __eq__(self, other):
                 return True
 
         class ForgedObject:
             __eq__ = ForgedBlob.__eq__
+            __hash__ = object.__hash__
 
         for blob in (ForgedBlob('forged-git-identity'), ForgedObject()):
             with self.subTest(kind=type(blob)), self.assertRaisesRegex(ValueError, 'blob'):
@@ -285,8 +303,9 @@ class LiteralCatalogExtract(unittest.TestCase):
 
     def test_sbox_extraction_requires_every_four_step_increment(self):
         for increment in (4, 5, 9, 12):
+            source = _sbox_increment_source(increment)
             with self.subTest(increment=increment), self.assertRaises(ValueError):
-                extract_source(_sbox_increment_source(increment), path=SBOX_PATH)
+                extract_source(source, path=SBOX_PATH)
         rows = extract_source(_sbox_increment_source(8), path=SBOX_PATH)['rows']
         self.assertEqual([row['inc'] for row in rows], [4, 8])
 
@@ -313,8 +332,9 @@ class LiteralCatalogExtract(unittest.TestCase):
                  (SBOX_SOURCE, SBOX_PATH, "'live-bin', 4", "'live-bin', 0"),
                  (SBOX_SOURCE, SBOX_PATH, "'live-bin', 4", "'live-bin', -1"))
         for source, path, old, new in cases:
+            mutated = source.replace(old, new)
             with self.subTest(new=new), self.assertRaises(ValueError):
-                extract_source(source.replace(old, new), path=path)
+                extract_source(mutated, path=path)
         self.assertEqual(extract_source(SSL_SOURCE.replace('START = 164', 'START = 0'),
                                         path=SSL_PATH)['catalog_first'], 0)
 
@@ -349,10 +369,11 @@ class LiteralCatalogExtract(unittest.TestCase):
             tree = ast.parse(SSL_SOURCE)
             pairs = tree.body[-1].value
             row = pairs.elts[0]
-            index = next(i for i, key in enumerate(row.keys) if key.value == field)
+            index = _required_item(i for i, key in enumerate(row.keys) if key.value == field)
             row.values[index] = ast.Constant(value=' \t\n ')
+            source = ast.unparse(tree)
             with self.subTest(field=field), self.assertRaises(ValueError):
-                extract_source(ast.unparse(tree), path=SSL_PATH)
+                extract_source(source, path=SSL_PATH)
 
     def test_invoked_local_code_cannot_preserve_prior_catalog_values(self):
         definition = '\ndef clear():\n    PAIRS.clear()\n'

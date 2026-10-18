@@ -235,6 +235,81 @@ def _base_decision(
     }
 
 
+def _admit_agentic_kind(record: Any, kind: str, decision: dict[str, Any]) -> bool:
+    """Whether the record is an object of a curated agentic kind; else record why not."""
+    if not isinstance(record, dict):
+        decision["reason_codes"] = [REASON_RECORD_NOT_OBJECT]
+        return False
+    if kind == INVALID_PREFERENCE_KIND:
+        decision["reason_codes"] = [REASON_SIDE_SHAPE_INVALID]
+        return False
+    if kind not in AGENTIC_KINDS:
+        decision["action"] = ACTION_SKIPPED
+        decision["reason_codes"] = [REASON_SKIPPED_KIND]
+        return False
+    return True
+
+
+def _thought_removal_reasons(removed: int) -> list[str]:
+    return [REASON_THOUGHT_REMOVED] if removed else []
+
+
+def _prefix_overlap_reasons(overlap: dict[str, Any] | None) -> list[str]:
+    """A noted prefix overlap on an emitted preference pair is reported, not refused."""
+    if overlap is not None and overlap["noted"]:
+        return [REASON_PREFIX_OVERLAP]
+    return []
+
+
+def _preference_exclusion_reason(
+    record: dict[str, Any], cleaned: Any, decision: dict[str, Any]
+) -> str | None:
+    """Why a preference pair cannot be emitted; otherwise note its prefix overlap."""
+    ok, goal_reason = shared_preference_goal(record)
+    if not ok:
+        return goal_reason
+    if preference_side_kinds(record) != ("episode", "episode"):
+        return REASON_SIDE_SHAPE_INVALID
+    cleaned_chosen = cleaned.get("chosen")
+    cleaned_rejected = cleaned.get("rejected")
+    if all(
+        cleaned_chosen.get(name) == cleaned_rejected.get(name)
+        for name in ("steps", "outcome")
+    ):
+        return REASON_PREFERENCE_COLLAPSED
+    decision["prefix_overlap"] = prefix_overlap(record.get("chosen"), record.get("rejected"))
+    return None
+
+
+def _safety_case_exclusion_reason(record: dict[str, Any]) -> str | None:
+    case_type = record.get("case_type")
+    if not isinstance(case_type, str) or case_type not in SAFETY_CASE_TYPES:
+        return REASON_SAFETY_CASE_TYPE_INVALID
+    return None
+
+
+def _kind_exclusion_reason(
+    record: dict[str, Any],
+    cleaned: Any,
+    kind: str,
+    decision: dict[str, Any],
+) -> str | None:
+    """The kind-specific reason that excludes the record, or None."""
+    if kind == "preference":
+        return _preference_exclusion_reason(record, cleaned, decision)
+    if kind == "safety_case":
+        return _safety_case_exclusion_reason(record)
+    return None
+
+
+def _emitted_action(missing: list[str], changed: bool) -> str:
+    if missing:
+        return ACTION_FLAGGED
+    if changed:
+        return ACTION_MODIFIED
+    return ACTION_RETAINED
+
+
 def curate_record(
     record: Any,
     *,
@@ -251,48 +326,18 @@ def curate_record(
         source_hash=digest,
         kind=kind,
     )
-    if not isinstance(record, dict):
-        decision["reason_codes"] = [REASON_RECORD_NOT_OBJECT]
-        return None, decision
-    if kind == INVALID_PREFERENCE_KIND:
-        decision["reason_codes"] = [REASON_SIDE_SHAPE_INVALID]
-        return None, decision
-    if kind not in AGENTIC_KINDS:
-        decision["action"] = ACTION_SKIPPED
-        decision["reason_codes"] = [REASON_SKIPPED_KIND]
+    if not _admit_agentic_kind(record, kind, decision):
         return None, decision
 
     cleaned, removed = strip_hidden_thought_keys(record)
     decision["thought_fields_removed"] = removed
-    reasons: list[str] = []
-    if removed:
-        reasons.append(REASON_THOUGHT_REMOVED)
+    reasons = _thought_removal_reasons(removed)
 
-    if kind == "preference":
-        ok, goal_reason = shared_preference_goal(record)
-        if not ok:
-            decision["reason_codes"] = reasons + [goal_reason]
-            return None, decision
-        if preference_side_kinds(record) != ("episode", "episode"):
-            decision["reason_codes"] = reasons + [REASON_SIDE_SHAPE_INVALID]
-            return None, decision
-        cleaned_chosen = cleaned.get("chosen")
-        cleaned_rejected = cleaned.get("rejected")
-        if all(
-            cleaned_chosen.get(name) == cleaned_rejected.get(name)
-            for name in ("steps", "outcome")
-        ):
-            decision["reason_codes"] = reasons + [REASON_PREFERENCE_COLLAPSED]
-            return None, decision
-        overlap = prefix_overlap(record.get("chosen"), record.get("rejected"))
-        decision["prefix_overlap"] = overlap
-        if overlap["noted"]:
-            reasons.append(REASON_PREFIX_OVERLAP)
-    if kind == "safety_case":
-        case_type = record.get("case_type")
-        if not isinstance(case_type, str) or case_type not in SAFETY_CASE_TYPES:
-            decision["reason_codes"] = reasons + [REASON_SAFETY_CASE_TYPE_INVALID]
-            return None, decision
+    exclusion = _kind_exclusion_reason(record, cleaned, kind, decision)
+    if exclusion is not None:
+        decision["reason_codes"] = reasons + [exclusion]
+        return None, decision
+    reasons.extend(_prefix_overlap_reasons(decision["prefix_overlap"]))
 
     missing = missing_decision_basis_paths(cleaned)
     decision["missing_decision_basis"] = missing
@@ -302,17 +347,9 @@ def curate_record(
     if contains_hidden_thought_key(cleaned):
         raise AssertionError("agentic curation emitted a hidden thought key")
 
-    changed = cleaned != record
-    if missing:
-        action = ACTION_FLAGGED
-    elif changed:
-        action = ACTION_MODIFIED
-    else:
-        action = ACTION_RETAINED
-
     decision.update(
         {
-            "action": action,
+            "action": _emitted_action(missing, cleaned != record),
             "reason_codes": reasons,
             "output_id": _record_id(cleaned),
             "output_hash": hash_value(cleaned),
@@ -321,32 +358,34 @@ def curate_record(
     return cleaned, decision
 
 
-def _source_jsonl_entries(source: Path) -> tuple[tuple[Path, str, bool], ...]:
-    """Return visible JSONL paths paired with their enclosing factory names."""
-
-    paths: tuple[Path, ...]
+def _candidate_jsonl_paths(source: Path) -> tuple[Path, ...]:
+    """The source file itself, or every non-symlink JSONL file beneath it, sorted."""
     if not source.exists():
-        paths = ()
-    elif source.is_file():
-        paths = (source,) if source.suffix == ".jsonl" and not source.is_symlink() else ()
-    else:
-        paths = tuple(
-            sorted(
-                path
-                for path in source.rglob("*.jsonl")
-                if path.is_file() and not path.is_symlink()
-            )
+        return ()
+    if source.is_file():
+        return (source,) if source.suffix == ".jsonl" and not source.is_symlink() else ()
+    return tuple(
+        sorted(
+            path
+            for path in source.rglob("*.jsonl")
+            if path.is_file() and not path.is_symlink()
         )
+    )
 
-    visible_by_factory: dict[Path, set[Path]] = {}
-    enclosing_factory: dict[Path, Path | None] = {}
 
-    def marker_factory(path: Path) -> Path | None:
+class _CommittedVisibility:
+    """Resolve each path's enclosing marker factory and whether a round committed it."""
+
+    def __init__(self) -> None:
+        self._visible_by_factory: dict[Path, set[Path]] = {}
+        self._enclosing_factory: dict[Path, Path | None] = {}
+
+    def marker_factory(self, path: Path) -> Path | None:
         visited = []
         current = path.parent
         while True:
-            if current in enclosing_factory:
-                factory = enclosing_factory[current]
+            if current in self._enclosing_factory:
+                factory = self._enclosing_factory[current]
                 break
             visited.append(current)
             if marker_mode_path(current) is not None:
@@ -358,36 +397,45 @@ def _source_jsonl_entries(source: Path) -> tuple[tuple[Path, str, bool], ...]:
                 break
             current = parent
         for directory in visited:
-            enclosing_factory[directory] = factory
+            self._enclosing_factory[directory] = factory
         return factory
 
-    def visible(path: Path) -> bool:
-        factory = marker_factory(path)
+    def visible(self, path: Path) -> bool:
+        factory = self.marker_factory(path)
         if factory is None:
             return True
-        if factory not in visible_by_factory:
-            visible_by_factory[factory] = {
+        if factory not in self._visible_by_factory:
+            self._visible_by_factory[factory] = {
                 candidate.resolve() for candidate in committed_jsonl_paths(factory)
             }
-        return path.resolve() in visible_by_factory[factory]
+        return path.resolve() in self._visible_by_factory[factory]
 
-    def factory_identity(path: Path) -> tuple[str, bool]:
-        return factory_identity_for_path(
-            source,
-            path,
-            marker_root=marker_factory(path),
-            # The reviewed factory registry is the source of truth for which
-            # directory names are a known factory. The round-quota table
-            # (FACTORY_QUOTAS) only covers factories with an active quota;
-            # a registered-but-unquota'd factory (e.g. an identity-only
-            # generator) would otherwise be treated as unverified, letting
-            # an all-foreign batch under that root redefine the destination
-            # from its own payload majority instead of being quarantined.
-            known_factories=default_registry().by_path_id,
-        )
 
+def _factory_identity(source: Path, path: Path, marker_root: Path | None) -> tuple[str, bool]:
+    return factory_identity_for_path(
+        source,
+        path,
+        marker_root=marker_root,
+        # The reviewed factory registry is the source of truth for which
+        # directory names are a known factory. The round-quota table
+        # (FACTORY_QUOTAS) only covers factories with an active quota;
+        # a registered-but-unquota'd factory (e.g. an identity-only
+        # generator) would otherwise be treated as unverified, letting
+        # an all-foreign batch under that root redefine the destination
+        # from its own payload majority instead of being quarantined.
+        known_factories=default_registry().by_path_id,
+    )
+
+
+def _source_jsonl_entries(source: Path) -> tuple[tuple[Path, str, bool], ...]:
+    """Return visible JSONL paths paired with their enclosing factory names."""
+
+    paths = _candidate_jsonl_paths(source)
+    committed = _CommittedVisibility()
     return tuple(
-        (path, *factory_identity(path)) for path in paths if visible(path)
+        (path, *_factory_identity(source, path, committed.marker_factory(path)))
+        for path in paths
+        if committed.visible(path)
     )
 
 
@@ -566,7 +614,7 @@ def _scan_line(scan: _SourceScan, site: _RecordSite, raw_line: bytes) -> None:
         return
     try:
         record = json.loads(text, parse_constant=reject_json_constant)
-    except (json.JSONDecodeError, ValueError):
+    except ValueError:  # json.JSONDecodeError included
         _record_undecodable(scan, site, REASON_INVALID_JSON)
         return
 
@@ -752,7 +800,7 @@ def main(argv: list[str] | None = None) -> int:
             run["summary"]["out"] = str(args.out)
         print(json.dumps(run["summary"], ensure_ascii=False, indent=2, sort_keys=True))
         return 0
-    except (OSError, ValueError, FileExistsError, TransactionError) as exc:
+    except (OSError, ValueError, TransactionError) as exc:  # FileExistsError is an OSError
         print(f"agentic curation failed: {exc}", file=sys.stderr)
         return 1
 

@@ -1,7 +1,8 @@
 # Procedural code-repair admission
 
-The default `config/FACTORY-REGISTRY.json` revision v0.3 adds one procedural
-route: `python-function-repair-factory`, carrying the
+The default `config/FACTORY-REGISTRY.json` (`factory-registry-v0.4`; procedural
+rows were introduced in v0.3) carries the code-repair procedural route
+`python-function-repair-factory`, carrying the
 `python-function-repair` family and the dedicated `code_repair` record kind.
 Existing hosted rows retain their provider, channel, and research-only/blocked
 policy. The v0.1 and v0.2 decoders reject procedural fields and kinds.
@@ -148,3 +149,38 @@ launch; these commands do not launch training or upload to a Hub. The reviewed
 TheAlgorithms/Python pin may still run under rlimits alone. Any other catalog
 source must execute inside `bwrap-ro-netns-v1` (issue #201) before it is
 admitted; this is not a cryptographically signed transaction ledger.
+
+## Consumer renderings and the Hub bundle
+
+An export writes one verified pair in three renderings, each leak-checked
+against its record before it is written and each frozen for the held-out split
+by digest in `held_out/FREEZE.json`: `sft/<split>.jsonl` carries the prompt and
+the complete corrected module (byte-equal to the text the harness executed);
+`chat/<split>.jsonl` carries the same pair as a `messages` list with one user
+and one assistant turn for chat-template trainers; `edit/<split>.jsonl` carries
+the same prompt, with the instruction line asking for an edit, and one
+SEARCH/REPLACE block as the completion. The block is the smallest window of
+whole lines around the changed span that occurs exactly once in the broken
+module, paired with the same window from the verified repair, and it is a valid
+completion only when applying it to the broken module reproduces the repaired
+module's `repaired_sha256`; every mutation is one span, so the whole-module
+completion spends most of its tokens copying the prompt and the edit rendering
+puts the loss on the repair itself. `MANIFEST.json` describes the renderings
+under `views`. The record is the source of truth; a rendering is a projection
+and never carries anything a record does not.
+
+`python3 pipelines/code_repair_cli.py hub-bundle --export <export-dir> --out
+<bundle-dir> --dataset-id <owner>/<name>` turns a complete export into a
+directory the Hub can serve without custom loading code: `data/sft`,
+`data/chat` and `data/edit` as typed configs whose `train`, `validation` and
+`held_out` splits come from the records' lineage splits, the lossless `viewer`
+projection over `evidence/candidates.jsonl` written by the same stdlib Parquet
+writer the published datasets use, the export manifest, the held-out freeze,
+the attribution notices of an admitted export, and a card, `provenance.json`
+and `release-status.json` whose `training_ready` statement is derived from the
+manifest's admission block (admitted, no blockers, replay passed) rather than
+typed by hand. Every export file is re-digested against the manifest and the
+viewer projection is read back before anything is written; a mismatch refuses
+the bundle, which only ever targets a brand-new destination outside
+`outputs/raw/`. The command creates no Hub repository and uploads nothing;
+publication remains a separate, owner-gated step.

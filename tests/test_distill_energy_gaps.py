@@ -136,7 +136,8 @@ class EnergyPreferenceGaps(unittest.TestCase):
             f"an over-cap allocation passed as safe: {errors}",
         )
 
-    def _sync_measurements(self, record: dict, candidate_id: str, twin: dict) -> None:
+    @staticmethod
+    def _sync_measurements(record: dict, candidate_id: str, twin: dict) -> None:
         """Point one candidate's oracle measurements at its own values."""
 
         for item in record["result"]["measurements"]:

@@ -36,10 +36,7 @@ class ComposeRunContextContract(unittest.TestCase):
     def test_run_coordinates_are_immutable(self):
         """Mutation must not redirect a run after source authentication."""
 
-        try:
-            from compose_curated_run_context import ComposeRunContext
-        except ModuleNotFoundError:
-            self.fail("compose_curated_run_context.ComposeRunContext is missing")
+        from compose_curated_run_context import ComposeRunContext
 
         context = ComposeRunContext(Path("source"), Path("destination"), None)
 
@@ -49,19 +46,17 @@ class ComposeRunContextContract(unittest.TestCase):
     def test_non_regular_default_calibration_fails_closed(self):
         """A canonical directory must never be recorded as no calibration."""
 
-        try:
-            from compose_curated_calibration import CalibrationContext, load_calibration
-        except ModuleNotFoundError:
-            self.fail("compose_curated_calibration boundary is missing")
+        from compose_curated_calibration import CalibrationContext, load_calibration
 
         with tempfile.TemporaryDirectory() as td:
             source = Path(td)
             default = source / "failure-as-fuel-preference-cascade/units-migration.json"
             default.mkdir(parents=True)
             context = CalibrationContext(source, None)
+            services = calibration_services()
 
             with self.assertRaisesRegex(ComposeError, "not an exact regular file"):
-                load_calibration(context, calibration_services())
+                load_calibration(context, services)
 
     def test_direct_factory_root_selects_its_own_calibration_sidecar(self):
         from compose_curated_calibration import CalibrationContext, _calibration_path
@@ -84,9 +79,10 @@ class ComposeRunContextContract(unittest.TestCase):
 
         depth = 200_000
         payload = b"[" * depth + b"]" * depth
+        services = calibration_services()
 
         with self.assertRaisesRegex(ComposeError, "invalid calibration JSON"):
-            _decode_calibration(Path("units-migration.json"), payload, calibration_services())
+            _decode_calibration(Path("units-migration.json"), payload, services)
 
 
 if __name__ == "__main__":

@@ -14,7 +14,15 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import tool_world_test_support as support
-from tool_world_pack_support import ADD_SUB, DELETE_LOCK, PACK, call, plain_env, refusal, spec
+from tool_world_pack_support import (
+    ADD_SUB,
+    DELETE_LOCK,
+    PACK,
+    call,
+    plain_env,
+    refusal,
+    spec,
+)
 
 # The support modules go first: they put pipelines/ on sys.path for the imports below.
 # isort: split

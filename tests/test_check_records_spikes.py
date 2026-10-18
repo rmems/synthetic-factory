@@ -39,7 +39,8 @@ class SpikeOrderHasOneOwner(unittest.TestCase):
         {"channel": "b", "t_rel_ms": 1.0, "amplitude": 0.3},
     ]
 
-    def _errors(self, record):
+    @staticmethod
+    def _errors(record):
         tmp, run_dir = _run_dir([record])
         with tmp:
             return check_records.check_run(run_dir)["errors"]

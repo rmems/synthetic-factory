@@ -4,12 +4,12 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from dataclasses import dataclass
 from typing import Any
 
 from ._contract import (
     FACTORY,
     FAMILY_PREFIX,
-    FINDING_GENERATE_GOAL,
     FINDING_GENERATE_HIDDEN,
     FINDING_GENERATE_SHAPE,
     GENERATOR,
@@ -61,20 +61,57 @@ def _episode_id(round_n: int, slug: str) -> str:
     return f"{FAMILY_PREFIX}-r{round_n:02d}-{slug}"
 
 
-def build_success(round_n: int, plant: Mapping[str, Any]) -> dict[str, Any]:
-    gen._goal_ok(
-        f"Bind leftover leftover leftover {plant['stack']} {plant['idf']}; "
-        f"do not raise {plant['naive']} to hide lag."
+@dataclass(frozen=True)
+class _Investigation:
+    """What the success and handoff investigations (steps 1-5) differ in."""
+
+    short: Any
+    test_fn: Any
+    failure: str
+    test_body: str
+    grep: str
+    flag: str
+
+
+def _success_investigation(plant: Mapping[str, Any]) -> _Investigation:
+    idf, naive = plant["idf"], plant["naive"]
+    return _Investigation(
+        short=plant["short"],
+        test_fn=plant["test_ok"],
+        failure=f"leftover leftover leftover stretched {naive}; {idf} unbounded",
+        test_body=f"    t = tune(True)\n    assert t.get({idf!r}) and {naive!r} not in t\n",
+        grep=f"{idf}|{naive}",
+        flag="lag",
     )
-    src = f"src/{plant['mod']}.py"
-    cfg = f"{plant['mod']}/cfg.yml"
-    test = f"tests/test_{plant['mod']}.py"
-    idf, evf, naive = plant["idf"], plant["evf"], plant["naive"]
-    steps = [
+
+
+def _handoff_investigation(plant: Mapping[str, Any]) -> _Investigation:
+    naive = plant["naive"]
+    return _Investigation(
+        short=plant["dshort"],
+        test_fn=plant["test_fail"],
+        failure=(
+            f"leftover leftover leftover slept {naive}; "
+            f"drop {plant['dropk']} is not a leftover leftover leftover bind"
+        ),
+        test_body=f"    assert {naive!r} not in tune(True)\n",
+        grep=f"{naive}|{plant['dropk']}",
+        flag="blocked",
+    )
+
+
+def _investigation_steps(
+    plant: Mapping[str, Any], paths: tuple[str, str, str], case: _Investigation
+) -> list[dict[str, Any]]:
+    """Steps 1-5: list, reproduce, read the test, grep, read the source."""
+
+    src, cfg, test = paths
+    naive, flag = plant["naive"], case.flag
+    return [
         gen._step(
             1,
-            _db("Plan", f"list src {plant['short']} and tests before touching conversion or config."),
-            gen._bash(f"ls -la src {plant['short']} tests | head -40"),
+            _db("Plan", f"list src {case.short} and tests before touching conversion or config."),
+            gen._bash(f"ls -la src {case.short} tests | head -40"),
             f"{src} {cfg}\n{test}",
             f"Tree shows {src} plus tests. Run the named failing target next.",
         ),
@@ -82,30 +119,38 @@ def build_success(round_n: int, plant: Mapping[str, Any]) -> dict[str, Any]:
             2,
             _db("Observation", f"listing named the test files. Run `{test} -q --tb=short` to capture the failure."),
             gen._pytest(f"{test} -q --tb=short"),
-            f"{test}::{plant['test_ok']} FAILED\nE   AssertionError: leftover leftover leftover stretched {naive}; {idf} unbounded",
-            f"Failure is at {test}::{plant['test_ok']}. Read that test before a one-line fix.",
+            f"{test}::{case.test_fn} FAILED\nE   AssertionError: {case.failure}",
+            f"Failure is at {test}::{case.test_fn}. Read that test before a one-line fix.",
         ),
         gen._step(
             3,
-            _db("Observation", f"{test}::{plant['test_ok']} is red. Read {test} around the assertion."),
+            _db("Observation", f"{test}::{case.test_fn} is red. Read {test} around the assertion."),
             gen._read(test),
-            f"def {plant['test_ok']}():\n    t = tune(True)\n    assert t.get({idf!r}) and {naive!r} not in t\n",
+            f"def {case.test_fn}():\n{case.test_body}",
             "Test contract is visible. Search implementation symbols next.",
         ),
         gen._step(
             4,
             _db("Observation", "test file imported the production helper. Grep those symbols."),
-            gen._bash(f"rg -n '{idf}|{naive}|leftover' src {plant['short']} tests"),
-            f"{src}:2: return {{{naive!r}: 5}} if lag else {{}}",
+            gen._bash(f"rg -n '{case.grep}|leftover' src {case.short} tests"),
+            f"{src}:2: return {{{naive!r}: 5}} if {flag} else {{}}",
             f"Grep hit {src}. Read it before editing the first match.",
         ),
         gen._step(
             5,
             _db("Observation", f"grep listed {src}. Read it before any patch."),
             gen._read(src),
-            f"def tune(lag):\n    return {{{naive!r}: 5}} if lag else {{}}\n",
+            f"def tune({flag}):\n    return {{{naive!r}: 5}} if {flag} else {{}}\n",
             "First read done. Fetch vendor docs next; do not patch on a hunch yet.",
         ),
+    ]
+
+
+def _success_docs_steps(plant: Mapping[str, Any]) -> list[dict[str, Any]]:
+    """Steps 6-9: 502 then 429 on the two vendor documents, each recovered."""
+
+    idf, naive = plant["idf"], plant["naive"]
+    return [
         gen._step(
             6,
             _db("Observation", "local files are in. Need the changelog/registry before editing."),
@@ -134,6 +179,14 @@ def build_success(round_n: int, plant: Mapping[str, Any]) -> dict[str, Any]:
             f"sleep + jitter retry of the same URL\nHTTP/1.1 200 OK\nBind leftover leftover leftover {idf}, do not drop {plant['dropk']}.",
             "Retry succeeded. Resume the local debug plan with that document in hand.",
         ),
+    ]
+
+
+def _success_patch_steps(plant: Mapping[str, Any], src: str, test: str) -> list[dict[str, Any]]:
+    """Steps 10-13: timeout patch, still red, re-read, bind the resume id."""
+
+    idf, evf, naive = plant["idf"], plant["evf"], plant["naive"]
+    return [
         gen._step(
             10,
             _db("Observation", f"docs and source are in. Apply the first patch to {src}."),
@@ -169,6 +222,13 @@ def build_success(round_n: int, plant: Mapping[str, Any]) -> dict[str, Any]:
             f"patched leftover leftover leftover {idf}",
             "Corrective patch applied. Run the original failing node again.",
         ),
+    ]
+
+
+def _success_close_steps(plant: Mapping[str, Any], src: str, test: str) -> list[dict[str, Any]]:
+    """Steps 14-16: green focused and broader runs, diffstat."""
+
+    return [
         gen._step(
             14,
             _db("Observation", "fix edit returned clean. Re-run the original failing test node."),
@@ -191,88 +251,13 @@ def build_success(round_n: int, plant: Mapping[str, Any]) -> dict[str, Any]:
             "Diff is the review artifact. No further edits.",
         ),
     ]
-    eid = _episode_id(round_n, str(plant["slug"]))
-    episode = {
-        "id": eid,
-        "goal": f"Bind leftover leftover leftover {plant['stack']} {idf}; do not raise {naive} to hide lag.",
-        "plan": f"Read leftover leftover leftover-as-timeout, try 30s, then {idf} plus {evf}.",
-        "steps": steps,
-        "outcome": f"leftover leftover leftover {idf} bound. {naive} unused (success).",
-        "reward": {
-            "success": True,
-            "tests_passed": 3,
-            "retries": 2,
-            "duration_min": 610,
-            "wasted_calls": 180,
-            "cost_steps": SUCCESS_STEPS,
-            "plan_changes": 1,
-        },
-        "meta": {
-            "factory": FACTORY,
-            "round": round_n,
-            "generator": GENERATOR,
-            "kind": "episode",
-            "seed": plant["slug"],
-            "designed": True,
-            "domain": plant["domain"],
-            "stack": f"{plant['stack']} leftover leftover leftover {idf}",
-        },
-    }
-    gen._assert_clean(episode)
-    refuse_when(
-        contains_hidden_reasoning_key(episode),
-        FINDING_GENERATE_HIDDEN,
-        f"{eid} hidden reasoning",
-    )
-    refuse_when(len(steps) != SUCCESS_STEPS, FINDING_GENERATE_SHAPE, f"{eid} expected {SUCCESS_STEPS} steps")
-    return episode
 
 
-def build_fail(round_n: int, plant: Mapping[str, Any]) -> dict[str, Any]:
-    gen._goal_ok(
-        f"Do not drop leftover leftover leftover {plant['stack']} {plant['dropk']} to hide {plant['idf']}."
-    )
-    src = f"src/{plant['drop']}.py"
-    cfg = f"{plant['drop']}/cfg.yml"
-    test = f"tests/test_{plant['drop']}.py"
-    idf, evf, naive = plant["idf"], plant["evf"], plant["naive"]
-    ticket = str(plant["ticket"])
-    steps = [
-        gen._step(
-            1,
-            _db("Plan", f"list src {plant['dshort']} and tests before touching conversion or config."),
-            gen._bash(f"ls -la src {plant['dshort']} tests | head -40"),
-            f"{src} {cfg}\n{test}",
-            f"Tree shows {src} plus tests. Run the named failing target next.",
-        ),
-        gen._step(
-            2,
-            _db("Observation", f"listing named the test files. Run `{test} -q --tb=short` to capture the failure."),
-            gen._pytest(f"{test} -q --tb=short"),
-            f"{test}::{plant['test_fail']} FAILED\nE   AssertionError: leftover leftover leftover slept {naive}; drop {plant['dropk']} is not a leftover leftover leftover bind",
-            f"Failure is at {test}::{plant['test_fail']}. Read that test before a one-line fix.",
-        ),
-        gen._step(
-            3,
-            _db("Observation", f"{test}::{plant['test_fail']} is red. Read {test} around the assertion."),
-            gen._read(test),
-            f"def {plant['test_fail']}():\n    assert {naive!r} not in tune(True)\n",
-            "Test contract is visible. Search implementation symbols next.",
-        ),
-        gen._step(
-            4,
-            _db("Observation", "test file imported the production helper. Grep those symbols."),
-            gen._bash(f"rg -n '{naive}|{plant['dropk']}|leftover' src {plant['dshort']} tests"),
-            f"{src}:2: return {{{naive!r}: 5}} if blocked else {{}}",
-            f"Grep hit {src}. Read it before editing the first match.",
-        ),
-        gen._step(
-            5,
-            _db("Observation", f"grep listed {src}. Read it before any patch."),
-            gen._read(src),
-            f"def tune(blocked):\n    return {{{naive!r}: 5}} if blocked else {{}}\n",
-            "First read done. Fetch vendor docs next; do not patch on a hunch yet.",
-        ),
+def _handoff_docs_steps(plant: Mapping[str, Any], ticket: str) -> list[dict[str, Any]]:
+    """Steps 6-9: 429 then 502 on the two vendor documents, each recovered."""
+
+    idf = plant["idf"]
+    return [
         gen._step(
             6,
             _db("Observation", "local files are in. Need the changelog/registry before editing."),
@@ -301,6 +286,14 @@ def build_fail(round_n: int, plant: Mapping[str, Any]) -> dict[str, Any]:
             f"retry after 2s backoff; local vendor fixture\nHTTP/1.1 200 OK\nTimeout cannot mint leftover leftover leftover; drop {plant['dropk']} is platform. Handoff {ticket}.",
             "Degraded path used the local fixture. Resume the local debug plan.",
         ),
+    ]
+
+
+def _handoff_patch_steps(plant: Mapping[str, Any], src: str, test: str, ticket: str) -> list[dict[str, Any]]:
+    """Steps 10-13: timeout patch, still red, re-read, file the handoff ticket."""
+
+    idf, naive = plant["idf"], plant["naive"]
+    return [
         gen._step(
             10,
             _db("Observation", f"docs and source are in. Apply the first patch to {src}."),
@@ -333,6 +326,13 @@ def build_fail(round_n: int, plant: Mapping[str, Any]) -> dict[str, Any]:
             "ticket filed. still timeout-classed",
             "Handoff ticket written. Run the original failing node again.",
         ),
+    ]
+
+
+def _handoff_close_steps(plant: Mapping[str, Any], src: str, test: str, ticket: str) -> list[dict[str, Any]]:
+    """Steps 14-17: still red with handoff, broader run, diffstat, lint."""
+
+    return [
         gen._step(
             14,
             _db("Observation", "handoff edit returned clean. Re-run the original failing test node."),
@@ -362,6 +362,86 @@ def build_fail(round_n: int, plant: Mapping[str, Any]) -> dict[str, Any]:
             "Lint clean. Episode complete.",
         ),
     ]
+
+
+def _reward(success: bool, tests_passed: int, duration_min: int, wasted_calls: int) -> dict[str, Any]:
+    return {
+        "success": success,
+        "tests_passed": tests_passed,
+        "retries": 2,
+        "duration_min": duration_min,
+        "wasted_calls": wasted_calls,
+        "cost_steps": SUCCESS_STEPS if success else HANDOFF_STEPS,
+        "plan_changes": 1,
+    }
+
+
+def _check_episode(episode: dict[str, Any], eid: str, expected_steps: int) -> None:
+    gen._assert_clean(episode)
+    refuse_when(
+        contains_hidden_reasoning_key(episode), FINDING_GENERATE_HIDDEN, f"{eid} hidden reasoning"
+    )
+    refuse_when(
+        len(episode["steps"]) != expected_steps,
+        FINDING_GENERATE_SHAPE,
+        f"{eid} expected {expected_steps} steps",
+    )
+
+
+def build_success(round_n: int, plant: Mapping[str, Any]) -> dict[str, Any]:
+    gen._goal_ok(
+        f"Bind leftover leftover leftover {plant['stack']} {plant['idf']}; "
+        f"do not raise {plant['naive']} to hide lag."
+    )
+    src = f"src/{plant['mod']}.py"
+    cfg = f"{plant['mod']}/cfg.yml"
+    test = f"tests/test_{plant['mod']}.py"
+    idf, evf, naive = plant["idf"], plant["evf"], plant["naive"]
+    steps = [
+        *_investigation_steps(plant, (src, cfg, test), _success_investigation(plant)),
+        *_success_docs_steps(plant),
+        *_success_patch_steps(plant, src, test),
+        *_success_close_steps(plant, src, test),
+    ]
+    eid = _episode_id(round_n, str(plant["slug"]))
+    episode = {
+        "id": eid,
+        "goal": f"Bind leftover leftover leftover {plant['stack']} {idf}; do not raise {naive} to hide lag.",
+        "plan": f"Read leftover leftover leftover-as-timeout, try 30s, then {idf} plus {evf}.",
+        "steps": steps,
+        "outcome": f"leftover leftover leftover {idf} bound. {naive} unused (success).",
+        "reward": _reward(True, 3, 610, 180),
+        "meta": {
+            "factory": FACTORY,
+            "round": round_n,
+            "generator": GENERATOR,
+            "kind": "episode",
+            "seed": plant["slug"],
+            "designed": True,
+            "domain": plant["domain"],
+            "stack": f"{plant['stack']} leftover leftover leftover {idf}",
+        },
+    }
+    _check_episode(episode, eid, SUCCESS_STEPS)
+    return episode
+
+
+def build_fail(round_n: int, plant: Mapping[str, Any]) -> dict[str, Any]:
+    gen._goal_ok(
+        f"Do not drop leftover leftover leftover {plant['stack']} {plant['dropk']} to hide {plant['idf']}."
+    )
+    src = f"src/{plant['drop']}.py"
+    cfg = f"{plant['drop']}/cfg.yml"
+    test = f"tests/test_{plant['drop']}.py"
+    # evf and naive are looked up only for their KeyError, before any step is built.
+    idf, *_ = plant["idf"], plant["evf"], plant["naive"]
+    ticket = str(plant["ticket"])
+    steps = [
+        *_investigation_steps(plant, (src, cfg, test), _handoff_investigation(plant)),
+        *_handoff_docs_steps(plant, ticket),
+        *_handoff_patch_steps(plant, src, test, ticket),
+        *_handoff_close_steps(plant, src, test, ticket),
+    ]
     eid = _episode_id(round_n, str(plant["fail"]))
     episode = {
         "id": eid,
@@ -369,15 +449,7 @@ def build_fail(round_n: int, plant: Mapping[str, Any]) -> dict[str, Any]:
         "plan": f"Read leftover leftover leftover-as-timeout, try 0s, then hand off drop-{plant['dropk']}.",
         "steps": steps,
         "outcome": f"Still timeout-classed; leftover leftover leftover drop {plant['dropk']} is platform — handoff {ticket}.",
-        "reward": {
-            "success": False,
-            "tests_passed": 2,
-            "retries": 2,
-            "duration_min": 640,
-            "wasted_calls": 210,
-            "cost_steps": HANDOFF_STEPS,
-            "plan_changes": 1,
-        },
+        "reward": _reward(False, 2, 640, 210),
         "meta": {
             "factory": FACTORY,
             "round": round_n,
@@ -389,13 +461,7 @@ def build_fail(round_n: int, plant: Mapping[str, Any]) -> dict[str, Any]:
             "stack": f"{plant['stack']} leftover leftover leftover drop {plant['dropk']}",
         },
     }
-    gen._assert_clean(episode)
-    refuse_when(
-        contains_hidden_reasoning_key(episode),
-        FINDING_GENERATE_HIDDEN,
-        f"{eid} hidden reasoning",
-    )
-    refuse_when(len(steps) != HANDOFF_STEPS, FINDING_GENERATE_SHAPE, f"{eid} expected {HANDOFF_STEPS} steps")
+    _check_episode(episode, eid, HANDOFF_STEPS)
     return episode
 
 

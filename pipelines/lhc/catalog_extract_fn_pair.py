@@ -27,7 +27,8 @@ def _is_fa_fb_assign(node: ast.AST) -> bool:
     return tuple_target_names(node) == ("fa", "fb") and isinstance(node, ast.Assign)
 
 
-def _fn_pair_args(node: ast.Assign) -> list[Any] | None:
+def _fn_pair_args(node: ast.Assign) -> Any:
+    """The ``fn_pair(...)`` literals, or ``UNSET`` when the call is malformed."""
     if call_name(node.value) != "fn_pair":
         return UNSET
     args = call_positional_literals(node.value)
@@ -38,7 +39,7 @@ def _fn_pair_args(node: ast.Assign) -> list[Any] | None:
     return args
 
 
-def _fn_pair_bind(node: ast.AST) -> list[Any] | None:
+def _fn_pair_bind(node: ast.AST) -> Any:
     """``fa, fb = fn_pair(...)`` literals, or ``UNSET`` when the bind is malformed."""
 
     if not _is_fa_fb_assign(node) or not isinstance(node, ast.Assign):
@@ -65,7 +66,7 @@ def _fn_pair_title(call: ast.Call) -> Any:
     return literal_value(call.args[0].elts[0])
 
 
-def _pairs_append_row(node: ast.AST, pending: list[Any] | None) -> dict[str, Any] | None:
+def _pairs_append_row(node: ast.AST, pending: list[Any] | None) -> Any:
     """``PAIRS.append((title, fa, fb, ...))`` identity, or ``UNSET`` if malformed."""
 
     call = _pairs_append_call(node)

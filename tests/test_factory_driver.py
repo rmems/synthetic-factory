@@ -26,6 +26,13 @@ import snapshot_ops  # noqa: E402 - driver puts the skill dir on sys.path
 FIXTURES = REPO / "tests" / "fixtures"
 
 
+def _first_found(items):
+    """The first item an iterator yields; an empty one fails the test instead of leaking."""
+    for item in items:
+        return item
+    raise AssertionError("the lookup found nothing")
+
+
 class FactoryDriverSmoke(unittest.TestCase):
     def test_runtime_sidecars_do_not_depend_on_the_test_fixture_tree(self):
         with tempfile.TemporaryDirectory() as td, mock.patch.object(
@@ -64,7 +71,7 @@ class FactoryDriverSmoke(unittest.TestCase):
 
     def test_smoke_stops_notes_gate_check_after_unexpected_commit(self):
         def publish_and_consume_stage(factory, _round_number, _token):
-            notes = next((factory.parents[2] / "staging").rglob("NOTES-r01.md"))
+            notes = _first_found((factory.parents[2] / "staging").rglob("NOTES-r01.md"))
             shutil.rmtree(notes.parent)
             return {}
 
@@ -390,6 +397,70 @@ class FactoryDriverValidation(unittest.TestCase):
         self.assertEqual(seen, [])
 
 
+def _commit_first_marker_round(factory):
+    """Commit round 1 (one thalamic record plus notes) through its completion marker."""
+    batch = factory / "batch-r01.jsonl"
+    notes = factory / "NOTES-r01.md"
+    batch.write_text(json.dumps(factory_driver.thalamic("committed")) + "\n")
+    notes.write_text("Novel coverage: 80%\n")
+    marker = factory / "ROUND-r01.complete.json"
+    marker.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "factory": factory.name,
+                "round": 1,
+                "records": 1,
+                "expected_records": 1,
+                "commit_point": marker.name,
+                "files": [
+                    {
+                        "name": batch.name,
+                        "sha256": hashlib.sha256(batch.read_bytes()).hexdigest(),
+                    },
+                    {
+                        "name": notes.name,
+                        "sha256": hashlib.sha256(notes.read_bytes()).hexdigest(),
+                    },
+                ],
+            }
+        )
+        + "\n"
+    )
+
+
+def _stage_inflight_first_round(root, run, factory):
+    """Leave factory's round 1 reserved and publishing, with its batch still staged."""
+    token = "a" * 32
+    stage = (
+        root
+        / "outputs"
+        / "staging"
+        / run.name
+        / factory.name
+        / f"r01-{token}"
+    )
+    stage.mkdir(parents=True)
+    (stage / "batch-r01.jsonl").write_text(
+        json.dumps(factory_driver.thalamic("in-flight")) + "\n"
+    )
+    (factory / "ROUND-r01.reserved.json").write_text(
+        json.dumps(
+            {
+                "factory": factory.name,
+                "round": 1,
+                "token": token,
+                "staging_dir": str(stage),
+            }
+        )
+        + "\n"
+    )
+    (factory / "ROUND-r01.publishing.json").write_text(
+        json.dumps({"factory": factory.name, "round": 1, "token": token})
+        + "\n"
+    )
+
+
 class FactoryDriverAudit(unittest.TestCase):
     def test_audit_refuses_a_symlinked_source_payload(self):
         with tempfile.TemporaryDirectory() as td:
@@ -412,34 +483,7 @@ class FactoryDriverAudit(unittest.TestCase):
             (factory / ".round-marker-mode.json").write_text(
                 '{"version":1,"legacy_baseline":0,"commit_point":"ROUND-rNN.complete.json"}\n'
             )
-            batch = factory / "batch-r01.jsonl"
-            notes = factory / "NOTES-r01.md"
-            batch.write_text(json.dumps(factory_driver.thalamic("committed")) + "\n")
-            notes.write_text("Novel coverage: 80%\n")
-            marker = factory / "ROUND-r01.complete.json"
-            marker.write_text(
-                json.dumps(
-                    {
-                        "version": 1,
-                        "factory": factory.name,
-                        "round": 1,
-                        "records": 1,
-                        "expected_records": 1,
-                        "commit_point": marker.name,
-                        "files": [
-                            {
-                                "name": batch.name,
-                                "sha256": hashlib.sha256(batch.read_bytes()).hexdigest(),
-                            },
-                            {
-                                "name": notes.name,
-                                "sha256": hashlib.sha256(notes.read_bytes()).hexdigest(),
-                            },
-                        ],
-                    }
-                )
-                + "\n"
-            )
+            _commit_first_marker_round(factory)
             (factory / "batch-r02.jsonl").write_text('{"id":"interrupted"}\n')
             nested = factory / "work"
             nested.mkdir()
@@ -477,57 +521,8 @@ class FactoryDriverAudit(unittest.TestCase):
                     '"commit_point":"ROUND-rNN.complete.json"}\n'
                 )
 
-            batch = factory / "batch-r01.jsonl"
-            notes = factory / "NOTES-r01.md"
-            batch.write_text(json.dumps(factory_driver.thalamic("committed")) + "\n")
-            notes.write_text("Novel coverage: 80%\n")
-            marker = factory / "ROUND-r01.complete.json"
-            marker.write_text(
-                json.dumps(
-                    {
-                        "version": 1,
-                        "factory": factory.name,
-                        "round": 1,
-                        "records": 1,
-                        "expected_records": 1,
-                        "commit_point": marker.name,
-                        "files": [
-                            {"name": batch.name, "sha256": hashlib.sha256(batch.read_bytes()).hexdigest()},
-                            {"name": notes.name, "sha256": hashlib.sha256(notes.read_bytes()).hexdigest()},
-                        ],
-                    }
-                )
-                + "\n"
-            )
-
-            token = "a" * 32
-            stage = (
-                root
-                / "outputs"
-                / "staging"
-                / run.name
-                / sibling.name
-                / f"r01-{token}"
-            )
-            stage.mkdir(parents=True)
-            (stage / "batch-r01.jsonl").write_text(
-                json.dumps(factory_driver.thalamic("in-flight")) + "\n"
-            )
-            (sibling / "ROUND-r01.reserved.json").write_text(
-                json.dumps(
-                    {
-                        "factory": sibling.name,
-                        "round": 1,
-                        "token": token,
-                        "staging_dir": str(stage),
-                    }
-                )
-                + "\n"
-            )
-            (sibling / "ROUND-r01.publishing.json").write_text(
-                json.dumps({"factory": sibling.name, "round": 1, "token": token})
-                + "\n"
-            )
+            _commit_first_marker_round(factory)
+            _stage_inflight_first_round(root, run, sibling)
 
             with mock.patch.object(
                 factory_driver, "run_tool", return_value=(0, "", "")

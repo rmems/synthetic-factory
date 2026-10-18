@@ -23,7 +23,13 @@ from . import records
 from . import vocabulary as cv
 from ._contract import bind_import_twin
 from .policies import scripted
-from .run_files import CANDIDATES_FILENAME, RUN_FILENAME, check_drawn, load_records, run_summary
+from .run_files import (
+    CANDIDATES_FILENAME,
+    RUN_FILENAME,
+    check_drawn,
+    load_records,
+    run_summary,
+)
 
 __all__ = [
     "CANDIDATES_FILENAME",
@@ -102,7 +108,7 @@ def _require(record: Mapping[str, Any], *path: str) -> Any:
 def _require_typed(record: Mapping[str, Any], kind: type, *path: str) -> Any:
     value = _require(record, *path)
     cv.refuse_when(
-        not isinstance(value, kind) or (kind is int and isinstance(value, bool)),
+        not cv.is_typed(value, kind),
         cv.FINDING_RECORD_MALFORMED,
         f"{'.'.join(path)} must be {kind.__name__}",
     )

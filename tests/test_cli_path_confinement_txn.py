@@ -33,7 +33,7 @@ OUTSIDE = ("/etc/passwd", "../" * 12 + "etc/passwd")
 TXN_SINKS = ("frontier_status", "reserve", "publish", "abort", "migrate_preference_v1_markers")
 
 
-class _FunnelCase(unittest.TestCase):
+class _FunnelMixin:
     """Shared assertions for the two post-parse funnels."""
 
     def assertRefused(self, call, *args):
@@ -46,7 +46,7 @@ class _FunnelCase(unittest.TestCase):
         self.assertIn("error:", stderr.getvalue())
 
 
-class RoundTxnFunnel(_FunnelCase):
+class RoundTxnFunnel(_FunnelMixin, unittest.TestCase):
     parser = argparse.ArgumentParser(prog="round_txn.py")
 
     def test_factory_dir_is_refused_outside_the_operator_trees(self):
@@ -79,7 +79,7 @@ class RoundTxnFunnel(_FunnelCase):
         self.assertEqual(args.factory_dir, "some-dir")
 
 
-class RoundTxnCli(_FunnelCase):
+class RoundTxnCli(_FunnelMixin, unittest.TestCase):
     def test_every_subcommand_refuses_before_its_sink_runs(self):
         commands = {
             "frontier": ["frontier", "{bad}"],
@@ -119,7 +119,7 @@ class RoundTxnCli(_FunnelCase):
         self.assertIn("ERROR: not a factory directory", stderr.getvalue())
 
 
-class IdentityFunnel(_FunnelCase):
+class IdentityFunnel(_FunnelMixin, unittest.TestCase):
     parser = argparse.ArgumentParser(prog="curate_identity.py")
 
     def test_each_path_argument_is_refused_outside_the_operator_trees(self):
@@ -151,7 +151,7 @@ class IdentityFunnel(_FunnelCase):
         self.assertEqual(paths.out, root / "dest")
 
 
-class IdentityCli(_FunnelCase):
+class IdentityCli(_FunnelMixin, unittest.TestCase):
     def test_each_argument_refuses_before_its_sink_runs(self):
         commands = {"source": ["{bad}"], "--out": ["src", "--out", "{bad}"]}
         for label, argv in commands.items():

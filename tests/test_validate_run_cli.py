@@ -295,7 +295,8 @@ class VerifyFrontierMalformedRecords(unittest.TestCase):
     the frontier gate down with it.
     """
 
-    def _verify(self, record):
+    @staticmethod
+    def _verify(record):
         with tempfile.TemporaryDirectory() as raw:
             batch = Path(raw) / "batch-r01.jsonl"
             batch.write_text(json.dumps(record) + "\n")

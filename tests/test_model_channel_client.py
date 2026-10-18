@@ -13,9 +13,11 @@ class ClientLifetime(unittest.TestCase):
                 connection = Mock()
                 target = connection.getresponse.return_value if phase == "read" else connection
                 getattr(target, phase).side_effect = OSError("injected network failure")
-                with patch.object(openai_client, "_connection", return_value=connection):
-                    with self.assertRaisesRegex(OSError, "injected network failure"):
-                        openai_client.chat_completions("http://localhost/v1", "exact-model", [])
+                with (
+                    patch.object(openai_client, "_connection", return_value=connection),
+                    self.assertRaisesRegex(OSError, "injected network failure"),
+                ):
+                    openai_client.chat_completions("http://localhost/v1", "exact-model", [])
                 connection.close.assert_called_once()
 
     def test_http_and_json_refusals_also_close_the_connection(self):
@@ -25,7 +27,9 @@ class ClientLifetime(unittest.TestCase):
                 response = connection.getresponse.return_value
                 response.status = status
                 response.read.return_value = body
-                with patch.object(openai_client, "_connection", return_value=connection):
-                    with self.assertRaises(openai_client.OpenAIClientError):
-                        openai_client.chat_completions("http://localhost/v1", "exact-model", [])
+                with (
+                    patch.object(openai_client, "_connection", return_value=connection),
+                    self.assertRaises(openai_client.OpenAIClientError),
+                ):
+                    openai_client.chat_completions("http://localhost/v1", "exact-model", [])
                 connection.close.assert_called_once()

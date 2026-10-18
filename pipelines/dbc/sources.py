@@ -30,14 +30,8 @@ class MillSource:
     companion_mill_path: str | None = None
 
 
-def _source(
-    mill_id: str,
-    path: str,
-    blob_sha: str,
-    kind: str,
-    companion_mill_path: str | None = None,
-) -> MillSource:
-    return MillSource(mill_id, path, blob_sha, kind, companion_mill_path)
+# The inventory rows below are positional ``MillSource`` constructions.
+_source = MillSource
 
 
 MILL_SOURCES: tuple[MillSource, ...] = (

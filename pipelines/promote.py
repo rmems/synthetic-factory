@@ -87,29 +87,49 @@ If a `spike_events` train was not globally time-ordered, the cleaned copy is sor
 """
 
 
+def _mentions_any(low, markers):
+    return any(marker in low for marker in markers)
+
+
+def _is_designed_claim(low):
+    """Invented plants and live/production stories are designed, never real telemetry."""
+    return low.startswith(("real", "live")) or _mentions_any(low, ("actions live", "production"))
+
+
+def _is_simulated_claim(low):
+    return _mentions_any(low, ("simulation", "simulat", "high-fidelity"))
+
+
+def _is_hil_claim(low):
+    if "hardware-in-the-loop" in low or low.startswith("hil"):
+        return True
+    return HIL_WORD.search(low) is not None
+
+
+#: Ordered claim rules: the first predicate that holds names the kind.
+_CLAIM_RULES = (
+    (_is_designed_claim, "designed"),
+    (_is_simulated_claim, "simulated"),
+    (_is_hil_claim, "hil"),
+)
+
+
+def _claimed_kind(low):
+    """The canonical kind for a nonempty, lowercased claim; the first matching rule wins."""
+    for matches, kind in _CLAIM_RULES:
+        if matches(low):
+            return kind
+    return low if low in ALLOWED_KINDS else "unknown"
+
+
 def remap_claimed(claimed):
     """Map a claimed sim_or_real string to {kind, claimed}."""
-    if claimed is None:
-        return {"kind": "unknown", "claimed": None}
     if not isinstance(claimed, str):
         return {"kind": "unknown", "claimed": claimed}
     low = claimed.strip().lower()
     if not low:
         return {"kind": "unknown", "claimed": claimed}
-    if (
-        low.startswith("real")
-        or low.startswith("live")
-        or "actions live" in low
-        or "production" in low
-    ):
-        return {"kind": "designed", "claimed": claimed}
-    if "simulation" in low or "simulat" in low or "high-fidelity" in low:
-        return {"kind": "simulated", "claimed": claimed}
-    if "hardware-in-the-loop" in low or HIL_WORD.search(low) or low.startswith("hil"):
-        return {"kind": "hil", "claimed": claimed}
-    if low in ALLOWED_KINDS:
-        return {"kind": low, "claimed": claimed}
-    return {"kind": "unknown", "claimed": claimed}
+    return {"kind": _claimed_kind(low), "claimed": claimed}
 
 
 def _factory_origin_provenance(owner):
@@ -353,24 +373,24 @@ def _scopes_for_file(migration, filename):
     return matches
 
 
+def _comparable_factor(factor):
+    """A factor as compared across scopes: numbers (not bools) as floats, else unchanged."""
+    if isinstance(factor, (int, float)) and not isinstance(factor, bool):
+        return float(factor)
+    return factor
+
+
+def _first_native_unit(scopes):
+    natives = [rec["native_units"] for rec in scopes if rec.get("native_units")]
+    return natives[0] if natives else "unspecified"
+
+
 def _entry_from_scopes(scopes):
     if not scopes:
         return dict(DEFAULT_SCALE)
-    factors = []
-    natives = []
-    for rec in scopes:
-        factors.append(rec.get("usd_conversion_factor"))
-        if rec.get("native_units"):
-            natives.append(rec["native_units"])
-    unique = set()
-    for factor in factors:
-        if factor is None:
-            unique.add(None)
-        elif isinstance(factor, (int, float)) and not isinstance(factor, bool):
-            unique.add(float(factor))
-        else:
-            unique.add(factor)
-    native = natives[0] if natives else "unspecified"
+    factors = [rec.get("usd_conversion_factor") for rec in scopes]
+    unique = {_comparable_factor(factor) for factor in factors}
+    native = _first_native_unit(scopes)
     if len(scopes) > 1 and len(unique) > 1:
         return {
             "aggregation": "unspecified",
@@ -378,7 +398,11 @@ def _entry_from_scopes(scopes):
             "usd_factor_or_null": None,
             "mix_policy": "exclude_from_magnitude",
         }
-    factor = factors[0]
+    return _single_factor_entry(factors[0], native)
+
+
+def _single_factor_entry(factor, native):
+    """The scale entry for one agreed factor: USD-convertible, or sign/order only."""
     if factor is None:
         return {
             "aggregation": "unspecified",
@@ -435,10 +459,8 @@ def _literal_lf_lines(path) -> list[str]:
     return [raw_line.decode("utf-8") for raw_line in physical_lines]
 
 
-def promote_run(raw_run, cleaned_out):
-    """Copy/remap every jsonl. Return a summary dict. Does not touch raw bytes."""
-    raw_run = Path(raw_run).resolve()
-    cleaned_out = Path(cleaned_out).resolve()
+def _require_new_cleaned_out(raw_run, cleaned_out):
+    """Fail closed: the cleaned tree is a brand-new destination outside raw_run."""
     if raw_run == cleaned_out or raw_run in cleaned_out.parents:
         raise ValueError(
             "cleaned_out must be distinct from, and not nested inside, raw_run"
@@ -447,6 +469,71 @@ def promote_run(raw_run, cleaned_out):
         raise ValueError(
             f"refusing to overwrite an existing cleaned_out: {cleaned_out}"
         )
+
+
+def _spike_resort_flag(obj):
+    """True when a record already carries ``meta.spike_events_resorted``."""
+    if not isinstance(obj, dict):
+        return False
+    return bool(
+        isinstance(obj.get("meta"), dict)
+        and obj["meta"].get("spike_events_resorted")
+    )
+
+
+class _PromotedLine(NamedTuple):
+    text: str
+    is_record: bool
+    newly_resorted: bool
+
+
+def _promote_line(line):
+    """One physical line's cleaned text; blank and unparsable lines pass through as-is."""
+    if not line.strip():
+        return _PromotedLine("", False, False)
+    try:
+        obj = json.loads(
+            line,
+            parse_constant=reject_json_constant,
+            parse_float=_parse_exact_json_float,
+        )
+        dumps_exact_json(obj, ensure_ascii=False, sort_keys=False)
+    except (ValueError, RecursionError):
+        return _PromotedLine(line, False, False)
+    before_flag = _spike_resort_flag(obj)
+    promote_record(obj)
+    after_flag = _spike_resort_flag(obj)
+    return _PromotedLine(
+        dumps_exact_json(obj, ensure_ascii=False, sort_keys=False),
+        True,
+        after_flag and not before_flag,
+    )
+
+
+def _promote_file(src, dest):
+    """Write the cleaned copy of one JSONL file; return ``(records, newly_resorted)``."""
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    lines_out = []
+    records = 0
+    resorted = 0
+    for line in _literal_lf_lines(src):
+        promoted = _promote_line(line)
+        lines_out.append(promoted.text)
+        records += int(promoted.is_record)
+        resorted += int(promoted.newly_resorted)
+    dest.write_text(
+        "\n".join(lines_out) + ("\n" if lines_out else ""),
+        encoding="utf-8",
+        newline="",
+    )
+    return records, resorted
+
+
+def promote_run(raw_run, cleaned_out):
+    """Copy/remap every jsonl. Return a summary dict. Does not touch raw bytes."""
+    raw_run = Path(raw_run).resolve()
+    cleaned_out = Path(cleaned_out).resolve()
+    _require_new_cleaned_out(raw_run, cleaned_out)
     cleaned_out.mkdir(parents=True, exist_ok=True)
 
     files = 0
@@ -455,47 +542,9 @@ def promote_run(raw_run, cleaned_out):
     rels = []
 
     for src, rel in _iter_jsonl(raw_run):
-        dest = cleaned_out / rel
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        lines_out = []
-        for line in _literal_lf_lines(src):
-            if not line.strip():
-                lines_out.append("")
-                continue
-            try:
-                obj = json.loads(
-                    line,
-                    parse_constant=reject_json_constant,
-                    parse_float=_parse_exact_json_float,
-                )
-                dumps_exact_json(obj, ensure_ascii=False, sort_keys=False)
-            except (ValueError, RecursionError):
-                lines_out.append(line)
-                continue
-            before_flag = False
-            if isinstance(obj, dict):
-                before_flag = bool(
-                    isinstance(obj.get("meta"), dict)
-                    and obj["meta"].get("spike_events_resorted")
-                )
-            promote_record(obj)
-            after_flag = False
-            if isinstance(obj, dict):
-                after_flag = bool(
-                    isinstance(obj.get("meta"), dict)
-                    and obj["meta"].get("spike_events_resorted")
-                )
-            if after_flag and not before_flag:
-                resorted += 1
-            records += 1
-            lines_out.append(
-                dumps_exact_json(obj, ensure_ascii=False, sort_keys=False)
-            )
-        dest.write_text(
-            "\n".join(lines_out) + ("\n" if lines_out else ""),
-            encoding="utf-8",
-            newline="",
-        )
+        file_records, file_resorted = _promote_file(src, cleaned_out / rel)
+        records += file_records
+        resorted += file_resorted
         files += 1
         rels.append(rel)
 
@@ -514,23 +563,7 @@ def promote_run(raw_run, cleaned_out):
     }
 
 
-def parse_args(argv=None):
-    parser = argparse.ArgumentParser(
-        description=(
-            "Promote raw factory JSONL into cleaned/ with provenance, then run "
-            "the blocking quality gate."
-        ),
-    )
-    parser.add_argument("raw_run", help="raw run directory (read-only)")
-    parser.add_argument("cleaned_out", help="destination cleaned directory")
-    parser.add_argument(
-        "--quality-manifest",
-        default=None,
-        help=(
-            "quality-gate manifest path (default: "
-            "<cleaned_out>/quality-manifest.json)"
-        ),
-    )
+def _add_embedding_dedup_arguments(parser):
     parser.add_argument(
         "--threshold",
         type=float,
@@ -552,6 +585,9 @@ def parse_args(argv=None):
             "fails closed (default: %(default)s)"
         ),
     )
+
+
+def _add_mix_policy_arguments(parser):
     parser.add_argument(
         "--mix-target",
         type=float,
@@ -582,6 +618,27 @@ def parse_args(argv=None):
         default=None,
         help="optional blocking ceiling for unlabeled records",
     )
+
+
+def parse_args(argv=None):
+    parser = argparse.ArgumentParser(
+        description=(
+            "Promote raw factory JSONL into cleaned/ with provenance, then run "
+            "the blocking quality gate."
+        ),
+    )
+    parser.add_argument("raw_run", help="raw run directory (read-only)")
+    parser.add_argument("cleaned_out", help="destination cleaned directory")
+    parser.add_argument(
+        "--quality-manifest",
+        default=None,
+        help=(
+            "quality-gate manifest path (default: "
+            "<cleaned_out>/quality-manifest.json)"
+        ),
+    )
+    _add_embedding_dedup_arguments(parser)
+    _add_mix_policy_arguments(parser)
     return parser.parse_args(argv)
 
 

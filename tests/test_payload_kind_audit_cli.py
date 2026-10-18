@@ -30,7 +30,8 @@ import payload_kind_audit  # noqa: E402
 class PayloadKindAuditCLI(unittest.TestCase):
     """CLI plumbing: --json/--markdown output selection and --expect drift."""
 
-    def _expect_against_mutated_audit(self, mutate):
+    @staticmethod
+    def _expect_against_mutated_audit(mutate):
         """Publish a fresh single-episode audit, corrupt its serialized JSON
         with ``mutate``, and run --expect against the result.
 
@@ -175,7 +176,8 @@ class PayloadKindAuditCLI(unittest.TestCase):
         self.assertEqual(code, 2)
         self.assertIn("cannot read", err.getvalue())
 
-    def _expect_document_with_card_disclosure(self, directory, markdown_literal):
+    @staticmethod
+    def _expect_document_with_card_disclosure(directory, markdown_literal):
         """Write an --expect file whose supplementary card_disclosure holds one
         raw JSON string literal, and return its path.
 

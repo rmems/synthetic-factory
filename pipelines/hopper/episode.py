@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import os
+import types
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -47,14 +48,7 @@ __all__ = [
     "dumps_episode", "emit_stage", "factory_dir", "set_raw_root", "validate_pair",
 ]
 
-@dataclass
-class _RawRoot:
-    """The module-wide raw-tree root ``set_raw_root`` installs; ``None`` until then."""
-
-    path: Path | None = None
-
-
-_RAW_ROOT = _RawRoot()
+_RAW_ROOT = types.SimpleNamespace(path=None)
 
 
 def set_raw_root(path: Path | None) -> None:
@@ -439,11 +433,11 @@ def validate_pair(ok_ep: Mapping, bad_ep: Mapping, round_n: int) -> None:
 
 
 def build_pair(factory: str, round_n: int, ok: Mapping, bad: Mapping):
-    prefix = PREFIX[factory] if factory in PREFIX else ok.get("prefix") or bad.get("prefix")
-    if not prefix:
+    raw_prefix = PREFIX[factory] if factory in PREFIX else ok.get("prefix") or bad.get("prefix")
+    if not isinstance(raw_prefix, str) or not raw_prefix:
         refuse(FINDING_PAIR_INVALID, f"no prefix for factory {factory}")
-    ok_ep = build_success(factory, prefix, round_n, ok)
-    bad_ep = build_fail(factory, prefix, round_n, bad)
+    ok_ep = build_success(factory, raw_prefix, round_n, ok)
+    bad_ep = build_fail(factory, raw_prefix, round_n, bad)
     validate_pair(ok_ep, bad_ep, round_n)
     notes = notes_md(factory, round_n, ok, bad, ok_ep["id"], bad_ep["id"])
     refuse_when("Novel coverage:" not in notes, FINDING_PAIR_INVALID, "NOTES missing Novel coverage")

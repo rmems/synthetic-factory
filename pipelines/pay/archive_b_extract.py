@@ -12,6 +12,7 @@ from ._contract import (
     FINDING_PAIR_FIELD_MISSING,
     FINDING_SOURCE_NOT_PARSEABLE,
     SOURCE_PATH,
+    PayRefusal,
     bind_import_twin,
     refuse,
     refuse_when,
@@ -28,35 +29,56 @@ def _const_eval(node: ast.AST) -> Any:
         return node.value
     if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
         return -_const_eval(node.operand)
+    if isinstance(node, (ast.JoinedStr, ast.List, ast.Tuple, ast.Dict)):
+        return _container_literal(node)
+    if isinstance(node, ast.Call) and _is_keyword_mapping_call(node):
+        return _keyword_mapping(node)
+    raise PayRefusal(
+        FINDING_AST_NOT_A_PAIR, f"{SOURCE_PATH} has non-literal plant fragment {ast.dump(node)[:80]}"
+    )
+
+
+def _container_literal(node: ast.JoinedStr | ast.List | ast.Tuple | ast.Dict) -> Any:
+    """An f-string, list, tuple or dict literal, checked in that order."""
     if isinstance(node, ast.JoinedStr):
-        parts: list[str] = []
-        for piece in node.values:
-            if isinstance(piece, ast.Constant):
-                parts.append(str(piece.value))
-            elif isinstance(piece, ast.FormattedValue):
-                parts.append(str(_const_eval(piece.value)))
-        return "".join(parts)
+        return _joined_text(node)
     if isinstance(node, ast.List):
         return [_const_eval(item) for item in node.elts]
     if isinstance(node, ast.Tuple):
         return tuple(_const_eval(item) for item in node.elts)
-    if isinstance(node, ast.Dict):
-        refuse_when(
-            any(key is None for key in node.keys),
-            FINDING_AST_NOT_A_PAIR,
-            f"{SOURCE_PATH} uses dict unpacking",
-        )
-        return {_const_eval(key): _const_eval(value) for key, value in zip(node.keys, node.values, strict=True)}
-    if isinstance(node, ast.Call):
-        func = node.func
-        if (
-            isinstance(func, ast.Name)
-            and func.id in {"dict", "_ok", "_fail"}
-            and not node.args
-            and all(keyword.arg is not None for keyword in node.keywords)
-        ):
-            return {keyword.arg: _const_eval(keyword.value) for keyword in node.keywords}
-    refuse(FINDING_AST_NOT_A_PAIR, f"{SOURCE_PATH} has non-literal plant fragment {ast.dump(node)[:80]}")
+    return _dict_literal(node)
+
+
+def _joined_text(node: ast.JoinedStr) -> str:
+    parts: list[str] = []
+    for piece in node.values:
+        if isinstance(piece, ast.Constant):
+            parts.append(str(piece.value))
+        elif isinstance(piece, ast.FormattedValue):
+            parts.append(str(_const_eval(piece.value)))
+    return "".join(parts)
+
+
+def _dict_literal(node: ast.Dict) -> dict[Any, Any]:
+    keys = [key for key in node.keys if key is not None]
+    refuse_when(
+        len(keys) != len(node.keys),
+        FINDING_AST_NOT_A_PAIR,
+        f"{SOURCE_PATH} uses dict unpacking",
+    )
+    return {_const_eval(key): _const_eval(value) for key, value in zip(keys, node.values, strict=True)}
+
+
+def _is_keyword_mapping_call(node: ast.Call) -> bool:
+    """``dict``/``_ok``/``_fail`` called with named keyword arguments only."""
+    func = node.func
+    if not (isinstance(func, ast.Name) and func.id in {"dict", "_ok", "_fail"}):
+        return False
+    return not node.args and all(keyword.arg is not None for keyword in node.keywords)
+
+
+def _keyword_mapping(node: ast.Call) -> dict[Any, Any]:
+    return {keyword.arg: _const_eval(keyword.value) for keyword in node.keywords}
 
 
 def _validate_side(
@@ -92,10 +114,15 @@ def _pair_from_append_call(call: ast.Call, *, source: str, index: int) -> dict[s
         return None
     if not (isinstance(call.func.value, ast.Name) and call.func.value.id in _APPEND_LISTS):
         return None
+    return _appended_pair(call, call.func.value.id, source=source, index=index)
+
+
+def _appended_pair(call: ast.Call, list_name: str, *, source: str, index: int) -> dict[str, Any]:
+    """The one ``(ok, fail)`` tuple a ``<list_name>.append(...)`` call appends."""
     refuse_when(
         len(call.args) != 1,
         FINDING_AST_NOT_A_PAIR,
-        f"{source} {call.func.value.id}.append must take one tuple argument",
+        f"{source} {list_name}.append must take one tuple argument",
     )
     return _pair_from_tuple(_const_eval(call.args[0]), source=source, index=index)
 
@@ -158,16 +185,24 @@ def pairs_from_source(text: str, *, source: str = SOURCE_PATH) -> tuple[dict[str
         refuse(FINDING_SOURCE_NOT_PARSEABLE, f"{source} does not parse: {exc}")
     rows: list[dict[str, Any]] = []
     for node in tree.body:
-        if not isinstance(node, ast.Expr) or not isinstance(node.value, ast.Call):
+        call = _pairs_append_call(node)
+        if call is None:
             continue
-        call = node.value
-        if not (isinstance(call.func, ast.Attribute) and call.func.attr == "append"):
-            continue
-        if not (isinstance(call.func.value, ast.Name) and call.func.value.id == "PAIRS"):
-            continue
-        rows.append(_pair_from_append_call(call, source=source, index=len(rows)))
+        rows.append(_appended_pair(call, "PAIRS", source=source, index=len(rows)))
     refuse_when(not rows, FINDING_SOURCE_NOT_PARSEABLE, f"{source} has no PAIRS.append rows")
     return tuple(rows)
+
+
+def _pairs_append_call(node: ast.stmt) -> ast.Call | None:
+    """The top-level ``PAIRS.append(...)`` call statement ``node`` makes, if any."""
+    if not isinstance(node, ast.Expr) or not isinstance(node.value, ast.Call):
+        return None
+    call = node.value
+    if not (isinstance(call.func, ast.Attribute) and call.func.attr == "append"):
+        return None
+    if not (isinstance(call.func.value, ast.Name) and call.func.value.id == "PAIRS"):
+        return None
+    return call
 
 
 if __package__:

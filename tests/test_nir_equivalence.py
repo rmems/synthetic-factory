@@ -49,8 +49,9 @@ class Serialization(unittest.TestCase):
         self.assertNotEqual(nir.structural_digest(graph), nir.structural_digest(changed))
 
     def test_parse_rejects_a_non_graph(self):
+        text = json.dumps({"nodes": {}})
         with self.assertRaises(nir.GraphError):
-            nir.parse(json.dumps({"nodes": {}}))
+            nir.parse(text)
 
 
 class Topology(unittest.TestCase):
@@ -94,8 +95,9 @@ class Topology(unittest.TestCase):
         self.assertNotEqual(first, second)
 
     def test_unknown_cycle_break_order_rejected(self):
+        graph = _linear_graph()
         with self.assertRaises(nir.GraphError):
-            nir.evaluation_order(_linear_graph(), "random")
+            nir.evaluation_order(graph, "random")
 
     def test_edge_to_unknown_node_rejected(self):
         graph = _linear_graph()
@@ -118,8 +120,9 @@ class Interpreter(unittest.TestCase):
     def test_unsupported_type_raises_a_diagnostic(self):
         graph = _linear_graph()
         graph["nodes"]["thr"]["type"] = "Conv2d"
+        stimulus = _stimulus()
         with self.assertRaises(nir.UnsupportedConstruct) as caught:
-            nir.REFERENCE_V1.execute(graph, _stimulus())
+            nir.REFERENCE_V1.execute(graph, stimulus)
         self.assertEqual(caught.exception.node_type, "Conv2d")
         self.assertEqual(caught.exception.node, "thr")
 
@@ -130,15 +133,17 @@ class Interpreter(unittest.TestCase):
     def test_node_without_a_declared_size_is_rejected(self):
         graph = _linear_graph()
         del graph["nodes"]["thr"]["size"]
+        stimulus = _stimulus()
         with self.assertRaises(nir.GraphError):
-            nir.REFERENCE_V1.execute(graph, _stimulus())
+            nir.REFERENCE_V1.execute(graph, stimulus)
 
     def test_graph_without_an_output_is_rejected(self):
         graph = _linear_graph()
         graph["nodes"]["out"]["type"] = "Threshold"
         graph["nodes"]["out"]["threshold"] = 0.5
+        stimulus = _stimulus()
         with self.assertRaises(nir.GraphError):
-            nir.REFERENCE_V1.execute(graph, _stimulus())
+            nir.REFERENCE_V1.execute(graph, stimulus)
 
     def test_non_positive_tau_is_rejected(self):
         graph = {
@@ -216,8 +221,9 @@ class Runtimes(unittest.TestCase):
 
     def test_unavailable_runtime_raises_rather_than_substituting(self):
         runtime = nir.UnavailableRuntime("ghost", module="definitely_not_installed_pkg")
+        graph, stimulus = _linear_graph(), _stimulus()
         with self.assertRaises(nir.RuntimeUnavailable):
-            runtime.execute(_linear_graph(), _stimulus())
+            runtime.execute(graph, stimulus)
 
     def test_unavailable_runtime_entry_carries_no_outputs(self):
         scenario = nir.build_scenario(nir.GRAPH_SPECS[0], steps=4)

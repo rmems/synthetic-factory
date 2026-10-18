@@ -33,13 +33,15 @@ class PublicationBoundaries(unittest.TestCase):
 
     def test_filtered_valid_records_cannot_publish_a_partial_catalog(self):
         for module in (hp, nir):
+            partial = module.generate_records()[:1]
             with self.subTest(module=module.__name__), self.assertRaises(round_txn.TransactionError):
-                self._check(module, module.generate_records()[:1])
+                self._check(module, partial)
 
     def test_complete_catalog_cannot_claim_another_reserved_round(self):
         for module in (hp, nir):
+            round_two = module.generate_records(round_number=2)
             with self.subTest(module=module.__name__), self.assertRaises(round_txn.TransactionError):
-                self._check(module, module.generate_records(round_number=2), 1)
+                self._check(module, round_two, 1)
 
     def test_ambiguous_json_keys_are_refused_before_publication(self):
         path = self.root / "ambiguous.jsonl"
