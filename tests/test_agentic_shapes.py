@@ -2371,6 +2371,23 @@ class AgenticShapes(unittest.TestCase):
                 errors,
             )
 
+    def test_multi_agent_resolution_phrased_as_changing_the_plan_is_grounded(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = Path(td) / "multi-agent-coordination-factory"
+            factory.mkdir()
+            record = multi_agent()
+            record["resolution"] = "we are changing the TTL race coverage plan"
+            record["transcript"][3]["content"] = record["resolution"]
+            batch = factory / "batch-r01.jsonl"
+            batch.write_text(json.dumps(record) + "\n")
+
+            errors = round_txn.validate_agentic_envelope(batch, factory, 1)
+
+            self.assertFalse(
+                any("observably change the later coordination plan" in error for error in errors),
+                errors,
+            )
+
     def test_multi_agent_resolution_that_only_promises_to_address_is_not_a_plan_change(self):
         with tempfile.TemporaryDirectory() as td:
             factory = Path(td) / "multi-agent-coordination-factory"

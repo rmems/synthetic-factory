@@ -333,6 +333,9 @@ class AgenticPredicateTests(unittest.TestCase):
             "the reviewer is escalating to the owner",
             "deferred the migration to the next release",
             "rollbacks are gated on the checkpoint",
+            "we are changing the ttl race coverage plan",
+            "revising the rollout order",
+            "the second revision removes the flag",
         ):
             with self.subTest(text=text):
                 self.assertTrue(round_txn_agentic._names_plan_change(text))

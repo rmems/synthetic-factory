@@ -209,11 +209,20 @@ PLAN_CHANGE_TERMS = (
 )
 # Each term starts a word and carries at most an inflection, so "add" matches
 # "add", "added" and "adding" but not "address", "padding" or "additional".
-# "escalat" is a stem on purpose: it takes "e", "ed", "ing" and "ion".
+# A term's final "e" is optional so "change" also matches "changing" and
+# "revise" matches "revision"; "escalat" is a stem on purpose.
 _PLAN_CHANGE_INFLECTIONS = r"(?:e|es|s|d|ed|ing|ion|ions|red|ring)?"
+
+
+def _plan_change_stem(term: str) -> str:
+    if term.endswith("e"):
+        return re.escape(term[:-1]) + "e?"
+    return re.escape(term)
+
+
 PLAN_CHANGE_RE = re.compile(
     r"\b(?:"
-    + "|".join(re.escape(term) for term in PLAN_CHANGE_TERMS)
+    + "|".join(_plan_change_stem(term) for term in PLAN_CHANGE_TERMS)
     + r")"
     + _PLAN_CHANGE_INFLECTIONS
     + r"\b"
