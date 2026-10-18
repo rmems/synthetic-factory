@@ -17,6 +17,7 @@ retained identity entry back to its source-original attestation.
 from __future__ import annotations
 
 import sys
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any, NamedTuple, Sequence
 
@@ -53,6 +54,7 @@ REWARD_CALIBRATION_KIND = _contract.REWARD_CALIBRATION_KIND
 _normalized_sha256 = _digest._normalized_sha256
 _read_regular_file_snapshot = _digest._read_regular_file_snapshot
 _logical_source_path = _paths._logical_source_path
+_is_positive_line_number = _paths.is_positive_line_number
 collect_lane_manifests = _manifests.collect_lane_manifests
 RetentionView = _manifests.RetentionView
 _manifest_entries = _manifests._manifest_entries
@@ -96,7 +98,7 @@ def _authenticate_evidence_entry(
         raise GateError(f"{label} no longer matches its lane contract")
     source_path = _logical_source_path(entry["source_path"], f"{label} source_path")
     source_line = entry["source_line"]
-    if not isinstance(source_line, int) or isinstance(source_line, bool) or source_line < 1:
+    if not _is_positive_line_number(source_line):
         raise GateError(f"{label} source_line must be a positive integer")
     source_key = (source_path, source_line)
     if source_key in seen_sources:
@@ -296,7 +298,7 @@ def _identity_attestations(manifest: dict[str, Any]) -> dict[tuple[str, int, str
             raise GateError(f"{label} must be an object")
         source_path = _logical_source_path(mapping.get("source_path"), f"{label}.source_path")
         source_line = mapping.get("source_line")
-        if not isinstance(source_line, int) or isinstance(source_line, bool) or source_line < 1:
+        if not _is_positive_line_number(source_line):
             raise GateError(f"{label}.source_line must be a positive integer")
         manifest_entry_sha256 = _normalized_sha256(
             mapping.get("manifest_entry_sha256"),
@@ -312,6 +314,32 @@ def _identity_attestations(manifest: dict[str, Any]) -> dict[tuple[str, int, str
     return attestations
 
 
+def _is_retained_entry(
+    entry: dict[str, Any],
+    source_key: tuple[str, int],
+    retained_source_keys: set[tuple[str, int]] | None,
+) -> bool:
+    """A retain action whose source survives every later terminal disposition."""
+    action = str(entry.get("action") or "").strip().lower()
+    if action not in RETAIN_ACTIONS:
+        return False
+    return retained_source_keys is None or source_key in retained_source_keys
+
+
+def _retained_identity_entries(
+    prepared: Sequence[dict[str, Any]],
+    retained_source_keys: set[tuple[str, int]] | None,
+) -> Iterator[tuple[tuple[str, int], dict[str, Any]]]:
+    """Each identity-lane entry that is still retained, with its source key."""
+    for lane in prepared:
+        if lane["transform"] != "curate_identity":
+            continue
+        for entry in lane["entries"]:
+            source_key = entry["_source_key"]
+            if _is_retained_entry(entry, source_key, retained_source_keys):
+                yield source_key, entry
+
+
 def _restore_identity_attestations(
     prepared: Sequence[dict[str, Any]],
     attestations: dict[tuple[str, int, str], str],
@@ -319,25 +347,16 @@ def _restore_identity_attestations(
 ) -> None:
     """Bind every retained identity entry back to its sealed attestation."""
     restored: set[tuple[str, int, str]] = set()
-    for lane in prepared:
-        if lane["transform"] != "curate_identity":
-            continue
-        for entry in lane["entries"]:
-            source_key = entry["_source_key"]
-            action = str(entry.get("action") or "").strip().lower()
-            if action not in RETAIN_ACTIONS or (
-                retained_source_keys is not None and source_key not in retained_source_keys
-            ):
-                continue
-            key = (*source_key, entry["manifest_entry_sha256"])
-            attestation = attestations.get(key)
-            if attestation is None:
-                raise GateError(
-                    "curation manifest lacks source-original attestation for retained "
-                    f"identity entry {source_key[0]}:{source_key[1]}"
-                )
-            entry["_source_originals_sha256"] = attestation
-            restored.add(key)
+    for source_key, entry in _retained_identity_entries(prepared, retained_source_keys):
+        key = (*source_key, entry["manifest_entry_sha256"])
+        attestation = attestations.get(key)
+        if attestation is None:
+            raise GateError(
+                "curation manifest lacks source-original attestation for retained "
+                f"identity entry {source_key[0]}:{source_key[1]}"
+            )
+        entry["_source_originals_sha256"] = attestation
+        restored.add(key)
     if restored != set(attestations):
         raise GateError("curation manifest has orphan retained identity attestations")
 
