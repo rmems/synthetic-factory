@@ -5,17 +5,15 @@ from __future__ import annotations
 
 import ast
 import hashlib
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
 from typing import Any
 
 from ._contract import (
     FACTORY,
-    FAMILY_PREFIX,
     FINDING_CATALOG_MILL,
     FINDING_CATALOG_PAIR_COUNT,
     FINDING_CATALOG_PLANT,
     FINDING_CATALOG_SCHEMA,
-    GENERATOR,
     LEGACY_COMMIT,
     MAPPING_FIELDS,
     MILL_SOURCES,
@@ -30,6 +28,8 @@ from ._contract import (
 )
 
 PLANT_CALLS = frozenset(("_ok", "_bad", "_p"))
+_DICT_CALLS = frozenset(("dict",))
+_MILL_CONSTANT_NAMES = ("FACTORY", "START", "N")
 
 __all__ = [
     "ast_extract_catalog_rows",
@@ -44,32 +44,82 @@ def sha256_text(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
-def _literal(node: ast.AST, where: str) -> str | int:
-    if isinstance(node, ast.Constant) and isinstance(node.value, (str, int)) and not isinstance(
-        node.value, bool
-    ):
+def _str_constant(node: ast.AST) -> str | None:
+    """Return the value of a string literal node, or None for anything else."""
+
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
         return node.value
-    if (
-        isinstance(node, ast.Call)
-        and isinstance(node.func, ast.Attribute)
-        and node.func.attr == "replace"
-        and isinstance(node.func.value, ast.Constant)
-        and isinstance(node.func.value.value, str)
-        and len(node.args) == 2
-        and all(isinstance(arg, ast.Constant) and isinstance(arg.value, str) for arg in node.args)
-    ):
-        base = node.func.value.value
-        return base.replace(node.args[0].value, node.args[1].value)
+    return None
+
+
+def _plain_literal(node: ast.AST) -> str | int | None:
+    """Return the value of a str or non-bool int literal node, or None for anything else."""
+
+    if not isinstance(node, ast.Constant):
+        return None
+    value = node.value
+    if isinstance(value, bool) or not isinstance(value, (str, int)):
+        return None
+    return value
+
+
+def _replace_receiver(func: ast.expr) -> str | None:
+    """Return "base" when ``func`` is ``"base".replace``, or None for anything else."""
+
+    if not isinstance(func, ast.Attribute) or func.attr != "replace":
+        return None
+    return _str_constant(func.value)
+
+
+def _str_constant_pair(args: list[ast.expr]) -> tuple[str, str] | None:
+    """Return the two values when ``args`` is exactly two string literals, or None."""
+
+    if len(args) != 2:
+        return None
+    old, new = _str_constant(args[0]), _str_constant(args[1])
+    if old is None or new is None:
+        return None
+    return old, new
+
+
+def _literal_replace_args(node: ast.AST) -> tuple[str, str, str] | None:
+    """Return (base, old, new) for ``"base".replace("old", "new")`` with only string literals."""
+
+    if not isinstance(node, ast.Call):
+        return None
+    base = _replace_receiver(node.func)
+    pair = _str_constant_pair(node.args)
+    if base is None or pair is None:
+        return None
+    return base, pair[0], pair[1]
+
+
+def _literal(node: ast.AST, where: str) -> str | int:
+    plain = _plain_literal(node)
+    if plain is not None:
+        return plain
+    replace = _literal_replace_args(node)
+    if replace is not None:
+        base, old, new = replace
+        return base.replace(old, new)
     refuse(FINDING_CATALOG_PLANT, f"{where}: plant values must be str or int literals")
+
+
+def _is_kwargs_call(node: ast.AST, names: frozenset[str]) -> bool:
+    """True for ``name(**kwargs)`` where ``name`` is in ``names`` and every argument is keyword."""
+
+    if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Name):
+        return False
+    return (
+        node.func.id in names
+        and not node.args
+        and all(kw.arg is not None for kw in node.keywords)
+    )
 
 
 def _call_kwargs(node: ast.AST, where: str) -> dict[str, str | int]:
     refuse_when(
-        not isinstance(node, ast.Call)
-        or not isinstance(node.func, ast.Name)
-        or node.func.id not in PLANT_CALLS
-        or node.args
-        or any(kw.arg is None for kw in node.keywords),
+        not _is_kwargs_call(node, PLANT_CALLS),
         FINDING_CATALOG_PLANT,
         f"{where}: expected _ok/_bad/_p(**kwargs)",
     )
@@ -115,30 +165,34 @@ def ast_extract_plant_pairs(source: str) -> tuple[tuple[dict[str, str | int], di
     return tuple(pairs)
 
 
+def _constant_assignments(
+    tree: ast.Module, wanted: tuple[str, ...]
+) -> Iterator[tuple[str, ast.expr]]:
+    """Yield ``(name, value)`` for every top-level ``name = value`` target in ``wanted``."""
+
+    for node in tree.body:
+        if not isinstance(node, ast.Assign):
+            continue
+        for target in node.targets:
+            if isinstance(target, ast.Name) and target.id in wanted:
+                yield target.id, node.value
+
+
 def ast_extract_mill_constants(source: str) -> dict[str, str | int]:
     """Return FACTORY/START/N from a mill module, via AST only."""
 
     tree = ast.parse(source)
     found: dict[str, str | int] = {}
-    for node in tree.body:
-        if not isinstance(node, ast.Assign):
-            continue
-        names = [t.id for t in node.targets if isinstance(t, ast.Name)]
-        for name in names:
-            if name in {"FACTORY", "START", "N"}:
-                found[name] = _literal(node.value, name)
-    missing = [name for name in ("FACTORY", "START", "N") if name not in found]
+    for name, value in _constant_assignments(tree, _MILL_CONSTANT_NAMES):
+        found[name] = _literal(value, name)
+    missing = [name for name in _MILL_CONSTANT_NAMES if name not in found]
     refuse_when(bool(missing), FINDING_CATALOG_PLANT, f"mill source missing {missing}")
     return found
 
 
 def _mapping_dict(node: ast.AST, where: str) -> dict[str, str | int]:
     refuse_when(
-        not isinstance(node, ast.Call)
-        or not isinstance(node.func, ast.Name)
-        or node.func.id != "dict"
-        or node.args
-        or any(kw.arg is None for kw in node.keywords),
+        not _is_kwargs_call(node, _DICT_CALLS),
         FINDING_CATALOG_PLANT,
         f"{where}: expected dict(**kwargs)",
     )
@@ -174,11 +228,8 @@ def ast_extract_mapping_pairs(source: str) -> tuple[dict[str, str | int], ...]:
 def _mapping_slice(
     pin: MillPin, rows: tuple[dict[str, str | int], ...]
 ) -> tuple[dict[str, str | int], ...]:
-    refuse_when(
-        pin.legacy_first is None,
-        FINDING_CATALOG_MILL,
-        f"{pin.mill_id} missing legacy_first",
-    )
+    if pin.legacy_first is None:
+        refuse(FINDING_CATALOG_MILL, f"{pin.mill_id} missing legacy_first")
     start_index = pin.catalog_first - pin.legacy_first
     end_index = start_index + pin.n_pairs
     refuse_when(
@@ -189,19 +240,10 @@ def _mapping_slice(
     return rows[start_index:end_index]
 
 
-def ast_extract_catalog_rows(
-    plants_source: str,
-    mill_source: str,
-    mapping_sources_by_path: Mapping[str, str],
-    *,
-    plants_sha256: str | None = None,
-    mill_sha256: str | None = None,
-    commit: str = LEGACY_COMMIT,
-) -> list[dict[str, Any]]:
-    """Build compact JSONL row dicts for every committed ewr mill pin."""
-
-    constants = ast_extract_mill_constants(mill_source)
-    plant_pairs = ast_extract_plant_pairs(plants_source)
+def _check_mill_constants(
+    constants: Mapping[str, str | int],
+    plant_pairs: tuple[tuple[dict[str, str | int], dict[str, str | int]], ...],
+) -> None:
     refuse_first(
         (
             (
@@ -221,8 +263,9 @@ def ast_extract_catalog_rows(
             ),
         )
     )
-    plants_sha = plants_sha256 or sha256_text(plants_source)
-    mill_sha = mill_sha256 or sha256_text(mill_source)
+
+
+def _check_leftover_pins(plants_sha: str, mill_sha: str) -> None:
     pinned_plants = MILL_SOURCES[0]
     refuse_first(
         (
@@ -238,6 +281,11 @@ def ast_extract_catalog_rows(
             ),
         )
     )
+
+
+def _plant_rows(
+    plant_pairs: tuple[tuple[dict[str, str | int], dict[str, str | int]], ...],
+) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for index, (ok, bad) in enumerate(plant_pairs):
         rows.append(
@@ -248,36 +296,61 @@ def ast_extract_catalog_rows(
                 "bad": bad,
             }
         )
+    return rows
+
+
+def _mapping_source(pin: MillPin, sources_by_path: Mapping[str, str]) -> str:
+    source = sources_by_path.get(pin.mill_path)
+    if source is not None:
+        return source
+    refuse(FINDING_CATALOG_MILL, f"missing mapping source for {pin.mill_path}")
+
+
+def _mapping_pin_rows(pin: MillPin, source: str) -> list[dict[str, Any]]:
+    mapping_sha = sha256_text(source)
+    refuse_when(
+        mapping_sha != pin.mill_sha256,
+        FINDING_CATALOG_SCHEMA,
+        f"{pin.mill_id} mill_sha256 drifted from pinned bytes",
+    )
+    mapping_rows = _mapping_slice(pin, ast_extract_mapping_pairs(source))
+    refuse_when(
+        len(mapping_rows) != pin.n_pairs,
+        FINDING_CATALOG_PAIR_COUNT,
+        f"{pin.mill_id} expected {pin.n_pairs} mapping rows, got {len(mapping_rows)}",
+    )
+    return [
+        {
+            "mill_id": pin.mill_id,
+            "round": pin.catalog_first + offset,
+            "mapping": mapping,
+        }
+        for offset, mapping in enumerate(mapping_rows)
+    ]
+
+
+def ast_extract_catalog_rows(
+    plants_source: str,
+    mill_source: str,
+    mapping_sources_by_path: Mapping[str, str],
+    *,
+    plants_sha256: str | None = None,
+    mill_sha256: str | None = None,
+    commit: str = LEGACY_COMMIT,
+) -> list[dict[str, Any]]:
+    """Build compact JSONL row dicts for every committed ewr mill pin."""
+
+    constants = ast_extract_mill_constants(mill_source)
+    plant_pairs = ast_extract_plant_pairs(plants_source)
+    _check_mill_constants(constants, plant_pairs)
+    plants_sha = plants_sha256 or sha256_text(plants_source)
+    mill_sha = mill_sha256 or sha256_text(mill_source)
+    _check_leftover_pins(plants_sha, mill_sha)
+    rows = _plant_rows(plant_pairs)
     for pin in MILL_SOURCES[1:]:
         if pin.source_format != "mapping-v1":
             continue
-        source = mapping_sources_by_path.get(pin.mill_path)
-        refuse_when(
-            source is None,
-            FINDING_CATALOG_MILL,
-            f"missing mapping source for {pin.mill_path}",
-        )
-        assert source is not None
-        mapping_sha = sha256_text(source)
-        refuse_when(
-            mapping_sha != pin.mill_sha256,
-            FINDING_CATALOG_SCHEMA,
-            f"{pin.mill_id} mill_sha256 drifted from pinned bytes",
-        )
-        mapping_rows = _mapping_slice(pin, ast_extract_mapping_pairs(source))
-        refuse_when(
-            len(mapping_rows) != pin.n_pairs,
-            FINDING_CATALOG_PAIR_COUNT,
-            f"{pin.mill_id} expected {pin.n_pairs} mapping rows, got {len(mapping_rows)}",
-        )
-        for offset, mapping in enumerate(mapping_rows):
-            rows.append(
-                {
-                    "mill_id": pin.mill_id,
-                    "round": pin.catalog_first + offset,
-                    "mapping": mapping,
-                }
-            )
+        rows.extend(_mapping_pin_rows(pin, _mapping_source(pin, mapping_sources_by_path)))
     _ = commit
     return rows
 

@@ -7,8 +7,8 @@ Nothing here executes source. ``ast.parse`` is the only interpreter step.
 from __future__ import annotations
 
 import ast
-from collections.abc import Mapping
-from typing import Any
+from collections.abc import Callable, Mapping, Sequence
+from typing import Any, TypeGuard
 
 UNSET = object()
 PAIR_CTORS = frozenset({"plant", "S"})
@@ -35,36 +35,70 @@ def assignment_names(node: ast.stmt) -> tuple[str, ...]:
 
 
 def literal_value(node: ast.AST, env: Mapping[str, Any] | None = None) -> Any:
-    """Resolve constants, names, containers, and constant f-strings; else ``UNSET``."""
+    """Resolve constants, names, containers, and constant f-strings; else ``UNSET``.
+
+    The helpers below only classify or combine and every recursive call is made here,
+    so a ``-x`` or ``a + b`` level costs one frame and a container or f-string level two.
+    """
 
     bound = env or {}
     if isinstance(node, ast.Constant):
         return node.value
     if isinstance(node, ast.Name):
-        return bound[node.id] if node.id in bound else UNSET
-    if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
-        inner = literal_value(node.operand, bound)
-        return -inner if isinstance(inner, (int, float)) else UNSET
-    if isinstance(node, ast.Tuple):
-        return _sequence(node.elts, bound, tuple)
-    if isinstance(node, ast.List):
-        return _sequence(node.elts, bound, list)
-    if isinstance(node, ast.Set):
-        values = _sequence(node.elts, bound, list)
-        return set(values) if values is not UNSET else UNSET
-    if isinstance(node, ast.Dict):
-        return _mapping(node, bound)
-    if isinstance(node, ast.JoinedStr):
-        return _joined_string(node, bound)
-    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+        return bound.get(node.id, UNSET)
+    if _is_negation(node):
+        return _negated(literal_value(node.operand, bound))
+    if _is_concatenation(node):
         left = literal_value(node.left, bound)
-        right = literal_value(node.right, bound)
-        if isinstance(left, str) and isinstance(right, str):
-            return left + right
+        return _concatenated(left, literal_value(node.right, bound))
+    evaluate, args = _compound_step(node)
+    return evaluate(*args, bound)
+
+
+def _is_negation(node: ast.AST) -> TypeGuard[ast.UnaryOp]:
+    return isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub)
+
+
+def _is_concatenation(node: ast.AST) -> TypeGuard[ast.BinOp]:
+    return isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add)
+
+
+def _negated(inner: Any) -> Any:
+    """``-inner`` for a resolved number; anything else stays ``UNSET``."""
+
+    return -inner if isinstance(inner, (int, float)) else UNSET
+
+
+def _concatenated(left: Any, right: Any) -> Any:
+    """``left + right`` for two resolved strings; anything else stays ``UNSET``."""
+
+    if isinstance(left, str) and isinstance(right, str):
+        return left + right
     return UNSET
 
 
-def _sequence(elts: list[ast.AST], env: Mapping[str, Any], ctor):
+def _compound_step(node: ast.AST) -> tuple[Callable[..., Any], tuple[Any, ...]]:
+    """``(evaluator, leading arguments)`` for a dict, f-string, set, tuple or list node.
+
+    Never recurses itself; every other node maps to ``_unresolved`` and stays ``UNSET``.
+    """
+
+    if isinstance(node, ast.Dict):
+        return _mapping, (node,)
+    if isinstance(node, ast.JoinedStr):
+        return _joined_string, (node,)
+    if isinstance(node, ast.Set):
+        return _sequence, (node.elts, set)
+    if isinstance(node, (ast.Tuple, ast.List)):
+        return _sequence, (node.elts, tuple if isinstance(node, ast.Tuple) else list)
+    return _unresolved, ()
+
+
+def _unresolved(_env: Mapping[str, Any]) -> Any:
+    return UNSET
+
+
+def _sequence(elts: Sequence[ast.expr], ctor, env: Mapping[str, Any]):
     values: list[Any] = []
     for elt in elts:
         item = literal_value(elt, env)
@@ -129,20 +163,25 @@ def ctor_identity(node: ast.AST) -> dict[str, str | None] | None:
         return None
     slug = const_keyword(node, "slug")
     scanner = const_keyword(node, "scanner")
-    if name == "S" and node.args:
-        first = node.args[0]
-        if slug is None and isinstance(first, ast.Constant) and isinstance(first.value, str):
-            slug = first.value
-        if (
-            scanner is None
-            and len(node.args) > 1
-            and isinstance(node.args[1], ast.Constant)
-            and isinstance(node.args[1].value, str)
-        ):
-            scanner = node.args[1].value
+    if name == "S":
+        if slug is None:
+            slug = _str_arg(node, 0)
+        if scanner is None:
+            scanner = _str_arg(node, 1)
     if not slug:
         return None
     return {"slug": slug, "scanner": scanner}
+
+
+def _str_arg(node: ast.Call, index: int) -> str | None:
+    """String constant positional argument ``index``, else ``None``."""
+
+    if index >= len(node.args):
+        return None
+    arg = node.args[index]
+    if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
+        return arg.value
+    return None
 
 
 def joined_path_constant(node: ast.AST) -> str | None:
