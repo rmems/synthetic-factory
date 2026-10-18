@@ -148,12 +148,10 @@ def regex_atom_domain(item: tuple[Any, Any]) -> RegexDomain:
         return False, ((argument, argument),)
     if operation is _re_parser.NOT_LITERAL:
         return True, ((argument, argument),)
-    if operation is _re_parser.ANY:
-        return None
-    if operation is _re_parser.CATEGORY:
-        return None
     if operation is _re_parser.IN:
         return _in_class_domain(argument)
+    # ANY and CATEGORY consume one character, but their domains are not an
+    # exact finite range set, so they (like every other operation) have none.
     return None
 
 
