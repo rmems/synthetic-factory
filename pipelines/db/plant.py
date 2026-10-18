@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import TypedDict
+from typing import Final, TypedDict
 
 from . import config as cfg
 from .import_twins import bind_import_twin
@@ -34,7 +34,7 @@ class Plant(TypedDict, total=False):
     db: str
 
 
-REQUIRED_KEYS = (
+REQUIRED_KEYS: Final = (
     "engine", "slug", "plant", "surface", "table", "col", "col_v2",
     "leftover", "leftover2", "seed", "fail", "inspect", "catalog",
     "abort", "col_type",

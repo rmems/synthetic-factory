@@ -12,7 +12,7 @@ from __future__ import annotations
 import argparse
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, NoReturn
 
 if __package__:
     from . import catalog as cat
@@ -30,7 +30,7 @@ __all__ = ["build_parser", "run"]
 
 
 class _Parser(argparse.ArgumentParser):
-    def error(self, message: str) -> None:
+    def error(self, message: str) -> NoReturn:
         code = "ROUND_INVALID" if "round exceeds the exact-JSON integer domain" in message else "USAGE"
         raise CsvRefusal(code, message)
 
@@ -44,7 +44,7 @@ def _parse_round(token: str) -> int:
         raise
 
 
-def _shared_arguments() -> argparse.ArgumentParser:
+def _shared_arguments() -> _Parser:
     common = _Parser(add_help=False, allow_abbrev=False)
     common.add_argument("--catalog", type=Path, default=None)
     common.add_argument("--json", action="store_true")
@@ -52,7 +52,7 @@ def _shared_arguments() -> argparse.ArgumentParser:
 
 
 def _generation_arguments(parser: argparse.ArgumentParser) -> None:
-    options = {
+    options: dict[str, dict[str, Any]] = {
         "--out": {"type": Path, "required": True},
         "--plant": {"default": None, "help": "exact plant_id (mill_id:slug)"},
         "--mill": {"default": None, "help": "one mill_id, every plant in order"},
