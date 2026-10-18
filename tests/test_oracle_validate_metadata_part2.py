@@ -12,12 +12,12 @@ from unittest import mock
 
 from test_oracle_validate_metadata import (
     GOLDEN,
-    GoldenRunFixture,
+    GoldenRunMixin,
     oracle_validate,
 )
 
 
-class ManifestVocabularyTest(GoldenRunFixture):
+class ManifestVocabularyTest(GoldenRunMixin, unittest.TestCase):
     """The manifest's top-level vocabulary is closed."""
 
     def test_an_unauthenticated_manifest_sibling_is_rejected(self):
@@ -42,7 +42,7 @@ class ManifestVocabularyTest(GoldenRunFixture):
         )
 
 
-class RunBoundCommitTest(GoldenRunFixture):
+class RunBoundCommitTest(GoldenRunMixin, unittest.TestCase):
     """Run-level validation binds records to the manifest's resolved commit."""
 
     def test_a_record_with_a_foreign_commit_is_rejected_without_resolving(self):
@@ -244,7 +244,8 @@ class AvailabilityShapeTest(unittest.TestCase):
 class MainExitCodeTest(unittest.TestCase):
     """main() maps validation outcomes onto CLI exit codes."""
 
-    def run_main(self, *argv):
+    @staticmethod
+    def run_main(*argv):
         out, err = io.StringIO(), io.StringIO()
         with redirect_stdout(out), redirect_stderr(err):
             code = oracle_validate.main(list(argv))

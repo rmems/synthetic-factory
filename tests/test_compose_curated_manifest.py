@@ -24,7 +24,8 @@ from compose_curated_test_support import (  # noqa: E402
 class ComposeManifestEvidence(unittest.TestCase):
     """Split from test_compose_curated.py: per-record manifest evidence."""
 
-    def _compose_manifest_fixture(self, root):
+    @staticmethod
+    def _compose_manifest_fixture(root):
         """Compose the shared build_source_run fixture and return its manifest parts.
 
         Split out of one combined test so each concern below (counts, digest,

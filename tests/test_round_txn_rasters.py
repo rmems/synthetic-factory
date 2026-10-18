@@ -28,10 +28,11 @@ THALAMIC_SLUG = "thalamic-trajectory-factory"
 OUROBOROS_SLUG = "multi-agent-ouroboros-swarm"
 
 
-class RasterPublishAssertions(unittest.TestCase):
+class RasterPublishMixin:
     """Shared publication setup without adding discoverable test methods."""
 
-    def publish_records(self, slug, records, override):
+    @staticmethod
+    def publish_records(slug, records, override):
         with tempfile.TemporaryDirectory() as td:
             factory = raw_factory(td, slug)
             reservation = stage_round(round_txn, factory, records)
@@ -50,7 +51,8 @@ class RasterPublishAssertions(unittest.TestCase):
                 round_txn.publish(factory, 1, reservation["token"])
             self.assertFalse((factory / "batch-r01.jsonl").exists())
 
-    def validate_payload(self, payload, slug=BRIDGE_SLUG):
+    @staticmethod
+    def validate_payload(payload, slug=BRIDGE_SLUG):
         with tempfile.TemporaryDirectory() as td:
             factory = raw_factory(td, slug)
             batch = factory / "batch-r01.jsonl"
@@ -58,7 +60,7 @@ class RasterPublishAssertions(unittest.TestCase):
             return round_txn.validate_bridge_envelope(batch, factory)
 
 
-class BridgeRasterEnvelope(RasterPublishAssertions):
+class BridgeRasterEnvelope(RasterPublishMixin, unittest.TestCase):
     """New Bridge rounds must be directly loadable by a distillation probe."""
 
     def test_raster_backed_round_with_a_gate_head_publishes(self):
@@ -190,7 +192,7 @@ class BridgeRasterEnvelope(RasterPublishAssertions):
             self.assertFalse((factory / "ROUND-r01.complete.json").exists())
 
 
-class OuroborosLaneRasterEnvelope(RasterPublishAssertions):
+class OuroborosLaneRasterEnvelope(RasterPublishMixin, unittest.TestCase):
     """The swarm lane emits Thalamic trajectories and shares the raster gate."""
 
     @staticmethod
@@ -215,7 +217,7 @@ class OuroborosLaneRasterEnvelope(RasterPublishAssertions):
         self.assertEqual(manifest["records"], 1)
 
 
-class UnboundedSpikeBudgetsAtPublish(RasterPublishAssertions):
+class UnboundedSpikeBudgetsAtPublish(RasterPublishMixin, unittest.TestCase):
     def test_an_unrepresentable_spike_count_is_refused_not_raised(self):
         record = thalamic("oversized-budget")
         record["raster"]["spikes"] = 10**400

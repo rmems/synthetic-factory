@@ -17,7 +17,8 @@ import curate_preferences  # noqa: E402
 class LeftoverMillQuarantine(unittest.TestCase):
     """Leftover-mill records are excluded and named, never silently dropped."""
 
-    def _run(self, records):
+    @staticmethod
+    def _run(records):
         with tempfile.TemporaryDirectory() as td:
             source = Path(td) / "source"
             source.mkdir()
