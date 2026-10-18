@@ -670,6 +670,14 @@ def _inputs(parser: argparse.ArgumentParser, args: argparse.Namespace) -> Inputs
     return Inputs(*(paths[name] for name in Inputs._fields))
 
 
+def _required(path: Path | None, argument: str) -> Path:
+    """A path the parser requires for the selected command; refused if it is absent."""
+
+    if path is None:
+        raise PreferenceCurationError(f"{argument} is required for this command")
+    return path
+
+
 def _print_audit_text(audit: dict[str, Any]) -> None:
     """The default human-readable audit rendering."""
 
@@ -753,8 +761,11 @@ def main(argv: list[str] | None = None) -> int:
     paths = _inputs(parser, args)
     try:
         if args.command == "reconcile":
-            return _run_reconcile(args, paths.first, paths.second)
-        run = curate_source(paths.source)
+            return _run_reconcile(
+                args, _required(paths.first, "first"), _required(paths.second, "second")
+            )
+        source = _required(paths.source, "source")
+        run = curate_source(source)
         if args.command == "audit":
             return _run_audit(args, paths.expect, run)
         if args.command == "scan":
@@ -771,7 +782,12 @@ def main(argv: list[str] | None = None) -> int:
                 print(_render_human(run))
             return 0
 
-        write_run(run, paths.source, paths.output, paths.manifest)
+        write_run(
+            run,
+            source,
+            _required(paths.output, "--output"),
+            _required(paths.manifest, "--manifest"),
+        )
         print(json.dumps(run.summary, sort_keys=True))
         return 0
     except (OSError, PreferenceCurationError, ValueError) as exc:

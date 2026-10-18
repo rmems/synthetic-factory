@@ -32,11 +32,8 @@ def _read(path: Path, code: str) -> bytes:
 
 def _require_str(row: dict[str, Any], key: str) -> str:
     value = row.get(key)
-    cv.refuse_when(
-        not isinstance(value, str) or not value.strip(),
-        cv.FINDING_PLANT_FIELD_MISSING,
-        f"plant field {key} must be a nonempty string",
-    )
+    if not isinstance(value, str) or not value.strip():
+        cv.refuse(cv.FINDING_PLANT_FIELD_MISSING, f"plant field {key} must be a nonempty string")
     return value
 
 
@@ -49,7 +46,8 @@ def _refuse_banned_text(text: str, where: str) -> None:
         )
 
 
-def _plant_from_row(row: Any, index: int) -> cat.Plant:
+def _refuse_row_shape(row: Any, index: int) -> None:
+    """An object with exactly the plant keys, whose ``docs`` is a two-item list."""
     cv.refuse_when(
         not isinstance(row, dict),
         cv.FINDING_INPUT_NOT_AN_OBJECT,
@@ -73,16 +71,26 @@ def _plant_from_row(row: Any, index: int) -> cat.Plant:
         cv.FINDING_PLANT_FIELD_INVALID,
         f"plants.jsonl line {index} docs must be two https URLs",
     )
+
+
+def _plant_strings(row: dict[str, Any]) -> dict[str, str]:
     strings = {key: _require_str(row, key) for key in cat.PLANT_KEYS if key != "docs"}
     for key, value in strings.items():
         _refuse_banned_text(value, f"plant {strings['plant_id']} field {key}")
+    return strings
+
+
+def _refuse_bad_docs(docs: list[Any], plant_id: str) -> None:
     for url in docs:
         cv.refuse_when(
             not isinstance(url, str) or not _HTTPS.match(url),
             cv.FINDING_PLANT_FIELD_INVALID,
-            f"plant {strings['plant_id']} docs must be https URLs",
+            f"plant {plant_id} docs must be https URLs",
         )
-        _refuse_banned_text(url, f"plant {strings['plant_id']} docs")
+        _refuse_banned_text(url, f"plant {plant_id} docs")
+
+
+def _refuse_bad_names(strings: dict[str, str]) -> None:
     cv.refuse_first((
         (not _STEM.match(strings["plant_id"]), cv.FINDING_PLANT_FIELD_INVALID,
          f"plant_id {cv.shown(strings['plant_id'])} is not a slug"),
@@ -93,6 +101,14 @@ def _plant_from_row(row: Any, index: int) -> cat.Plant:
         (not _IDENT.match(strings["drop_module"]), cv.FINDING_PLANT_FIELD_INVALID,
          f"drop_module {cv.shown(strings['drop_module'])} is not an identifier"),
     ))
+
+
+def _plant_from_row(row: Any, index: int) -> cat.Plant:
+    _refuse_row_shape(row, index)
+    docs = row["docs"]
+    strings = _plant_strings(row)
+    _refuse_bad_docs(docs, strings["plant_id"])
+    _refuse_bad_names(strings)
     return cat.Plant(
         plant_id=strings["plant_id"],
         fail_id=strings["fail_id"],
@@ -112,7 +128,7 @@ def _plant_from_row(row: Any, index: int) -> cat.Plant:
 
 
 def _check_uniques(plants: tuple[cat.Plant, ...]) -> None:
-    axes = {
+    axes: dict[str, list[Any]] = {
         "plant_id": [item.plant_id for item in plants],
         "fail_id": [item.fail_id for item in plants],
         "module": [item.module for item in plants],

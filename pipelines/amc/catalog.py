@@ -253,13 +253,23 @@ def _load_jsonl(path: Path) -> list[Any]:
     return rows
 
 
-def _pair_row(raw: Any, index: int, kinds: dict[str, str]) -> CompactPair:
+def _pair_mill_kind(raw: Any, index: int, kinds: dict[str, str]) -> tuple[str, str]:
+    """The pair row's mill id and that mill's catalog kind."""
     if not isinstance(raw, dict) or "mill_id" not in raw:
         raise CatalogError(f"{PAIRS_FILENAME}:{index} must name mill_id")
     mill_id = _text(raw["mill_id"], f"{PAIRS_FILENAME}:{index}.mill_id")
     kind = kinds.get(mill_id)
     if kind is None:
         raise CatalogError(f"{PAIRS_FILENAME}:{index} names unknown mill {mill_id}")
+    return mill_id, kind
+
+
+def _optional_text(row: dict[str, Any], key: str) -> Any:
+    return row.get(key, "") or ""
+
+
+def _pair_row(raw: Any, index: int, kinds: dict[str, str]) -> CompactPair:
+    mill_id, kind = _pair_mill_kind(raw, index, kinds)
     keys = _LEFTOVER_PAIR_KEYS if kind == KIND_LEFTOVER else _PAIR_KEYS
     row = _mapping(raw, f"{PAIRS_FILENAME}:{index}", keys)
     role = _text(row["role"], f"{PAIRS_FILENAME}:{index}.role")
@@ -273,10 +283,10 @@ def _pair_row(raw: Any, index: int, kinds: dict[str, str]) -> CompactPair:
         role=role,
         fail_slug=_text(row["fail_slug"], f"{PAIRS_FILENAME}:{index}.fail_slug"),
         success_slug=_text(row["success_slug"], f"{PAIRS_FILENAME}:{index}.success_slug"),
-        fail_leftover=row.get("fail_leftover", "") or "",
-        success_leftover=row.get("success_leftover", "") or "",
-        mod=row.get("mod", "") or "",
-        token=row.get("token", "") or "",
+        fail_leftover=_optional_text(row, "fail_leftover"),
+        success_leftover=_optional_text(row, "success_leftover"),
+        mod=_optional_text(row, "mod"),
+        token=_optional_text(row, "token"),
     )
     if kind == KIND_LEFTOVER:
         _text(pair.mod, f"{PAIRS_FILENAME}:{index}.mod")
@@ -426,7 +436,7 @@ def _refuse_identity(catalog: Catalog) -> None:
     )
 
 
-def _refuse_duplicates(catalog: Catalog) -> None:
+def _refuse_repeated_ids(catalog: Catalog) -> None:
     mill_ids = [mill.mill_id for mill in catalog.catalogs]
     loop_ids = [loop.mill_id for loop in catalog.loops]
     if len(mill_ids) != len(set(mill_ids)):
@@ -435,6 +445,10 @@ def _refuse_duplicates(catalog: Catalog) -> None:
         raise CatalogError("catalog repeats a loop id")
     if set(mill_ids) & set(loop_ids):
         raise CatalogError("catalog reuses a mill id as a loop id")
+
+
+def _refuse_duplicates(catalog: Catalog) -> None:
+    _refuse_repeated_ids(catalog)
     if len(catalog.catalogs) != 12 or len(catalog.loops) != 11:
         raise CatalogError("expected 12 catalog mills and 11 loop pins")
     companions = {loop.companion_mill_path for loop in catalog.loops}
@@ -448,27 +462,53 @@ def load_catalog(path: Path = CATALOG_PATH) -> Catalog:
 
     directory = path if path.is_dir() else path.parent
     row = _mapping(_load_json(directory / CATALOG_FILENAME), "catalog", _CATALOG_KEYS)
+    raw_catalogs, raw_loops = _catalog_lists(row)
+    grouped = _grouped_pairs(directory / PAIRS_FILENAME, _mill_kinds(raw_catalogs))
+    catalog = _catalog_from_row(row, raw_catalogs, raw_loops, grouped)
+    _refuse_identity(catalog)
+    _refuse_duplicates(catalog)
+    return catalog
+
+
+def _catalog_lists(row: dict[str, Any]) -> tuple[list[Any], list[Any]]:
     raw_catalogs = row["catalogs"]
     raw_loops = row["loops"]
     if not isinstance(raw_catalogs, list) or not raw_catalogs:
         raise CatalogError("catalog.catalogs must be a non-empty list")
     if not isinstance(raw_loops, list) or not raw_loops:
         raise CatalogError("catalog.loops must be a non-empty list")
-    kinds = {
+    return raw_catalogs, raw_loops
+
+
+def _mill_kinds(raw_catalogs: list[Any]) -> dict[str, str]:
+    return {
         _text(item.get("mill_id"), f"catalog.catalogs[{index}].mill_id"): _text(
             item.get("kind"), f"catalog.catalogs[{index}].kind"
         )
         for index, item in enumerate(raw_catalogs)
         if isinstance(item, dict)
     }
+
+
+def _grouped_pairs(pairs_path: Path, kinds: dict[str, str]) -> dict[str, list[CompactPair]]:
+    """Committed pair identities grouped by mill; every mill must be catalogued."""
     grouped: dict[str, list[CompactPair]] = {}
-    for index, raw in enumerate(_load_jsonl(directory / PAIRS_FILENAME), start=1):
+    for index, raw in enumerate(_load_jsonl(pairs_path), start=1):
         pair = _pair_row(raw, index, kinds)
         grouped.setdefault(pair.mill_id, []).append(pair)
     extra = sorted(set(grouped) - set(kinds))
     if extra:
         raise CatalogError(f"{PAIRS_FILENAME} names unknown mills: {extra}")
-    catalog = Catalog(
+    return grouped
+
+
+def _catalog_from_row(
+    row: dict[str, Any],
+    raw_catalogs: list[Any],
+    raw_loops: list[Any],
+    grouped: dict[str, list[CompactPair]],
+) -> Catalog:
+    return Catalog(
         schema_version=_text(row["schema_version"], "catalog.schema_version"),
         family=_text(row["family"], "catalog.family", pattern=_IDENTIFIER),
         factory=_text(row["factory"], "catalog.factory"),
@@ -490,9 +530,6 @@ def load_catalog(path: Path = CATALOG_PATH) -> Catalog:
         ),
         loops=tuple(_loop(item, f"catalog.loops[{index}]") for index, item in enumerate(raw_loops)),
     )
-    _refuse_identity(catalog)
-    _refuse_duplicates(catalog)
-    return catalog
 
 
 CATALOG = load_catalog()

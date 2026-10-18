@@ -22,8 +22,18 @@ import re
 import sys
 from pathlib import Path
 
-from operator_paths import confine
-from round_txn import MODE_FILE, TransactionError, frontier_status
+if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("next_round")
+    from .operator_paths import confine
+    from .round_txn import MODE_FILE, TransactionError, frontier_status
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "next_round"
+    )
+    from operator_paths import confine
+    from round_txn import MODE_FILE, TransactionError, frontier_status
 
 BATCH_RE = re.compile(r"^batch-r(\d+)\.jsonl$")
 NOTES_RE = re.compile(r"^NOTES-r(\d+)\.md$")
@@ -251,6 +261,10 @@ def main(argv=None):
         sys.exit(1)
     print(json.dumps(plan))
     sys.exit(0)
+
+
+if __package__:
+    _expose_package_sibling(__name__)
 
 
 if __name__ == "__main__":

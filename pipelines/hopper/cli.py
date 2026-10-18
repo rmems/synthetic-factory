@@ -71,18 +71,32 @@ def _emit(payload: dict[str, Any], as_json: bool, text: str) -> None:
     print(json.dumps(payload, sort_keys=True) if as_json else text)
 
 
-def _selected(catalog: pl.Catalog, wave: str | None, factory: str | None, slug: str | None):
-    rows = list(catalog.pairs)
-    if wave is not None:
-        refuse_when(wave not in WAVES, FINDING_UNKNOWN_WAVE, f"unknown hopper wave {wave!r}")
-        rows = [row for row in rows if row.wave == wave]
-    if factory is not None:
-        refuse_when(factory not in catalog.prefixes, FINDING_UNKNOWN_FACTORY, f"unknown factory {factory}")
-        rows = [row for row in rows if row.factory == factory]
-    if slug is not None:
-        rows = [row for row in rows if row.ok["slug"] == slug or row.bad["slug"] == slug]
-        refuse_when(not rows, FINDING_UNKNOWN_SLUG, f"no hopper plant with slug {slug!r}")
+def _in_wave(rows: list, wave: str | None) -> list:
+    if wave is None:
+        return rows
+    refuse_when(wave not in WAVES, FINDING_UNKNOWN_WAVE, f"unknown hopper wave {wave!r}")
+    return [row for row in rows if row.wave == wave]
+
+
+def _of_factory(rows: list, catalog: pl.Catalog, factory: str | None) -> list:
+    if factory is None:
+        return rows
+    refuse_when(factory not in catalog.prefixes, FINDING_UNKNOWN_FACTORY, f"unknown factory {factory}")
+    return [row for row in rows if row.factory == factory]
+
+
+def _with_slug(rows: list, slug: str | None) -> list:
+    if slug is None:
+        return rows
+    rows = [row for row in rows if slug in (row.ok["slug"], row.bad["slug"])]
+    refuse_when(not rows, FINDING_UNKNOWN_SLUG, f"no hopper plant with slug {slug!r}")
     return rows
+
+
+def _selected(catalog: pl.Catalog, wave: str | None, factory: str | None, slug: str | None):
+    rows = _in_wave(list(catalog.pairs), wave)
+    rows = _of_factory(rows, catalog, factory)
+    return _with_slug(rows, slug)
 
 
 def _self_check(args: argparse.Namespace) -> int:

@@ -6,6 +6,7 @@ from __future__ import annotations
 import copy
 import sys
 from collections import Counter
+from typing import NamedTuple
 
 if __package__:
     from . import _assert_direct_sibling, _expose_package_sibling
@@ -334,14 +335,8 @@ def _annotation_payload(comparability, payload):
     return {}
 
 
-def curate_record(
-    record,
-    *,
-    source_path="<memory>",
-    source_line=1,
-    calibration=None,
-):
-    """Return ``(annotated_record, reversible_sidecar)`` without mutating input."""
+def _curation_source_path(record, source_path, source_line):
+    """The normalised source path, once the record and any annotation it carries are usable."""
     if not isinstance(record, dict):
         raise RewardOntologyError("record must be an object")
     _require_integer(
@@ -354,12 +349,11 @@ def curate_record(
     existing = record.get(ANNOTATION_FIELD)
     if existing is not None:
         validate_ontology_document(existing)
+    return source_path
 
-    source_record = copy.deepcopy(record)
-    source_record.pop(ANNOTATION_FIELD, None)
-    _reject_nonfinite_numbers(source_record, where=source_path)
-    reward_items = sorted(_walk_rewards(source_record), key=lambda item: item[0])
-    source_rewards = [
+
+def _source_reward_entries(reward_items):
+    return [
         {
             "json_pointer": pointer,
             "value_sha256": _sha256(value),
@@ -367,6 +361,51 @@ def curate_record(
         }
         for pointer, value in reward_items
     ]
+
+
+def _applied_calibration(normalized_calibration, reason_codes):
+    """The sidecar ``calibration`` member when external evidence was applied, else nothing."""
+    if normalized_calibration is not None and (
+        "external_calibration_evidence" in reason_codes
+    ):
+        return {
+            "calibration": {
+                "source_unit_usd": _json_number(normalized_calibration["source_unit_usd"]),
+                "evidence_ref": normalized_calibration["evidence_ref"],
+            }
+        }
+    return {}
+
+
+def _training_annotation(verdict, sidecar):
+    """The record's annotation for a ``(comparability, reason_codes, payload)`` verdict."""
+    comparability, reason_codes, payload = verdict
+    return {
+        "document_type": "reward_training_annotation",
+        "ontology_version": ONTOLOGY_VERSION,
+        "comparability": comparability,
+        "reason_codes": reason_codes,
+        "source_sidecar_id": sidecar["sidecar_id"],
+        "source_reward_count": len(sidecar["source_rewards"]),
+        **_annotation_payload(comparability, payload),
+    }
+
+
+def curate_record(
+    record,
+    *,
+    source_path="<memory>",
+    source_line=1,
+    calibration=None,
+):
+    """Return ``(annotated_record, reversible_sidecar)`` without mutating input."""
+    source_path = _curation_source_path(record, source_path, source_line)
+
+    source_record = copy.deepcopy(record)
+    source_record.pop(ANNOTATION_FIELD, None)
+    _reject_nonfinite_numbers(source_record, where=source_path)
+    reward_items = sorted(_walk_rewards(source_record), key=lambda item: item[0])
+    source_rewards = _source_reward_entries(reward_items)
     arithmetic = [
         assess_arithmetic(value, pointer) for pointer, value in reward_items
     ]
@@ -388,25 +427,11 @@ def curate_record(
         },
         "source_rewards": source_rewards,
         "arithmetic": arithmetic,
+        **_applied_calibration(normalized_calibration, reason_codes),
     }
-    if normalized_calibration is not None and (
-        "external_calibration_evidence" in reason_codes
-    ):
-        sidecar_body["calibration"] = {
-            "source_unit_usd": _json_number(normalized_calibration["source_unit_usd"]),
-            "evidence_ref": normalized_calibration["evidence_ref"],
-        }
     sidecar = {**sidecar_body, "sidecar_id": _sha256(sidecar_body)}
 
-    annotation = {
-        "document_type": "reward_training_annotation",
-        "ontology_version": ONTOLOGY_VERSION,
-        "comparability": comparability,
-        "reason_codes": reason_codes,
-        "source_sidecar_id": sidecar["sidecar_id"],
-        "source_reward_count": len(source_rewards),
-        **_annotation_payload(comparability, payload),
-    }
+    annotation = _training_annotation((comparability, reason_codes, payload), sidecar)
 
     validate_ontology_document(sidecar)
     validate_ontology_document(annotation)
@@ -415,15 +440,7 @@ def curate_record(
     return curated, sidecar
 
 
-def restore_source_record(curated_record, sidecar):
-    """Restore reward values and verify the exact source-record digest."""
-    validate_ontology_document(sidecar)
-    annotation = (
-        curated_record.get(ANNOTATION_FIELD)
-        if isinstance(curated_record, dict)
-        else None
-    )
-    validate_ontology_document(annotation)
+def _require_annotation_matches_sidecar(annotation, sidecar):
     if annotation["source_sidecar_id"] != sidecar["sidecar_id"]:
         raise RewardOntologyError("record annotation references a different sidecar")
     if annotation["source_reward_count"] != len(sidecar["source_rewards"]):
@@ -435,12 +452,29 @@ def restore_source_record(curated_record, sidecar):
         != sidecar["classification"]["reason_codes"]
     ):
         raise RewardOntologyError("record annotation classification mismatches sidecar")
-    restored = copy.deepcopy(curated_record)
-    restored.pop(ANNOTATION_FIELD, None)
+
+
+def _restore_sidecar_rewards(restored, sidecar):
+    """Write every hash-verified source reward back to its pointer in ``restored``."""
     for reward in sidecar["source_rewards"]:
         if _sha256(reward["value"]) != reward["value_sha256"]:
             raise RewardOntologyError("source reward sidecar value hash mismatch")
         _set_pointer(restored, reward["json_pointer"], reward["value"])
+
+
+def restore_source_record(curated_record, sidecar):
+    """Restore reward values and verify the exact source-record digest."""
+    validate_ontology_document(sidecar)
+    annotation = (
+        curated_record.get(ANNOTATION_FIELD)
+        if isinstance(curated_record, dict)
+        else None
+    )
+    validate_ontology_document(annotation)
+    _require_annotation_matches_sidecar(annotation, sidecar)
+    restored = copy.deepcopy(curated_record)
+    restored.pop(ANNOTATION_FIELD, None)
+    _restore_sidecar_rewards(restored, sidecar)
     if _sha256(restored) != sidecar["source"]["record_sha256"]:
         raise RewardOntologyError("restored source record hash mismatch")
     return restored
@@ -530,7 +564,17 @@ def _census_shape_row(signature, occurrences, outcomes):
     return row
 
 
-def _census_record(record, scope_keys, key_types, key_counts, shapes, shape_outcomes, arithmetic):
+class _CensusTally(NamedTuple):
+    """The running per-key, per-shape and arithmetic counts of one census."""
+
+    key_types: dict
+    key_counts: Counter
+    shapes: Counter
+    shape_outcomes: dict
+    arithmetic: Counter
+
+
+def _census_record(record, scope_keys, tally):
     if not isinstance(record, dict):
         raise RewardOntologyError("census records must be objects")
     ontology_instances = sum(1 for _ in _walk_rewards(record))
@@ -538,17 +582,42 @@ def _census_record(record, scope_keys, key_types, key_counts, shapes, shape_outc
     for pointer, reward in _walk_rewards(record, reward_keys=scope_keys):
         instances += 1
         signature = reward_signature(reward)
-        shapes[signature] += 1
+        tally.shapes[signature] += 1
         result = assess_arithmetic(reward, pointer)
         outcome = (result["status"], result["method"])
-        arithmetic[outcome] += 1
-        shape_outcomes.setdefault(signature, set()).add(outcome)
+        tally.arithmetic[outcome] += 1
+        tally.shape_outcomes.setdefault(signature, set()).add(outcome)
         if not isinstance(reward, dict):
             continue
         for key, value in reward.items():
-            key_types.setdefault(key, Counter())[value_type(value)] += 1
-            key_counts[key] += 1
+            tally.key_types.setdefault(key, Counter())[value_type(value)] += 1
+            tally.key_counts[key] += 1
     return ontology_instances, instances
+
+
+def _census_scope_keys(scope_keys):
+    if scope_keys is None:
+        scope_keys = SOURCE_VOCABULARY.get("scope_keys") or [CANONICAL_SCOPE[1:]]
+    scope_keys = frozenset(scope_keys)
+    unknown = _unknown_members(scope_keys, REWARD_KEYS)
+    if unknown:
+        raise RewardOntologyError(f"census scope names non-reward keys: {unknown}")
+    return scope_keys
+
+
+def _census_component_keys(tally):
+    """The per-key census rows, and how many keys fall under each disposition."""
+    dispositions = Counter({name: 0 for name in COMPONENT_DISPOSITIONS})
+    component_keys = {}
+    for key in sorted(tally.key_types):
+        disposition = disposition_for_observed_types(key, tally.key_types[key])
+        dispositions[disposition] += 1
+        component_keys[key] = {
+            "disposition": disposition,
+            "observed_types": sorted(tally.key_types[key]),
+            "occurrences": tally.key_counts[key],
+        }
+    return dispositions, component_keys
 
 
 def reward_census(records, *, scope_keys=None):
@@ -558,43 +627,24 @@ def reward_census(records, *, scope_keys=None):
     2026-08-17 run. ``scope_keys`` defaults to the mapped run's census scope so
     the counts stay comparable with the training audit's reward vocabulary.
     """
-    if scope_keys is None:
-        scope_keys = SOURCE_VOCABULARY.get("scope_keys") or [CANONICAL_SCOPE[1:]]
-    scope_keys = frozenset(scope_keys)
-    unknown = _unknown_members(scope_keys, REWARD_KEYS)
-    if unknown:
-        raise RewardOntologyError(f"census scope names non-reward keys: {unknown}")
+    scope_keys = _census_scope_keys(scope_keys)
 
-    key_types = {}
-    key_counts = Counter()
-    shapes = Counter()
-    shape_outcomes = {}
-    arithmetic = Counter()
+    tally = _CensusTally({}, Counter(), Counter(), {}, Counter())
     total_records = 0
     instances = 0
     ontology_instances = 0
     for record in records:
         total_records += 1
-        record_ontology, record_instances = _census_record(
-            record, scope_keys, key_types, key_counts, shapes, shape_outcomes, arithmetic
-        )
+        record_ontology, record_instances = _census_record(record, scope_keys, tally)
         ontology_instances += record_ontology
         instances += record_instances
 
-    dispositions = Counter({name: 0 for name in COMPONENT_DISPOSITIONS})
-    component_keys = {}
-    for key in sorted(key_types):
-        disposition = disposition_for_observed_types(key, key_types[key])
-        dispositions[disposition] += 1
-        component_keys[key] = {
-            "disposition": disposition,
-            "observed_types": sorted(key_types[key]),
-            "occurrences": key_counts[key],
-        }
-
+    dispositions, component_keys = _census_component_keys(tally)
     shape_rows = [
-        _census_shape_row(signature, shapes[signature], sorted(shape_outcomes[signature]))
-        for signature in sorted(shapes)
+        _census_shape_row(
+            signature, tally.shapes[signature], sorted(tally.shape_outcomes[signature])
+        )
+        for signature in sorted(tally.shapes)
     ]
 
     return {
@@ -608,7 +658,7 @@ def reward_census(records, *, scope_keys=None):
         "dispositions": {name: dispositions[name] for name in COMPONENT_DISPOSITIONS},
         "arithmetic": [
             {"status": status, "method": method, "occurrences": count}
-            for (status, method), count in sorted(arithmetic.items())
+            for (status, method), count in sorted(tally.arithmetic.items())
         ],
         "component_keys": component_keys,
         "shapes": shape_rows,

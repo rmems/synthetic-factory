@@ -45,10 +45,10 @@ def step(n: int, basis: str, name: str, args: dict[str, Any], obs: str,
     return s
 
 
-def success_ep(rnd: int, plant: cat.Plant) -> dict[str, Any]:
+def _success_first_attempt(plant: cat.Plant) -> list[dict[str, Any]]:
+    """Steps 1-7: find the racy acquire, run its gate, and watch the 3600s retry fail."""
     src, test, seed = plant.src, plant.test, plant.seed
-    leftover = plant.leftover_fn
-    steps = [
+    return [
         step(1, f"Plan: inspect {seed} vs drop without leftover fence before any retry.", "bash",
              {"command": f"rg -n '{plant.probe}' src tests | head -n 40"},
              f"{src}: {plant.bad}\n{test}: test exclusive leftover fence"),
@@ -70,6 +70,14 @@ def success_ep(rnd: int, plant: cat.Plant) -> dict[str, Any]:
              {"command": f"pytest {test} -q --tb=short 2>&1 | tail -n 16"},
              f"FAILED test_no_hour_loop +3600\nFAILED still {plant.bad}\n0 passed, 2 failed",
              reflection=f"Hour retry banned. Replace {plant.bad} with leftover fence vs drop."),
+    ]
+
+
+def _success_plan_change(plant: cat.Plant) -> list[dict[str, Any]]:
+    """Steps 8-16: land the leftover fence instead and confirm it on every gate."""
+    src, test, seed = plant.src, plant.test, plant.seed
+    leftover = plant.leftover_fn
+    return [
         step(8, f"Reflection: plan change \u2014 {plant.fix}.", "write",
              {"path": src, "contents": plant.fix + "\n"}, "leftover fence vs drop landed"),
         step(9, "Observation: fix landed (step 8). Re-run gate.", "bash",
@@ -93,6 +101,11 @@ def success_ep(rnd: int, plant: cat.Plant) -> dict[str, Any]:
              {"path": src}, f"{plant.fix}; no hour retry; drop gated",
              reflection=f"{seed}: drop only if leftover fence still matches."),
     ]
+
+
+def success_ep(rnd: int, plant: cat.Plant) -> dict[str, Any]:
+    test, seed = plant.test, plant.seed
+    steps = [*_success_first_attempt(plant), *_success_plan_change(plant)]
     return {
         "id": f"dlk-r{rnd:04d}-{plant.slug}",
         "goal": (
@@ -110,11 +123,17 @@ def success_ep(rnd: int, plant: cat.Plant) -> dict[str, Any]:
     }
 
 
-def fail_ep(rnd: int, plant: cat.Plant) -> dict[str, Any]:
+def _fail_test(plant: cat.Plant) -> str:
+    """The leftover-drop gate test that sits beside ``plant.test``."""
+    return plant.test.replace(".py", f"_{plant.leftover_fn}.py")
+
+
+def _fail_first_attempt(plant: cat.Plant) -> list[dict[str, Any]]:
+    """Steps 1-7: find the racy leftover drop, run its gate, and watch the 3600s retry fail."""
     src, test = plant.src, plant.test
     leftover = plant.leftover_fn
-    fail_test = test.replace(".py", f"_{leftover}.py")
-    steps = [
+    fail_test = _fail_test(plant)
+    return [
         step(1, f"Plan: inspect fail path {plant.fail_slug} leftover drop.", "bash",
              {"command": f"rg -n '{leftover}' src tests | head -n 40"},
              f"{src}: {leftover} still {plant.bad}\n{fail_test}: gate leftover drop"),
@@ -137,6 +156,15 @@ def fail_ep(rnd: int, plant: cat.Plant) -> dict[str, Any]:
              {"command": f"pytest {fail_test} {test} -q --tb=short 2>&1 | tail -n 16"},
              "FAILED test_no_hour_loop\nFAILED leftover drop\n0 passed, 2 failed",
              reflection="Hour retry banned. Must fence leftover drop or handoff."),
+    ]
+
+
+def _fail_partial_handoff(plant: cat.Plant) -> list[dict[str, Any]]:
+    """Steps 8-17: fence only the acquire, xfail the leftover drop, and hand it off."""
+    src, test = plant.src, plant.test
+    leftover = plant.leftover_fn
+    fail_test = _fail_test(plant)
+    return [
         step(8, f"Reflection: try {plant.fix} only on acquire, leave {leftover}.", "write",
              {"path": src, "contents": plant.fix + f"\n# {leftover} still {plant.bad}\n"},
              "acquire fenced; leftover drop unchanged"),
@@ -166,6 +194,12 @@ def fail_ep(rnd: int, plant: cat.Plant) -> dict[str, Any]:
              "1 xfailed",
              reflection=f"{plant.fail_why} Handoff leftover drop."),
     ]
+
+
+def fail_ep(rnd: int, plant: cat.Plant) -> dict[str, Any]:
+    leftover = plant.leftover_fn
+    fail_test = _fail_test(plant)
+    steps = [*_fail_first_attempt(plant), *_fail_partial_handoff(plant)]
     return {
         "id": f"dlk-r{rnd:04d}-{plant.fail_slug}",
         "goal": (

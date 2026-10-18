@@ -194,7 +194,8 @@ class TamperResistance(unittest.TestCase):
     )
     _ATEXIT_CLEAR_NOOP = "import atexit\natexit._clear = lambda: None\n" + _ATEXIT_REPORT_FD
 
-    def _run_forged_pass(self, preamble: str) -> ex.PhaseReport:
+    @staticmethod
+    def _run_forged_pass(preamble: str) -> ex.PhaseReport:
         module = preamble + "def f(n):\n    return 999\n"
         job = ex.Job("tamper:test", module, "f", ({"args": "(1,)", "want": "1"},), False)
         return RUNNER.run(job)
@@ -449,8 +450,9 @@ class InProcessHarnessBehavior(unittest.TestCase):
         self.assertEqual([row["status"] for row in rows], ["pass", "fail", "error"])
         self.assertEqual(rows[1]["got"], "ValueError: wrong")
         self.assertEqual(rows[2]["got"], "ValueError: invalid literal for int() with base 10: 'x'")
+        example = doctest.Example("3\n", "3\n")
         with self.assertRaisesRegex(ValueError, "does not hold"):
-            runner.report_success(None, test, doctest.Example("3\n", "3\n"), "3\n")
+            runner.report_success(None, test, example, "3\n")
 
     def test_temp_module_loading_and_public_examples_report_real_pass_and_failure_rows(self):
         text = (

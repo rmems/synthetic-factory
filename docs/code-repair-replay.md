@@ -37,3 +37,28 @@ that discarding failed probes did not change the state used by retained inputs.
 These selection checks bound the pinned-source pilot. Execution of any catalog
 that is not that reviewed pin requires the `bwrap-ro-netns-v1` OS boundary
 recorded in the oracle fingerprint; replay refuses a different sandbox identity.
+
+## What a Hub card may claim about replay
+
+`REPLAY.json`'s top-level `status` is computed over the replayed positives
+only. Rejected and provisional records are listed as `not_replayed`, so
+`status: passed` next to `not_replayed > 0` is a partial replay, not a passed
+full batch (#420). A code-repair Hub card's verification and contents sentences
+are therefore rendered from the evidence by `pipelines/code_repair/card_claims.py`
+(`verification_statement`, `split_statement`, `contents_statement`), and
+`pipelines/verify_hf_release.py --repo <id>` checks a published code-repair card
+(`REPLAY_CLAIM_REPOS`) against its `evidence/REPLAY.json` and
+`evidence/RUN.json`, after reconciling the summary counts with the per-record list.
+The card must state `<passed> of <records>`, the failed and not-replayed counts
+with the not-replayed outcomes, the replay `status`, the outcome and oracle-status
+splits, and the requested-draw and draw-skip counts. Each draw-skip count must
+be followed, before the next draw count and before the clause ends, by its own
+reason (the skip code, or a plain name such as "duplicate mutant"). The
+`MUTATION_NO_SITES` count must share a clause with
+"excluded from the draw pool", because those programs use no draws and don't
+account for a shortfall between requested and produced candidates.
+
+The default `verify_hf_release.py` run (`DEFAULT_REPOS`) must pass against what
+is published today, so a code-repair release joins it only once its published
+card passes. `rmems/python-function-repair-20261006` is checked on request
+until its card-only Hub fix for #420 merges.

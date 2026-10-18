@@ -32,9 +32,12 @@ class TeacherTopK(unittest.TestCase):
     def test_incompatible_override_is_refused(self):
         for top_k in (1, 3, 0, True):
             router = loaded_router(top_k)
-            with self.subTest(top_k=top_k), patch.dict("sys.modules", {"torch": SimpleNamespace(no_grad=nullcontext)}):
-                with self.assertRaises(oc.OracleUnavailable):
-                    router.route("context")
+            with (
+                self.subTest(top_k=top_k),
+                patch.dict("sys.modules", {"torch": SimpleNamespace(no_grad=nullcontext)}),
+                self.assertRaises(oc.OracleUnavailable),
+            ):
+                router.route("context")
 
     def test_default_and_matching_override_keep_fingerprint_width(self):
         for top_k in (None, 2):

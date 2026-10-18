@@ -22,6 +22,9 @@ class MillSource:
     companion_mill_path: str | None = None
 
 
+# Mills that several loop / plant-gen rows name as their companion, plus the mill's own row.
+_MILL_R1514 = "experiments/iac-mill-r1514.py"
+
 MILL_SOURCES: tuple[MillSource, ...] = (
     MillSource(
         "iac-loop-r609",
@@ -51,21 +54,21 @@ MILL_SOURCES: tuple[MillSource, ...] = (
         "a17ba04998571f2dfc5942f6523ec0de56234207",
         KIND_LOOP,
         # Filename is historical; the script loads the r1514 mill.
-        "experiments/iac-mill-r1514.py",
+        _MILL_R1514,
     ),
     MillSource(
         "iac-loop-r1132",
         "experiments/iac-loop-r1132.py",
         "a17ba04998571f2dfc5942f6523ec0de56234207",
         KIND_LOOP,
-        "experiments/iac-mill-r1514.py",
+        _MILL_R1514,
     ),
     MillSource(
         "iac-loop-r1514",
         "experiments/iac-loop-r1514.py",
         "9375cc69666dc5eaa0b6686c8f0a37cc8304d4b7",
         KIND_LOOP,
-        "experiments/iac-mill-r1514.py",
+        _MILL_R1514,
     ),
     MillSource(
         "_gen_iac_plants_r1132",
@@ -79,7 +82,7 @@ MILL_SOURCES: tuple[MillSource, ...] = (
         "experiments/_gen_iac_append_r1514.py",
         "388663537d3eb000eb12d164558bd7d8fb3f4fee",
         KIND_GEN,
-        "experiments/iac-mill-r1514.py",
+        _MILL_R1514,
     ),
     MillSource(
         "iac-mill-r609",
@@ -119,7 +122,7 @@ MILL_SOURCES: tuple[MillSource, ...] = (
     ),
     MillSource(
         "iac-mill-r1514",
-        "experiments/iac-mill-r1514.py",
+        _MILL_R1514,
         "9efee7a5778e84a2174131a0f166a1cd67f4acfe",
         KIND_PAIRS,
     ),

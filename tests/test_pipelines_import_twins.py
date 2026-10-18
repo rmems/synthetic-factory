@@ -26,31 +26,9 @@ import pipelines_import_twin_probe as probe
 
 # The only modules allowed to split, in three named sets. Converting one to the
 # binding prelude makes it one object, and this contract then fails until its
-# name is removed here, so the sets only shrink.
-#
-# Direct-execution-only modules (CLAUDE.md, "Import conventions in pipelines/"):
-# they import their siblings by bare name, so ``import pipelines.<name>`` without
-# ``pipelines/`` on ``sys.path`` raises ``ModuleNotFoundError``, and with it they
-# load a second copy. #436 converts the six ``tag_*`` modules and #441 the other
-# eight; each removes its names here when it lands.
-DIRECT_EXECUTION_ONLY = frozenset(
-    {
-        "card_schema",
-        "card_schema_validate",
-        "card_schema_yaml",
-        "next_round",
-        "quality_gate_audit",
-        "quality_gate_embedding",
-        "tag_io",
-        "tag_jsonl",
-        "tag_record",
-        "tag_regex",
-        "tag_taxonomy",
-        "tag_write",
-        "verify_execution",
-        "verify_execution_shapes",
-    }
-)
+# name is removed here, so the sets only shrink. The direct-execution-only set
+# (CLAUDE.md, "Import conventions in pipelines/") is gone: #436 converted the
+# ``tag_*`` modules and #441 the other eight.
 
 # Byte-sealed modules that still lack the prelude. Adding it changes their bytes,
 # and so a reviewed stamp: ``tag_jsonutil`` is in ``family_digest.SHARED_SOURCES``
@@ -93,7 +71,6 @@ THIN_CLI_SHIMS = {"actf_cli": "actf", "code_repair_cli": "code_repair", "mill_cl
 THIN_SHIM_NAMES = frozenset({"Path", "_PIPELINES", "annotations", "cli", "sys"})
 
 ALLOWLISTS = (
-    DIRECT_EXECUTION_ONLY,
     SEALED_UNTIL_RESEAL,
     LEFT_TO_OPEN_PRS,
     frozenset(THIN_CLI_SHIMS),
@@ -107,7 +84,7 @@ _UNEXPECTED_SPLIT = (
 )
 _STALE_ALLOWLIST = (
     "these modules are now one object under both names; remove them from "
-    "DIRECT_EXECUTION_ONLY, SEALED_UNTIL_RESEAL, LEFT_TO_OPEN_PRS or THIN_CLI_SHIMS"
+    "SEALED_UNTIL_RESEAL, LEFT_TO_OPEN_PRS or THIN_CLI_SHIMS"
 )
 _THICK_SHIM = (
     "a thin CLI shim defines names beyond its bootstrap and cli; give it the binding "

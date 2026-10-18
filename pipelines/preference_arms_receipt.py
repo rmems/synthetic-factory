@@ -336,9 +336,8 @@ def _require_bound_publication(
     documents: list[dict[str, Any]],
     expected_names: tuple[str, ...],
     expectation: ReceiptExpectation,
-    batch: Path,
 ) -> None:
-    """Bind the ordered Session A artifacts to the pairs actually published.
+    """Bind the ordered Session A artifacts to the pairs in ``expectation.batch``.
 
     Validating each diagnosis in isolation left both halves of the handoff
     unbound: the batch could publish records no authorized diagnosis ever
@@ -347,6 +346,11 @@ def _require_bound_publication(
     the diagnosis filenames already define.
     """
 
+    batch = expectation.batch
+    if batch is None:
+        # The only caller binds publication when a batch was captured; reaching
+        # here without one would silently skip the binding, so refuse instead.
+        raise PreferenceArmsError("publication binding requires the captured batch")
     pairs = _batch_pairs(batch, expectation.expected_count)
     scratch_names = rejected_scratch_filenames(
         expectation.round_number, expectation.expected_count
@@ -383,9 +387,7 @@ def validate_diagnosis_handoff_receipt(
     entries = _validated_receipt_entries(receipt, expected_names, expectation.expected_count)
     documents = [_reconcile_entry_bytes(root, entry) for entry in entries]
     if expectation.batch is not None:
-        _require_bound_publication(
-            root, documents, expected_names, expectation, expectation.batch
-        )
+        _require_bound_publication(root, documents, expected_names, expectation)
     return receipt
 
 

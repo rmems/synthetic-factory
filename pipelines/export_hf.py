@@ -36,7 +36,7 @@ import json
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 if __package__:
     from . import _assert_direct_sibling, _expose_package_sibling
@@ -84,7 +84,6 @@ from export_viewer import (  # noqa: E402
 )
 
 CURATED_DIRNAME = _contract.CURATED_DIRNAME
-CuratedFile = _contract.CuratedFile
 DEFAULT_EVAL_FRACTION = _contract.DEFAULT_EVAL_FRACTION
 DEFAULT_SPLIT = _contract.DEFAULT_SPLIT
 DEFAULT_SPLIT_SALT = _contract.DEFAULT_SPLIT_SALT
@@ -92,12 +91,17 @@ EVAL_PATH = _contract.EVAL_PATH
 ExportError = _contract.ExportError
 PROTOCOL_PATH = _contract.PROTOCOL_PATH
 PROVENANCE_PATH = _contract.PROVENANCE_PATH
-SplitOptions = _contract.SplitOptions
 TRAIN_PATH = _contract.TRAIN_PATH
 VIEWER_COLUMNS = _contract.VIEWER_COLUMNS
 VIEWER_PATH = _contract.VIEWER_PATH
-ViewerRow = _contract.ViewerRow
 _loads_json = _contract._loads_json
+if TYPE_CHECKING:
+    # The classes annotated below; at run time the sibling's own objects are bound.
+    from .export_contract import CuratedFile, SplitOptions, ViewerRow
+else:
+    CuratedFile = _contract.CuratedFile
+    SplitOptions = _contract.SplitOptions
+    ViewerRow = _contract.ViewerRow
 
 _compose_metadata = _compose_auth._compose_metadata
 

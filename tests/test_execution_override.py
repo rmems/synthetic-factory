@@ -14,6 +14,39 @@ from gate_fixtures import execution_summary, thalamic, write  # noqa: E402
 import round_txn  # noqa: E402
 
 
+def _invalid_verification_summaries(waived):
+    """Each verification block the summary validator must reject, in order."""
+    extra_key = execution_summary()
+    extra_key["extra"] = True
+    wrong_counts = execution_summary()
+    wrong_counts["counts"] = {"verified": 1}
+    other_gate = execution_summary()
+    other_gate["gate"] = "other.gate"
+    not_strict = execution_summary()
+    not_strict["strict"] = False
+    bool_verified = execution_summary()
+    bool_verified["counts"]["verified"] = True
+    return (
+        "nope",
+        extra_key,
+        wrong_counts,
+        bool_verified,
+        execution_summary(verified=-1),
+        other_gate,
+        not_strict,
+        execution_summary(verified=0, inconclusive=0, failed=0),
+        execution_summary(failed=1),
+        execution_summary(verified=1, inconclusive=1, failed=0),
+        execution_summary(verified=0, inconclusive=1, override=None),
+        execution_summary(
+            verified=0,
+            inconclusive=1,
+            override={"reason": "hil replay rig offline", "waived_inconclusive": 2},
+        ),
+        execution_summary(override=waived),
+    )
+
+
 class ExecutionOverrideReason(unittest.TestCase):
     def test_absent_override_stays_absent(self):
         self.assertIsNone(round_txn.normalized_execution_override(None))
@@ -107,36 +140,7 @@ class ExecutionOverrideReason(unittest.TestCase):
             )["override"]["reason"],
             waived["reason"],
         )
-        extra_key = execution_summary()
-        extra_key["extra"] = True
-        wrong_counts = execution_summary()
-        wrong_counts["counts"] = {"verified": 1}
-        other_gate = execution_summary()
-        other_gate["gate"] = "other.gate"
-        not_strict = execution_summary()
-        not_strict["strict"] = False
-        bool_verified = execution_summary()
-        bool_verified["counts"]["verified"] = True
-        rejected = (
-            "nope",
-            extra_key,
-            wrong_counts,
-            bool_verified,
-            execution_summary(verified=-1),
-            other_gate,
-            not_strict,
-            execution_summary(verified=0, inconclusive=0, failed=0),
-            execution_summary(failed=1),
-            execution_summary(verified=1, inconclusive=1, failed=0),
-            execution_summary(verified=0, inconclusive=1, override=None),
-            execution_summary(
-                verified=0,
-                inconclusive=1,
-                override={"reason": "hil replay rig offline", "waived_inconclusive": 2},
-            ),
-            execution_summary(override=waived),
-        )
-        for summary in rejected:
+        for summary in _invalid_verification_summaries(waived):
             with self.subTest(summary=summary), self.assertRaises(round_txn.TransactionError):
                 round_txn.validated_execution_verification_summary(summary)
 

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import ast
 import re
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any
 
@@ -69,7 +69,9 @@ def literal_value(node: ast.AST, env: Mapping[str, Any]) -> Any:
     """Resolve a constant, name, f-string, or string add; else ``UNSET``."""
 
     resolver = _LITERAL.get(type(node))
-    return UNSET if resolver is None else resolver(node, env)
+    if resolver is None:
+        return UNSET
+    return resolver(node, env)
 
 
 def _literal_constant(node: ast.Constant, _env: Mapping[str, Any]) -> Any:
@@ -109,7 +111,8 @@ def _literal_add(node: ast.BinOp, env: Mapping[str, Any]) -> Any:
     return UNSET
 
 
-_LITERAL = {
+_LiteralResolver = Callable[[ast.AST, Mapping[str, Any]], Any]
+_LITERAL: dict[type[ast.AST], _LiteralResolver] = {
     ast.Constant: _literal_constant,
     ast.Name: _literal_name,
     ast.Attribute: _literal_attr,
@@ -387,7 +390,7 @@ def _loop_mill_names(tree: ast.AST) -> list[str]:
 
 
 def _bans_from_tree(tree: ast.AST, env: dict[str, Any]) -> dict[str, list[str]]:
-    bans = {"slug_needles": [], "blob_keys": []}
+    bans: dict[str, list[str]] = {"slug_needles": [], "blob_keys": []}
     for node in getattr(tree, "body", ()):
         name, value = assignment_of(node)
         if name == "BANNED_SLUG_NEEDLES" and value is not None:

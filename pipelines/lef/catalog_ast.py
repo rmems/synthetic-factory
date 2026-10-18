@@ -7,7 +7,7 @@ Nothing here executes source. ``ast.parse`` is the only interpreter step.
 from __future__ import annotations
 
 import ast
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 UNSET = object()
@@ -62,6 +62,14 @@ def literal_value(node: ast.AST, env: Mapping[str, Any] | None = None) -> Any:
     if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
         inner = literal_value(node.operand, bound)
         return -inner if isinstance(inner, (int, float)) else UNSET
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+        return _added_text(node, bound)
+    return _container_literal(node, bound)
+
+
+def _container_literal(node: ast.AST, bound: Mapping[str, Any]) -> Any:
+    """Tuple, list, set, and dict displays of literals."""
+
     if isinstance(node, ast.Tuple):
         return _sequence(node.elts, bound, tuple)
     if isinstance(node, ast.List):
@@ -71,16 +79,37 @@ def literal_value(node: ast.AST, env: Mapping[str, Any] | None = None) -> Any:
         return set(values) if values is not UNSET else UNSET
     if isinstance(node, ast.Dict):
         return _mapping(node, bound)
+    return _text_or_call_literal(node, bound)
+
+
+def _text_or_call_literal(node: ast.AST, bound: Mapping[str, Any]) -> Any:
+    """Constant f-strings, ``str + str``, and ``frozenset(...)``; else ``UNSET``."""
+
     if isinstance(node, ast.JoinedStr):
         return _joined_string(node, bound)
-    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
-        left = literal_value(node.left, bound)
-        right = literal_value(node.right, bound)
-        if isinstance(left, str) and isinstance(right, str):
-            return left + right
     if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
         return _safe_call(node, bound)
     return UNSET
+
+
+def _added_text(node: ast.BinOp, bound: Mapping[str, Any]) -> Any:
+    """Left-nested ``str + str``. A non-string operand is ``UNSET``.
+
+    The spine is walked in a loop so a long chain does not grow the call stack.
+    """
+
+    rights: list[ast.AST] = []
+    cursor: ast.AST = node
+    while isinstance(cursor, ast.BinOp) and isinstance(cursor.op, ast.Add):
+        rights.append(cursor.right)
+        cursor = cursor.left
+    acc = literal_value(cursor, bound)
+    for right_node in reversed(rights):
+        right = literal_value(right_node, bound)
+        if not isinstance(acc, str) or not isinstance(right, str):
+            return UNSET
+        acc = acc + right
+    return acc
 
 
 def _safe_call(node: ast.Call, env: Mapping[str, Any]) -> Any:
@@ -92,7 +121,7 @@ def _safe_call(node: ast.Call, env: Mapping[str, Any]) -> Any:
     return UNSET
 
 
-def _sequence(elts: list[ast.AST], env: Mapping[str, Any], ctor):
+def _sequence(elts: Sequence[ast.AST], env: Mapping[str, Any], ctor) -> Any:
     values: list[Any] = []
     for elt in elts:
         item = literal_value(elt, env)
@@ -130,7 +159,7 @@ def _joined_string(node: ast.JoinedStr, env: Mapping[str, Any]) -> Any:
     return "".join(parts)
 
 
-def call_name(node: ast.AST) -> str | None:
+def call_name(node: ast.AST | None) -> str | None:
     if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
         return node.func.id
     return None

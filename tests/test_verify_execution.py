@@ -162,7 +162,7 @@ class VerifyExecutionEnvelopes(unittest.TestCase):
                 "future_outcome": {"timeline": [{"event": "ok"}]},
             },
         }
-        status, reason = verify_execution.verify_record_execution(record, "where")
+        status, _reason = verify_execution.verify_record_execution(record, "where")
         self.assertEqual(status, "failed")
 
 

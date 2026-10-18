@@ -4,28 +4,43 @@ from __future__ import annotations
 
 import copy
 import re
+import sys
 from pathlib import Path
 from typing import Any
 
-from tag_constants import (
-    DEFAULT_TAXONOMY_PATH,
-    REASON_TAG_ALIAS,
-    REASON_TAG_CANONICAL,
-    REASON_TAG_EMPTY,
-    REASON_TAG_MAPPING_AMBIGUOUS,
-    REASON_TAG_NOT_STRING,
-    REASON_TAG_PATTERN,
-    REASON_TAG_UNMAPPED,
-    REASON_TAGS_UNMAPPED,
-    RULE_ALIAS,
-    RULE_CANONICAL,
-    RULE_PATTERN_PREFIX,
-    RULE_TRANSFORM,
-    UNMAPPED_MARKER_TAG,
-    TagTaxonomyError,
-)
-from tag_jsonutil import load_strict_json, normalize_tag
-from tag_regex import compile_taxonomy_regex
+if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("tag_taxonomy")
+    from . import tag_constants as _tag_constants
+    from . import tag_jsonutil as _tag_jsonutil
+    from . import tag_regex as _tag_regex
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "tag_taxonomy"
+    )
+    import tag_constants as _tag_constants
+    import tag_jsonutil as _tag_jsonutil
+    import tag_regex as _tag_regex
+
+DEFAULT_TAXONOMY_PATH = _tag_constants.DEFAULT_TAXONOMY_PATH
+REASON_TAG_ALIAS = _tag_constants.REASON_TAG_ALIAS
+REASON_TAG_CANONICAL = _tag_constants.REASON_TAG_CANONICAL
+REASON_TAG_EMPTY = _tag_constants.REASON_TAG_EMPTY
+REASON_TAG_MAPPING_AMBIGUOUS = _tag_constants.REASON_TAG_MAPPING_AMBIGUOUS
+REASON_TAG_NOT_STRING = _tag_constants.REASON_TAG_NOT_STRING
+REASON_TAG_PATTERN = _tag_constants.REASON_TAG_PATTERN
+REASON_TAG_UNMAPPED = _tag_constants.REASON_TAG_UNMAPPED
+REASON_TAGS_UNMAPPED = _tag_constants.REASON_TAGS_UNMAPPED
+RULE_ALIAS = _tag_constants.RULE_ALIAS
+RULE_CANONICAL = _tag_constants.RULE_CANONICAL
+RULE_PATTERN_PREFIX = _tag_constants.RULE_PATTERN_PREFIX
+RULE_TRANSFORM = _tag_constants.RULE_TRANSFORM
+UNMAPPED_MARKER_TAG = _tag_constants.UNMAPPED_MARKER_TAG
+TagTaxonomyError = _tag_constants.TagTaxonomyError
+load_strict_json = _tag_jsonutil.load_strict_json
+normalize_tag = _tag_jsonutil.normalize_tag
+compile_taxonomy_regex = _tag_regex.compile_taxonomy_regex
 
 SUPPORTED_NORMALIZATION_STEPS = (
     "strip leading and trailing whitespace",
@@ -527,3 +542,9 @@ def _read_taxonomy_document(resolved: Path) -> Any:
         ) from exc
     except ValueError as exc:
         raise TagTaxonomyError(f"{resolved}: invalid JSON: {exc}") from exc
+
+
+if __package__:
+    # One module object for both import forms, so Taxonomy keeps one class
+    # identity whichever form loads first.
+    _expose_package_sibling(__name__)

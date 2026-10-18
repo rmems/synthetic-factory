@@ -14,7 +14,8 @@ REPO = Path(__file__).resolve().parents[1]
 DRIVER_PATH = REPO / ".claude" / "skills" / "run-synthetic-factory" / "driver.py"
 SPEC = importlib.util.spec_from_file_location("factory_driver", DRIVER_PATH)
 factory_driver = importlib.util.module_from_spec(SPEC)
-assert SPEC.loader is not None
+if SPEC.loader is None:
+    raise ImportError(f"no import loader for {DRIVER_PATH}")
 SPEC.loader.exec_module(factory_driver)
 
 from round_txn import TransactionError  # noqa: E402

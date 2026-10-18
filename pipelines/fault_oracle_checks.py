@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeGuard
 
 _PIPELINES = Path(__file__).resolve().parent
 if str(_PIPELINES) not in sys.path:
@@ -44,7 +44,7 @@ else:
     )
 
 
-def _is_relay_simulator_oracle(oracle: Any) -> bool:
+def _is_relay_simulator_oracle(oracle: Any) -> TypeGuard[dict[str, Any]]:
     """The oracle block this binding governs, or False for foreign oracles."""
 
     if not isinstance(oracle, dict) or oracle.get("name") != ORACLE_NAME:

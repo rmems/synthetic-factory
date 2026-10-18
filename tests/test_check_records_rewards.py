@@ -39,8 +39,10 @@ class CheckRecordsRewardArithmetic(unittest.TestCase):
         self.assertEqual(
             warnings,
             [
-                "fixture.reward_components: unsupported weighted reward layout; "
-                "missing components safety; skipped arithmetic check"
+                (
+                    "fixture.reward_components: unsupported weighted reward layout; "
+                    "missing components safety; skipped arithmetic check"
+                )
             ],
         )
 

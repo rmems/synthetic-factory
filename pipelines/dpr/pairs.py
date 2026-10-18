@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import json
 from collections import Counter
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -113,9 +113,7 @@ def _mill_headers() -> dict[str, Mapping[str, Any]]:
     return mills
 
 
-def _bind_catalog(rows: list[Mapping[str, Any]], path: Path) -> None:
-    headers = _mill_headers()
-    expected = {source.mill_id: source for source in deferred_sources()}
+def _refuse_mill_drift(rows: Sequence[Mapping[str, Any]], expected: Mapping[str, Any], path: Path) -> None:
     counts = Counter(row["mill_id"] for row in rows)
     if set(counts) != set(expected):
         raise ValueError(
@@ -123,6 +121,13 @@ def _bind_catalog(rows: list[Mapping[str, Any]], path: Path) -> None:
             f"extra={sorted(set(counts) - set(expected))} "
             f"missing={sorted(set(expected) - set(counts))}"
         )
+
+
+def _rows_by_mill(
+    rows: Sequence[Mapping[str, Any]], expected: Mapping[str, Any]
+) -> dict[str, list[Mapping[str, Any]]]:
+    """Rows grouped by mill in file order; each path must match sources.py, no repeats."""
+
     grouped: dict[str, list[Mapping[str, Any]]] = {mill_id: [] for mill_id in expected}
     seen: set[tuple[str, str, str]] = set()
     for row in rows:
@@ -134,21 +139,30 @@ def _bind_catalog(rows: list[Mapping[str, Any]], path: Path) -> None:
             raise ValueError(f"duplicate deferred pair {key}")
         seen.add(key)
         grouped[mill_id].append(row)
-    for mill_id, mill_rows in grouped.items():
-        mill = headers[mill_id]
-        policy = REPRESENTATIVE_PAIR_POLICY.get(mill_id)
-        expected_rows = mill["n_rows"]
-        if policy == "ends":
-            expected_rows = mill["n_rows"] - 2
-        if len(mill_rows) != expected_rows:
-            raise ValueError(
-                f"{mill_id} has {len(mill_rows)} deferred rows, expected {expected_rows}"
-            )
-        if policy != "ends":
-            if mill_rows[0]["slug"] != mill["first_slug"]:
-                raise ValueError(f"{mill_id} first deferred slug drifted from catalog")
-            if mill_rows[-1]["slug"] != mill["last_slug"]:
-                raise ValueError(f"{mill_id} last deferred slug drifted from catalog")
+    return grouped
+
+
+def _refuse_mill_rows(mill_id: str, mill_rows: list[Mapping[str, Any]], mill: Mapping[str, Any]) -> None:
+    policy = REPRESENTATIVE_PAIR_POLICY.get(mill_id)
+    expected_rows = mill["n_rows"] - 2 if policy == "ends" else mill["n_rows"]
+    if len(mill_rows) != expected_rows:
+        raise ValueError(
+            f"{mill_id} has {len(mill_rows)} deferred rows, expected {expected_rows}"
+        )
+    if policy == "ends":
+        return
+    if mill_rows[0]["slug"] != mill["first_slug"]:
+        raise ValueError(f"{mill_id} first deferred slug drifted from catalog")
+    if mill_rows[-1]["slug"] != mill["last_slug"]:
+        raise ValueError(f"{mill_id} last deferred slug drifted from catalog")
+
+
+def _bind_catalog(rows: Sequence[Mapping[str, Any]], path: Path) -> None:
+    headers = _mill_headers()
+    expected = {source.mill_id: source for source in deferred_sources()}
+    _refuse_mill_drift(rows, expected, path)
+    for mill_id, mill_rows in _rows_by_mill(rows, expected).items():
+        _refuse_mill_rows(mill_id, mill_rows, headers[mill_id])
 
 
 def _pair_from_row(row: Mapping[str, Any]) -> DeferredPair:

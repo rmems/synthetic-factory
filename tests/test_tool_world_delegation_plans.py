@@ -31,6 +31,8 @@ from tests.tool_world_delegation_support import (
     workspace_call,
 )
 
+# The support modules go first: they put pipelines/ on sys.path for the imports below.
+# isort: split
 from curate_coding import contains_hidden_reasoning_key
 from tool_world import catalog as catalog_mod
 from tool_world import cli, generate, replay

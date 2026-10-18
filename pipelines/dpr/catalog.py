@@ -181,7 +181,7 @@ def _parse_jsonl_row(path: Path, index: int, line: str) -> dict[str, Any]:
     return row
 
 
-def _rows_by_mill(rows: list[Mapping[str, Any]]) -> dict[str, tuple[dict[str, Any], ...]]:
+def _rows_by_mill(rows: Sequence[Mapping[str, Any]]) -> dict[str, tuple[dict[str, Any], ...]]:
     grouped: dict[str, list[dict[str, Any]]] = {}
     for row in rows:
         mill_id = str(row["mill_id"])

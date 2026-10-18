@@ -205,9 +205,12 @@ def _is_six_strings(arm: Any) -> bool:
 def _literal_sibling_path(tree: ast.AST) -> str:
     """Return ``experiments/<file>`` when SourceFileLoader is given a .py literal."""
 
-    for node in module_evaluation_nodes(tree):
-        if not isinstance(node, ast.Call) or not _is_source_file_loader(node.func):
-            continue
+    loader_calls = (
+        node
+        for node in module_evaluation_nodes(tree)
+        if isinstance(node, ast.Call) and _is_source_file_loader(node.func)
+    )
+    for node in loader_calls:
         filename = _first_py_constant(_loader_path_argument(node))
         if filename:
             name = Path(filename).name

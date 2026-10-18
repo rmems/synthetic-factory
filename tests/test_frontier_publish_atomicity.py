@@ -13,6 +13,9 @@ from tests.frontier_gate_helpers import (
     thalamic,
 )
 
+# A marker identity that no reservation issued; not a credential.
+FOREIGN_RESERVATION = "not-the-reservation-token"
+
 
 class FrontierPublishAtomicity(FrontierGateTestCaseMixin, unittest.TestCase):
     def test_gate_precedes_every_commit_point_link(self):
@@ -90,7 +93,7 @@ class FrontierPublishAtomicity(FrontierGateTestCaseMixin, unittest.TestCase):
             factory = self.factory(td)
 
             def mutate(payload):
-                payload["token"] = "not-the-reservation-token"
+                payload["token"] = FOREIGN_RESERVATION
                 return payload
 
             reservation = self._mutate_publishing_marker(

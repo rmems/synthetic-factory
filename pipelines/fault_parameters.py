@@ -51,7 +51,7 @@ def _check_parameters(
     _check_parameter_values(kind, parameters, system)
 
 def _require_declared_parameters(
-    kind: str, parameters: dict[str, Any], required: list[str]
+    kind: str, parameters: dict[str, Any], required: tuple[str, ...]
 ) -> None:
     missing = [key for key in required if key not in parameters]
     if missing:
@@ -63,8 +63,8 @@ def _require_declared_parameters(
 def _refuse_unknown_parameters(
     kind: str,
     parameters: dict[str, Any],
-    required: list[str],
-    optional: list[str],
+    required: tuple[str, ...],
+    optional: tuple[str, ...],
 ) -> None:
     unknown = sorted(set(parameters) - set(required) - set(optional))
     if unknown:
@@ -110,7 +110,7 @@ def _require_channel_list(kind: str, channels: Any) -> None:
         )
 
 def _require_named_channels(
-    kind: str, required: list[str], channels: list[Any]
+    kind: str, required: tuple[str, ...], channels: list[Any]
 ) -> None:
     if "channels" not in required:
         return

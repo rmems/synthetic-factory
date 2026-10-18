@@ -98,6 +98,9 @@ class TestFactoryRegistryRightsContract(unittest.TestCase):
             self.assertFalse((Path(tmp) / "legacy-rewrite").exists())
 
     def test_policy_known_fallback_profile_cannot_replace_hosted_profile(self):
+        payload = _registry_payload(
+            [_valid_row(rights_profile_id="unknown-provenance-fail-closed-v1")]
+        )
         with (
             tempfile.TemporaryDirectory() as tmp,
             self.assertRaisesRegex(
@@ -105,30 +108,19 @@ class TestFactoryRegistryRightsContract(unittest.TestCase):
                 "rights_profile_id must be hosted-frontier-research-only-v1",
             ),
         ):
-            _load_temp_registry(
-                tmp,
-                _registry_payload(
-                    [
-                        _valid_row(
-                            rights_profile_id="unknown-provenance-fail-closed-v1"
-                        )
-                    ]
-                ),
-            )
+            _load_temp_registry(tmp, payload)
 
     def test_legacy_rows_cannot_smuggle_rights_fields_and_v02_requires_them(self):
         with tempfile.TemporaryDirectory() as tmp:
+            legacy = _registry_payload(
+                [_valid_row()],
+                schema_version="factory-registry-v0.1",
+            )
             with self.assertRaisesRegex(
                 identity.IdentityCurationError,
                 "v0.1 rows must not declare rights fields",
             ):
-                _load_temp_registry(
-                    Path(tmp) / "legacy",
-                    _registry_payload(
-                        [_valid_row()],
-                        schema_version="factory-registry-v0.1",
-                    ),
-                )
+                _load_temp_registry(Path(tmp) / "legacy", legacy)
 
             for field in (
                 "provider",
@@ -140,13 +132,18 @@ class TestFactoryRegistryRightsContract(unittest.TestCase):
                 with self.subTest(field=field):
                     row = _valid_row()
                     row.pop(field)
+                    payload = _registry_payload([row])
                     with self.assertRaisesRegex(
                         identity.IdentityCurationError,
                         rf"missing fields.*{field}",
                     ):
-                        _load_temp_registry(Path(tmp) / field, _registry_payload([row]))
+                        _load_temp_registry(Path(tmp) / field, payload)
 
     def test_legacy_invalid_generator_fails_with_precise_identity_error(self):
+        payload = _registry_payload(
+            [_legacy_row(generator=["fable-5"])],
+            schema_version="factory-registry-v0.1",
+        )
         with (
             tempfile.TemporaryDirectory() as tmp,
             self.assertRaisesRegex(
@@ -154,19 +151,17 @@ class TestFactoryRegistryRightsContract(unittest.TestCase):
                 r"generator must be a non-empty normalized string",
             ),
         ):
-            _load_temp_registry(
-                tmp,
-                _registry_payload(
-                    [_legacy_row(generator=["fable-5"])],
-                    schema_version="factory-registry-v0.1",
-                ),
-            )
+            _load_temp_registry(tmp, payload)
 
     def test_legacy_missing_or_null_generator_fields_get_precise_diagnostics(self):
         with tempfile.TemporaryDirectory() as tmp:
             for field in ("generator", "generator_version"):
                 missing = _legacy_row()
                 missing.pop(field)
+                missing_payload = _registry_payload(
+                    [missing],
+                    schema_version="factory-registry-v0.1",
+                )
                 with (
                     self.subTest(field=field, defect="missing"),
                     self.assertRaisesRegex(
@@ -174,14 +169,12 @@ class TestFactoryRegistryRightsContract(unittest.TestCase):
                         rf"missing fields.*{field}",
                     ),
                 ):
-                    _load_temp_registry(
-                        Path(tmp) / f"missing-{field}",
-                        _registry_payload(
-                            [missing],
-                            schema_version="factory-registry-v0.1",
-                        ),
-                    )
+                    _load_temp_registry(Path(tmp) / f"missing-{field}", missing_payload)
 
+                null_payload = _registry_payload(
+                    [_legacy_row(**{field: None})],
+                    schema_version="factory-registry-v0.1",
+                )
                 with (
                     self.subTest(field=field, defect="null"),
                     self.assertRaisesRegex(
@@ -189,13 +182,7 @@ class TestFactoryRegistryRightsContract(unittest.TestCase):
                         rf"{field} must be a non-empty normalized string",
                     ),
                 ):
-                    _load_temp_registry(
-                        Path(tmp) / f"null-{field}",
-                        _registry_payload(
-                            [_legacy_row(**{field: None})],
-                            schema_version="factory-registry-v0.1",
-                        ),
-                    )
+                    _load_temp_registry(Path(tmp) / f"null-{field}", null_payload)
 
     def test_unknown_drifting_and_misassigned_rights_fields_fail_closed(self):
         cases = (
@@ -234,14 +221,12 @@ class TestFactoryRegistryRightsContract(unittest.TestCase):
         )
         with tempfile.TemporaryDirectory() as tmp:
             for index, (overrides, message) in enumerate(cases):
+                payload = _registry_payload([_valid_row(**overrides)])
                 with (
                     self.subTest(overrides=overrides),
                     self.assertRaisesRegex(identity.IdentityCurationError, message),
                 ):
-                    _load_temp_registry(
-                        Path(tmp) / str(index),
-                        _registry_payload([_valid_row(**overrides)]),
-                    )
+                    _load_temp_registry(Path(tmp) / str(index), payload)
 
     def test_loaded_rights_fields_are_immutable_values(self):
         row = identity.default_registry().by_path_id[FABLE_ACT]
@@ -276,6 +261,7 @@ class TestFactoryRegistryRightsContract(unittest.TestCase):
         )
         with tempfile.TemporaryDirectory() as tmp:
             for index, (field, value) in enumerate(cases):
+                payload = _registry_payload([_valid_row(**{field: value})])
                 with (
                     self.subTest(field=field),
                     self.assertRaisesRegex(
@@ -283,10 +269,7 @@ class TestFactoryRegistryRightsContract(unittest.TestCase):
                         f"unknown {field}",
                     ),
                 ):
-                    _load_temp_registry(
-                        Path(tmp) / str(index),
-                        _registry_payload([_valid_row(**{field: value})]),
-                    )
+                    _load_temp_registry(Path(tmp) / str(index), payload)
 
 
 class IdentityRightsEnvelopeTests(unittest.TestCase):
@@ -445,11 +428,12 @@ class TestNewProviderRightsProfiles(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             hosted = _attested_procedural_row()
             hosted.pop("catalog_authorship")
+            hosted_payload = _registry_payload([hosted])
             with self.assertRaisesRegex(
                 identity.IdentityCurationError,
                 "procedural rows require catalog_authorship",
             ):
-                _load_temp_registry(Path(tmp) / "hosted", _registry_payload([hosted]))
+                _load_temp_registry(Path(tmp) / "hosted", hosted_payload)
 
         payload = json.loads(identity.FACTORY_REGISTRY_PATH.read_text(encoding="utf-8"))
         procedural = {row["path_id"]: row for row in payload["factories"]}[
@@ -463,9 +447,14 @@ class TestNewProviderRightsProfiles(unittest.TestCase):
             _load_temp_registry(tmp, payload)
 
     def test_generic_procedural_attestation_requires_a_reviewed_source_assignment(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            with self.assertRaisesRegex(identity.IdentityCurationError, "no independently reviewed source"):
-                _load_temp_registry(tmp, _registry_payload([_attested_procedural_row()]))
+        payload = _registry_payload([_attested_procedural_row()])
+        with (
+            tempfile.TemporaryDirectory() as tmp,
+            self.assertRaisesRegex(
+                identity.IdentityCurationError, "no independently reviewed source"
+            ),
+        ):
+            _load_temp_registry(tmp, payload)
 
     def test_simulator_pin_substitution_is_refused_for_copied_registries(self):
         document = json.loads(identity.FACTORY_REGISTRY_PATH.read_text())
@@ -473,25 +462,28 @@ class TestNewProviderRightsProfiles(unittest.TestCase):
         for field, replacement in (("commit_sha", "a" * 40), ("module_digest", "sha256:" + "a" * 64)):
             with self.subTest(field=field), tempfile.TemporaryDirectory() as tmp:
                 altered = dict(original, **{field: replacement})
+                payload = _registry_payload([altered])
                 with self.assertRaises(identity.IdentityCurationError):
-                    _load_temp_registry(tmp, _registry_payload([altered]))
+                    _load_temp_registry(tmp, payload)
 
     def test_simulator_row_without_pins_fails_closed(self):
         with tempfile.TemporaryDirectory() as tmp:
             missing_digest = _simulator_row()
             missing_digest.pop("module_digest")
+            digest_payload = _registry_payload([missing_digest])
             with self.assertRaisesRegex(
                 identity.IdentityCurationError,
                 r"module_digest must be lowercase sha256:<64 hex>",
             ):
-                _load_temp_registry(Path(tmp) / "digest", _registry_payload([missing_digest]))
+                _load_temp_registry(Path(tmp) / "digest", digest_payload)
             missing_commit = _simulator_row()
             missing_commit.pop("commit_sha")
+            commit_payload = _registry_payload([missing_commit])
             with self.assertRaisesRegex(
                 identity.IdentityCurationError,
                 "commit_sha must be a 40-character lowercase git SHA",
             ):
-                _load_temp_registry(Path(tmp) / "commit", _registry_payload([missing_commit]))
+                _load_temp_registry(Path(tmp) / "commit", commit_payload)
 
     def test_default_simulator_and_placeholder_rows_match_policy(self):
         registry = identity.default_registry()
@@ -529,14 +521,12 @@ class TestNewProviderRightsProfiles(unittest.TestCase):
                         intended_use="training_candidate",
                         project_training_policy="allowed",
                     )
+                    payload = _registry_payload([row])
                     with self.assertRaisesRegex(
                         identity.IdentityCurationError,
                         "rights fields drift from loaded policy",
                     ):
-                        _load_temp_registry(
-                            Path(tmp) / provider,
-                            _registry_payload([row]),
-                        )
+                        _load_temp_registry(Path(tmp) / provider, payload)
 
     def test_existing_frontier_rows_keep_research_only_blocked(self):
         hosted = [

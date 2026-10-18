@@ -14,7 +14,10 @@ from pathlib import Path
 from unittest import mock
 
 from tests.test_round_txn import round_txn as rt
-from tests.code_repair_test_support import REPO, generate
+from tests.code_repair_admission_test_support import (
+    RAW_RUN, copy_published_factory, sealed_real_run,
+)
+from tests.code_repair_test_support import REPO
 from code_repair import cli, export, publication
 import training_audit
 from tests.code_repair_test_support import required_item
@@ -82,24 +85,13 @@ def _corrupt_run_input(run_dir, field):
 class PublicationIntegrationTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.scratch = tempfile.TemporaryDirectory(prefix="procedural-publication-")
-        cls.addClassCleanup(cls.scratch.cleanup)
-        cls.root = Path(cls.scratch.name)
-        cls.run_dir = cls.root / "original-run"
-        generate.run(generate.RunRequest(REPO / "catalogs/python-repair-v1", cls.run_dir,
-                                         20260908, 12, "2026-09-09T00:00:00.000Z"))
-        cls.template_factory = (cls.root / "template/outputs/raw/2099-01-01"
-                                / "python-function-repair-factory")
-        cls.template_factory.mkdir(parents=True)
-        publication.publish_run(
-            publication.PublishRequest(cls.run_dir, cls.template_factory, 1))
+        # The process-wide sealed run is read-only here; tests that edit it copy it first.
+        cls.run_dir = sealed_real_run()[1]
 
-    def published_factory(self, root):
-        """Copy the class-sealed round instead of re-running a real publish."""
-        factory = root / "outputs/raw/2099-01-01/python-function-repair-factory"
-        factory.parent.mkdir(parents=True)
-        shutil.copytree(self.template_factory, factory)
-        return factory
+    @staticmethod
+    def published_factory(root):
+        """Copy the process-sealed round instead of re-running a real publish."""
+        return copy_published_factory(root / RAW_RUN)
 
     def test_real_publish_preserves_selected_bytes_and_read_traversal_never_executes(self):
         with tempfile.TemporaryDirectory() as directory:

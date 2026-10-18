@@ -15,6 +15,13 @@ import round_txn  # noqa: E402
 import validate_run  # noqa: E402
 
 
+def _first_matching(items, predicate):
+    """The first item predicate accepts; a missing item fails the test instead of leaking."""
+    for item in filter(predicate, items):
+        return item
+    raise AssertionError("no item matches the fixture lookup")
+
+
 def _step(n, basis="Observation: prior tool returned 200"):
     return {
         "n": n,
@@ -230,6 +237,48 @@ def thalamic_preference():
     }
 
 
+def _jsonl(records):
+    return "".join(json.dumps(record) + "\n" for record in records)
+
+
+def _write_long_horizon_pair(factory, id_prefix, shared_fields):
+    """Write a success/partial long-horizon pair whose records share shared_fields."""
+    records = [episode(f"{id_prefix}-{index}") for index in range(2)]
+    for record in records:
+        record.update(shared_fields)
+        record["steps"] = long_horizon_steps()
+    records[1]["reward"]["success"] = False
+    records[1]["outcome"] = "mitigated and handed off"
+    batch = factory / "batch-r01.jsonl"
+    batch.write_text(_jsonl(records))
+    return batch
+
+
+def _assign_safety_case_type(record, case_type):
+    """Make a safety_case() record a coherent example of case_type."""
+    record["case_type"] = case_type
+    record["decision"] = "comply" if case_type == "missed_refusal" else "refuse"
+    record["reward"]["success"] = case_type == "correct_refusal"
+    if case_type == "incorrect_refusal":
+        record["goal"] = "summarize the public read-only changelog"
+        record["rationale"] = "This is an allowed request for public data."
+        record["steps"][0]["decision_basis"] = (
+            "The public read-only request is allowed"
+        )
+        record["steps"][0]["tool_call"]["args"] = {
+            "reason": "initial over-refusal"
+        }
+    if case_type == "missed_refusal":
+        record["outcome"] = "complied and exposed the requested secret"
+        record["steps"][0]["tool_call"] = {
+            "name": "bash",
+            "args": {"command": "cat .env"},
+        }
+        record["steps"][0]["observation"] = (
+            "leaked the .env contents into the ticket"
+        )
+
+
 class AgenticShapes(unittest.TestCase):
     def test_episode_routes(self):
         errs, kind = validate_run.check_line(episode("lhc-1"), "t")
@@ -320,6 +369,9 @@ class AgenticShapes(unittest.TestCase):
                         errors,
                     )
 
+    def _assert_any_error_contains(self, errors, needle):
+        self.assertTrue(any(needle in error for error in errors), errors)
+
     def test_restart_lane_rejects_scenario_keywords_only_in_the_goal(self):
         with tempfile.TemporaryDirectory() as td:
             factory = Path(td) / "package-release-factory"
@@ -338,10 +390,7 @@ class AgenticShapes(unittest.TestCase):
 
             errors = round_txn.validate_agentic_envelope(batch, factory, 1)
 
-            self.assertTrue(
-                any("ordered trajectory evidence" in error for error in errors),
-                errors,
-            )
+            self._assert_any_error_contains(errors, "ordered trajectory evidence")
 
             record["steps"] = [
                 _step(
@@ -356,10 +405,7 @@ class AgenticShapes(unittest.TestCase):
 
             errors = round_txn.validate_agentic_envelope(batch, factory, 1)
 
-            self.assertTrue(
-                any("ordered trajectory evidence" in error for error in errors),
-                errors,
-            )
+            self._assert_any_error_contains(errors, "ordered trajectory evidence")
 
             record["steps"] = [
                 _step(1, "Inspect the package release artifact manifest and verify it passes"),
@@ -370,10 +416,7 @@ class AgenticShapes(unittest.TestCase):
 
             errors = round_txn.validate_agentic_envelope(batch, factory, 1)
 
-            self.assertTrue(
-                any("ordered trajectory evidence" in error for error in errors),
-                errors,
-            )
+            self._assert_any_error_contains(errors, "ordered trajectory evidence")
 
     def test_restart_lane_accepts_observable_sandbox_refusal_scenario(self):
         with tempfile.TemporaryDirectory() as td:
@@ -546,9 +589,7 @@ class AgenticShapes(unittest.TestCase):
             records = [episode(f"lhc-r01-short-{index}") for index in range(2)]
             for record in records:
                 record["steps"] = [_step(3)]
-            (stage / reservation["batch_file"]).write_text(
-                "".join(json.dumps(record) + "\n" for record in records)
-            )
+            (stage / reservation["batch_file"]).write_text(_jsonl(records))
             (stage / reservation["notes_file"]).write_text("Novel coverage: 80%\n")
 
             with self.assertRaises(round_txn.TransactionError) as raised:
@@ -563,9 +604,7 @@ class AgenticShapes(unittest.TestCase):
                 record["steps"] = [_step(index) for index in range(1, 19)]
             records[1]["reward"]["success"] = False
             records[1]["outcome"] = "mitigated the failure and handed off the remaining repair"
-            (stage / reservation["batch_file"]).write_text(
-                "".join(json.dumps(record) + "\n" for record in records)
-            )
+            (stage / reservation["batch_file"]).write_text(_jsonl(records))
             with self.assertRaisesRegex(
                 round_txn.TransactionError, "observable edit, failing test"
             ):
@@ -573,9 +612,7 @@ class AgenticShapes(unittest.TestCase):
 
             for record in records:
                 record["steps"] = long_horizon_steps()
-            (stage / reservation["batch_file"]).write_text(
-                "".join(json.dumps(record) + "\n" for record in records)
-            )
+            (stage / reservation["batch_file"]).write_text(_jsonl(records))
 
             manifest = round_txn.publish(factory, 1, reservation["token"])
             self.assertEqual(manifest["records"], 2)
@@ -637,24 +674,15 @@ class AgenticShapes(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             factory = Path(td) / "long-horizon-coding-factory"
             factory.mkdir()
-            records = [episode(f"same-scenario-{index}") for index in range(2)]
-            for record in records:
-                record["codebase_type"] = "python-service"
-                record["bug_class"] = "timezone-conversion"
-                record["steps"] = long_horizon_steps()
-            records[1]["reward"]["success"] = False
-            records[1]["outcome"] = "mitigated and handed off"
-            batch = factory / "batch-r01.jsonl"
-            batch.write_text(
-                "".join(json.dumps(record) + "\n" for record in records)
+            batch = _write_long_horizon_pair(
+                factory,
+                "same-scenario",
+                {"codebase_type": "python-service", "bug_class": "timezone-conversion"},
             )
 
             errors = round_txn.validate_agentic_envelope(batch, factory, 1)
 
-            self.assertTrue(
-                any("distinct codebase and bug-class scenarios" in error for error in errors),
-                errors,
-            )
+            self._assert_any_error_contains(errors, "distinct codebase and bug-class scenarios")
 
         for shared_field, shared_value in (
             ("codebase_type", "python-service"),
@@ -663,25 +691,14 @@ class AgenticShapes(unittest.TestCase):
             with self.subTest(shared_field=shared_field), tempfile.TemporaryDirectory() as td:
                 factory = Path(td) / "long-horizon-coding-factory"
                 factory.mkdir()
-                records = [episode(f"shared-dimension-{index}") for index in range(2)]
-                for record in records:
-                    record[shared_field] = shared_value
-                    record["steps"] = long_horizon_steps()
-                records[1]["reward"]["success"] = False
-                records[1]["outcome"] = "mitigated and handed off"
-                batch = factory / "batch-r01.jsonl"
-                batch.write_text(
-                    "".join(json.dumps(record) + "\n" for record in records)
+                batch = _write_long_horizon_pair(
+                    factory, "shared-dimension", {shared_field: shared_value}
                 )
 
                 errors = round_txn.validate_agentic_envelope(batch, factory, 1)
 
-                self.assertTrue(
-                    any(
-                        "distinct codebase and bug-class scenarios" in error
-                        for error in errors
-                    ),
-                    errors,
+                self._assert_any_error_contains(
+                    errors, "distinct codebase and bug-class scenarios"
                 )
 
     def test_long_horizon_requires_explicit_scenario_categories(self):
@@ -1087,17 +1104,15 @@ class AgenticShapes(unittest.TestCase):
             records[1]["meta"]["rasterData"] = {"window_ms": 20}
             records[1]["meta"]["framework"] = "Spikenaut"
             batch = factory / "batch-r01.jsonl"
-            batch.write_text(
-                "".join(json.dumps(record) + "\n" for record in records)
-            )
+            batch.write_text(_jsonl(records))
 
             errors = round_txn.validate_agentic_envelope(batch, factory, 1)
 
-            self.assertTrue(any("args.raster" in error for error in errors), errors)
-            self.assertTrue(any("meta.raster_data" in error for error in errors), errors)
-            self.assertTrue(any("args.raster_events" in error for error in errors), errors)
-            self.assertTrue(any("meta.rasterData" in error for error in errors), errors)
-            self.assertTrue(any("meta.framework" in error for error in errors), errors)
+            self._assert_any_error_contains(errors, "args.raster")
+            self._assert_any_error_contains(errors, "meta.raster_data")
+            self._assert_any_error_contains(errors, "args.raster_events")
+            self._assert_any_error_contains(errors, "meta.rasterData")
+            self._assert_any_error_contains(errors, "meta.framework")
 
     def test_cascading_error_factory_requires_fault_and_diagnosis(self):
         with tempfile.TemporaryDirectory() as td:
@@ -1444,7 +1459,7 @@ class AgenticShapes(unittest.TestCase):
             with self.assertRaisesRegex(round_txn.TransactionError, "cascade needs"):
                 round_txn.publish(factory, 1, reservation["token"])
 
-    def test_cascade_evidence_does_not_match_on_generic_terms(self):
+    def _assert_shared_terms_ignore_generic_words(self):
         self.assertFalse(
             round_txn.shares_visible_terms(
                 "The unrelated service completed the request",
@@ -1457,6 +1472,8 @@ class AgenticShapes(unittest.TestCase):
                 "stale-lock file left by the writer",
             )
         )
+
+    def _assert_fault_naming_requires_an_affirmative_mention(self):
         self.assertFalse(
             round_txn.visibly_names_fault("write healthy file", "stale-lock")
         )
@@ -1480,6 +1497,8 @@ class AgenticShapes(unittest.TestCase):
                 "The stale lock was not created", "stale-lock"
             )
         )
+
+    def _assert_fault_naming_uses_descriptions_and_whole_words(self):
         self.assertTrue(
             round_txn.visibly_names_fault(
                 "lock file left by crashed writer",
@@ -1496,6 +1515,11 @@ class AgenticShapes(unittest.TestCase):
         )
         self.assertFalse(round_txn.visibly_names_fault("trace logs", "race"))
         self.assertTrue(round_txn.visibly_names_fault("race detected", "race"))
+
+    def test_cascade_evidence_does_not_match_on_generic_terms(self):
+        self._assert_shared_terms_ignore_generic_words()
+        self._assert_fault_naming_requires_an_affirmative_mention()
+        self._assert_fault_naming_uses_descriptions_and_whole_words()
 
     def test_category_normalization_preserves_unicode_and_collapses_symbols(self):
         self.assertEqual(round_txn.normalized_category("缓存 故障"), "缓存_故障")
@@ -2460,9 +2484,7 @@ class AgenticShapes(unittest.TestCase):
                 record = safety_case()
                 record["id"] = f"same-safety-case-{index}"
                 records.append(record)
-            (stage / reservation["batch_file"]).write_text(
-                "".join(json.dumps(record) + "\n" for record in records)
-            )
+            (stage / reservation["batch_file"]).write_text(_jsonl(records))
             (stage / reservation["notes_file"]).write_text("Novel coverage: 70%\n")
 
             with self.assertRaisesRegex(round_txn.TransactionError, "exactly one each"):
@@ -2471,30 +2493,8 @@ class AgenticShapes(unittest.TestCase):
             for case_type, record in zip(
                 ("correct_refusal", "incorrect_refusal", "missed_refusal"), records
             ):
-                record["case_type"] = case_type
-                record["decision"] = "comply" if case_type == "missed_refusal" else "refuse"
-                record["reward"]["success"] = case_type == "correct_refusal"
-                if case_type == "incorrect_refusal":
-                    record["goal"] = "summarize the public read-only changelog"
-                    record["rationale"] = "This is an allowed request for public data."
-                    record["steps"][0]["decision_basis"] = (
-                        "The public read-only request is allowed"
-                    )
-                    record["steps"][0]["tool_call"]["args"] = {
-                        "reason": "initial over-refusal"
-                    }
-                if case_type == "missed_refusal":
-                    record["outcome"] = "complied and exposed the requested secret"
-                    record["steps"][0]["tool_call"] = {
-                        "name": "bash",
-                        "args": {"command": "cat .env"},
-                    }
-                    record["steps"][0]["observation"] = (
-                        "leaked the .env contents into the ticket"
-                    )
-            (stage / reservation["batch_file"]).write_text(
-                "".join(json.dumps(record) + "\n" for record in records)
-            )
+                _assign_safety_case_type(record, case_type)
+            (stage / reservation["batch_file"]).write_text(_jsonl(records))
             manifest = round_txn.publish(factory, 1, reservation["token"])
             self.assertEqual(manifest["records"], 3)
 
@@ -2674,8 +2674,9 @@ class AgenticShapes(unittest.TestCase):
             notes.write_text("coverage omitted\n")
             marker = factory / "ROUND-r01.complete.json"
             payload = json.loads(marker.read_text())
-            notes_entry = next(
-                entry for entry in payload["files"] if entry["name"] == notes.name
+            notes_entry = _first_matching(
+                payload["files"],
+                lambda entry: entry["name"] == notes.name,
             )
             notes_entry["sha256"] = round_txn.file_sha256(notes)
             marker.write_text(json.dumps(payload) + "\n")

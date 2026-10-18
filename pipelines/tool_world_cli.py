@@ -5,8 +5,10 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING
 
-if __package__:
+# Type checkers read the package spelling; at run time TYPE_CHECKING is False.
+if TYPE_CHECKING or __package__:
     from . import _assert_direct_sibling, _expose_package_sibling
 
     _assert_direct_sibling("tool_world_cli")

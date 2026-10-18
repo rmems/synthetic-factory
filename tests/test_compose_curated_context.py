@@ -13,10 +13,7 @@ class ComposeContextContract(unittest.TestCase):
     def test_source_coordinates_cannot_change_between_lane_calls(self):
         """Mutation must not redirect a later stage to different evidence."""
 
-        try:
-            from compose_curated_context import SourceCoordinates
-        except ModuleNotFoundError:
-            self.fail("compose_curated_context.SourceCoordinates is missing")
+        from compose_curated_context import SourceCoordinates
 
         source = SourceCoordinates("factory/batch.jsonl", 3, "a" * 64)
         with self.assertRaises(FrozenInstanceError):

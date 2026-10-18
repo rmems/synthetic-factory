@@ -2,7 +2,14 @@
 # (rmems/synthetic-factory). Kept as the harness for .claude/skills/publish-hub-research-run.
 #!/usr/bin/env python3
 """Upload one delta bundle to its Hub repo as a pull request (never to main),
-then look up the PR number/URL read-only. Run with the hf CLI venv python."""
+then look up the PR number/URL read-only. Run with the hf CLI venv python.
+
+Usage: upload_fix.py <repo-name>
+
+The argument is validated before anything is written or run: ``rmems/<repo-name>``
+must be a strict Hub dataset id with a built fix summary and an existing delta bundle
+directory directly under ``fix/``.
+"""
 
 from __future__ import annotations
 
@@ -14,7 +21,78 @@ from pathlib import Path
 
 HF = str(Path.home() / ".local/bin/hf")
 BASE = Path.home() / "tmp/publish-0902"
+FIX = BASE / "fix"
 SUMMARIES = {s["repo"]: s for s in json.loads((BASE / "work/fix_summaries.json").read_text())}
+USAGE = "usage: upload_fix.py <repo-name>"
+# The exact owner/name pattern pipelines/rights_document.py enforces on rights.json dataset_id.
+HUB_DATASET_ID = re.compile(
+    r"^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?/"
+    r"[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$"
+)
+
+
+class UploadInputError(ValueError):
+    """A command-line value was refused before it could reach the ``hf`` argv."""
+
+
+def _require(condition: object, message: str) -> None:
+    if not condition:
+        raise UploadInputError(message)
+
+
+def _known_repo(name: str) -> str:
+    """``rmems/<name>``: a strict Hub dataset id that has a built fix summary."""
+    repo = f"rmems/{name}"
+    _require(HUB_DATASET_ID.fullmatch(repo) is not None, f"not an owner/name Hub id: {repo!r}")
+    _require(repo in SUMMARIES, f"no fix summary for {repo}")
+    return repo
+
+
+def _bundle_dir(root: Path, name: str) -> Path:
+    """``root/<name>``: an existing real directory (not a symlink) exactly at ``root/<name>``."""
+    bundle = root / name
+    _require(not bundle.is_symlink(), f"bundle path is a symlink: {bundle}")
+    _require(bundle.resolve() == root.resolve() / name, f"bundle path leaves {root}: {bundle}")
+    _require(bundle.is_dir(), f"no bundle directory at {bundle}")
+    return bundle
+
+
+def _validated(args: list[str]) -> tuple[str, Path]:
+    """Return (repo, bundle) for the CLI arguments, or refuse."""
+    _require(len(args) == 1, USAGE)
+    (name,) = args
+    return _known_repo(name), _bundle_dir(FIX, name)
+
+
+def _hf_upload(repo: str, bundle: Path, message: str, desc: str) -> subprocess.CompletedProcess:
+    """``hf upload --create-pr`` with a fixed argv and no shell; every value is pre-validated."""
+    argv = [
+        HF, "upload", repo, str(bundle), ".", "--repo-type", "dataset", "--create-pr",
+        "--commit-message", message, "--commit-description", desc,
+    ]
+    return subprocess.run(argv, capture_output=True, text=True, check=False)
+
+
+def _commit_message(n: int) -> str:
+    return (
+        f"Add the {n} base-round batch{'es' if n != 1 else ''} omitted by the mistaken "
+        "supersede rule"
+    )
+
+
+def _pull_requests(repo: str, message: str) -> list[dict]:
+    """Read-only lookup of the Hub PR whose title is ``message``."""
+    from huggingface_hub import HfApi  # read-only lookup of the PR just created
+
+    prs = [
+        d for d in HfApi().get_repo_discussions(repo, repo_type="dataset")
+        if d.is_pull_request and d.title == message
+    ]
+    return [
+        {"num": d.num, "title": d.title, "status": d.status, "author": d.author,
+         "url": f"https://huggingface.co/datasets/{repo}/discussions/{d.num}"}
+        for d in prs
+    ]
 
 
 def description(s: dict) -> str:
@@ -59,42 +137,29 @@ def description(s: dict) -> str:
     )
 
 
-def main() -> int:
-    name = sys.argv[1]
-    repo = f"rmems/{name}"
+def main(argv: list[str] | None = None) -> int:
+    try:
+        repo, bundle = _validated(sys.argv[1:] if argv is None else argv)
+    except UploadInputError as exc:
+        print(f"refused: {exc}", file=sys.stderr)
+        return 2
+    name = bundle.name
     s = SUMMARIES[repo]
-    n = len(s["added_files"])
-    message = (
-        f"Add the {n} base-round batch{'es' if n != 1 else ''} omitted by the mistaken "
-        "supersede rule"
-    )
+    message = _commit_message(len(s["added_files"]))
     desc = description(s)
     (BASE / f"work/fix-pr-description-{name}.md").write_text(message + "\n\n" + desc + "\n")
-    bundle = BASE / "fix" / name
-    cmd = [
-        HF, "upload", repo, str(bundle), ".", "--repo-type", "dataset", "--create-pr",
-        "--commit-message", message, "--commit-description", desc,
-    ]
-    proc = subprocess.run(cmd, capture_output=True, text=True)
+    proc = _hf_upload(repo, bundle, message, desc)
     out = proc.stdout + "\n" + proc.stderr
     urls = sorted(set(re.findall(r"https://huggingface\.co/datasets/[^\s'\"]+", out)))
     result = {
         "repo": repo, "exit": proc.returncode, "commit_message": message, "urls": urls,
         "stdout": proc.stdout[-3000:], "stderr": proc.stderr[-3000:],
     }
-    if proc.returncode == 0:
-        from huggingface_hub import HfApi  # read-only lookup of the PR just created
-
-        prs = [
-            d for d in HfApi().get_repo_discussions(repo, repo_type="dataset")
-            if d.is_pull_request and d.title == message
-        ]
-        result["pull_requests"] = [
-            {"num": d.num, "title": d.title, "status": d.status, "author": d.author,
-             "url": f"https://huggingface.co/datasets/{repo}/discussions/{d.num}"}
-            for d in prs
-        ]
-    (BASE / f"work/fix-pr-{name}.json").write_text(json.dumps(result, indent=1))
+    try:
+        if proc.returncode == 0:
+            result["pull_requests"] = _pull_requests(repo, message)
+    finally:  # the upload already ran: keep its record even if the read-only lookup fails
+        (BASE / f"work/fix-pr-{name}.json").write_text(json.dumps(result, indent=1))
     print(json.dumps({k: result[k] for k in result if k not in ("stdout", "stderr")}))
     if proc.returncode != 0:
         print(proc.stderr[-2000:], file=sys.stderr)

@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import sys
 from collections import Counter, defaultdict
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Iterable, Iterator, Mapping, Sequence
 
 if __package__:
     from . import _assert_direct_sibling, _expose_package_sibling
@@ -233,25 +233,43 @@ def missing_homes(
     verified entries' own disagreeing declarations.
     """
 
-    absent: set[str | None] = {
+    absent: set[str | None] = _absent_prefix_homes(axes, verified)
+    absent.update(_absent_identities(axes, verified))
+    absent.update(_absent_declared_claims(entries, verified))
+    return absent
+
+
+def _absent_prefix_homes(axes: Axes, verified: set[str]) -> set[str | None]:
+    """Prefix homes that are not verified destinations."""
+
+    return {
         home
         for homes_for_prefix in axes.homes.values()
         for home in homes_for_prefix
         if home not in verified
     }
-    absent.update(
+
+
+def _absent_identities(axes: Axes, verified: set[str]) -> Iterator[str]:
+    """Resolved destination identities that are not verified destinations."""
+
+    return (
         expected
         for expected in axes.identity.values()
         if expected is not None and expected not in verified
     )
-    absent.update(
+
+
+def _absent_declared_claims(entries: Sequence[Entry], verified: set[str]) -> Iterator[str]:
+    """Verified entries' disagreeing declarations that are not verified destinations."""
+
+    return (
         claim
         for entry in entries
         if entry.factory_verified
         for claim in entry.declared_claims
         if claim != entry.factory and claim not in verified
     )
-    return absent
 
 
 # -- goal vocabulary ---------------------------------------------------

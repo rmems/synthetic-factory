@@ -239,7 +239,7 @@ class _CensusTotals:
 
         self.files += 1
         source = path.relative_to(run_dir).as_posix()
-        factory, factory_verified = factory_identity_for_path(run_dir, path)
+        identity = factory_identity_for_path(run_dir, path)
         decoded, parse_failures, unreadable = _read_census_records(
             path, source
         )
@@ -247,11 +247,16 @@ class _CensusTotals:
         self.decode_failures += len(unreadable)
         self.unreadable_files.extend(unreadable)
         for lineno, obj in decoded:
-            self._add_record(obj, factory, factory_verified, (source, lineno))
+            self._add_record(obj, identity, (source, lineno))
 
-    def _add_record(self, obj, factory, factory_verified, ref) -> None:
-        """Tally one decoded record against every census axis."""
+    def _add_record(self, obj, identity, ref) -> None:
+        """Tally one decoded record against every census axis.
 
+        ``identity`` is the ``(factory, factory_verified)`` pair that
+        ``factory_identity_for_path`` resolved for the record's batch file.
+        """
+
+        factory, factory_verified = identity
         self.records += 1
         self.by_factory[factory] += 1
         self.mills.add(factory, obj, ref, factory_verified=factory_verified)

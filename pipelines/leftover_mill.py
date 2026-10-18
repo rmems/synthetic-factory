@@ -463,26 +463,10 @@ def scan_jsonl_kind_mix(
             source_sha256 = hashlib.sha256(raw_line).hexdigest()
             source_sha256_by_line[line_number] = source_sha256
             try:
-                decoded.append(
-                    (
-                        line_number,
-                        json.loads(
-                            raw_line.decode("utf-8"),
-                            parse_constant=reject_json_constant,
-                        ),
-                    )
-                )
-            except (UnicodeDecodeError, json.JSONDecodeError, ValueError):
+                decoded.append((line_number, _decode_jsonl_line(raw_line)))
+            except ValueError:  # UnicodeDecodeError and json.JSONDecodeError included
                 findings.append(
-                    KindMixFinding(
-                        source_name=name,
-                        source_line=line_number,
-                        record_id=None,
-                        record_kind="unparseable",
-                        expected_kind=expected_kind,
-                        source_sha256=source_sha256,
-                        acknowledged=False,
-                    )
+                    _unparseable_finding(name, line_number, expected_kind, source_sha256)
                 )
     findings.extend(
         find_kind_mix(
@@ -497,6 +481,29 @@ def scan_jsonl_kind_mix(
     )
     findings.sort(key=lambda finding: (finding.source_name, finding.source_line))
     return findings
+
+
+def _decode_jsonl_line(raw_line: bytes) -> Any:
+    """One strict JSONL line: UTF-8, and no NaN or Infinity constants."""
+    return json.loads(
+        raw_line.decode("utf-8"),
+        parse_constant=reject_json_constant,
+    )
+
+
+def _unparseable_finding(
+    name: str, line_number: int, expected_kind: str, source_sha256: str
+) -> KindMixFinding:
+    """An undecodable line: it cannot be proven free of mill mix, so no ledger covers it."""
+    return KindMixFinding(
+        source_name=name,
+        source_line=line_number,
+        record_id=None,
+        record_kind="unparseable",
+        expected_kind=expected_kind,
+        source_sha256=source_sha256,
+        acknowledged=False,
+    )
 
 
 def unacknowledged(findings: Iterable[KindMixFinding]) -> list[KindMixFinding]:

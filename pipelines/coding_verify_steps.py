@@ -91,14 +91,19 @@ def _dual_removal_mismatch(mapping: Any, where: str) -> str | None:
     return None
 
 
+def _is_reason_code(item: Any) -> bool:
+    """A reason code is a non-empty string."""
+    return isinstance(item, str) and bool(item)
+
+
 def _reason_code_set(value: Any, where: str, violations: list[str]) -> set[str]:
     if not isinstance(value, list):
         violations.append(f"{where}: reason codes are not a list")
         return set()
-    invalid = [item for item in value if not isinstance(item, str) or not item]
+    invalid = [item for item in value if not _is_reason_code(item)]
     if invalid:
         violations.append(f"{where}: invalid reason codes {invalid!r}")
-    return {item for item in value if isinstance(item, str) and item}
+    return {item for item in value if _is_reason_code(item)}
 
 
 class _ManifestSteps(NamedTuple):

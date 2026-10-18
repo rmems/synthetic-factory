@@ -68,49 +68,40 @@ _PIPELINES = Path(__file__).resolve().parent
 if str(_PIPELINES) not in sys.path:
     sys.path.insert(0, str(_PIPELINES))
 
-from curate_preferences import canonical_json, context_is_pure  # noqa: E402,F401
+from curate_preferences import context_is_pure  # noqa: E402
 from operator_paths import confine_named  # noqa: E402
 
 # The gate is split across sibling modules so each states one responsibility.
-# Everything the published surface exposes is re-exported here, so
-# ``import preference_arms`` keeps resolving every name it always did.
+# Besides what this module uses itself, the names that round_txn_preference
+# and the preference-arm tests reach through ``preference_arms`` are
+# re-exported here (F401): MAX_DIAGNOSIS_DEPTH, MAX_DIAGNOSIS_NARRATIVE_CHARS,
+# rejected_scratch_filenames, MACHINE_IDENTIFIER_PATHS,
+# MAX_ALIGNMENT_LIST_ITEMS, arm_distance, arm_terms, machine_observable_deltas,
+# ReceiptExpectation, validate_diagnosis_handoff_receipt and cosine_similarity.
 from preference_arms_diagnosis import (  # noqa: E402,F401
-    DIAGNOSIS_SECTIONS,
     HANDOFF_RECEIPT_VERSION,
     MAX_DIAGNOSIS_BYTES,
-    MAX_DIAGNOSIS_COMPONENTS,
     MAX_DIAGNOSIS_DEPTH,
-    MAX_DIAGNOSIS_LINE_CHARS,
     MAX_DIAGNOSIS_NARRATIVE_CHARS,
-    MAX_DIAGNOSIS_NODES,
     _DIAGNOSIS_NAME_RE,
     _FACTORY_SLUG_RE,
     _STAGING_NAME_RE,
     _session_b_outputs,
-    _strict_json_object,
     diagnosis_filenames,
     diagnosis_receipt_filename,
     rejected_scratch_filenames,
     validate_diagnosis_document,
 )
-from preference_arms_fs import (  # noqa: E402,F401
+from preference_arms_fs import (  # noqa: E402
     _open_canonical_directory,
-    _read_regular_artifact,
     _read_regular_artifact_from_directory,
     _require_open_directory_identity,
     _same_file_identity,
 )
 from preference_arms_observables import (  # noqa: E402,F401
-    CONTRAST_FIELDS,
     DEFAULT_MIN_ARM_DISTANCE,
-    LABEL_COPY_FIELDS,
-    MACHINE_BOOLEAN_PATHS,
     MACHINE_IDENTIFIER_PATHS,
-    MACHINE_NUMERIC_PATHS,
-    MACHINE_OBSERVABLE_FIELDS,
     MAX_ALIGNMENT_LIST_ITEMS,
-    MAX_ALIGNMENT_RESIDUAL_ITEMS,
-    SPIKE_IDENTIFIER_KEYS,
     _common_arm_observable_leaves,
     _observable_deltas_from_leaves,
     _observable_terms,
@@ -471,10 +462,10 @@ def _file_decisions(
 
 def _decision_counts(decisions: list[ArmDecision]) -> dict[str, int]:
     return {
-        "same_context": sum(1 for d in decisions if d.same_context),
-        "two_session": sum(1 for d in decisions if d.isolation == TWO_SESSION),
-        "trusted_two_session": sum(1 for d in decisions if d.trusted_isolation == TWO_SESSION),
-        "blocked": sum(1 for d in decisions if d.blocked),
+        "same_context": sum(bool(d.same_context) for d in decisions),
+        "two_session": sum(d.isolation == TWO_SESSION for d in decisions),
+        "trusted_two_session": sum(d.trusted_isolation == TWO_SESSION for d in decisions),
+        "blocked": sum(bool(d.blocked) for d in decisions),
     }
 
 
@@ -1017,9 +1008,13 @@ def main(argv: list[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
     paths = _inputs(parser, args)
-    if args.command == "verify-handoff":
-        return _run_verify_handoff(args, paths.staging_dir)
-    return _run_scan(args, paths.source)
+    verify = args.command == "verify-handoff"
+    path = paths.staging_dir if verify else paths.source
+    # argparse already requires each subcommand's positional, so this never
+    # fires; it narrows the confined path instead of passing ``None`` on.
+    if path is None:
+        parser.error(f"{args.command} requires its path argument")
+    return _run_verify_handoff(args, path) if verify else _run_scan(args, path)
 
 
 if __package__:

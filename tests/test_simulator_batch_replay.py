@@ -70,12 +70,14 @@ class BatchReplayTests(unittest.TestCase):
 
     def test_nested_batch_sessions_do_not_share_workers_or_authority(self):
         expected = fault_oracle.build_records(42, 1, produced_at=STAMP)[0]
-        with patch.object(process.subprocess, "Popen", wraps=process.subprocess.Popen) as launch:
+        with (
+            patch.object(process.subprocess, "Popen", wraps=process.subprocess.Popen) as launch,
+            process.replay_session(),
+        ):
+            self.assertEqual(process.replay_coordinate((42, 0, STAMP)), expected)
             with process.replay_session():
                 self.assertEqual(process.replay_coordinate((42, 0, STAMP)), expected)
-                with process.replay_session():
-                    self.assertEqual(process.replay_coordinate((42, 0, STAMP)), expected)
-                self.assertEqual(process.replay_coordinate((42, 0, STAMP)), expected)
+            self.assertEqual(process.replay_coordinate((42, 0, STAMP)), expected)
         self.assertEqual(launch.call_count, 2)
 
     def test_identity_writer_and_manifest_replay_use_one_worker_per_phase(self):

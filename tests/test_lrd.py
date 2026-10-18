@@ -118,6 +118,14 @@ def _legacy_source(relpath: str) -> str | None:
     return None
 
 
+def _required_item(items):
+    """Return the first selected fixture item, failing clearly when the selection is empty."""
+    try:
+        return next(iter(items))
+    except StopIteration as exc:
+        raise AssertionError("required fixture selection is empty") from exc
+
+
 class CatalogLoading(unittest.TestCase):
     def test_committed_catalog_loads_full_slice(self):
         loaded = catalog.load_catalog(COMMITTED)
@@ -335,31 +343,32 @@ class GeneratePairs(unittest.TestCase):
 
     def test_leftover3_plant_generate_is_refused(self):
         loaded = catalog.load_catalog(COMMITTED)
-        sample = next(plant for plant in loaded.plants if plant.shape == SHAPE_LEFTOVER3)
+        sample = _required_item(
+            plant for plant in loaded.plants if plant.shape == SHAPE_LEFTOVER3
+        )
         dest = self.root / "leftover3-out"
+        request = generate.GenerateRequest(
+            COMMITTED, dest, plant_id=sample.plant_id, round=sample.base_round
+        )
         with self.assertRaises(LrdRefusal) as caught:
-            generate.run(
-                generate.GenerateRequest(
-                    COMMITTED, dest, plant_id=sample.plant_id, round=sample.base_round
-                )
-            )
+            generate.run(request)
         self.assertEqual(caught.exception.code, FINDING_USAGE)
         self.assertFalse(dest.exists())
 
     def test_destination_under_raw_is_refused(self):
         dest = REPO / "outputs" / "raw" / "lrd-must-not-write"
+        request = generate.GenerateRequest(FIXTURE, dest, all_plants=True)
         with self.assertRaises(LrdRefusal) as caught:
-            generate.run(generate.GenerateRequest(FIXTURE, dest, all_plants=True))
+            generate.run(request)
         self.assertEqual(caught.exception.code, FINDING_DESTINATION_UNDER_RAW)
         self.assertFalse(dest.exists())
 
     def test_existing_destination_is_refused(self):
         dest = self.root / "exists"
         dest.mkdir()
+        request = generate.GenerateRequest(FIXTURE, dest, plant_id="lrd_r0001:otel-session-jwt")
         with self.assertRaises(LrdRefusal) as caught:
-            generate.run(
-                generate.GenerateRequest(FIXTURE, dest, plant_id="lrd_r0001:otel-session-jwt")
-            )
+            generate.run(request)
         self.assertEqual(caught.exception.code, FINDING_DESTINATION_EXISTS)
 
     def test_refuse_hopper_exec_seam(self):

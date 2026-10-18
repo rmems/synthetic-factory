@@ -68,8 +68,8 @@ class FrontierGateTestCaseMixin:
         return payload
 
 
-    def _interrupt_publish(self, factory, reservation, records, reason=None):
-        self.stage(reservation, records)
+    def _interrupt_publish(self, factory, reservation, reason=None):
+        """Fail the staged round's publish mid-copy; return its publishing marker."""
         with (
             mock.patch.object(
                 round_txn, "copy_verified_exclusive", side_effect=OSError("boom")
@@ -85,15 +85,15 @@ class FrontierGateTestCaseMixin:
     def _setup_retry_waiver(self, factory, tag):
         reservation = round_txn.reserve(factory, 1, 1)
         reason = "sensor replay pending; waived for this window"
-        self._interrupt_publish(
-            factory, reservation, [thalamic(tag, observable=False)], reason
-        )
+        self.stage(reservation, [thalamic(tag, observable=False)])
+        self._interrupt_publish(factory, reservation, reason)
         return reservation, reason
 
 
     def _mutate_publishing_marker(self, factory, tag, mutator):
         reservation = round_txn.reserve(factory, 1, 1)
-        publishing = self._interrupt_publish(factory, reservation, [thalamic(tag)])
+        self.stage(reservation, [thalamic(tag)])
+        publishing = self._interrupt_publish(factory, reservation)
         payload = json.loads(publishing.read_text())
         mutated = mutator(payload)
         publishing.write_text(json.dumps(mutated) + "\n")

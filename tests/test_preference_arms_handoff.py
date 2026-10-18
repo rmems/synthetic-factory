@@ -295,21 +295,19 @@ class DiagnosisHandoffVerification(unittest.TestCase):
                 diagnosis_document(2, root_cause="Changed after verification."),
                 encoding="utf-8",
             )
+            expectation = preference_arms.ReceiptExpectation(
+                factory="failure-as-fuel-preference-cascade",
+                round_number=11,
+                staging_dir=stage,
+                reservation_token=self.TOKEN,
+                expected_count=3,
+            )
 
             with self.assertRaisesRegex(
                 preference_arms.PreferenceArmsError,
                 "does not match receipt",
             ):
-                preference_arms.validate_diagnosis_handoff_receipt(
-                    stage,
-                    preference_arms.ReceiptExpectation(
-                        factory="failure-as-fuel-preference-cascade",
-                        round_number=11,
-                        staging_dir=stage,
-                        reservation_token=self.TOKEN,
-                        expected_count=3,
-                    ),
-                )
+                preference_arms.validate_diagnosis_handoff_receipt(stage, expectation)
 
     def test_invalid_receipt_name_is_rejected_before_any_outside_read(self):
         with tempfile.TemporaryDirectory() as td:
@@ -323,6 +321,13 @@ class DiagnosisHandoffVerification(unittest.TestCase):
             receipt_path.chmod(0o600)
             receipt_path.write_text(json.dumps(receipt) + "\n", encoding="utf-8")
             receipt_path.chmod(0o400)
+            expectation = preference_arms.ReceiptExpectation(
+                factory="failure-as-fuel-preference-cascade",
+                round_number=11,
+                staging_dir=stage,
+                reservation_token=self.TOKEN,
+                expected_count=3,
+            )
 
             with (
                 mock.patch.object(preference_arms.os, "open", wraps=os.open) as open_spy,
@@ -331,16 +336,7 @@ class DiagnosisHandoffVerification(unittest.TestCase):
                     "invalid name",
                 ),
             ):
-                preference_arms.validate_diagnosis_handoff_receipt(
-                    stage,
-                    preference_arms.ReceiptExpectation(
-                        factory="failure-as-fuel-preference-cascade",
-                        round_number=11,
-                        staging_dir=stage,
-                        reservation_token=self.TOKEN,
-                        expected_count=3,
-                    ),
-                )
+                preference_arms.validate_diagnosis_handoff_receipt(stage, expectation)
 
             opened_paths = [Path(call.args[0]) for call in open_spy.call_args_list]
             self.assertNotIn(outside, opened_paths)

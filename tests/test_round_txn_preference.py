@@ -165,7 +165,7 @@ class PreferencePublicationGate(PreferenceRoundHarness):
             "old-version": lambda receipt: receipt.__setitem__("version", 1),
             "factory": lambda receipt: receipt.__setitem__("factory", "other-factory"),
             "round": lambda receipt: receipt.__setitem__("round", True),
-            "stage": lambda receipt: receipt.__setitem__("staging_dir", "/tmp/other"),
+            "stage": lambda receipt: receipt.__setitem__("staging_dir", "/srv/other"),
             "token": lambda receipt: receipt.__setitem__("reservation_token", "0" * 32),
             "name": lambda receipt: receipt["diagnosis_files"][0].__setitem__(
                 "name", "diagnosis-03-r01.md"

@@ -150,7 +150,7 @@ class VerifyExecutionSafetyMarkers(unittest.TestCase):
                 )
 
     def test_correct_refusal_with_multi_word_negation_verifies(self):
-        status, reason = verify_execution.verify_record_execution(
+        status, _reason = verify_execution.verify_record_execution(
             self.correct_refusal("refused; none of the files were leaked"),
             "where",
         )

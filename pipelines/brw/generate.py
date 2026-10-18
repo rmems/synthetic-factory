@@ -10,6 +10,7 @@ raw round and does not execute leftover mill scripts.
 from __future__ import annotations
 
 import json
+from collections import namedtuple
 from typing import Any
 
 from . import catalog as cat
@@ -38,6 +39,8 @@ __all__ = [
     "st",
     "validate_pair",
 ]
+_JSON = "application/json"
+_RECEIPT_BASIS = "Observation: GET api receipt."
 
 
 def clip(text: str, n: int = 240) -> str:
@@ -131,331 +134,293 @@ def _eval_expr(p: dict) -> str:
     )
 
 
-def build_success(n: int, p: dict) -> dict:
+_Scene = namedtuple("_Scene", "p host s css_s api keep shape x0 x1 y y1 vis_x")
+
+
+def _scene(p: dict) -> _Scene:
     host = p["ok_host"]
-    s = site(p["sub"], host)
-    css_s = site("css", host)
-    api = site("api", host)
-    keep = p["ok_id"]
-    shape = p["shape"]
-    x0, x1, y = p["x0"], p["x1"], p["y"]
-    y1 = p.get("y1", y)
-    vis_x = p.get("visual_x", x1)
+    s, css_s, api = site(p["sub"], host), site("css", host), site("api", host)
+    keep, shape, x0, x1, y = p["ok_id"], p["shape"], p["x0"], p["x1"], p["y"]
+    return _Scene(p, host, s, css_s, api, keep, shape, x0, x1, y, p.get("y1", y), p.get("visual_x", x1))
 
-    if shape == "shift":
-        steps = [
-            st(1, f"Plan: open the designed {host.capitalize()} {p['noun']}s before using a pre-{p['css_short']} x.",
-               "browser_navigate", {"url": f"https://{s}/keep"},
-               _nav_obs(p, host, f"link rel='hint' href='https://{css_s}/shift'"),
-               p["reflect"]),
-            st(2, f"Observation: snapshot {p['from_v']} row.",
-               "browser_snapshot", {"interactive": True},
-               f"[a11y]\n- article '{p['item']}' ref={p['ref']}\n- article '{p['item_b']}' ref={p['ref_b']}"),
-            st(3, f"Observation: measure {p['item']} before {p['css_short']}.",
-               "browser_evaluate", {"expression": _eval_expr(p)},
-               json.dumps({p["js_prop"][:6]: p["from_v"], "x": x0, "y": y})),
-            st(4, f"Observation: GET {p['css_short']} contract.",
-               "http_request", {"method": "GET", "url": f"https://{css_s}/shift", "headers": {"Accept": "application/json"}},
-               f"200 {{\"from\":{p['from_v']!r},\"to\":{p['to_v']!r},\"warn\":{p['warn']!r}}}"),
-            st(5, f"Observation: click {p['trig']} {p['trig_ref']}.",
-               "browser_click", {"ref": p["trig_ref"]},
-               f"clicked {p['trig_ref']}; {p['css_short']}={p['to_v']}; {p['item']} x {x0}→{x1}"),
-            st(6, f"Observation: click stored x={x0}.",
-               "browser_click", {"position": {"x": x0, "y": y}},
-               f"Error: click hit {p['item_b']} (now at {x0}); {p['item']} is at {x1}"),
-            st(7, f"Observation: screenshot {p['css_short']} shift.",
-               "browser_screenshot", {"filename": f"findings/{host}-{p['css_short'].replace(':','-')}.png"},
-               f"png: {p['item_b']} under old x; {p['item']} at {x1}"),
-            st(8, f"Observation: remeasure after {p['to_v']}.",
-               "browser_evaluate", {"expression": _eval_expr(p)},
-               json.dumps({p["js_prop"][:6]: p["to_v"], "x": x1, "y": y1})),
-            st(9, f"Observation: click {p['item']} {p['ref']}.",
-               "browser_click", {"ref": p["ref"]},
-               f"clicked {p['ref']}; {p['verb']} enabled"),
-            st(10, f"Observation: fill {p['verb'].lower()} note.",
-               "browser_fill_form", {"fields": [{"ref": p["note_ref"], "value": f"{p['item']} {host[:4]}"}]},
-               f"filled {p['note_ref']}='{p['item']} {host[:4]}'"),
-            st(11, f"Observation: click {p['verb']} {p['act_ref']}.",
-               "browser_click", {"ref": p["act_ref"]},
-               f"clicked {p['act_ref']}; POST https://{s}/ui/keep → 201 {{\"{p['verb'].lower()}_id\":\"{keep}\",\"item\":\"{p['item']}\"}}"),
-            st(12, f"Observation: GET api {p['verb'].lower()}.",
-               "http_request", {"method": "GET", "url": f"https://{api}/{p['verb'].lower()}s/{keep}", "headers": {"Accept": "application/json"}},
-               f"200 {{\"{p['verb'].lower()}_id\":\"{keep}\",\"item\":\"{p['item']}\",\"{p['css_short']}\":{p['to_v']!r}}}"),
-            st(13, f"Observation: snapshot kept {keep}.",
-               "browser_snapshot", {"interactive": True},
-               f"[a11y]\n- status 'Kept {keep}' ref=s1"),
-            st(14, f"Observation: {keep}. Write findings.",
-               "write", {"path": f"findings/{host}-{p['item']}.json", "contents": json.dumps({"keep_id": keep, "item": p["item"], "source": f"ref_after_{p['css_short']}"}) + "\n"},
-               f"wrote findings/{host}-{p['item']}.json"),
-        ]
-        outcome = f"{p['css']} moved {p['item']}. Stored x hit {p['item_b']}. Clicked {p['ref']}. POST: {keep}."
-    elif shape == "visual":
-        steps = [
-            st(1, f"Plan: open the designed {host.capitalize()} {p['noun']}s before treating painted pixels as the hit box.",
-               "browser_navigate", {"url": f"https://{s}/keep"},
-               _nav_obs(p, host, f"link rel='paint' href='https://{css_s}/paint'"),
-               p["reflect"]),
-            st(2, f"Observation: snapshot {p['noun']}s and {p['css_short']}.",
-               "browser_snapshot", {"interactive": True},
-               f"[a11y]\n- article '{p['item']}' ref={p['ref']}\n- article '{p['item_b']}' ref={p['ref_b']}\n- button '{p['verb']}' ref={p['act_ref']}"),
-            st(3, f"Observation: evaluate {p['css_short']} vs box.",
-               "browser_evaluate", {"expression": _eval_expr(p)},
-               json.dumps({p["js_prop"][:6]: p["to_v"], "x": x0, "y": y, "width": 72})),
-            st(4, f"Observation: GET paint-vs-hit contract.",
-               "http_request", {"method": "GET", "url": f"https://{css_s}/paint", "headers": {"Accept": "application/json"}},
-               f"200 {{\"css\":{p['css']!r},\"warn\":{p['warn']!r}}}"),
-            st(5, f"Observation: click {p['trig']} {p['trig_ref']}.",
-               "browser_click", {"ref": p["trig_ref"]},
-               f"clicked {p['trig_ref']}; {p['css_short']} live; paint ≠ box"),
-            st(6, f"Observation: click visual blob at x={vis_x}.",
-               "browser_click", {"position": {"x": vis_x, "y": y}},
-               f"Error: click hit {p['item']} box at {x0} (paint was at {vis_x}); not {p['item_b']}"),
-            st(7, f"Observation: screenshot paint vs used box.",
-               "browser_screenshot", {"filename": f"findings/{host}-paint.png"},
-               f"png: painted face offset; a11y still {p['item']} at {x0}"),
-            st(8, f"Observation: remeasure unfiltered/unmasked box.",
-               "browser_evaluate", {"expression": _eval_expr(p)},
-               json.dumps({p["js_prop"][:6]: p["to_v"], "x": x0, "y": y})),
-            st(9, f"Observation: click {p['item']} {p['ref']} not the blob.",
-               "browser_click", {"ref": p["ref"]},
-               f"clicked {p['ref']}; {p['verb']} enabled"),
-            st(10, f"Observation: fill {p['verb'].lower()} note.",
-               "browser_fill_form", {"fields": [{"ref": p["note_ref"], "value": f"{p['item']} {host[:4]}"}]},
-               f"filled {p['note_ref']}='{p['item']} {host[:4]}'"),
-            st(11, f"Observation: click {p['verb']} {p['act_ref']}.",
-               "browser_click", {"ref": p["act_ref"]},
-               f"clicked {p['act_ref']}; POST https://{s}/ui/keep → 201 {{\"{p['verb'].lower()}_id\":\"{keep}\",\"item\":\"{p['item']}\"}}"),
-            st(12, f"Observation: GET api receipt.",
-               "http_request", {"method": "GET", "url": f"https://{api}/{p['verb'].lower()}s/{keep}", "headers": {"Accept": "application/json"}},
-               f"200 {{\"{p['verb'].lower()}_id\":\"{keep}\",\"item\":\"{p['item']}\",\"via\":\"a11y_ref\"}}"),
-            st(13, f"Observation: snapshot {keep}.",
-               "browser_snapshot", {"interactive": True},
-               f"[a11y]\n- status 'Kept {keep}' ref=s1"),
-            st(14, f"Observation: {keep}. Write findings.",
-               "write", {"path": f"findings/{host}-{p['item']}.json", "contents": json.dumps({"keep_id": keep, "item": p["item"], "source": f"ref_not_paint_{p['css_short']}"}) + "\n"},
-               f"wrote findings/{host}-{p['item']}.json"),
-        ]
-        if p["css_short"] == "backface-visibility":
-            # Trig is "Show face" — do not flip before proving the hidden backface miss.
-            steps[4] = st(
-                5,
-                f"Observation: click {p['item']} {p['ref']} while rotateY=180.",
-                "browser_click",
-                {"ref": p["ref"]},
-                f"Error: locator.click: {p['item']} backface-hidden; a11y node exists, paint is the back",
-            )
-            steps[5] = st(
-                6,
-                "Observation: click stored face x (empty paint).",
-                "browser_click",
-                {"position": {"x": vis_x, "y": y}},
-                f"Error: click hit empty transformed face; {p['item']} backface-visibility=hidden",
-            )
-            steps.insert(
-                7,
-                st(
-                    8,
-                    f"Observation: click {p['trig']} {p['trig_ref']} to rotateY(0).",
-                    "browser_click",
-                    {"ref": p["trig_ref"]},
-                    "clicked e4; rotateY=0; face visible; Flip enabled",
-                ),
-            )
-            for i, step in enumerate(steps, 1):
-                step["n"] = i
-            if not (13 <= len(steps) <= 16):
-                raise BrwError(f"visual/backface step count {len(steps)}")
-        outcome = f"{p['css']} split paint from the used box. Clicked {p['ref']}. POST: {keep}."
-    elif shape == "overlay":
-        steps = [
-            st(1, f"Plan: open the designed {host.capitalize()} {p['noun']}s before clicking through {p['css_short']}.",
-               "browser_navigate", {"url": f"https://{s}/keep"},
-               _nav_obs(p, host, f"link rel='layer' href='https://{css_s}/layer'"),
-               p["reflect"]),
-            st(2, f"Observation: snapshot overlay covering {p['verb']}.",
-               "browser_snapshot", {"interactive": True},
-               f"[a11y]\n- article '{p['item']}' ref={p['ref']}\n- generic overlay ref=ov1\n- button '{p['verb']}' ref={p['act_ref']}\n- button '{p['trig']}' ref={p['trig_ref']}"),
-            st(3, f"Observation: evaluate overlay vs {p['verb']} box.",
-               "browser_evaluate", {"expression": _eval_expr(p)},
-               json.dumps({p["js_prop"][:6]: p["from_v"], "x": x0, "y": y, "overlay": True})),
-            st(4, f"Observation: GET {p['css_short']} contract.",
-               "http_request", {"method": "GET", "url": f"https://{css_s}/layer", "headers": {"Accept": "application/json"}},
-               f"200 {{\"css\":{p['css']!r},\"warn\":{p['warn']!r}}}"),
-            st(5, f"Observation: click {p['verb']} px through the overlay.",
-               "browser_click", {"position": {"x": x0, "y": y}},
-               f"Error: click hit overlay ({p['css_short']}); {p['verb']} not received"),
-            st(6, f"Observation: screenshot overlay capture.",
-               "browser_screenshot", {"filename": f"findings/{host}-overlay.png"},
-               f"png: {p['css_short']} covering {p['verb']}"),
-            st(7, f"Observation: click {p['trig']} {p['trig_ref']}.",
-               "browser_click", {"ref": p["trig_ref"]},
-               f"clicked {p['trig_ref']}; overlay cleared or stage scrolled; {p['verb']} free"),
-            st(8, f"Observation: remeasure after overlay gone.",
-               "browser_evaluate", {"expression": _eval_expr(p)},
-               json.dumps({p["js_prop"][:6]: p["to_v"], "x": x1, "y": y1})),
-            st(9, f"Observation: click {p['item']} {p['ref']}.",
-               "browser_click", {"ref": p["ref"]},
-               f"clicked {p['ref']}; {p['verb']} enabled"),
-            st(10, f"Observation: fill {p['verb'].lower()} note.",
-               "browser_fill_form", {"fields": [{"ref": p["note_ref"], "value": f"{p['item']} {host[:4]}"}]},
-               f"filled {p['note_ref']}='{p['item']} {host[:4]}'"),
-            st(11, f"Observation: click {p['verb']} {p['act_ref']}.",
-               "browser_click", {"ref": p["act_ref"]},
-               f"clicked {p['act_ref']}; POST https://{s}/ui/keep → 201 {{\"{p['verb'].lower()}_id\":\"{keep}\",\"item\":\"{p['item']}\"}}"),
-            st(12, f"Observation: GET api receipt.",
-               "http_request", {"method": "GET", "url": f"https://{api}/{p['verb'].lower()}s/{keep}", "headers": {"Accept": "application/json"}},
-               f"200 {{\"{p['verb'].lower()}_id\":\"{keep}\",\"item\":\"{p['item']}\",\"overlay\":\"cleared\"}}"),
-            st(13, f"Observation: snapshot {keep}.",
-               "browser_snapshot", {"interactive": True},
-               f"[a11y]\n- status 'Kept {keep}' ref=s1"),
-            st(14, f"Observation: {keep}. Write findings.",
-               "write", {"path": f"findings/{host}-{p['item']}.json", "contents": json.dumps({"keep_id": keep, "item": p["item"], "source": f"clear_{p['css_short']}"}) + "\n"},
-               f"wrote findings/{host}-{p['item']}.json"),
-        ]
-        outcome = f"{p['css']} captured the click. Cleared overlay, clicked {p['ref']}. POST: {keep}."
-    elif shape == "viewport":
-        vpl = p.get("vp_label", "closed-chrome y")
-        steps = [
-            st(1, f"Plan: open the designed {host.capitalize()} {p['noun']}s before trusting a {vpl}.",
-               "browser_navigate", {"url": f"https://{s}/keep"},
-               _nav_obs(p, host, f"link rel='vp' href='https://{css_s}/vp'"),
-               p["reflect"]),
-            st(2, f"Observation: snapshot layout under {vpl}.",
-               "browser_snapshot", {"interactive": True},
-               f"[a11y]\n- article '{p['item']}' ref={p['ref']}\n- button '{p['verb']}' ref={p['act_ref']} y≈{y}"),
-            st(3, f"Observation: measure {p['css_short']} before the viewport/env change.",
-               "browser_evaluate", {"expression": _eval_expr(p)},
-               json.dumps({p["js_prop"][:6]: p["from_v"], "x": x0, "y": y})),
-            st(4, f"Observation: GET viewport/env contract.",
-               "http_request", {"method": "GET", "url": f"https://{css_s}/vp", "headers": {"Accept": "application/json"}},
-               f"200 {{\"css\":{p['css']!r},\"warn\":{p['warn']!r}}}"),
-            st(5, f"Observation: click {p['trig']} {p['trig_ref']}.",
-               "browser_click", {"ref": p["trig_ref"]},
-               f"clicked {p['trig_ref']}; chrome/keyboard changed; {p['item']} y {y}→{y1}"),
-            st(6, f"Observation: click stored y={y}.",
-               "browser_click", {"position": {"x": x0, "y": y}},
-               f"Error: click hit chrome/keyboard or {p['item_b']}; {p['item']} now at y={y1}"),
-            st(7, f"Observation: screenshot after viewport change.",
-               "browser_screenshot", {"filename": f"findings/{host}-vp.png"},
-               f"png: {p['verb']} lifted/grown; old y is leftover chrome"),
-            st(8, f"Observation: remeasure dvh/inset box.",
-               "browser_evaluate", {"expression": _eval_expr(p)},
-               json.dumps({p["js_prop"][:6]: p["to_v"], "x": x1, "y": y1})),
-            st(9, f"Observation: click {p['item']} {p['ref']}.",
-               "browser_click", {"ref": p["ref"]},
-               f"clicked {p['ref']}; {p['verb']} enabled"),
-            st(10, f"Observation: fill {p['verb'].lower()} note.",
-               "browser_fill_form", {"fields": [{"ref": p["note_ref"], "value": f"{p['item']} {host[:4]}"}]},
-               f"filled {p['note_ref']}='{p['item']} {host[:4]}'"),
-            st(11, f"Observation: click {p['verb']} {p['act_ref']}.",
-               "browser_click", {"ref": p["act_ref"]},
-               f"clicked {p['act_ref']}; POST https://{s}/ui/keep → 201 {{\"{p['verb'].lower()}_id\":\"{keep}\",\"item\":\"{p['item']}\"}}"),
-            st(12, f"Observation: GET api receipt.",
-               "http_request", {"method": "GET", "url": f"https://{api}/{p['verb'].lower()}s/{keep}", "headers": {"Accept": "application/json"}},
-               f"200 {{\"{p['verb'].lower()}_id\":\"{keep}\",\"item\":\"{p['item']}\",\"unit\":{p['to_v']!r}}}"),
-            st(13, f"Observation: snapshot {keep}.",
-               "browser_snapshot", {"interactive": True},
-               f"[a11y]\n- status 'Kept {keep}' ref=s1"),
-            st(14, f"Observation: {keep}. Write findings.",
-               "write", {"path": f"findings/{host}-{p['item']}.json", "contents": json.dumps({"keep_id": keep, "item": p["item"], "source": f"ref_after_{p['css_short']}"}) + "\n"},
-               f"wrote findings/{host}-{p['item']}.json"),
-        ]
-        outcome = f"{p['css']} moved the used y. Stored y missed. Clicked {p['ref']}. POST: {keep}."
-    elif shape == "text":
-        steps = [
-            st(1, f"Plan: open the designed {host.capitalize()} {p['noun']}s before trusting OCR after {p['css_short']}.",
-               "browser_navigate", {"url": f"https://{s}/keep"},
-               _nav_obs(p, host, f"link rel='type' href='https://{css_s}/type'"),
-               p["reflect"]),
-            st(2, f"Observation: snapshot unwrapped label.",
-               "browser_snapshot", {"interactive": True},
-               f"[a11y]\n- article '{p['item']}' ref={p['ref']} name='締約 Post'\n- button '{p['verb']}' ref={p['act_ref']}"),
-            st(3, f"Observation: measure wrap before auto-phrase.",
-               "browser_evaluate", {"expression": _eval_expr(p)},
-               json.dumps({p["js_prop"][:6]: p["from_v"], "lines": 1, "x": x0, "y": y})),
-            st(4, f"Observation: GET phrase-wrap contract.",
-               "http_request", {"method": "GET", "url": f"https://{css_s}/type", "headers": {"Accept": "application/json"}},
-               f"200 {{\"css\":{p['css']!r},\"warn\":{p['warn']!r}}}"),
-            st(5, f"Observation: click {p['trig']} {p['trig_ref']}.",
-               "browser_click", {"ref": p["trig_ref"]},
-               f"clicked {p['trig_ref']}; {p['css_short']}={p['to_v']}; label now 2 lines covering {p['verb']}"),
-            st(6, f"Observation: OCR the wrapped fragment.",
-               "browser_evaluate", {"expression": "document.querySelector('[data-ref=" + p['ref'] + "]').innerText"},
-               "締\\n約 Post"),
-            st(7, f"Observation: screenshot phrase wrap over {p['verb']}.",
-               "browser_screenshot", {"filename": f"findings/{host}-phrase.png"},
-               f"png: second line covers {p['verb']}; glyph '締' is not the token"),
-            st(8, f"Observation: click {p['item']} {p['ref']} not the fragment.",
-               "browser_click", {"ref": p["ref"]},
-               f"clicked {p['ref']}; {p['verb']} enabled"),
-            st(9, f"Observation: fill {p['verb'].lower()} with full token.",
-               "browser_fill_form", {"fields": [{"ref": p["note_ref"], "value": p["item"]}]},
-               f"filled {p['note_ref']}='{p['item']}'"),
-            st(10, f"Observation: click {p['verb']} {p['act_ref']} by ref under wrap.",
-               "browser_click", {"ref": p["act_ref"]},
-               f"clicked {p['act_ref']}; POST https://{s}/ui/keep → 201 {{\"{p['verb'].lower()}_id\":\"{keep}\",\"item\":\"{p['item']}\"}}"),
-            st(11, f"Observation: GET api receipt.",
-               "http_request", {"method": "GET", "url": f"https://{api}/{p['verb'].lower()}s/{keep}", "headers": {"Accept": "application/json"}},
-               f"200 {{\"{p['verb'].lower()}_id\":\"{keep}\",\"item\":\"{p['item']}\",\"token\":\"full\"}}"),
-            st(12, f"Observation: GET OpenAPI 415 clause.",
-               "http_request", {"method": "GET", "url": f"https://{api}/openapi.json", "headers": {"Accept": "application/json"}},
-               f"200\nPOST /{p['sub']} 415 phrase_ocr if token is a wrap fragment"),
-            st(13, f"Observation: snapshot {keep}.",
-               "browser_snapshot", {"interactive": True},
-               f"[a11y]\n- status 'Kept {keep}' ref=s1"),
-            st(14, f"Observation: {keep}. Write findings.",
-               "write", {"path": f"findings/{host}-{p['item']}.json", "contents": json.dumps({"keep_id": keep, "item": p["item"], "source": "ref_not_ocr_fragment"}) + "\n"},
-               f"wrote findings/{host}-{p['item']}.json"),
-        ]
-        outcome = f"{p['css']} wrapped the label. OCR fragment ignored. Clicked {p['act_ref']}. POST: {keep}."
-    else:  # box
-        steps = [
-            st(1, f"Plan: open the designed {host.capitalize()} {p['noun']}s before clicking a vanished or cloned box.",
-               "browser_navigate", {"url": f"https://{s}/keep"},
-               _nav_obs(p, host, f"link rel='box' href='https://{css_s}/box'"),
-               p["reflect"]),
-            st(2, f"Observation: snapshot principal box.",
-               "browser_snapshot", {"interactive": True},
-               f"[a11y]\n- article '{p['item']}' ref={p['ref']}\n- generic parent ref=par\n- button '{p['verb']}' ref={p['act_ref']}"),
-            st(3, f"Observation: measure box before {p['css_short']}.",
-               "browser_evaluate", {"expression": _eval_expr(p)},
-               json.dumps({p["js_prop"][:6]: p["from_v"], "x": x0, "y": y, "w": 72, "h": 40})),
-            st(4, f"Observation: GET box contract.",
-               "http_request", {"method": "GET", "url": f"https://{css_s}/box", "headers": {"Accept": "application/json"}},
-               f"200 {{\"css\":{p['css']!r},\"warn\":{p['warn']!r}}}"),
-            st(5, f"Observation: click {p['trig']} {p['trig_ref']}.",
-               "browser_click", {"ref": p["trig_ref"]},
-               f"clicked {p['trig_ref']}; {p['css_short']}={p['to_v']}; principal box changed"),
-            st(6, f"Observation: click old parent/lobe x={x0}.",
-               "browser_click", {"position": {"x": x0 if p['css_short'] != 'overflow-clip-margin' else x0 + 32, "y": y if p['css_short'] != 'box-decoration-break' else y + 34}},
-               f"Error: {p['css_short']} — empty parent, cloned fragment, or leaked lobe; not {p['item']} hit"),
-            st(7, f"Observation: screenshot box change.",
-               "browser_screenshot", {"filename": f"findings/{host}-box.png"},
-               f"png: {p['css_short']} altered the painted box; child/ref still {p['item']}"),
-            st(8, f"Observation: remeasure used child box.",
-               "browser_evaluate", {"expression": _eval_expr(p)},
-               json.dumps({p["js_prop"][:6]: p["to_v"], "x": x1, "y": y1, "w": 0 if p["css_short"] == "display:contents" else 72})),
-            st(9, f"Observation: click child {p['item']} {p['ref']}.",
-               "browser_click", {"ref": p["ref"]},
-               f"clicked {p['ref']}; {p['verb']} enabled"),
-            st(10, f"Observation: fill {p['verb'].lower()} note.",
-               "browser_fill_form", {"fields": [{"ref": p["note_ref"], "value": f"{p['item']} {host[:4]}"}]},
-               f"filled {p['note_ref']}='{p['item']} {host[:4]}'"),
-            st(11, f"Observation: click {p['verb']} {p['act_ref']}.",
-               "browser_click", {"ref": p["act_ref"]},
-               f"clicked {p['act_ref']}; POST https://{s}/ui/keep → 201 {{\"{p['verb'].lower()}_id\":\"{keep}\",\"item\":\"{p['item']}\"}}"),
-            st(12, f"Observation: GET api receipt.",
-               "http_request", {"method": "GET", "url": f"https://{api}/{p['verb'].lower()}s/{keep}", "headers": {"Accept": "application/json"}},
-               f"200 {{\"{p['verb'].lower()}_id\":\"{keep}\",\"item\":\"{p['item']}\",\"box\":\"child\"}}"),
-            st(13, f"Observation: snapshot {keep}.",
-               "browser_snapshot", {"interactive": True},
-               f"[a11y]\n- status 'Kept {keep}' ref=s1"),
-            st(14, f"Observation: {keep}. Write findings.",
-               "write", {"path": f"findings/{host}-{p['item']}.json", "contents": json.dumps({"keep_id": keep, "item": p["item"], "source": f"child_ref_{p['css_short']}"}) + "\n"},
-               f"wrote findings/{host}-{p['item']}.json"),
-        ]
-        outcome = f"{p['css']} changed the principal box. Clicked child {p['ref']}. POST: {keep}."
 
+def _open_step(c: _Scene, before: str, rel: str, path: str) -> dict:
+    p, host = c.p, c.host
+    return st(1, f"Plan: open the designed {host.capitalize()} {p['noun']}s before {before}.",
+              "browser_navigate", {"url": f"https://{c.s}/keep"},
+              _nav_obs(p, host, f"link rel='{rel}' href='https://{c.css_s}/{path}'"),
+              p["reflect"])
+
+
+def _contract_step(c: _Scene, n: int, basis: str, path: str) -> dict:
+    p = c.p
+    return st(n, basis,
+              "http_request", {"method": "GET", "url": f"https://{c.css_s}/{path}", "headers": {"Accept": _JSON}},
+              f"200 {{\"css\":{p['css']!r},\"warn\":{p['warn']!r}}}")
+
+
+def _evaluate_step(c: _Scene, n: int, basis: str, measured: dict) -> dict:
+    return st(n, basis, "browser_evaluate", {"expression": _eval_expr(c.p)}, json.dumps(measured))
+
+
+def _click_trig_step(c: _Scene, n: int, effect: str) -> dict:
+    p = c.p
+    return st(n, f"Observation: click {p['trig']} {p['trig_ref']}.",
+              "browser_click", {"ref": p["trig_ref"]}, f"clicked {p['trig_ref']}; {effect}")
+
+
+def _click_item_step(c: _Scene, n: int, basis: str) -> dict:
+    p = c.p
+    return st(n, basis, "browser_click", {"ref": p["ref"]}, f"clicked {p['ref']}; {p['verb']} enabled")
+
+
+def _fill_note_step(c: _Scene, n: int) -> dict:
+    p, host = c.p, c.host
+    return st(n, f"Observation: fill {p['verb'].lower()} note.",
+              "browser_fill_form", {"fields": [{"ref": p["note_ref"], "value": f"{p['item']} {host[:4]}"}]},
+              f"filled {p['note_ref']}='{p['item']} {host[:4]}'")
+
+
+def _click_verb_step(c: _Scene, n: int, basis: str) -> dict:
+    p = c.p
+    return st(n, basis,
+              "browser_click", {"ref": p["act_ref"]},
+              f"clicked {p['act_ref']}; POST https://{c.s}/ui/keep → 201 {{\"{p['verb'].lower()}_id\":\"{c.keep}\",\"item\":\"{p['item']}\"}}")
+
+
+def _receipt_step(c: _Scene, n: int, basis: str, tail: str) -> dict:
+    p = c.p
+    return st(n, basis,
+              "http_request", {"method": "GET", "url": f"https://{c.api}/{p['verb'].lower()}s/{c.keep}", "headers": {"Accept": _JSON}},
+              f"200 {{\"{p['verb'].lower()}_id\":\"{c.keep}\",\"item\":\"{p['item']}\",{tail}}}")
+
+
+def _kept_step(c: _Scene, n: int, basis: str) -> dict:
+    return st(n, basis, "browser_snapshot", {"interactive": True}, f"[a11y]\n- status 'Kept {c.keep}' ref=s1")
+
+
+def _findings_step(c: _Scene, n: int, source: str) -> dict:
+    p, host, keep = c.p, c.host, c.keep
+    return st(n, f"Observation: {keep}. Write findings.",
+              "write", {"path": f"findings/{host}-{p['item']}.json", "contents": json.dumps({"keep_id": keep, "item": p["item"], "source": source}) + "\n"},
+              f"wrote findings/{host}-{p['item']}.json")
+
+
+_TailWords = namedtuple("_TailWords", "click_item receipt receipt_tail kept source")
+
+
+def _keep_tail(c: _Scene, words: _TailWords) -> list[dict]:
+    """Steps 9-14 shared by the click-by-ref shapes: ref, note, verb, receipt, status, findings."""
+    p = c.p
+    return [
+        _click_item_step(c, 9, words.click_item),
+        _fill_note_step(c, 10),
+        _click_verb_step(c, 11, f"Observation: click {p['verb']} {p['act_ref']}."),
+        _receipt_step(c, 12, words.receipt, words.receipt_tail),
+        _kept_step(c, 13, words.kept),
+        _findings_step(c, 14, words.source),
+    ]
+
+
+def _shift_steps(c: _Scene) -> tuple[list[dict], str]:
+    p, host, keep, x0, x1, y = c.p, c.host, c.keep, c.x0, c.x1, c.y
+    steps = [
+        _open_step(c, f"using a pre-{p['css_short']} x", "hint", "shift"),
+        st(2, f"Observation: snapshot {p['from_v']} row.",
+           "browser_snapshot", {"interactive": True},
+           f"[a11y]\n- article '{p['item']}' ref={p['ref']}\n- article '{p['item_b']}' ref={p['ref_b']}"),
+        _evaluate_step(c, 3, f"Observation: measure {p['item']} before {p['css_short']}.",
+                       {p["js_prop"][:6]: p["from_v"], "x": x0, "y": y}),
+        st(4, f"Observation: GET {p['css_short']} contract.",
+           "http_request", {"method": "GET", "url": f"https://{c.css_s}/shift", "headers": {"Accept": _JSON}},
+           f"200 {{\"from\":{p['from_v']!r},\"to\":{p['to_v']!r},\"warn\":{p['warn']!r}}}"),
+        _click_trig_step(c, 5, f"{p['css_short']}={p['to_v']}; {p['item']} x {x0}→{x1}"),
+        st(6, f"Observation: click stored x={x0}.",
+           "browser_click", {"position": {"x": x0, "y": y}},
+           f"Error: click hit {p['item_b']} (now at {x0}); {p['item']} is at {x1}"),
+        st(7, f"Observation: screenshot {p['css_short']} shift.",
+           "browser_screenshot", {"filename": f"findings/{host}-{p['css_short'].replace(':','-')}.png"},
+           f"png: {p['item_b']} under old x; {p['item']} at {x1}"),
+        _evaluate_step(c, 8, f"Observation: remeasure after {p['to_v']}.",
+                       {p["js_prop"][:6]: p["to_v"], "x": x1, "y": c.y1}),
+        *_keep_tail(c, _TailWords(
+            f"Observation: click {p['item']} {p['ref']}.", f"Observation: GET api {p['verb'].lower()}.",
+            f"\"{p['css_short']}\":{p['to_v']!r}", f"Observation: snapshot kept {keep}.", f"ref_after_{p['css_short']}")),
+    ]
+    outcome = f"{p['css']} moved {p['item']}. Stored x hit {p['item_b']}. Clicked {p['ref']}. POST: {keep}."
+    return steps, outcome
+
+
+def _backface_steps(c: _Scene, steps: list[dict]) -> None:
+    """Trig is "Show face" — do not flip before proving the hidden backface miss."""
+    p = c.p
+    steps[4] = st(5, f"Observation: click {p['item']} {p['ref']} while rotateY=180.",
+                  "browser_click", {"ref": p["ref"]},
+                  f"Error: locator.click: {p['item']} backface-hidden; a11y node exists, paint is the back")
+    steps[5] = st(6, "Observation: click stored face x (empty paint).",
+                  "browser_click", {"position": {"x": c.vis_x, "y": c.y}},
+                  f"Error: click hit empty transformed face; {p['item']} backface-visibility=hidden")
+    steps.insert(7, st(8, f"Observation: click {p['trig']} {p['trig_ref']} to rotateY(0).",
+                       "browser_click", {"ref": p["trig_ref"]},
+                       "clicked e4; rotateY=0; face visible; Flip enabled"))
+    for i, step in enumerate(steps, 1):
+        step["n"] = i
+    if not (13 <= len(steps) <= 16):
+        raise BrwError(f"visual/backface step count {len(steps)}")
+
+
+def _visual_steps(c: _Scene) -> tuple[list[dict], str]:
+    p, host, keep, x0, y, vis_x = c.p, c.host, c.keep, c.x0, c.y, c.vis_x
+    steps = [
+        _open_step(c, "treating painted pixels as the hit box", "paint", "paint"),
+        st(2, f"Observation: snapshot {p['noun']}s and {p['css_short']}.",
+           "browser_snapshot", {"interactive": True},
+           f"[a11y]\n- article '{p['item']}' ref={p['ref']}\n- article '{p['item_b']}' ref={p['ref_b']}\n- button '{p['verb']}' ref={p['act_ref']}"),
+        _evaluate_step(c, 3, f"Observation: evaluate {p['css_short']} vs box.",
+                       {p["js_prop"][:6]: p["to_v"], "x": x0, "y": y, "width": 72}),
+        _contract_step(c, 4, "Observation: GET paint-vs-hit contract.", "paint"),
+        _click_trig_step(c, 5, f"{p['css_short']} live; paint ≠ box"),
+        st(6, f"Observation: click visual blob at x={vis_x}.",
+           "browser_click", {"position": {"x": vis_x, "y": y}},
+           f"Error: click hit {p['item']} box at {x0} (paint was at {vis_x}); not {p['item_b']}"),
+        st(7, "Observation: screenshot paint vs used box.",
+           "browser_screenshot", {"filename": f"findings/{host}-paint.png"},
+           f"png: painted face offset; a11y still {p['item']} at {x0}"),
+        _evaluate_step(c, 8, "Observation: remeasure unfiltered/unmasked box.",
+                       {p["js_prop"][:6]: p["to_v"], "x": x0, "y": y}),
+        *_keep_tail(c, _TailWords(
+            f"Observation: click {p['item']} {p['ref']} not the blob.", _RECEIPT_BASIS,
+            "\"via\":\"a11y_ref\"", f"Observation: snapshot {keep}.", f"ref_not_paint_{p['css_short']}")),
+    ]
+    if p["css_short"] == "backface-visibility":
+        _backface_steps(c, steps)
+    outcome = f"{p['css']} split paint from the used box. Clicked {p['ref']}. POST: {keep}."
+    return steps, outcome
+
+
+def _overlay_steps(c: _Scene) -> tuple[list[dict], str]:
+    p, host, keep, x0, y = c.p, c.host, c.keep, c.x0, c.y
+    steps = [
+        _open_step(c, f"clicking through {p['css_short']}", "layer", "layer"),
+        st(2, f"Observation: snapshot overlay covering {p['verb']}.",
+           "browser_snapshot", {"interactive": True},
+           f"[a11y]\n- article '{p['item']}' ref={p['ref']}\n- generic overlay ref=ov1\n- button '{p['verb']}' ref={p['act_ref']}\n- button '{p['trig']}' ref={p['trig_ref']}"),
+        _evaluate_step(c, 3, f"Observation: evaluate overlay vs {p['verb']} box.",
+                       {p["js_prop"][:6]: p["from_v"], "x": x0, "y": y, "overlay": True}),
+        _contract_step(c, 4, f"Observation: GET {p['css_short']} contract.", "layer"),
+        st(5, f"Observation: click {p['verb']} px through the overlay.",
+           "browser_click", {"position": {"x": x0, "y": y}},
+           f"Error: click hit overlay ({p['css_short']}); {p['verb']} not received"),
+        st(6, "Observation: screenshot overlay capture.",
+           "browser_screenshot", {"filename": f"findings/{host}-overlay.png"},
+           f"png: {p['css_short']} covering {p['verb']}"),
+        _click_trig_step(c, 7, f"overlay cleared or stage scrolled; {p['verb']} free"),
+        _evaluate_step(c, 8, "Observation: remeasure after overlay gone.",
+                       {p["js_prop"][:6]: p["to_v"], "x": c.x1, "y": c.y1}),
+        *_keep_tail(c, _TailWords(
+            f"Observation: click {p['item']} {p['ref']}.", _RECEIPT_BASIS,
+            "\"overlay\":\"cleared\"", f"Observation: snapshot {keep}.", f"clear_{p['css_short']}")),
+    ]
+    outcome = f"{p['css']} captured the click. Cleared overlay, clicked {p['ref']}. POST: {keep}."
+    return steps, outcome
+
+
+def _viewport_steps(c: _Scene) -> tuple[list[dict], str]:
+    p, host, keep, x0, y, y1 = c.p, c.host, c.keep, c.x0, c.y, c.y1
+    vpl = p.get("vp_label", "closed-chrome y")
+    steps = [
+        _open_step(c, f"trusting a {vpl}", "vp", "vp"),
+        st(2, f"Observation: snapshot layout under {vpl}.",
+           "browser_snapshot", {"interactive": True},
+           f"[a11y]\n- article '{p['item']}' ref={p['ref']}\n- button '{p['verb']}' ref={p['act_ref']} y≈{y}"),
+        _evaluate_step(c, 3, f"Observation: measure {p['css_short']} before the viewport/env change.",
+                       {p["js_prop"][:6]: p["from_v"], "x": x0, "y": y}),
+        _contract_step(c, 4, "Observation: GET viewport/env contract.", "vp"),
+        _click_trig_step(c, 5, f"chrome/keyboard changed; {p['item']} y {y}→{y1}"),
+        st(6, f"Observation: click stored y={y}.",
+           "browser_click", {"position": {"x": x0, "y": y}},
+           f"Error: click hit chrome/keyboard or {p['item_b']}; {p['item']} now at y={y1}"),
+        st(7, "Observation: screenshot after viewport change.",
+           "browser_screenshot", {"filename": f"findings/{host}-vp.png"},
+           f"png: {p['verb']} lifted/grown; old y is leftover chrome"),
+        _evaluate_step(c, 8, "Observation: remeasure dvh/inset box.",
+                       {p["js_prop"][:6]: p["to_v"], "x": c.x1, "y": y1}),
+        *_keep_tail(c, _TailWords(
+            f"Observation: click {p['item']} {p['ref']}.", _RECEIPT_BASIS,
+            f"\"unit\":{p['to_v']!r}", f"Observation: snapshot {keep}.", f"ref_after_{p['css_short']}")),
+    ]
+    outcome = f"{p['css']} moved the used y. Stored y missed. Clicked {p['ref']}. POST: {keep}."
+    return steps, outcome
+
+
+def _text_steps(c: _Scene) -> tuple[list[dict], str]:
+    p, host, keep = c.p, c.host, c.keep
+    steps = [
+        _open_step(c, f"trusting OCR after {p['css_short']}", "type", "type"),
+        st(2, "Observation: snapshot unwrapped label.",
+           "browser_snapshot", {"interactive": True},
+           f"[a11y]\n- article '{p['item']}' ref={p['ref']} name='締約 Post'\n- button '{p['verb']}' ref={p['act_ref']}"),
+        _evaluate_step(c, 3, "Observation: measure wrap before auto-phrase.",
+                       {p["js_prop"][:6]: p["from_v"], "lines": 1, "x": c.x0, "y": c.y}),
+        _contract_step(c, 4, "Observation: GET phrase-wrap contract.", "type"),
+        _click_trig_step(c, 5, f"{p['css_short']}={p['to_v']}; label now 2 lines covering {p['verb']}"),
+        st(6, "Observation: OCR the wrapped fragment.",
+           "browser_evaluate", {"expression": "document.querySelector('[data-ref=" + p['ref'] + "]').innerText"},
+           "締\\n約 Post"),
+        st(7, f"Observation: screenshot phrase wrap over {p['verb']}.",
+           "browser_screenshot", {"filename": f"findings/{host}-phrase.png"},
+           f"png: second line covers {p['verb']}; glyph '締' is not the token"),
+        _click_item_step(c, 8, f"Observation: click {p['item']} {p['ref']} not the fragment."),
+        st(9, f"Observation: fill {p['verb'].lower()} with full token.",
+           "browser_fill_form", {"fields": [{"ref": p["note_ref"], "value": p["item"]}]},
+           f"filled {p['note_ref']}='{p['item']}'"),
+        _click_verb_step(c, 10, f"Observation: click {p['verb']} {p['act_ref']} by ref under wrap."),
+        _receipt_step(c, 11, _RECEIPT_BASIS, "\"token\":\"full\""),
+        st(12, "Observation: GET OpenAPI 415 clause.",
+           "http_request", {"method": "GET", "url": f"https://{c.api}/openapi.json", "headers": {"Accept": _JSON}},
+           f"200\nPOST /{p['sub']} 415 phrase_ocr if token is a wrap fragment"),
+        _kept_step(c, 13, f"Observation: snapshot {keep}."),
+        _findings_step(c, 14, "ref_not_ocr_fragment"),
+    ]
+    outcome = f"{p['css']} wrapped the label. OCR fragment ignored. Clicked {p['act_ref']}. POST: {keep}."
+    return steps, outcome
+
+
+def _box_steps(c: _Scene) -> tuple[list[dict], str]:
+    p, host, keep, x0, y = c.p, c.host, c.keep, c.x0, c.y
+    steps = [
+        _open_step(c, "clicking a vanished or cloned box", "box", "box"),
+        st(2, "Observation: snapshot principal box.",
+           "browser_snapshot", {"interactive": True},
+           f"[a11y]\n- article '{p['item']}' ref={p['ref']}\n- generic parent ref=par\n- button '{p['verb']}' ref={p['act_ref']}"),
+        _evaluate_step(c, 3, f"Observation: measure box before {p['css_short']}.",
+                       {p["js_prop"][:6]: p["from_v"], "x": x0, "y": y, "w": 72, "h": 40}),
+        _contract_step(c, 4, "Observation: GET box contract.", "box"),
+        _click_trig_step(c, 5, f"{p['css_short']}={p['to_v']}; principal box changed"),
+        st(6, f"Observation: click old parent/lobe x={x0}.",
+           "browser_click", {"position": {"x": x0 if p['css_short'] != 'overflow-clip-margin' else x0 + 32, "y": y if p['css_short'] != 'box-decoration-break' else y + 34}},
+           f"Error: {p['css_short']} — empty parent, cloned fragment, or leaked lobe; not {p['item']} hit"),
+        st(7, "Observation: screenshot box change.",
+           "browser_screenshot", {"filename": f"findings/{host}-box.png"},
+           f"png: {p['css_short']} altered the painted box; child/ref still {p['item']}"),
+        _evaluate_step(c, 8, "Observation: remeasure used child box.",
+                       {p["js_prop"][:6]: p["to_v"], "x": c.x1, "y": c.y1, "w": 0 if p["css_short"] == "display:contents" else 72}),
+        *_keep_tail(c, _TailWords(
+            f"Observation: click child {p['item']} {p['ref']}.", _RECEIPT_BASIS,
+            "\"box\":\"child\"", f"Observation: snapshot {keep}.", f"child_ref_{p['css_short']}")),
+    ]
+    outcome = f"{p['css']} changed the principal box. Clicked child {p['ref']}. POST: {keep}."
+    return steps, outcome
+
+
+_SHAPE_STEPS = (("shift", _shift_steps), ("visual", _visual_steps), ("overlay", _overlay_steps),
+                ("viewport", _viewport_steps), ("text", _text_steps))
+
+
+def build_success(n: int, p: dict) -> dict:
+    c = _scene(p)
+    build = next((steps_of for shape, steps_of in _SHAPE_STEPS if c.shape == shape), _box_steps)
+    steps, outcome = build(c)
     reward = {
         "success": True,
         p["css_short"].split(":")[0].replace("-", "_")[:24]: 1,
@@ -464,53 +429,63 @@ def build_success(n: int, p: dict) -> dict:
     }
     return rec(
         f"brw-r{n}-{p['ok_slug']}",
-        f"On the designed {host.capitalize()} {p['noun']} desk, {p['verb'].lower()} {p['item']} after {p['css']}, and return the {p['verb'].lower()} id.",
+        f"On the designed {c.host.capitalize()} {p['noun']} desk, {p['verb'].lower()} {p['item']} after {p['css']}, and return the {p['verb'].lower()} id.",
         p["teach"],
         steps,
         outcome,
         reward,
-        meta(n, p["seed_ok"], s),
+        meta(n, p["seed_ok"], c.s),
     )
 
 
-def build_fail(n: int, p: dict) -> dict:
+_FailScene = namedtuple("_FailScene", "p host s css_s api code item")
+
+
+def _fail_scene(p: dict) -> _FailScene:
     host = p["bad_host"]
-    s = site(p["sub"], host)
-    css_s = site("css", host)
-    api = site("api", host)
-    code = p["code"]
-    if code == 409:
+    s, css_s, api = site(p["sub"], host), site("css", host), site("api", host)
+    if p["code"] == 409:
         raise BrwError("409-only fails are banned")
-    item = p["item_fail"]
-    steps = [
+    return _FailScene(p, host, s, css_s, api, p["code"], p["item_fail"])
+
+
+def _fail_probe_steps(c: _FailScene) -> list[dict]:
+    p, host, item = c.p, c.host, c.item
+    return [
         st(1, f"Plan: open the designed {host.capitalize()} {p['noun']}s before posting a stale {p['css_short']} box.",
-           "browser_navigate", {"url": f"https://{s}/keep"},
-           _nav_obs(p, host, f"link rel='gate' href='https://{css_s}/gate'"),
+           "browser_navigate", {"url": f"https://{c.s}/keep"},
+           _nav_obs(p, host, f"link rel='gate' href='https://{c.css_s}/gate'"),
            p["reflect"] + " Stale geometry is a failed dependency."),
         st(2, f"Observation: snapshot live {p['css_short']}.",
            "browser_snapshot", {"interactive": True},
            f"[a11y]\n- article '{item}' ref={p['ref_fail']}\n- button '{p['verb']}' ref={p['act_ref']}"),
         st(3, f"Observation: GET {p['css_short']} gate.",
-           "http_request", {"method": "GET", "url": f"https://{css_s}/gate", "headers": {"Accept": "application/json"}},
+           "http_request", {"method": "GET", "url": f"https://{c.css_s}/gate", "headers": {"Accept": _JSON}},
            f"200 {p['gate']}"),
-        st(4, f"Observation: evaluate live box.",
+        st(4, "Observation: evaluate live box.",
            "browser_evaluate", {"expression": _eval_expr(p)},
            json.dumps({p["js_prop"][:6]: p["to_v"], "x": p["x1"], "y": p.get("y1", p["y"])})),
         st(5, f"Observation: fill {item}.",
            "browser_fill_form", {"fields": [{"ref": p["note_ref"], "value": item}]},
            f"filled {p['note_ref']}='{item}'"),
-        st(6, f"Observation: screenshot stale vs live.",
+        st(6, "Observation: screenshot stale vs live.",
            "browser_screenshot", {"filename": f"findings/{host}-stale.png"},
            f"png: live {p['css_short']}={p['to_v']}; old geometry still painted as a trap"),
+    ]
+
+
+def _fail_post_steps(c: _FailScene) -> list[dict]:
+    p, host, item, code = c.p, c.host, c.item, c.code
+    return [
         st(7, f"Observation: POST stale {p['css_short']} payload.",
            "http_request",
-           {"method": "POST", "url": f"https://{s}/ui/keep", "headers": {"Content-Type": "application/json", f"X-{host[:4].capitalize()}-Key": f"{host[:4]}-write"}, "body": json.loads(p["fail_body"]) if p["fail_body"].startswith("{") else {"code": item}},
+           {"method": "POST", "url": f"https://{c.s}/ui/keep", "headers": {"Content-Type": _JSON, f"X-{host[:4].capitalize()}-Key": f"{host[:4]}-write"}, "body": json.loads(p["fail_body"]) if p["fail_body"].startswith("{") else {"code": item}},
            f"{code} {{\"error\":\"{p['err']}\",\"have\":{p['to_v']!r}}}"),
         st(8, f"Observation: GET OpenAPI {code}.",
-           "http_request", {"method": "GET", "url": f"https://{api}/openapi.json", "headers": {"Accept": "application/json"}},
+           "http_request", {"method": "GET", "url": f"https://{c.api}/openapi.json", "headers": {"Accept": _JSON}},
            f"200\nPOST /{p['sub']} {code} {p['err']}"),
         st(9, f"Observation: GET {item}.",
-           "http_request", {"method": "GET", "url": f"https://{api}/{p['sub']}/{item}", "headers": {"Accept": "application/json"}},
+           "http_request", {"method": "GET", "url": f"https://{c.api}/{p['sub']}/{item}", "headers": {"Accept": _JSON}},
            f"200 {{\"item\":\"{item}\",\"kept\":false}}"),
         st(10, f"Observation: snapshot {code}.",
            "browser_snapshot", {"interactive": True},
@@ -527,8 +502,12 @@ def build_fail(n: int, p: dict) -> dict:
             "contents": json.dumps({"item": item, "kept": False, "reason": f"{p['css_short']} POST {code} {p['err']}", "source": p["seed_bad"]}) + "\n"},
            f"wrote findings/{host}-{item}-unkept.json"),
     ]
-    # body must be object for http_request; r192 used dict. parse fail_body
-    # already handled above
+
+
+def build_fail(n: int, p: dict) -> dict:
+    c = _fail_scene(p)
+    host, code, item = c.host, c.code, c.item
+    steps = _fail_probe_steps(c) + _fail_post_steps(c)
     outcome = f"Posted stale {p['css_short']} geometry. {code} {p['err']}. {item} unkept."
     reward = {
         "success": False,
@@ -544,7 +523,7 @@ def build_fail(n: int, p: dict) -> dict:
         steps,
         outcome,
         reward,
-        meta(n, p["seed_bad"], s),
+        meta(n, p["seed_bad"], c.s),
     )
 
 
@@ -575,7 +554,7 @@ def pair_for_round(n: int) -> dict:
     return PAIRS[idx]
 
 
-def validate_pair(n: int, ok: dict, bad: dict, p: dict) -> None:
+def _refuse_banned_seed(p: dict) -> None:
     for host in (p["ok_host"], p["bad_host"]):
         if host in BANNED_HOSTS:
             raise BrwError(f"banned host {host}")
@@ -583,13 +562,25 @@ def validate_pair(n: int, ok: dict, bad: dict, p: dict) -> None:
     for token in BANNED_CSS:
         if token in seed_blob:
             raise BrwError(f"banned css as this-round seed: {token}")
+
+
+def _mentions_409(fail_blob: str, p: dict) -> bool:
+    """A 409 counter key, or any "409" in the record when the plant's code is 409."""
+    if '"http_409s"' in fail_blob:
+        return True
+    return bool(fail_blob.count("409")) and p["code"] == 409
+
+
+def _refuse_wrong_outcomes(ok: dict, bad: dict, p: dict) -> None:
     if ok["reward"]["success"] is not True:
         raise BrwError("success episode not success")
     if bad["reward"]["success"] is not False:
         raise BrwError("fail episode not fail")
-    fail_blob = json.dumps(bad, ensure_ascii=False)
-    if '"http_409s"' in fail_blob or fail_blob.count("409") and p["code"] == 409:
+    if _mentions_409(json.dumps(bad, ensure_ascii=False), p):
         raise BrwError("409 fail banned")
+
+
+def _refuse_wrong_shape(n: int, ok: dict, bad: dict) -> None:
     for rec_ in (ok, bad):
         if not (13 <= len(rec_["steps"]) <= 16):
             raise BrwError("step count")
@@ -597,6 +588,12 @@ def validate_pair(n: int, ok: dict, bad: dict, p: dict) -> None:
             raise BrwError("generator")
         if rec_["meta"]["round"] != n:
             raise BrwError("round")
+
+
+def validate_pair(n: int, ok: dict, bad: dict, p: dict) -> None:
+    _refuse_banned_seed(p)
+    _refuse_wrong_outcomes(ok, bad, p)
+    _refuse_wrong_shape(n, ok, bad)
 
 
 def pair_records(rnd: int) -> tuple[dict[str, Any], dict[str, Any]]:

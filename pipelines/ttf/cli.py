@@ -74,7 +74,7 @@ def _emit(payload: dict[str, Any], as_json: bool, text: str) -> None:
     print(rendered)
 
 
-def _catalog(args: argparse.Namespace) -> int:
+def _catalog(args: argparse.Namespace) -> None:
     loaded = cat.load_catalog()
     if args.json:
         payload = {
@@ -88,34 +88,31 @@ def _catalog(args: argparse.Namespace) -> int:
             "plants": [plant.as_mapping() for plant in loaded.plants],
         }
         print(dumps_exact_json(payload, indent=2))
-        return 0
+        return
     print(f"{loaded.catalog_id} {FACTORY} {len(loaded.plants)} plants")
     for plant in loaded.plants:
         slice_id = cat.slice_from_record_id(plant.record_id)
         print(f"{slice_id:4s} {plant.record_id} {plant.domain} {plant.decision}")
-    return 0
 
 
-def _catalog_check(args: argparse.Namespace) -> int:
+def _catalog_check(args: argparse.Namespace) -> None:
     report = cat.catalog_check()
     text = (
         f"catalog-check ok: {report['plants']} plants "
         f"{report['coverage']} ({report['source_catalogs']} recover-grok catalogs)"
     )
     _emit({"command": "catalog-check", **report}, args.json, text)
-    return 0
 
 
-def _generate(args: argparse.Namespace) -> int:
+def _generate(args: argparse.Namespace) -> None:
     if args.out is None:
         plants = cat.plants_for_slice(args.slice)
         for plant in plants:
             print(dumps_exact_json(generate.record(plant, slice_id=args.slice), sort_keys=False))
-        return 0
+        return
     summary = generate.run(generate.RunRequest(args.slice, args.out))
     text = f"generated {summary['records']} records into {args.out}"
     _emit({"command": "generate", "status": "ok", "summary": summary}, args.json, text)
-    return 0
 
 
 _COMMANDS = {
@@ -142,9 +139,10 @@ def _refused(args: argparse.Namespace, refusal: envelope.ContractError) -> int:
 def run(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
-        return _COMMANDS[args.command](args)
+        _COMMANDS[args.command](args)
     except envelope.ContractError as refusal:
         return _refused(args, refusal)
+    return 0
 
 
 def main() -> None:

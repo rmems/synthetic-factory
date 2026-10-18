@@ -57,9 +57,8 @@ class BaselineGaps(unittest.TestCase):
             path = Path(tmp) / "router.jsonl"
             oc.write_jsonl(path, records[1:] + [tampered])
             stderr = io.StringIO()
-            with contextlib.redirect_stdout(io.StringIO()):
-                with contextlib.redirect_stderr(stderr):
-                    exit_code = rb.main(["evaluate", str(path), "--iterations", "5"])
+            with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(stderr):
+                exit_code = rb.main(["evaluate", str(path), "--iterations", "5"])
             self.assertEqual(exit_code, 2)
             self.assertIn("not a clean router-family corpus", stderr.getvalue())
 
@@ -70,9 +69,11 @@ class BaselineGaps(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "mixed.jsonl"
             oc.write_jsonl(path, mr.build_records(11, 10) + fr.build_records(3, 1))
-            with contextlib.redirect_stdout(io.StringIO()):
-                with contextlib.redirect_stderr(io.StringIO()):
-                    exit_code = rb.main(["evaluate", str(path), "--iterations", "5"])
+            with (
+                contextlib.redirect_stdout(io.StringIO()),
+                contextlib.redirect_stderr(io.StringIO()),
+            ):
+                exit_code = rb.main(["evaluate", str(path), "--iterations", "5"])
             self.assertEqual(exit_code, 2)
 
     def test_a_linear_verdict_must_beat_the_best_baseline(self):

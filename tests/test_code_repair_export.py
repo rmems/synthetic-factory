@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """The export: integrity refuses, ineligibility never blocks, splits hold, bytes are stable."""
 
+import atexit
 import copy
+import functools
 import hashlib
 import json
 import shutil
@@ -18,7 +20,7 @@ from tests.code_repair_test_support import (
     FIXTURE_CATALOG, cli, envelope, generate, oc, refusal, smoke_run, verify, views,
     vocabulary as cv,
 )
-from code_repair import export, lineage, replay
+from code_repair import export, lineage, replay, views_chat, views_edit
 from code_repair._contract import ExactJSONFloat, exact_fraction, load_strict_json
 from scripts import agoge_consumer_probe as probe
 from tests.code_repair_test_support import required_item
@@ -68,6 +70,25 @@ def run_copy(root, records=None):
         (copied / generate.CANDIDATES_FILENAME).unlink()
         oc.write_jsonl(copied / generate.CANDIDATES_FILENAME, records)
     return copied, [copy.deepcopy(r) for r in loaded]
+
+
+@functools.cache
+def _sealed_smoke_replay():
+    """One real replay of the smoke run per process; tests only copy it."""
+
+    root = Path(tempfile.mkdtemp(prefix="code-repair-smoke-replay-"))
+    atexit.register(shutil.rmtree, root, True)
+    replay_dir = root / "replay"
+    replay.run(replay.ReplayRequest(smoke_run()[2], FIXTURE_CATALOG, replay_dir, 5.0))
+    return replay_dir
+
+
+def replay_copy(root):
+    """A private copy of the smoke run's real replay at ``root/replay``."""
+
+    replay_dir = Path(root) / "replay"
+    shutil.copytree(_sealed_smoke_replay(), replay_dir)
+    return replay_dir
 
 
 def _with_identity_edit(report, path, mode):
@@ -127,8 +148,7 @@ class Artifacts(unittest.TestCase):
 
     def test_two_exports_of_one_run_are_byte_identical_and_a_replay_lifts_its_blocker(self):
         _summary, _records, run_dir = smoke_run()
-        replay_dir = self.root / "replay"
-        replay.run(replay.ReplayRequest(run_dir, FIXTURE_CATALOG, replay_dir, 5.0))
+        replay_dir = replay_copy(self.root)
         stamp_replay(run_dir, replay_dir)
         first, out_a = export_of(run_dir, self.root / "a", replay_dir)
         second, out_b = export_of(run_dir, self.root / "b", replay_dir)
@@ -143,6 +163,34 @@ class Artifacts(unittest.TestCase):
         self.assertNotIn(cv.BLOCKER_REPLAY_NOT_RUN, first["admission"]["blockers"])
         self.assertEqual(first["tables"]["dispositions"]["exported"],
                          first["tables"]["positives"])
+
+    def test_chat_and_edit_renderings_follow_the_sft_rows(self):
+        _summary, _records, run_dir = smoke_run()
+        replay_dir = self.root / "replay"
+        replay.run(replay.ReplayRequest(run_dir, FIXTURE_CATALOG, replay_dir, 5.0))
+        manifest, out = export_of(run_dir, self.root, replay_dir)
+        self.assertEqual(set(manifest["views"]), {"sft", "chat", "edit", "agoge"})
+        freeze = json.loads((out / export.FREEZE_PATH).read_text())
+        for name in (export.CHAT_DIR, export.EDIT_DIR):
+            digest = hashlib.sha256((out / f"{name}/held_out.jsonl").read_bytes()).hexdigest()
+            self.assertEqual(freeze[f"{name}_sha256"], digest)
+        exported_rows = 0
+        for split in lineage.SPLITS:
+            sft = [r for _n, r in oc.read_jsonl(out / f"{export.SFT_DIR}/{split}.jsonl")]
+            chat = [r for _n, r in oc.read_jsonl(out / f"{export.CHAT_DIR}/{split}.jsonl")]
+            edit = [r for _n, r in oc.read_jsonl(out / f"{export.EDIT_DIR}/{split}.jsonl")]
+            self.assertEqual((len(chat), len(edit)), (len(sft), len(sft)))
+            exported_rows += len(sft)
+            for pair, chat_row, edit_row in zip(sft, chat, edit):
+                self.assertEqual(views_chat.chat_pair(chat_row),
+                                 (pair["prompt"], pair["completion"]))
+                fenced = edit_row["prompt"].split("```python\n", 1)[1]
+                broken = fenced.split("```\n\n### Failing doctest examples", 1)[0]
+                applied, code = views_edit.apply_block(broken, edit_row["completion"])
+                self.assertIsNone(code)
+                self.assertEqual(applied, pair["completion"])
+        self.assertEqual(exported_rows, manifest["tables"]["dispositions"]["exported"])
+        self.assertGreater(exported_rows, 0)
 
     def test_manifest_write_preserves_exact_decimal_metadata(self):
         precise_timeout = "2.0000000000000000000001"
@@ -210,8 +258,7 @@ class Integrity(unittest.TestCase):
 
     def test_a_failed_or_missing_replay_of_a_positive_refuses_but_ineligible_records_never_do(self):
         _summary, _records, run_dir = smoke_run()
-        replay_dir = self.root / "replay"
-        replay.run(replay.ReplayRequest(run_dir, FIXTURE_CATALOG, replay_dir, 5.0))
+        replay_dir = replay_copy(self.root)
         stamp_replay(run_dir, replay_dir)
         report_path = replay_dir / replay.REPLAY_FILENAME
         report = json.loads(report_path.read_text())
@@ -251,8 +298,7 @@ class Integrity(unittest.TestCase):
 
     def test_replay_identity_requires_every_run_field(self):
         _summary, _records, run_dir = smoke_run()
-        replay_dir = self.root / "replay"
-        replay.run(replay.ReplayRequest(run_dir, FIXTURE_CATALOG, replay_dir, 5.0))
+        replay_dir = replay_copy(self.root)
         baseline = stamp_replay(run_dir, replay_dir)
         paths = [("run_identity",)] + [
             ("run_identity", k) for k in
@@ -268,8 +314,7 @@ class Integrity(unittest.TestCase):
 
     def test_malformed_replay_reports_are_coded_refusals(self):
         _summary, _records, run_dir = smoke_run()
-        replay_dir = self.root / "replay"
-        replay.run(replay.ReplayRequest(run_dir, FIXTURE_CATALOG, replay_dir, 5.0))
+        replay_dir = replay_copy(self.root)
         baseline = stamp_replay(run_dir, replay_dir)
         malformed = ["{", "[]", json.dumps({**baseline, "records": [None]}),
                      json.dumps({**baseline, "records": [{"record_id": []}]}),
@@ -283,8 +328,7 @@ class Integrity(unittest.TestCase):
 
     def test_nonpassed_replay_status_keeps_the_blocker(self):
         _summary, _records, run_dir = smoke_run()
-        replay_dir = self.root / "replay"
-        replay.run(replay.ReplayRequest(run_dir, FIXTURE_CATALOG, replay_dir, 5.0))
+        replay_dir = replay_copy(self.root)
         baseline = stamp_replay(run_dir, replay_dir)
         for status in ("failed", "nothing_to_replay"):
             report = {**baseline, "status": status}

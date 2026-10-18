@@ -125,6 +125,23 @@ def stage_legacy_baseline(source, records, *, raw_text=None):
     return batch
 
 
+def _episode_provenance(source_name, source_line, record):
+    """Ledger entry acknowledging record as the episode at source_name:source_line."""
+    raw_line = json.dumps(record) + "\n"
+    return leftover_mill.KindMixProvenance(
+        source_name=source_name,
+        source_line=source_line,
+        record_id=record["id"],
+        record_kind="episode",
+        source_sha256=hashlib.sha256(raw_line.encode()).hexdigest(),
+    )
+
+
+def _mirror_dir(root, item):
+    """Hub mirror directory of item under a patched HF_ROOT of root / "hf"."""
+    return root / "hf" / publisher.HF_DATASETS_DIRNAME / item["hub"]
+
+
 class LedgerContract(unittest.TestCase):
     def test_ledger_names_the_twelve_published_code_review_episodes(self):
         provenance = leftover_mill.KIND_MIX_QUARANTINE[CODE_REVIEW_SLUG]
@@ -256,13 +273,7 @@ class KindMixDetection(unittest.TestCase):
             record = episode_record("dbc-r723-buildah-layers-vfs-id-leftover")
             raw_line = json.dumps(record) + "\n"
             path.write_text(raw_line)
-            exact = leftover_mill.KindMixProvenance(
-                source_name=path.name,
-                source_line=1,
-                record_id=record["id"],
-                record_kind="episode",
-                source_sha256=hashlib.sha256(raw_line.encode()).hexdigest(),
-            )
+            exact = _episode_provenance(path.name, 1, record)
 
             def acknowledged(*, source_name=path.name):
                 return leftover_mill.scan_jsonl_kind_mix(
@@ -329,7 +340,8 @@ class KindMixDetection(unittest.TestCase):
 
 
 class PreferencePublishGate(unittest.TestCase):
-    def _snapshot(self, root, item, records, *, raw_text=None):
+    @staticmethod
+    def _snapshot(root, item, records, *, raw_text=None):
         source = root / "raw" / item["slug"]
         stage_legacy_baseline(source, records, raw_text=raw_text)
         with mock.patch.object(
@@ -339,7 +351,8 @@ class PreferencePublishGate(unittest.TestCase):
         ):
             return publisher.snapshot_one(item)
 
-    def _card(self, root, item):
+    @staticmethod
+    def _card(root, item):
         return (
             root / "hf" / publisher.HF_DATASETS_DIRNAME / item["hub"] / "README.md"
         ).read_text()
@@ -429,14 +442,7 @@ class PreferencePublishGate(unittest.TestCase):
                 preference_record("crp-r01-b"),
                 episode_record(known),
             ]
-            known_line = json.dumps(records[2]) + "\n"
-            provenance = leftover_mill.KindMixProvenance(
-                source_name="batch-r01.jsonl",
-                source_line=3,
-                record_id=known,
-                record_kind="episode",
-                source_sha256=hashlib.sha256(known_line.encode()).hexdigest(),
-            )
+            provenance = _episode_provenance("batch-r01.jsonl", 3, records[2])
             with mock.patch.dict(
                 leftover_mill.KIND_MIX_QUARANTINE,
                 {CODE_REVIEW_SLUG: (provenance,)},
@@ -455,24 +461,11 @@ class PreferencePublishGate(unittest.TestCase):
                 self.assertIn("raw JSONL is published unmodified", card)
 
                 # Raw evidence is mirrored byte-for-byte; nothing is rewritten.
-                raw = (
-                    root
-                    / "hf"
-                    / publisher.HF_DATASETS_DIRNAME
-                    / PREFERENCE_ITEM["hub"]
-                    / "data"
-                    / "raw"
-                    / "batch-r01.jsonl"
-                )
+                raw = _mirror_dir(root, PREFERENCE_ITEM) / "data" / "raw" / "batch-r01.jsonl"
                 source = root / "raw" / PREFERENCE_ITEM["slug"] / "batch-r01.jsonl"
                 self.assertEqual(raw.read_bytes(), source.read_bytes())
 
-                dest = (
-                    root
-                    / "hf"
-                    / publisher.HF_DATASETS_DIRNAME
-                    / PREFERENCE_ITEM["hub"]
-                )
+                dest = _mirror_dir(root, PREFERENCE_ITEM)
                 with mock.patch.object(
                     publisher, "FACTORY_ROOT", root / "raw"
                 ), mock.patch.object(
@@ -488,14 +481,7 @@ class PreferencePublishGate(unittest.TestCase):
             native_a = preference_record("crp-r01-native-a")
             native_b = preference_record("crp-r01-native-b")
             batch = stage_legacy_baseline(source, [known, native_a, native_b])
-            known_line = json.dumps(known) + "\n"
-            provenance = leftover_mill.KindMixProvenance(
-                source_name=batch.name,
-                source_line=1,
-                record_id=known["id"],
-                record_kind="episode",
-                source_sha256=hashlib.sha256(known_line.encode()).hexdigest(),
-            )
+            provenance = _episode_provenance(batch.name, 1, known)
             real_legacy_kind_mix = publisher.legacy_kind_mix
 
             def replace_after_scan(src, baseline):
@@ -526,15 +512,7 @@ class PreferencePublishGate(unittest.TestCase):
             ):
                 publisher.snapshot_one(PREFERENCE_ITEM)
 
-            copied = (
-                root
-                / "hf"
-                / publisher.HF_DATASETS_DIRNAME
-                / PREFERENCE_ITEM["hub"]
-                / "data"
-                / "raw"
-                / batch.name
-            )
+            copied = _mirror_dir(root, PREFERENCE_ITEM) / "data" / "raw" / batch.name
             self.assertFalse(copied.exists())
 
     def test_clean_preference_snapshot_has_no_quarantine_section(self):

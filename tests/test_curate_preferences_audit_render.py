@@ -19,7 +19,8 @@ import curate_preferences  # noqa: E402
 class MarkdownAuditEscaping(unittest.TestCase):
     """`record_id` is audited JSON, not a constrained internal enum."""
 
-    def render(self, **overrides):
+    @staticmethod
+    def render(**overrides):
         pair_row = {
             "record_id": "plain-id",
             "source_path": "preferences.jsonl",
@@ -48,14 +49,16 @@ class MarkdownAuditEscaping(unittest.TestCase):
         }
         return curate_preferences.render_audit_markdown(audit)
 
-    def body_rows(self, rendered):
+    @staticmethod
+    def body_rows(rendered):
         marker = "| Pair | Source |"
         start = rendered.index(marker)
         rows = rendered[start:].splitlines()
         # Drop the header and its delimiter row.
         return rows[2:]
 
-    def delimiter_pipes(self, row):
+    @staticmethod
+    def delimiter_pipes(row):
         """Pipes a GFM reader treats as cell delimiters.
 
         A backslash escapes the character after it, so ``\\|`` is a literal
@@ -91,7 +94,8 @@ class MarkdownAuditEscaping(unittest.TestCase):
     def id_cell(self, rendered):
         return self.body_rows(rendered)[0].split("|")[1]
 
-    def cell_count(self, row):
+    @staticmethod
+    def cell_count(row):
         """Cells a Markdown reader sees: an escaped ``\\|`` is not a delimiter."""
 
         return row.replace("\\|", "").count("|") - 1
@@ -211,7 +215,8 @@ class MarkdownAuditEscaping(unittest.TestCase):
 class FalseyRecordIdsInTheTextRenderers(unittest.TestCase):
     """``0`` and ``false`` are record ids; only ``null`` is a missing one."""
 
-    def audit_text(self, record_id):
+    @staticmethod
+    def audit_text(record_id):
         audit = {
             "summary": {
                 "preference_pairs": 1,
@@ -238,7 +243,8 @@ class FalseyRecordIdsInTheTextRenderers(unittest.TestCase):
             curate_preferences._print_audit_text(audit)
         return out.getvalue()
 
-    def human_text(self, record_id):
+    @staticmethod
+    def human_text(record_id):
         run = curate_preferences.CurationRun(
             records=(),
             manifest=(
