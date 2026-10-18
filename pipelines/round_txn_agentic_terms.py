@@ -211,21 +211,15 @@ PLAN_CHANGE_TERMS = (
 # "add", "added" and "adding" but not "address", "padding" or "additional".
 # A term's final "e" is optional so "change" also matches "changing" and
 # "revise" matches "revision"; "escalat" is a stem on purpose.
-_PLAN_CHANGE_INFLECTIONS = r"(?:e|es|s|d|ed|ing|ion|ions|red|ring)?"
-
-
 def _plan_change_stem(term: str) -> str:
     if term.endswith("e"):
         return re.escape(term[:-1]) + "e?"
     return re.escape(term)
 
 
+_PLAN_CHANGE_STEMS = "|".join(_plan_change_stem(term) for term in PLAN_CHANGE_TERMS)
 PLAN_CHANGE_RE = re.compile(
-    r"\b(?:"
-    + "|".join(_plan_change_stem(term) for term in PLAN_CHANGE_TERMS)
-    + r")"
-    + _PLAN_CHANGE_INFLECTIONS
-    + r"\b"
+    rf"\b(?:{_PLAN_CHANGE_STEMS})(?:e|es|s|d|ed|ing|ion|ions|red|ring)?\b"
 )
 IGNORED_PLAN_TERMS = (
     "ignored",
