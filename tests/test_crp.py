@@ -133,7 +133,8 @@ class CommittedCatalog(unittest.TestCase):
         self.assertEqual(loaded.plants[0].repo, "plant/keel801-terraform-target-orphan-sku")
 
     def test_leftover3_source_reextracts_the_committed_rows(self):
-        source = Path("/tmp/crp-mills/code_review_preference_mill_leftover3.py")
+        mills = Path(tempfile.gettempdir(), "crp-mills")
+        source = mills / "code_review_preference_mill_leftover3.py"
         if not source.is_file():
             self.skipTest("legacy leftover3 mill is not in this environment")
         extracted = cat.plants_from_source(source.read_text(encoding="utf-8"))

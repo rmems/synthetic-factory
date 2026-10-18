@@ -54,13 +54,15 @@ class ExportTransactionContracts(ResearchExportAllowed, unittest.TestCase):
                 return real_finish(pinned)
 
             request = export_hf.ExportRequest(curated, destination)
-            with mock.patch.object(
-                export_hf,
-                "_finish_pinned_destination",
-                side_effect=mutate_then_finish,
+            with (
+                mock.patch.object(
+                    export_hf,
+                    "_finish_pinned_destination",
+                    side_effect=mutate_then_finish,
+                ),
+                self.assertRaises(export_hf.ExportError),
             ):
-                with self.assertRaises(export_hf.ExportError):
-                    export_hf.export_run(request)
+                export_hf.export_run(request)
 
             self.assertFalse(destination.exists())
 
@@ -78,13 +80,15 @@ class ExportTransactionContracts(ResearchExportAllowed, unittest.TestCase):
                 return real_finish(pinned)
 
             request = export_hf.ExportRequest(curated, destination)
-            with mock.patch.object(
-                export_hf,
-                "_finish_pinned_destination",
-                side_effect=add_extra_then_finish,
+            with (
+                mock.patch.object(
+                    export_hf,
+                    "_finish_pinned_destination",
+                    side_effect=add_extra_then_finish,
+                ),
+                self.assertRaises(export_hf.ExportError),
             ):
-                with self.assertRaises(export_hf.ExportError):
-                    export_hf.export_run(request)
+                export_hf.export_run(request)
 
             self.assertFalse(destination.exists())
 
@@ -106,13 +110,15 @@ class ExportTransactionContracts(ResearchExportAllowed, unittest.TestCase):
                 return real_finish(pinned)
 
             request = export_hf.ExportRequest(curated, destination)
-            with mock.patch.object(
-                export_hf,
-                "_finish_pinned_destination",
-                side_effect=race_at_finish,
+            with (
+                mock.patch.object(
+                    export_hf,
+                    "_finish_pinned_destination",
+                    side_effect=race_at_finish,
+                ),
+                self.assertRaises(export_hf.ExportError),
             ):
-                with self.assertRaises(export_hf.ExportError):
-                    export_hf.export_run(request)
+                export_hf.export_run(request)
 
             self.assertEqual(
                 (destination / "concurrent-owner").read_bytes(),
@@ -137,16 +143,18 @@ class ExportTransactionContracts(ResearchExportAllowed, unittest.TestCase):
                 return result
 
             request = export_hf.ExportRequest(curated, destination)
-            with mock.patch.object(
-                export_hf,
-                "_write_export_metadata",
-                side_effect=authenticate_then_add,
-            ):
-                with self.assertRaisesRegex(
+            with (
+                mock.patch.object(
+                    export_hf,
+                    "_write_export_metadata",
+                    side_effect=authenticate_then_add,
+                ),
+                self.assertRaisesRegex(
                     export_hf.ExportError,
                     "curated member set changed",
-                ):
-                    export_hf.export_run(request)
+                ),
+            ):
+                export_hf.export_run(request)
 
             self.assertFalse(destination.exists())
 
@@ -158,13 +166,15 @@ class ExportTransactionContracts(ResearchExportAllowed, unittest.TestCase):
             member = root / "member.jsonl"
             member.write_bytes(b'{}\n')
 
-            with mock.patch.object(Path, "lstat", side_effect=OSError("denied")):
-                with self.assertRaisesRegex(export_hf.ExportError, "cannot inspect"):
-                    export_members._read_exact_regular_file(
-                        root,
-                        member.name,
-                        "curated payload",
-                    )
+            with (
+                mock.patch.object(Path, "lstat", side_effect=OSError("denied")),
+                self.assertRaisesRegex(export_hf.ExportError, "cannot inspect"),
+            ):
+                export_members._read_exact_regular_file(
+                    root,
+                    member.name,
+                    "curated payload",
+                )
 
     def test_pre_and_post_read_lstat_failures_are_export_errors(self):
         """Both descriptor-authentication lstat phases normalize OSError."""
@@ -190,20 +200,21 @@ class ExportTransactionContracts(ResearchExportAllowed, unittest.TestCase):
                         "lstat",
                         side_effect=observations,
                     ),
-                ):
-                    with self.assertRaisesRegex(
+                    self.assertRaisesRegex(
                         export_members.ExportError,
                         "cannot inspect declared file",
-                    ):
-                        export_members_read.read_exact_regular_file(
-                            root,
-                            member.name,
-                            "curated payload",
-                        )
+                    ),
+                ):
+                    export_members_read.read_exact_regular_file(
+                        root,
+                        member.name,
+                        "curated payload",
+                    )
 
     def test_export_error_remains_in_star_import_surface(self):
-        self.assertIn("ExportError", export_members.__all__)
-        self.assertIs(getattr(export_members, "ExportError"), export_members.ExportError)
+        name = "ExportError"
+        self.assertIn(name, export_members.__all__)
+        self.assertIs(getattr(export_members, name), export_members.ExportError)
 
     def test_member_path_rejects_embedded_nul(self):
         with self.assertRaises(export_members.ExportError):

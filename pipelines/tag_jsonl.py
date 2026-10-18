@@ -3,27 +3,39 @@
 from __future__ import annotations
 
 import hashlib
+import sys
 from collections import Counter
 from pathlib import Path
 from typing import Any
 
-from tag_constants import (
-    REASON_INVALID_JSON,
-    REASON_INVALID_UTF8,
-    REASON_RECORD_TOO_DEEP,
-    RULE_TRANSFORM,
-    TAG_PROVENANCE_FIELD,
-    TagTaxonomyError,
-)
-from tag_jsonutil import (
-    canonical_json,
-    count_tag,
-    display_source_path,
-    load_strict_json,
-    vocabulary_entropy,
-)
-from tag_record import base_manifest, curate_record
-from tag_taxonomy import Taxonomy, load_taxonomy
+if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("tag_jsonl")
+    from . import tag_constants as _tag_constants
+    from . import tag_jsonutil as _tag_jsonutil
+    from .tag_record import base_manifest, curate_record
+    from .tag_taxonomy import Taxonomy, load_taxonomy
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "tag_jsonl"
+    )
+    import tag_constants as _tag_constants
+    import tag_jsonutil as _tag_jsonutil
+    from tag_record import base_manifest, curate_record
+    from tag_taxonomy import Taxonomy, load_taxonomy
+
+REASON_INVALID_JSON = _tag_constants.REASON_INVALID_JSON
+REASON_INVALID_UTF8 = _tag_constants.REASON_INVALID_UTF8
+REASON_RECORD_TOO_DEEP = _tag_constants.REASON_RECORD_TOO_DEEP
+RULE_TRANSFORM = _tag_constants.RULE_TRANSFORM
+TAG_PROVENANCE_FIELD = _tag_constants.TAG_PROVENANCE_FIELD
+TagTaxonomyError = _tag_constants.TagTaxonomyError
+canonical_json = _tag_jsonutil.canonical_json
+count_tag = _tag_jsonutil.count_tag
+display_source_path = _tag_jsonutil.display_source_path
+load_strict_json = _tag_jsonutil.load_strict_json
+vocabulary_entropy = _tag_jsonutil.vocabulary_entropy
 
 
 def _excluded_line_manifest(
@@ -237,3 +249,9 @@ def _unmapped_sort_item(
     if isinstance(original, str):
         return -count, (0, original)
     return -count, (1, ident[1])
+
+
+if __package__:
+    # One module object for both import forms, so the batch transform the CLI
+    # re-exports is the one package callers reach whichever form loads first.
+    _expose_package_sibling(__name__)

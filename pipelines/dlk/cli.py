@@ -128,18 +128,40 @@ def _scan_exec_surface() -> list[dict[str, Any]]:
         src = path.read_text(encoding="utf-8")
         tree = ast.parse(src, filename=str(path))
         for node in ast.walk(tree):
-            if isinstance(node, ast.Import):
-                for alias in node.names:
-                    if alias.name.split(".")[0] in BANNED_IMPORTS:
-                        findings.append({"file": path.name, "code": "banned_import",
-                                         "name": alias.name, "line": node.lineno})
-            elif isinstance(node, ast.ImportFrom):
-                if node.module and node.module.split(".")[0] in BANNED_IMPORTS:
-                    findings.append({"file": path.name, "code": "banned_import",
-                                     "name": node.module, "line": node.lineno})
-            elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name in BANNED_DEFS:
-                findings.append({"file": path.name, "code": "banned_def",
-                                 "name": node.name, "line": node.lineno})
+            findings.extend(
+                {"file": path.name, "code": code, "name": name, "line": line}
+                for code, name, line in _banned_names(node)
+            )
+    return findings
+
+
+def _banned_names(node: ast.AST) -> list[tuple[str, str, int]]:
+    """``(code, name, line)`` for each banned import or definition ``node`` carries."""
+    if isinstance(node, (ast.Import, ast.ImportFrom)):
+        return [("banned_import", name, node.lineno) for name in _imported_modules(node)
+                if name.split(".")[0] in BANNED_IMPORTS]
+    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name in BANNED_DEFS:
+        return [("banned_def", node.name, node.lineno)]
+    return []
+
+
+def _imported_modules(node: ast.Import | ast.ImportFrom) -> list[str]:
+    if isinstance(node, ast.Import):
+        return [alias.name for alias in node.names]
+    return [node.module] if node.module else []
+
+
+def _round_findings(catalog: cat.Catalog) -> list[dict[str, Any]]:
+    """Factory, generator, and in-round duplicate findings for one loaded round."""
+    findings: list[dict[str, Any]] = []
+    if catalog.factory != c.FACTORY:
+        findings.append({"code": "factory_mismatch", "round": catalog.round,
+                          "factory": catalog.factory})
+    if catalog.generator != c.GEN:
+        findings.append({"code": "generator_mismatch", "round": catalog.round,
+                          "generator": catalog.generator})
+    if len(catalog.slugs) != len(set(catalog.slugs)):
+        findings.append({"code": "duplicate_slug", "round": catalog.round})
     return findings
 
 
@@ -156,14 +178,7 @@ def _audit(args: argparse.Namespace) -> int:
     all_slugs: list[str] = []
     for catalog in catalogs:
         all_slugs.extend(catalog.slugs)
-        if catalog.factory != c.FACTORY:
-            findings.append({"code": "factory_mismatch", "round": catalog.round,
-                              "factory": catalog.factory})
-        if catalog.generator != c.GEN:
-            findings.append({"code": "generator_mismatch", "round": catalog.round,
-                              "generator": catalog.generator})
-        if len(catalog.slugs) != len(set(catalog.slugs)):
-            findings.append({"code": "duplicate_slug", "round": catalog.round})
+        findings.extend(_round_findings(catalog))
     if len(all_slugs) != len(set(all_slugs)):
         findings.append({"code": "cross_round_slug_overlap"})
     if len(catalogs) != len(index["preserved_rounds"]):

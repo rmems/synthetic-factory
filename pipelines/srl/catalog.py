@@ -14,6 +14,8 @@ from ._contract import SrlError
 
 __all__ = ["PLANT_KEYS", "Plant", "PLANTS", "plant_at", "plant_by_slug", "slugs"]
 
+_EXACT_INT = (int,)  # exact type: bool and every other int subclass are refused
+
 
 class Plant(TypedDict):
     """One designed sparse-reward plant from ``srl_r6110``."""
@@ -282,7 +284,7 @@ def slugs() -> tuple[str, ...]:
 def plant_at(index: int) -> Plant:
     """Return the plant at ``index`` (0..15). Raises ``SrlError`` if out of range."""
 
-    if type(index) is not int or not 0 <= index < len(PLANTS):
+    if type(index) not in _EXACT_INT or not 0 <= index < len(PLANTS):
         raise SrlError(f"unknown_plant_index: {index!r}")
     return PLANTS[index]
 

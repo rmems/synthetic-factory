@@ -213,8 +213,9 @@ class VerticalRegressions(unittest.TestCase):
         fake = FakeExecutor({'original': lambda job: dataclasses.replace(
             report(rows('public', 1)), environment={'limits_applied': False})})
         with tempfile.TemporaryDirectory() as root:
+            request = generate.RunRequest(FIXTURE_CATALOG, Path(root)/'run', SEED, 1, PINNED_AT)
             with self.assertRaises(cv.RepairRefusal) as raised:
-                generate.run(generate.RunRequest(FIXTURE_CATALOG, Path(root)/'run', SEED, 1, PINNED_AT), fake)
+                generate.run(request, fake)
             self.assertEqual(raised.exception.code, 'SANDBOX_UNAVAILABLE')
             self.assertFalse((Path(root)/'run').exists())
             self.assertEqual(len(fake.jobs), 1)

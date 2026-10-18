@@ -91,13 +91,12 @@ class ValidateRewardTotal(unittest.TestCase):
 
 
 class ValidateProvenanceStrict(unittest.TestCase):
-    def _assert_vocabulary_rebinding(
-        self, attribute, accepted_record, rejected_record, rejected_error
-    ):
+    def _assert_vocabulary_rebinding(self, attribute, record_with, rejected_error):
+        """Rebind ``attribute`` to {"declared"}: that value passes, "designed" fails."""
         with mock.patch.object(validate_run, attribute, frozenset({"declared"})):
-            self.assertEqual(validate_run.check_provenance(accepted_record, "record"), [])
+            self.assertEqual(validate_run.check_provenance(record_with("declared"), "record"), [])
             self.assertEqual(
-                validate_run.check_provenance(rejected_record, "record"),
+                validate_run.check_provenance(record_with("designed"), "record"),
                 [rejected_error],
             )
 
@@ -139,16 +138,14 @@ class ValidateProvenanceStrict(unittest.TestCase):
     def test_state_vocabulary_rebinding_changes_parent_provenance_gate(self):
         self._assert_vocabulary_rebinding(
             "ALLOWED_SIM_OR_REAL",
-            {"state": {"sim_or_real": "declared"}},
-            {"state": {"sim_or_real": "designed"}},
+            lambda value: {"state": {"sim_or_real": value}},
             "record: state.sim_or_real must be one of ['declared']",
         )
 
     def test_kind_vocabulary_rebinding_changes_parent_provenance_gate(self):
         self._assert_vocabulary_rebinding(
             "ALLOWED_PROVENANCE_KIND",
-            {"provenance": {"kind": "declared"}},
-            {"provenance": {"kind": "designed"}},
+            lambda value: {"provenance": {"kind": value}},
             "record: provenance.kind must be one of ['declared']",
         )
 

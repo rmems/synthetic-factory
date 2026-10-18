@@ -38,11 +38,12 @@ class ComposePreferenceGates(unittest.TestCase):
             record_context("tool-use-preference-factory/batch-r01.jsonl", line, sha_digit * 64),
         )
 
-    @staticmethod
-    def _preference_stage(decision):
-        return next(
-            stage for stage in decision.stages if stage["lane"] == "preferences"
+    def _preference_stage(self, decision):
+        stage = next(
+            (stage for stage in decision.stages if stage["lane"] == "preferences"), None
         )
+        self.assertIsNotNone(stage)
+        return stage
 
     def test_episode_preference_pairs_are_retained(self):
         decision = self._compose_pair(trajectory_preference_pair())
@@ -254,8 +255,9 @@ class ComposePreferenceGates(unittest.TestCase):
         self.assertEqual(retained.action, compose_curated.ACTION_RETAINED)
         self.assertNotIn("internal_reasoning", retained.record)
         coding_stage = next(
-            stage for stage in retained.stages if stage["lane"] == "coding"
+            (stage for stage in retained.stages if stage["lane"] == "coding"), None
         )
+        self.assertIsNotNone(coding_stage)
         self.assertEqual(coding_stage["lane_action"], "modified")
         self.assertGreater(
             coding_stage["detail"]["hidden_reasoning_fields_removed"], 0
@@ -304,7 +306,7 @@ class ComposePreferenceGates(unittest.TestCase):
                 record_context("tool-use-preference-factory/batch-r01.jsonl", 1, "0" * 64),
             )
 
-        stage = next(item for item in decision.stages if item["lane"] == "preferences")
+        stage = self._preference_stage(decision)
         self.assertEqual(stage["transform_name"], ReviewedModule.TRANSFORM_NAME)
         self.assertEqual(stage["transform_version"], ReviewedModule.TRANSFORM_VERSION)
         self.assertEqual(stage["implementation"], "reviewed_module")
@@ -339,7 +341,10 @@ class TrajectorySideGroundingScope(unittest.TestCase):
         )
 
         self.assertEqual(decision.action, compose_curated.ACTION_RETAINED)
-        stage = next(item for item in decision.stages if item["lane"] == "preferences")
+        stage = next(
+            (item for item in decision.stages if item["lane"] == "preferences"), None
+        )
+        self.assertIsNotNone(stage)
         for side_name in ("chosen", "rejected"):
             self._assert_side_regrounded(decision, side_name)
             side_manifest = stage["side_curation"][side_name]

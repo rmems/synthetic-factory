@@ -54,16 +54,18 @@ class PreferenceSideIdentityDeferral(unittest.TestCase):
             decision.record["chosen"]["provenance"]["kind"], "designed"
         )
         identity_stage = next(
-            item for item in decision.stages if item["lane"] == "identity"
+            (item for item in decision.stages if item["lane"] == "identity"), None
         )
+        self.assertIsNotNone(identity_stage)
         self.assertTrue(
             identity_stage["detail"][
                 "preference_steps_deferred_to_preferences_lane"
             ]
         )
         preference_stage = next(
-            item for item in decision.stages if item["lane"] == "preferences"
+            (item for item in decision.stages if item["lane"] == "preferences"), None
         )
+        self.assertIsNotNone(preference_stage)
         self.assertEqual(preference_stage["lane_action"], "repaired")
         self.assertIn(curate_coding.REASON_STEPS_EXCLUDED, decision.reason_codes)
 

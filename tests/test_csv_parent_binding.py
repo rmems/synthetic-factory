@@ -27,7 +27,8 @@ class ParentBinding(unittest.TestCase):
         self.alias.unlink()
         self.alias.symlink_to(self.raw, target_is_directory=True)
 
-    def _run(self, destination):
+    @staticmethod
+    def _run(destination):
         return generate.run(generate.GenerateRequest(FIXTURE, destination, all_plants=True))
 
     def test_alias_replaced_after_preflight_cannot_write_raw(self):

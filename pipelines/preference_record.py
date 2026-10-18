@@ -92,32 +92,69 @@ def _exclusion_reasons(context_diff_paths: tuple[str, ...]) -> tuple[str, ...]:
     return ("PREFERENCE_CONTEXT_DIVERGES",)
 
 
+_MALFORMED_CONTEXT = "malformed_preference_context"
+
+#: ``(same_state, same_proposed_action)`` of the source pair, before any repair.
+_Agreement = tuple[bool | None, bool | None]
+
+
+def _excluded_decision(
+    classification: str,
+    reason_codes: tuple[str, ...],
+    agreement: _Agreement,
+    context_diff_paths: tuple[str, ...] = (),
+) -> CurationDecision:
+    """An exclusion that keeps the source pair's per-field agreement."""
+
+    same_state, same_proposed_action = agreement
+    return CurationDecision(
+        action=ACTION_EXCLUDED,
+        classification=classification,
+        reason_codes=reason_codes,
+        record=None,
+        context_diff_paths=context_diff_paths,
+        same_state=same_state,
+        same_proposed_action=same_proposed_action,
+    )
+
+
 def _absent_context_decision(
     record: dict[str, Any], same_state: Any, same_proposed_action: Any
 ) -> CurationDecision:
     """Name a pair that carries no same-state context, by the lane that owns it."""
 
+    agreement = (same_state, same_proposed_action)
     if is_trajectory_pair(record):
         # A shared-goal trajectory pair is a different schema, not a
         # malformed same-state pair. Naming that keeps a 0% same-state
         # yield readable and stops anyone from inventing state here.
-        return CurationDecision(
-            action=ACTION_EXCLUDED,
-            classification=CLASSIFICATION_TRAJECTORY_PAIR,
-            reason_codes=(REASON_TRAJECTORY_PAIR,),
-            record=None,
-            context_diff_paths=(),
-            same_state=same_state,
-            same_proposed_action=same_proposed_action,
+        return _excluded_decision(
+            CLASSIFICATION_TRAJECTORY_PAIR, (REASON_TRAJECTORY_PAIR,), agreement
         )
-    return CurationDecision(
-        action=ACTION_EXCLUDED,
-        classification="malformed_preference_context",
-        reason_codes=("PREFERENCE_CONTEXT_MISSING_OR_INVALID",),
-        record=None,
-        context_diff_paths=(),
-        same_state=same_state,
-        same_proposed_action=same_proposed_action,
+    return _excluded_decision(
+        _MALFORMED_CONTEXT, ("PREFERENCE_CONTEXT_MISSING_OR_INVALID",), agreement
+    )
+
+
+def _repaired_or_excluded(
+    record: dict[str, Any],
+    agreement: _Agreement,
+    context_diff_paths: tuple[str, ...],
+) -> CurationDecision:
+    """An attested-identity repair of an impure pair, or its coded exclusion."""
+
+    # Repairs are handed the agreement of the *source* pair, not of their own
+    # output: the audit has to keep naming a repaired pair as impure evidence.
+    for repair in (repair_attested_identity, repair_attested_proposal):
+        repaired = repair(record, agreement)
+        if repaired is not None:
+            return repaired
+
+    return _excluded_decision(
+        "unsupported_context_divergence",
+        _exclusion_reasons(context_diff_paths),
+        agreement,
+        context_diff_paths,
     )
 
 
@@ -125,12 +162,9 @@ def curate_preference_record(record: dict[str, Any]) -> CurationDecision:
     """Curate one pair without mutating ``record``."""
 
     if not isinstance(record, dict):
-        return CurationDecision(
-            action=ACTION_EXCLUDED,
-            classification="malformed_preference_context",
-            reason_codes=("PREFERENCE_RECORD_NOT_AN_OBJECT",),
-            record=None,
-            context_diff_paths=(),
+        # No comparable context at all: both agreement fields stay None.
+        return _excluded_decision(
+            _MALFORMED_CONTEXT, ("PREFERENCE_RECORD_NOT_AN_OBJECT",), (None, None)
         )
     agreement = context_field_agreement(record)
     same_state, same_proposed_action = agreement
@@ -138,21 +172,25 @@ def curate_preference_record(record: dict[str, Any]) -> CurationDecision:
         # Checked before the context shape so a non-finite float anywhere in
         # the pair is reported precisely instead of surfacing as a bare
         # ValueError from the first canonical comparison.
-        return CurationDecision(
-            action=ACTION_EXCLUDED,
-            classification="malformed_preference_context",
-            reason_codes=("PREFERENCE_RECORD_NOT_JSON_SERIALIZABLE",),
-            record=None,
-            context_diff_paths=(),
-            same_state=same_state,
-            same_proposed_action=same_proposed_action,
+        return _excluded_decision(
+            _MALFORMED_CONTEXT, ("PREFERENCE_RECORD_NOT_JSON_SERIALIZABLE",), agreement
         )
     context = pair_context(record)
     if context is None:
         return _absent_context_decision(
             record, same_state, same_proposed_action
         )
+    return _paired_context_decision(record, agreement, context)
 
+
+def _paired_context_decision(
+    record: dict[str, Any],
+    agreement: _Agreement,
+    context: tuple[dict[str, Any], dict[str, Any]],
+) -> CurationDecision:
+    """Retain an already-identical pair; otherwise repair it or exclude it."""
+
+    same_state, same_proposed_action = agreement
     chosen, rejected = context
     context_diff_paths = all_context_diffs(chosen, rejected)
     if not context_diff_paths:
@@ -165,20 +203,4 @@ def curate_preference_record(record: dict[str, Any]) -> CurationDecision:
             same_state=same_state,
             same_proposed_action=same_proposed_action,
         )
-
-    # Repairs are handed the agreement of the *source* pair, not of their own
-    # output: the audit has to keep naming a repaired pair as impure evidence.
-    for repair in (repair_attested_identity, repair_attested_proposal):
-        repaired = repair(record, agreement)
-        if repaired is not None:
-            return repaired
-
-    return CurationDecision(
-        action=ACTION_EXCLUDED,
-        classification="unsupported_context_divergence",
-        reason_codes=_exclusion_reasons(context_diff_paths),
-        record=None,
-        context_diff_paths=context_diff_paths,
-        same_state=same_state,
-        same_proposed_action=same_proposed_action,
-    )
+    return _repaired_or_excluded(record, agreement, context_diff_paths)

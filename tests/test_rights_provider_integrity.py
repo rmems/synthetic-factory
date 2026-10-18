@@ -38,8 +38,9 @@ class ReviewedRegistryAssignments(unittest.TestCase):
         for change in changes:
             with self.subTest(change=change), tempfile.TemporaryDirectory() as temp:
                 row = dict(_reviewed_simulator_row(), **change)
+                payload = _registry_payload([row])
                 with self.assertRaises(identity.IdentityCurationError):
-                    _load_temp_registry(temp, _registry_payload([row]))
+                    _load_temp_registry(temp, payload)
 
     def test_unreviewed_procedural_digest_cannot_grant_registry_authority(self):
         for authorship in ("human-authored", "permissive-upstream-license"):
@@ -48,8 +49,9 @@ class ReviewedRegistryAssignments(unittest.TestCase):
                     catalog_authorship=authorship,
                     generator_source_digest="sha256:" + "0" * 64,
                 )
+                payload = _registry_payload([row])
                 with self.assertRaises(identity.IdentityCurationError):
-                    _load_temp_registry(temp, _registry_payload([row]))
+                    _load_temp_registry(temp, payload)
 
     def test_changed_simulator_dependency_refuses_registry_authority(self):
         original = Path.read_bytes
@@ -60,8 +62,9 @@ class ReviewedRegistryAssignments(unittest.TestCase):
             return payload + b"\n# changed oracle dependency\n" if path == dependency else payload
 
         with tempfile.TemporaryDirectory() as temp, patch.object(Path, "read_bytes", changed_bytes):
+            payload = _registry_payload([_reviewed_simulator_row()])
             with self.assertRaises(identity.IdentityCurationError):
-                _load_temp_registry(temp, _registry_payload([_reviewed_simulator_row()]))
+                _load_temp_registry(temp, payload)
 
 
 class ReviewedEvidenceStatuses(unittest.TestCase):
@@ -85,8 +88,9 @@ class ReviewedEvidenceStatuses(unittest.TestCase):
                     profile[rights_policy.UNBLOCK_TERMS_SNAPSHOT_FIELD] = snapshot
                 statuses = profile["evidence_statuses"]
                 statuses[field] = "allowed" if statuses[field] == "unresolved" else "unresolved"
+                payload = json.dumps(document).encode()
                 with self.assertRaises(rights_policy.RightsPolicyError):
-                    rights_policy.load_rights_policy_bytes(json.dumps(document).encode())
+                    rights_policy.load_rights_policy_bytes(payload)
 
 
 class SimulatorExecutableClosure(unittest.TestCase):
@@ -132,14 +136,19 @@ class SimulatorExecutableClosure(unittest.TestCase):
                 payload = original(path)
                 return payload + b"\n# drift\n" if path == target else payload
 
-            with self.subTest(source=relative), patch.object(Path, "read_bytes", substituted):
-                with self.assertRaises(identity.IdentityCurationError):
-                    source_pins.require_simulator_sources()
+            with (
+                self.subTest(source=relative),
+                patch.object(Path, "read_bytes", substituted),
+                self.assertRaises(identity.IdentityCurationError),
+            ):
+                source_pins.require_simulator_sources()
 
     def test_unavailable_dependency_is_refused(self):
-        with patch.object(Path, "read_bytes", side_effect=FileNotFoundError):
-            with self.assertRaises(identity.IdentityCurationError):
-                source_pins.require_simulator_sources()
+        with (
+            patch.object(Path, "read_bytes", side_effect=FileNotFoundError),
+            self.assertRaises(identity.IdentityCurationError),
+        ):
+            source_pins.require_simulator_sources()
 
 
 class TrustedCandidateRoute(RightsPolicyTestCase):
@@ -149,10 +158,12 @@ class TrustedCandidateRoute(RightsPolicyTestCase):
                                   ("simulator", rights_policy.SIMULATOR_PROFILE_ID)):
             with self.subTest(provider=provider):
                 decision = self.classify(provider, "local", profile)
+                payload = decision.public_payload
+                verification = self.verification(route=trusted)
                 with self.assertRaisesRegex(rights_policy.RightsPolicyError, "trusted expected route"):
                     rights_classifier.verify_rights_envelope(
-                        decision.public_payload,
+                        payload,
                         source_bytes=self.SOURCE_BYTES,
                         factory_registry_bytes=self.REGISTRY_BYTES,
-                        verification=self.verification(route=trusted),
+                        verification=verification,
                     )

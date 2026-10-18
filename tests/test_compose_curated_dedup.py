@@ -25,6 +25,58 @@ from compose_curated_test_support import (  # noqa: E402
 )
 
 
+def _cross_factory_episode_copies():
+    """One episode and its copy relabelled under a second authorized episode factory."""
+    first = episode("cross-factory")
+    first["meta"]["id"] = "legacy-a"
+    second = copy.deepcopy(first)
+    second["id"] = "legacy-episode-other"
+    second["meta"]["id"] = "legacy-b"
+    second["meta"]["factory"] = "agent-memory-compaction-factory"
+    return first, second
+
+
+def _first_matching(items, predicate):
+    """The first item predicate accepts; a missing item fails the test instead of leaking."""
+    for item in filter(predicate, items):
+        return item
+    raise AssertionError("no item matches the fixture lookup")
+
+
+def _duplicate_and_survivor(manifest):
+    """(the entry excluded as a duplicate, the other entry) of a two-entry manifest."""
+    duplicate = _first_matching(
+        manifest,
+        lambda entry: entry["reason_codes"]
+        == [compose_curated.REASON_DUPLICATE_CURATED_RECORD],
+    )
+    retained = _first_matching(manifest, lambda entry: entry is not duplicate)
+    return duplicate, retained
+
+
+def _calibrated_thalamic(tag):
+    record = thalamic(f"cal-{tag}")
+    record["id"] = f"ffpc-r5-00{tag}"
+    record["state"]["domain"] = "compose-cal"
+    return record
+
+
+def _same_factor_units_migration():
+    """Two catalog entries that declare the same conversion factor for ffpc-r5-001/002."""
+    return {
+        "records": [
+            {
+                "scope": "batch-r01.jsonl / ffpc-r5-001 (grid)",
+                "usd_conversion_factor": 0.2,
+            },
+            {
+                "scope": "batch-r01.jsonl / ffpc-r5-002 (grid)",
+                "usd_conversion_factor": 0.2,
+            },
+        ]
+    }
+
+
 class ComposeSemanticDeduplication(unittest.TestCase):
     """Split from test_compose_curated.py: source- and curated-level dedup."""
 
@@ -204,12 +256,7 @@ class ComposeSemanticDeduplication(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             source = root / "run"
-            first = episode("cross-factory")
-            first["meta"]["id"] = "legacy-a"
-            second = copy.deepcopy(first)
-            second["id"] = "legacy-episode-other"
-            second["meta"]["id"] = "legacy-b"
-            second["meta"]["factory"] = "agent-memory-compaction-factory"
+            first, second = _cross_factory_episode_copies()
             write_jsonl(
                 source / "agentic-coding-trajectory-factory" / "batch-r01.jsonl",
                 [first],
@@ -231,17 +278,9 @@ class ComposeSemanticDeduplication(unittest.TestCase):
                 summary["exclusions"],
                 {compose_curated.REASON_DUPLICATE_CURATED_RECORD: 1},
             )
-            duplicate = next(
-                entry
-                for entry in manifest
-                if entry["reason_codes"]
-                == [compose_curated.REASON_DUPLICATE_CURATED_RECORD]
-            )
+            duplicate, retained = _duplicate_and_survivor(manifest)
             dedup_stage = duplicate["stages"][-1]
             self.assertEqual(dedup_stage["lane"], "post_transform_dedup")
-            retained = next(
-                entry for entry in manifest if entry is not duplicate
-            )
             output = read_jsonl(root / "curated" / retained["output_path"])
             self.assertEqual(len(output), 1)
             # The surviving row still names its own real factory -- only the
@@ -379,35 +418,16 @@ class ComposeSemanticDeduplication(unittest.TestCase):
         splits them across train and eval. The emitted record keeps its
         ``calibration_source``; only the dedup digest ignores it.
         """
-
-        def calibrated(tag):
-            record = thalamic(f"cal-{tag}")
-            record["id"] = f"ffpc-r5-00{tag}"
-            record["state"]["domain"] = "compose-cal"
-            return record
-
-        migration = {
-            "records": [
-                {
-                    "scope": "batch-r01.jsonl / ffpc-r5-001 (grid)",
-                    "usd_conversion_factor": 0.2,
-                },
-                {
-                    "scope": "batch-r01.jsonl / ffpc-r5-002 (grid)",
-                    "usd_conversion_factor": 0.2,
-                },
-            ]
-        }
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             source = root / "run"
             write_jsonl(
                 source / "thalamic-trajectory-factory" / "batch-r01.jsonl",
-                [calibrated(1), calibrated(2)],
+                [_calibrated_thalamic(1), _calibrated_thalamic(2)],
             )
             migration_path = root / "units-migration.json"
             migration_path.write_text(
-                json.dumps(migration) + "\n", encoding="utf-8"
+                json.dumps(_same_factor_units_migration()) + "\n", encoding="utf-8"
             )
 
             summary = compose_curated.compose_run(compose_curated.ComposeRunContext(

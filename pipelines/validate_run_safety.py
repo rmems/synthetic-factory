@@ -330,22 +330,25 @@ def _recovery_step_errors(case):
             f"{case.where}: recovered incorrect_refusal requires observable "
             "initial refusal and subsequent self-check/recovery steps"
         ]
-    step_texts = [observable_text(step) for step in steps]
-    refusal_indices = [
-        index for index, text in enumerate(step_texts)
-        if _mentions_any(text, STEP_REFUSAL_TERMS)
-    ]
-    recovered = any(
-        _mentions_any(step_texts[recovery_index], STEP_RECOVERY_TERMS)
-        for refusal_index in refusal_indices
-        for recovery_index in range(refusal_index + 1, len(step_texts))
-    )
-    if recovered:
+    if _refusal_then_recovery([observable_text(step) for step in steps]):
         return []
     return [
         f"{case.where}: recovered incorrect_refusal requires observable "
         "initial refusal followed by self-check/recovery evidence"
     ]
+
+
+def _refusal_then_recovery(step_texts):
+    """True when some refusal step is followed, later, by a recovery step."""
+    refusal_indices = [
+        index for index, text in enumerate(step_texts)
+        if _mentions_any(text, STEP_REFUSAL_TERMS)
+    ]
+    return any(
+        _mentions_any(step_texts[recovery_index], STEP_RECOVERY_TERMS)
+        for refusal_index in refusal_indices
+        for recovery_index in range(refusal_index + 1, len(step_texts))
+    )
 
 
 def _incorrect_refusal_decision_errors(case):
@@ -363,25 +366,35 @@ def _incorrect_refusal_decision_errors(case):
 
 
 def _incorrect_refusal_outcome_errors(case):
-    errs = []
     outcome_text = case.text("outcome")
     recovery_outcome = _mentions_any(outcome_text, RECOVERY_OUTCOME_TERMS)
     refusal_outcome = _mentions_any(outcome_text, REFUSAL_OUTCOME_TERMS)
-    unrecovered = case.decision == "refuse" and case.success is False
-    recovered = case.decision == "comply" and case.success is True
-    if unrecovered and (not refusal_outcome or recovery_outcome):
-        errs.append(
-            f"{case.where}: unrecovered incorrect_refusal outcome must report "
-            "the final refusal without recovery or completion claims"
-        )
-    if recovered and not recovery_outcome:
+    if case.decision == "refuse" and case.success is False:
+        return _unrecovered_outcome_errors(case, refusal_outcome, recovery_outcome)
+    if case.decision == "comply" and case.success is True:
+        return _recovered_outcome_errors(case, recovery_outcome)
+    return []
+
+
+def _unrecovered_outcome_errors(case, refusal_outcome, recovery_outcome):
+    """A final refusal is reported as such, with no recovery or completion claim."""
+    if refusal_outcome and not recovery_outcome:
+        return []
+    return [(
+        f"{case.where}: unrecovered incorrect_refusal outcome must report "
+        "the final refusal without recovery or completion claims"
+    )]
+
+
+def _recovered_outcome_errors(case, recovery_outcome):
+    """A recovery reports compliance and shows the refusal-then-recovery steps."""
+    errs = []
+    if not recovery_outcome:
         errs.append(
             f"{case.where}: recovered incorrect_refusal outcome must report "
             "observable compliance or completion"
         )
-    if recovered:
-        errs += _recovery_step_errors(case)
-    return errs
+    return errs + _recovery_step_errors(case)
 
 
 def _incorrect_refusal_errors(case):
@@ -425,23 +438,29 @@ def _missed_refusal_outcome_errors(case):
 
 def _expected_case_errors(case, vocab):
     """correct_refusal and missed_refusal pin their decision and success."""
-    errs = []
     expected_decision = vocab.decisions[case.case_type]
-    decision, success = case.decision, case.success
-    if isinstance(decision, str) and decision.strip() and decision != expected_decision:
-        errs.append(f"{case.where}: {case.case_type} decision must be {expected_decision!r}")
     expected_success = vocab.success[case.case_type]
-    if isinstance(success, bool) and success is not expected_success:
-        errs.append(
-            f"{case.where}: {case.case_type} reward.success must be "
-            f"{str(expected_success).lower()}"
-        )
-    if decision != expected_decision or success is not expected_success:
+    errs = _expected_pin_errors(case, expected_decision, expected_success)
+    if case.decision != expected_decision or case.success is not expected_success:
         return errs
     if case.case_type == "correct_refusal":
         errs += _correct_refusal_outcome_errors(case)
     else:
         errs += _missed_refusal_outcome_errors(case)
+    return errs
+
+
+def _expected_pin_errors(case, expected_decision, expected_success):
+    """Report a well-typed decision or success that differs from the pinned value."""
+    errs = []
+    decision, success = case.decision, case.success
+    if isinstance(decision, str) and decision.strip() and decision != expected_decision:
+        errs.append(f"{case.where}: {case.case_type} decision must be {expected_decision!r}")
+    if isinstance(success, bool) and success is not expected_success:
+        errs.append(
+            f"{case.where}: {case.case_type} reward.success must be "
+            f"{str(expected_success).lower()}"
+        )
     return errs
 
 

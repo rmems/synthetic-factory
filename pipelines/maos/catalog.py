@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import ast
 import hashlib
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -159,37 +159,70 @@ def _assigned(node: ast.AST) -> tuple[str, ast.AST] | None:
     return None
 
 
+def _negated(_node: ast.UnaryOp, values: list[Any]) -> Any:
+    value = values[0]
+    if not isinstance(value, (int, float)):
+        raise MaosRefusal(FINDING_AST_NOT_A_PLANT, "unary minus is not numeric")
+    return -value
+
+
+def _combined(node: ast.BinOp, values: list[Any]) -> Any:
+    left, right = values
+    if isinstance(node.op, ast.Add):
+        return left + right
+    if isinstance(node.op, ast.Sub):
+        return left - right
+    if not isinstance(node.op, ast.Mult):
+        raise MaosRefusal(FINDING_AST_NOT_A_PLANT, "unsupported binary operator")
+    return left * right
+
+
+def _listed(_node: ast.List, values: list[Any]) -> list[Any]:
+    return values
+
+
+def _tupled(_node: ast.Tuple, values: list[Any]) -> tuple[Any, ...]:
+    return tuple(values)
+
+
+_Combine = Callable[[Any, list[Any]], Any]
+
+
+def _operands(node: ast.AST) -> tuple[list[ast.expr], _Combine]:
+    """The sub-expressions of a unary minus, binary operator, list or tuple, in order,
+    and the function that combines their resolved values.
+
+    Anything else is not a catalog literal. ``_resolve`` evaluates the operands
+    itself and the combiners call nothing further, so each nesting level costs
+    one Python frame, as on main.
+    """
+    if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
+        return [node.operand], _negated
+    if isinstance(node, ast.BinOp):
+        return [node.left, node.right], _combined
+    if isinstance(node, ast.List):
+        return node.elts, _listed
+    if isinstance(node, ast.Tuple):
+        return node.elts, _tupled
+    raise MaosRefusal(
+        FINDING_AST_NOT_A_PLANT, f"catalog argument is not a literal: {type(node).__name__}"
+    )
+
+
 def _resolve(node: ast.AST, env: Mapping[str, Any]) -> Any:
     if isinstance(node, ast.Constant):
         return node.value
     if isinstance(node, ast.Name) and node.id in env:
         return env[node.id]
-    if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
-        value = _resolve(node.operand, env)
-        if isinstance(value, (int, float)):
-            return -value
-        refuse(FINDING_AST_NOT_A_PLANT, "unary minus is not numeric")
-    if isinstance(node, ast.BinOp):
-        left, right = _resolve(node.left, env), _resolve(node.right, env)
-        if isinstance(node.op, ast.Add):
-            return left + right
-        if isinstance(node.op, ast.Sub):
-            return left - right
-        if isinstance(node.op, ast.Mult):
-            return left * right
-        refuse(FINDING_AST_NOT_A_PLANT, "unsupported binary operator")
-    if isinstance(node, ast.List):
-        return [_resolve(elt, env) for elt in node.elts]
-    if isinstance(node, ast.Tuple):
-        return tuple(_resolve(elt, env) for elt in node.elts)
     if isinstance(node, ast.Dict):
         out: dict[Any, Any] = {}
         for key_node, value_node in zip(node.keys, node.values):
             if key_node is None:
-                refuse(FINDING_AST_NOT_A_PLANT, "starred dict is not a plant")
+                raise MaosRefusal(FINDING_AST_NOT_A_PLANT, "starred dict is not a plant")
             out[_resolve(key_node, env)] = _resolve(value_node, env)
         return out
-    refuse(FINDING_AST_NOT_A_PLANT, f"catalog argument is not a literal: {type(node).__name__}")
+    operands, combine = _operands(node)
+    return combine(node, [_resolve(operand, env) for operand in operands])
 
 
 def _optional_resolve(node: ast.AST, env: Mapping[str, Any]) -> Any:
@@ -205,6 +238,13 @@ def _optional_const(value: ast.AST, consts: Mapping[str, Any]) -> Any:
     return _optional_resolve(value, consts)
 
 
+def _dict_entry_value(value_node: ast.AST, consts: Mapping[str, Any]) -> Any:
+    """A nested dict literal or a resolvable constant; ``None`` drops the entry."""
+    if isinstance(value_node, ast.Dict):
+        return _dict_literal(value_node, consts)
+    return _optional_const(value_node, consts)
+
+
 def _dict_literal(node: ast.AST, consts: Mapping[str, Any]) -> dict[str, Any] | None:
     if not isinstance(node, ast.Dict) or any(key is None for key in node.keys):
         return None
@@ -212,14 +252,9 @@ def _dict_literal(node: ast.AST, consts: Mapping[str, Any]) -> dict[str, Any] | 
     for key_node, value_node in zip(node.keys, node.values):
         if not isinstance(key_node, ast.Constant) or not isinstance(key_node.value, str):
             continue
-        if isinstance(value_node, ast.Dict):
-            nested = _dict_literal(value_node, consts)
-            if nested is not None:
-                row[key_node.value] = nested
-            continue
-        resolved = _optional_const(value_node, consts)
-        if resolved is not None:
-            row[key_node.value] = resolved
+        value = _dict_entry_value(value_node, consts)
+        if value is not None:
+            row[key_node.value] = value
     return row
 
 
@@ -257,18 +292,29 @@ def _count(value: Any) -> int:
     return 0
 
 
-def _plant_from_rec(rec: Mapping[str, Any], env: Mapping[str, Any], source_name: str) -> Plant:
-    state = rec.get("state") if isinstance(rec.get("state"), dict) else {}
-    meta = rec.get("meta") if isinstance(rec.get("meta"), dict) else {}
-    decision = rec.get("safety_decision") if isinstance(rec.get("safety_decision"), dict) else {}
+def _rec_section(rec: Mapping[str, Any], key: str) -> Mapping[str, Any]:
+    value = rec.get(key)
+    return value if isinstance(value, dict) else {}
+
+
+def _is_strict_int(value: Any) -> bool:
+    """An int that is not a bool."""
+    return not isinstance(value, bool) and isinstance(value, int)
+
+
+def _positive_round(value: Any, source_name: str) -> int:
+    if not _is_strict_int(value) or value < 1:
+        raise MaosRefusal(FINDING_FIELD_INVALID, f"{source_name} meta.round is not a positive int")
+    return value
+
+
+def _rec_identity(
+    rec: Mapping[str, Any], meta: Mapping[str, Any], source_name: str
+) -> tuple[str, int, str, str]:
+    """The record id, round, factory and generator a recovered ``rec`` must carry."""
     record_id = _text(rec.get("id"))
-    round_n = meta.get("round")
     refuse_when(not record_id, FINDING_FIELD_MISSING, f"{source_name} rec.id is missing")
-    refuse_when(
-        type(round_n) is not int or round_n < 1,
-        FINDING_FIELD_INVALID,
-        f"{source_name} meta.round is not a positive int",
-    )
+    round_n = _positive_round(meta.get("round"), source_name)
     factory = _text(meta.get("factory")) or FACTORY
     generator = _text(meta.get("generator")) or GENERATOR
     refuse_when(
@@ -281,6 +327,14 @@ def _plant_from_rec(rec: Mapping[str, Any], env: Mapping[str, Any], source_name:
         FINDING_FIELD_INVALID,
         f"{source_name} generator {shown(generator)}",
     )
+    return record_id, round_n, factory, generator
+
+
+def _plant_from_rec(rec: Mapping[str, Any], env: Mapping[str, Any], source_name: str) -> Plant:
+    state = _rec_section(rec, "state")
+    meta = _rec_section(rec, "meta")
+    decision = _rec_section(rec, "safety_decision")
+    record_id, round_n, factory, generator = _rec_identity(rec, meta, source_name)
     return Plant(
         record_id=record_id,
         title=_text(rec.get("title")),
@@ -325,12 +379,13 @@ def _rec_from_build_record(fn: ast.FunctionDef, module_env: Mapping[str, Any]) -
         resolved = _optional_const(value, consts)
         if resolved is not None:
             consts[name] = resolved
-    refuse_when(
-        not isinstance(rec, dict),
-        FINDING_AST_NOT_A_PLANT,
-        "build_record has no rec dict",
-    )
-    return rec, consts
+    return _required_rec(rec), consts
+
+
+def _required_rec(rec: dict[str, Any] | None) -> dict[str, Any]:
+    if not isinstance(rec, dict):
+        raise MaosRefusal(FINDING_AST_NOT_A_PLANT, "build_record has no rec dict")
+    return rec
 
 
 def plants_from_source(text: str, source_name: str = "snippet") -> tuple[Plant, ...]:
@@ -428,18 +483,7 @@ def load_catalog(directory: Path | None = None) -> Catalog:
         (not catalog_path.is_file(), FINDING_CATALOG_FILE_MISSING, f"missing {catalog_path}"),
         (not plants_path.is_file(), FINDING_CATALOG_FILE_MISSING, f"missing {plants_path}"),
     ))
-    meta = load_strict_json(catalog_path.read_text(encoding="utf-8"))
-    refuse_when(not isinstance(meta, dict), FINDING_FIELD_INVALID, "CATALOG.json must be an object")
-    missing = [key for key in REQUIRED_META_FIELDS if key not in meta]
-    refuse_when(bool(missing), FINDING_FIELD_MISSING, f"CATALOG.json missing {missing}")
-    refuse_when(
-        meta.get("catalog_id") != CATALOG_ID
-        or meta.get("family") != "maos"
-        or meta.get("schema") != "maos-plants-v1"
-        or meta.get("factory") != FACTORY,
-        FINDING_FIELD_INVALID,
-        "unexpected catalog identity",
-    )
+    meta = _load_meta(catalog_path)
     plants_bytes = plants_path.read_bytes()
     digest = _sha256_bytes(plants_bytes)
     refuse_when(
@@ -447,11 +491,38 @@ def load_catalog(directory: Path | None = None) -> Catalog:
         FINDING_PLANTS_SHA_MISMATCH,
         f"plants.jsonl sha256 {digest} != pinned {meta.get('plants_sha256')}",
     )
-    rows = [
+    rows = _plant_rows(plants_bytes)
+    _check_rows(rows, meta)
+    return Catalog(CATALOG_ID, tuple(rows), digest)
+
+
+def _identity_drifted(meta: Mapping[str, Any]) -> bool:
+    return (
+        meta.get("catalog_id") != CATALOG_ID
+        or meta.get("family") != "maos"
+        or meta.get("schema") != "maos-plants-v1"
+        or meta.get("factory") != FACTORY
+    )
+
+
+def _load_meta(catalog_path: Path) -> dict[str, Any]:
+    meta = load_strict_json(catalog_path.read_text(encoding="utf-8"))
+    refuse_when(not isinstance(meta, dict), FINDING_FIELD_INVALID, "CATALOG.json must be an object")
+    missing = [key for key in REQUIRED_META_FIELDS if key not in meta]
+    refuse_when(bool(missing), FINDING_FIELD_MISSING, f"CATALOG.json missing {missing}")
+    refuse_when(_identity_drifted(meta), FINDING_FIELD_INVALID, "unexpected catalog identity")
+    return meta
+
+
+def _plant_rows(plants_bytes: bytes) -> list[Plant]:
+    return [
         _plant_from_row(load_strict_json(line), lineno)
         for lineno, line in enumerate(plants_bytes.decode("utf-8").splitlines(), start=1)
         if line
     ]
+
+
+def _check_rows(rows: list[Plant], meta: Mapping[str, Any]) -> None:
     refuse_when(not rows, FINDING_CATALOG_EMPTY, "plants.jsonl has no rows")
     refuse_when(
         len(rows) != meta["plants"],
@@ -460,7 +531,6 @@ def load_catalog(directory: Path | None = None) -> Catalog:
     )
     ids = [plant.record_id for plant in rows]
     refuse_when(len(set(ids)) != len(ids), FINDING_DUPLICATE_ID, "duplicate plant ids")
-    return Catalog(CATALOG_ID, tuple(rows), digest)
 
 
 def _check_unique(plants: tuple[Plant, ...]) -> None:

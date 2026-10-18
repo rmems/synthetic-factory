@@ -15,7 +15,7 @@ import json
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple, TypeGuard
 
 from .catalog_ast import UNSET, assignment_of, literal_value, module_docstring
 from .identity import leftover_marker_in, refuse_cataloged_leftover_mill
@@ -91,50 +91,25 @@ def extract_home_mill_catalog(
     """AST-extract a home-factory mill (no hops). Leftover3 / leftover-lll refused."""
 
     refuse_cataloged_leftover_mill(path)
-    payload = source.encode()
-    tree = ast.parse(source, filename=path)
-    mill_id = mill_id_for_path(path)
-    constants = _module_constants(tree)
+    mill = _parse_mill(source, path=path, blob_sha=blob_sha)
+    constants = mill.constants
     hops = constants.get("HOP")
     if hops:
         raise ValueError(f"{path} has HOP destinations; leftover hops stay cataloged")
-    factory = constants.get("FACTORY", FACTORY)
-    generator = constants.get("GEN", GENERATOR)
+    factory, generator = _factory_and_generator(constants, path=path)
     catalog_first = constants.get("CATALOG_FIRST")
-    if not isinstance(factory, str) or not factory:
-        raise ValueError(f"{path} FACTORY is not a non-empty string")
-    if not isinstance(generator, str) or not generator:
-        raise ValueError(f"{path} GEN is not a non-empty string")
     if not isinstance(catalog_first, int) or isinstance(catalog_first, bool):
         raise ValueError(f"{path} CATALOG_FIRST is not an int")
     rows = _pair_rows(constants.get("PAIRS"), path=path)
     _refuse_leftover_pair_markers(rows, path=path)
-    n_rounds = constants.get("N_ROUNDS")
-    if n_rounds is not None and n_rounds != len(rows):
-        raise ValueError(f"{path} N_ROUNDS={n_rounds} disagrees with {len(rows)} pairs")
+    _check_home_n_rounds(constants.get("N_ROUNDS"), rows, path=path)
     for offset, row in enumerate(rows):
-        row["mill_id"] = mill_id
+        row["mill_id"] = mill.mill_id
         row["round"] = catalog_first + offset
-    return {
-        "mill_id": mill_id,
-        "path": path,
-        "blob_sha": blob_sha,
-        "sha256": sha256_bytes(payload),
-        "kind": KIND_HOME_PAIRS,
-        "shape": SHAPE_PAIR_6TUPLES,
-        "catalog_first": catalog_first,
-        "n_rounds": len(rows),
-        "n_rows": len(rows),
-        "n_hops": 0,
-        "first_slug": rows[0]["success_slug"],
-        "last_slug": rows[-1]["success_slug"],
-        "generator": generator,
-        "factory": factory,
-        "hops": [],
-        "doc_first_line": _first_line(module_docstring(tree)),
-        "pairs": rows,
-        "slice": mill_id,
-    }
+    identity = _MillIdentity(KIND_HOME_PAIRS, factory, generator, catalog_first, len(rows))
+    record = _catalog_record(mill, identity, rows, [])
+    record["slice"] = mill.mill_id
+    return record
 
 
 def extract_mill_catalog(
@@ -145,46 +120,99 @@ def extract_mill_catalog(
 ) -> dict[str, Any]:
     """Structured catalog extract for one leftover-mill source file."""
 
-    payload = source.encode()
-    tree = ast.parse(source, filename=path)
-    mill_id = mill_id_for_path(path)
-    constants = _module_constants(tree)
-    factory = constants.get("FACTORY", FACTORY)
-    generator = constants.get("GEN", GENERATOR)
+    mill = _parse_mill(source, path=path, blob_sha=blob_sha)
+    constants = mill.constants
+    factory, generator = _factory_and_generator(constants, path=path)
     catalog_first = constants.get("CATALOG_FIRST")
     n_rounds = constants.get("N_ROUNDS")
     hops = constants.get("HOP")
-    pairs_raw = constants.get("PAIRS")
-    if not isinstance(factory, str) or not factory:
-        raise ValueError(f"{path} FACTORY is not a non-empty string")
-    if not isinstance(generator, str) or not generator:
-        raise ValueError(f"{path} GEN is not a non-empty string")
     if not isinstance(catalog_first, int):
         raise ValueError(f"{path} CATALOG_FIRST is not an int")
     if not isinstance(n_rounds, int) or n_rounds < 1:
         raise ValueError(f"{path} N_ROUNDS is not a positive int")
     if not _is_factory_list(hops):
         raise ValueError(f"{path} HOP is not a literal list of factory slugs")
-    rows = _pair_rows(pairs_raw, path=path)
+    rows = _pair_rows(constants.get("PAIRS"), path=path)
     if len(rows) != n_rounds:
         raise ValueError(f"{path} N_ROUNDS={n_rounds} disagrees with {len(rows)} pairs")
+    identity = _MillIdentity(KIND_LEFTOVER_PAIRS, factory, generator, catalog_first, n_rounds)
+    return _catalog_record(mill, identity, rows, hops)
+
+
+class _ParsedMill(NamedTuple):
+    """One mill source parsed once: identity, digest, AST and literal constants."""
+
+    mill_id: str
+    path: str
+    blob_sha: str
+    sha256: str
+    tree: ast.Module
+    constants: dict[str, Any]
+
+
+class _MillIdentity(NamedTuple):
+    """The validated catalog identity fields of one extracted mill."""
+
+    kind: str
+    factory: str
+    generator: str
+    catalog_first: int
+    n_rounds: int
+
+
+def _parse_mill(source: str, *, path: str, blob_sha: str) -> _ParsedMill:
+    payload = source.encode()
+    tree = ast.parse(source, filename=path)
+    return _ParsedMill(
+        mill_id=mill_id_for_path(path),
+        path=path,
+        blob_sha=blob_sha,
+        sha256=sha256_bytes(payload),
+        tree=tree,
+        constants=_module_constants(tree),
+    )
+
+
+def _factory_and_generator(constants: Mapping[str, Any], *, path: str) -> tuple[str, str]:
+    factory = constants.get("FACTORY", FACTORY)
+    generator = constants.get("GEN", GENERATOR)
+    if not isinstance(factory, str) or not factory:
+        raise ValueError(f"{path} FACTORY is not a non-empty string")
+    if not isinstance(generator, str) or not generator:
+        raise ValueError(f"{path} GEN is not a non-empty string")
+    return factory, generator
+
+
+def _check_home_n_rounds(n_rounds: Any, rows: list[dict[str, Any]], *, path: str) -> None:
+    if n_rounds is None:
+        return
+    if n_rounds != len(rows):
+        raise ValueError(f"{path} N_ROUNDS={n_rounds} disagrees with {len(rows)} pairs")
+
+
+def _catalog_record(
+    mill: _ParsedMill,
+    identity: _MillIdentity,
+    rows: list[dict[str, Any]],
+    hops: list[str],
+) -> dict[str, Any]:
     return {
-        "mill_id": mill_id,
-        "path": path,
-        "blob_sha": blob_sha,
-        "sha256": sha256_bytes(payload),
-        "kind": KIND_LEFTOVER_PAIRS,
+        "mill_id": mill.mill_id,
+        "path": mill.path,
+        "blob_sha": mill.blob_sha,
+        "sha256": mill.sha256,
+        "kind": identity.kind,
         "shape": SHAPE_PAIR_6TUPLES,
-        "catalog_first": catalog_first,
-        "n_rounds": n_rounds,
+        "catalog_first": identity.catalog_first,
+        "n_rounds": identity.n_rounds,
         "n_rows": len(rows),
         "n_hops": len(hops),
         "first_slug": rows[0]["success_slug"],
         "last_slug": rows[-1]["success_slug"],
-        "generator": generator,
-        "factory": factory,
+        "generator": identity.generator,
+        "factory": identity.factory,
         "hops": list(hops),
-        "doc_first_line": _first_line(module_docstring(tree)),
+        "doc_first_line": _first_line(module_docstring(mill.tree)),
         "pairs": rows,
     }
 
@@ -201,7 +229,7 @@ def _module_constants(tree: ast.AST) -> dict[str, Any]:
     return env
 
 
-def _is_factory_list(value: Any) -> bool:
+def _is_factory_list(value: Any) -> TypeGuard[list[str]]:
     if not isinstance(value, list) or not value:
         return False
     return all(isinstance(item, str) and item.endswith("-factory") for item in value)
@@ -483,21 +511,27 @@ def load_home_rows(mill_id: str, path: Path | None = None) -> list[dict[str, Any
     digest = sha256_bytes(payload)
     if path is None and digest != pins.jsonl_sha256:
         raise ValueError(f"{jsonl_path} sha256 {digest} != pinned {pins.jsonl_sha256}")
-    rows: list[dict[str, Any]] = []
-    for line_no, line in enumerate(payload.decode("utf-8").splitlines(), 1):
-        if not line:
-            raise ValueError(f"{jsonl_path} line {line_no} is empty")
-        row = json.loads(line)
-        if not isinstance(row, dict):
-            raise ValueError(f"{jsonl_path} line {line_no} is not an object")
-        if leftover_marker_in(str(row.get("success_slug", ""))) or leftover_marker_in(
-            str(row.get("fail_slug", ""))
-        ):
-            raise ValueError(f"{jsonl_path} line {line_no} is leftover3/lll already cataloged")
-        if row.get("mill_id") != mill_id:
-            raise ValueError(f"{jsonl_path} line {line_no} mill_id is not {mill_id}")
-        rows.append(row)
-    return rows
+    return [
+        _home_row(line, where=f"{jsonl_path} line {line_no}", mill_id=mill_id)
+        for line_no, line in enumerate(payload.decode("utf-8").splitlines(), 1)
+    ]
+
+
+def _home_row(line: str, *, where: str, mill_id: str) -> dict[str, Any]:
+    if not line:
+        raise ValueError(f"{where} is empty")
+    row = json.loads(line)
+    if not isinstance(row, dict):
+        raise ValueError(f"{where} is not an object")
+    if _row_has_leftover_slug(row):
+        raise ValueError(f"{where} is leftover3/lll already cataloged")
+    if row.get("mill_id") != mill_id:
+        raise ValueError(f"{where} mill_id is not {mill_id}")
+    return row
+
+
+def _row_has_leftover_slug(row: Mapping[str, Any]) -> bool:
+    return any(leftover_marker_in(str(row.get(key, ""))) for key in ("success_slug", "fail_slug"))
 
 
 def load_r72_rows(path: Path | None = None) -> list[dict[str, Any]]:

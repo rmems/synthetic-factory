@@ -16,6 +16,7 @@ CATALOG_PATH = CATALOG_DIR / CATALOG_FILENAME
 SCHEMA_VERSION = "rlb-case-catalog-v1"
 FACTORY = "rate-limit-backoff-factory"
 GENERATOR = "grok-4.6"
+_IDENTITY_MISMATCH = "catalog identity does not match the reviewed RLB family"
 _IDENTIFIER = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 _MODULE = re.compile(r"^[a-z0-9]+$")
 _CATALOG_KEYS = {
@@ -335,11 +336,11 @@ def _refuse_identity(catalog: Catalog) -> None:
     if catalog.schema_version != SCHEMA_VERSION:
         raise CatalogError(f"unsupported schema version: {catalog.schema_version!r}")
     if catalog.family != "rlb":
-        raise CatalogError("catalog identity does not match the reviewed RLB family")
+        raise CatalogError(_IDENTITY_MISMATCH)
     if catalog.factory != FACTORY:
-        raise CatalogError("catalog identity does not match the reviewed RLB family")
+        raise CatalogError(_IDENTITY_MISMATCH)
     if catalog.generator != GENERATOR:
-        raise CatalogError("catalog identity does not match the reviewed RLB family")
+        raise CatalogError(_IDENTITY_MISMATCH)
 
 
 def _refuse_duplicates(catalog: Catalog) -> None:

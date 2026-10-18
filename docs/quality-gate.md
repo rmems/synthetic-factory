@@ -43,6 +43,28 @@ symlinks are not descended. FIFOs, devices and other nonregular JSONL inputs
 block the gate. On platforms with ``O_NONBLOCK``, nonblocking open prevents a
 FIFO from hanging the audit before the descriptor type can be checked.
 
+The run root itself may be a symlink, as it could before directory pinning:
+the gate follows that one operator-named alias and audits its target exactly
+as if the target had been named. Each discovered directory, the root included,
+is pinned by its device/inode identity; a directory replaced or an alias
+retargeted after discovery makes the affected inputs unreadable and blocks.
+Manifest targets are still compared after resolving both paths, so an alias
+cannot place a manifest inside the audited tree.
+
+Where the platform offers descriptor-relative ``os.scandir``, ``os.open`` and
+``os.stat`` (``os.supports_fd`` / ``os.supports_dir_fd``), every listing and
+read goes through descriptors opened from those pinned directories. Elsewhere
+the gate keeps the same inputs, accounting and blockers but discovers and
+reads by path, re-checking each directory's identity and type first. Those
+checks cannot exclude a concurrent replacement, so such a run carries a
+``warnings`` entry saying descriptor-relative traversal was unavailable rather
+than claiming the same race resistance. A platform that cannot stat an entry
+without following symlinks cannot tell a directory symlink from a directory,
+so each such entry counts as unreadable and blocks. The capability is probed
+once at import. CI covers the descriptor path natively on Linux; the path fallback is
+exercised by a capability simulation, not on a native platform without those
+APIs.
+
 ## Embedding dedup
 
 ### Definition
@@ -233,7 +255,7 @@ Consequences:
   that script; the committed Chinese/Japanese/Thai cases guard the failure
   mode, not every language's operating point.
 - ``tests/fixtures/embedding-dedup/`` is the regression case: seven
-  records, six distinct (max pairwise cosine 0.06) and one planted
+  records, six distinct (max pairwise cosine 0.09) and one planted
   near-duplicate that differs only in ``state.tick`` — invisible to
   exact hashing and above 0.97 to the encoder.
 - ``--threshold`` must be finite in ``[EMBEDDING_MIN_THRESHOLD, 1)``, which is
@@ -467,6 +489,6 @@ See ``pipelines/promote.py`` for the integrated exit-code contract and
 
 ## References
 
-- Thalamic schema: ``schemas/thalamic.md`` / ``schemas/provenance.md``
+- Thalamic schema: ``schemas/thalamic-trajectory.schema.json`` / ``schemas/provenance.md``
 - SOTA mix guidance: ``Demystifying Synthetic Data`` (≈30% rephrased synthetic)
 - Deep record checks: ``pipelines/check_records.py`` (spike order, reward arithmetic, duplicate IDs)

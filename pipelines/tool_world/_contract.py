@@ -11,9 +11,11 @@ from __future__ import annotations
 
 import hashlib
 import json
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-if __name__.startswith("pipelines."):
+# Type checkers read the package spelling; at run time TYPE_CHECKING is False, so the
+# branch is chosen by __name__ alone and both spellings bind the same objects.
+if TYPE_CHECKING or __name__.startswith("pipelines."):
     from ..curate_coding import contains_hidden_reasoning_key
     from ..exact_json import ExactJSONFloat, dumps_exact_json
     from ..oracle_grounded import envelope, refusals, rng

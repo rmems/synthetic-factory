@@ -30,14 +30,12 @@ class TrainingAuditPhysicalFraming(unittest.TestCase):
     def _serialized(text):
         return (text + "\n").encode("utf-8")
 
-    def _assert_refused(self, payload, expected_fragment, *, contract_errors=None, records=None):
+    def _assert_refused(self, payload, expected_fragment, expected_totals):
+        """Not training ready, ``expected_totals`` checked in order, fragment reported."""
         report = self._audit_payload(payload)
         self.assertFalse(report["training_ready"])
-        if records is not None:
-            self.assertEqual(report["totals"]["records"], records)
-        self.assertEqual(report["totals"]["eligible_records"], 0)
-        if contract_errors is not None:
-            self.assertEqual(report["totals"]["exact_json_contract_errors"], contract_errors)
+        for key, value in expected_totals.items():
+            self.assertEqual(report["totals"][key], value)
         self.assertTrue(
             any(
                 expected_fragment in item for item in report["record_invariants"]["error_examples"]
@@ -48,11 +46,13 @@ class TrainingAuditPhysicalFraming(unittest.TestCase):
 
     def assert_exact_contract_error(self, serialized, expected_fragment):
         return self._assert_refused(
-            self._serialized(serialized), expected_fragment, contract_errors=1
+            self._serialized(serialized),
+            expected_fragment,
+            {"eligible_records": 0, "exact_json_contract_errors": 1},
         )
 
     def assert_framing_refused(self, payload, expected_fragment):
-        return self._assert_refused(payload, expected_fragment)
+        return self._assert_refused(payload, expected_fragment, {"eligible_records": 0})
 
     def test_bare_cr_is_not_a_boundary_or_a_mill_coordinate(self):
         foreign = thalamic("sir-r56-meili-swap-leftover3c-rebuild")
@@ -144,7 +144,9 @@ class TrainingAuditPhysicalFraming(unittest.TestCase):
         )
 
         self._assert_refused(
-            self._serialized(serialized), "non-finite JSON number 1e999", records=1
+            self._serialized(serialized),
+            "non-finite JSON number 1e999",
+            {"records": 1, "eligible_records": 0},
         )
 
     def test_excessive_json_nesting_is_reported_instead_of_aborting(self):

@@ -104,20 +104,51 @@ def _refuse_banned(record: dict[str, Any]) -> None:
     refuse_when("reward" in json.dumps(record.get("steps")), FINDING_BANNED_KEY, "step reward")
 
 
-def build_episode(rnd: int, rec: dict[str, Any], remediate: str) -> dict[str, Any]:
-    """17-step leftover3 on-call episode. Both remediations stay success=True."""
+@dataclass(frozen=True)
+class _Incident:
+    """The resolved incident context every step of one episode reads."""
 
-    require_round(rnd)
-    refuse_when(remediate not in {"rollback", "patch"}, FINDING_USAGE, remediate)
-    ticket_n = ticket_number(rnd, rec["ticket_off"])
-    ticket = f"W2-{ticket_n}"
+    rec: dict[str, Any]
+    remediate: str
+    ticket: str
+    svc: str
+    ns: str
+    cluster: str
+    node: str
+    slug: str
+    herring: str
+    rca: str
+    mimir: str
+    loki: str
+    helm: str
+
+
+def _incident(rec: dict[str, Any], remediate: str, ticket: str) -> _Incident:
     svc, ns, cluster, node = rec["svc"], rec["ns"], rec["cluster"], rec["node"]
     slug, herring, rca = rec["slug"], rec["herring"], rec["rca"]
-    eid = episode_id(rnd, slug, ticket_n)
-    mimir = f"https://mimir.{cluster}.obs.internal/prometheus/api/v1/query"
-    loki = f"https://loki.{cluster}.obs.internal/loki/api/v1/query_range"
-    helm = f"helm -n {ns} {'rollback ' + svc + ' 3' if remediate == 'rollback' else 'upgrade ' + svc + ' charts/' + svc}"
-    steps = [
+    return _Incident(
+        rec=rec,
+        remediate=remediate,
+        ticket=ticket,
+        svc=svc,
+        ns=ns,
+        cluster=cluster,
+        node=node,
+        slug=slug,
+        herring=herring,
+        rca=rca,
+        mimir=f"https://mimir.{cluster}.obs.internal/prometheus/api/v1/query",
+        loki=f"https://loki.{cluster}.obs.internal/loki/api/v1/query_range",
+        helm=f"helm -n {ns} {'rollback ' + svc + ' 3' if remediate == 'rollback' else 'upgrade ' + svc + ' charts/' + svc}",
+    )
+
+
+def _alert_steps(inc: _Incident) -> list[dict[str, Any]]:
+    """Steps 1-2: read the page, then the runbook that leads with the herring."""
+
+    rec, ticket, svc, herring = inc.rec, inc.ticket, inc.svc, inc.herring
+    cluster, ns, node, slug = inc.cluster, inc.ns, inc.node, inc.slug
+    return [
         _step(
             1,
             f"Plan: page {ticket} {svc} leftover leftover leftover; read alert.",
@@ -144,6 +175,14 @@ def build_episode(rnd: int, rec: dict[str, Any], remediate: str) -> dict[str, An
             f"3. If still burning, inspect leftover {rec['file']}.\n",
             "Pull metric with retry.",
         ),
+    ]
+
+
+def _metric_retry_steps(inc: _Incident) -> list[dict[str, Any]]:
+    """Steps 3-5: the metric query survives a 429 and a 502 before it answers."""
+
+    rec, svc, node, herring, mimir = inc.rec, inc.svc, inc.node, inc.herring, inc.mimir
+    return [
         _step(
             3,
             f"Observation: runbook leads with {herring} (step 2). Query {rec['query']}.",
@@ -171,6 +210,15 @@ def build_episode(rnd: int, rec: dict[str, Any], remediate: str) -> dict[str, An
             ),
             "Logs next.",
         ),
+    ]
+
+
+def _false_lead_steps(inc: _Incident) -> list[dict[str, Any]]:
+    """Steps 6-9: chase the herring for three actions, then falsify it."""
+
+    rec, svc, ns, node, herring = inc.rec, inc.svc, inc.ns, inc.node, inc.herring
+    mimir, loki = inc.mimir, inc.loki
+    return [
         _step(
             6,
             f"Observation: metric hint {herring} (step 5). Chase herring cmd.",
@@ -201,6 +249,15 @@ def build_episode(rnd: int, rec: dict[str, Any], remediate: str) -> dict[str, An
             '{"status":"success","result":[{"value":[1710000100,"still_burning"]}]}\n',
             "Herring falsified.",
         ),
+    ]
+
+
+def _remediation_steps(inc: _Incident) -> list[dict[str, Any]]:
+    """Steps 10-13: find the real cause, remediate, and confirm the fix."""
+
+    rec, svc, ns, rca = inc.rec, inc.svc, inc.ns, inc.rca
+    remediate, helm = inc.remediate, inc.helm
+    return [
         _step(
             10,
             f"Observation: SLO still burning (step 9). Grep {rec['file']}.",
@@ -229,6 +286,15 @@ def build_episode(rnd: int, rec: dict[str, Any], remediate: str) -> dict[str, An
             rec["fix"],
             "Write incident.",
         ),
+    ]
+
+
+def _closeout_steps(inc: _Incident) -> list[dict[str, Any]]:
+    """Steps 14-17: write the incident note, check workloads, close the page."""
+
+    rec, ticket, svc, ns = inc.rec, inc.ticket, inc.svc, inc.ns
+    herring, rca, remediate, mimir = inc.herring, inc.rca, inc.remediate, inc.mimir
+    return [
         _step(
             14,
             f"Observation: config now {rec['fix']} (step 13). Write incident note.",
@@ -273,8 +339,12 @@ def build_episode(rnd: int, rec: dict[str, Any], remediate: str) -> dict[str, An
             "Done.",
         ),
     ]
-    refuse_when(len(steps) != STEPS, FINDING_USAGE, f"{eid} steps {len(steps)}")
-    record = {
+
+
+def _episode_record(rnd: int, eid: str, inc: _Incident, steps: list[dict[str, Any]]) -> dict[str, Any]:
+    rec, ticket, svc, ns, cluster = inc.rec, inc.ticket, inc.svc, inc.ns, inc.cluster
+    slug, herring, rca, remediate = inc.slug, inc.herring, inc.rca, inc.remediate
+    return {
         "id": eid,
         "kind": "episode",
         "goal": (
@@ -309,6 +379,25 @@ def build_episode(rnd: int, rec: dict[str, Any], remediate: str) -> dict[str, An
             "mill_id": SOURCE_MILL_ID,
         },
     }
+
+
+def build_episode(rnd: int, rec: dict[str, Any], remediate: str) -> dict[str, Any]:
+    """17-step leftover3 on-call episode. Both remediations stay success=True."""
+
+    require_round(rnd)
+    refuse_when(remediate not in {"rollback", "patch"}, FINDING_USAGE, remediate)
+    ticket_n = ticket_number(rnd, rec["ticket_off"])
+    inc = _incident(rec, remediate, f"W2-{ticket_n}")
+    eid = episode_id(rnd, inc.slug, ticket_n)
+    steps = [
+        *_alert_steps(inc),
+        *_metric_retry_steps(inc),
+        *_false_lead_steps(inc),
+        *_remediation_steps(inc),
+        *_closeout_steps(inc),
+    ]
+    refuse_when(len(steps) != STEPS, FINDING_USAGE, f"{eid} steps {len(steps)}")
+    record = _episode_record(rnd, eid, inc, steps)
     _refuse_banned(record)
     return record
 

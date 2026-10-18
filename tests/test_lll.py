@@ -320,55 +320,60 @@ class LllPackageTests(unittest.TestCase):
         with self.assertRaises(LllRefusal):
             loaded.mill_plants("lhc-mill-lll-r-not")
 
+    def _assert_header_drift_refused(self, scratch):
+        dest = _scratch_catalog(scratch / "missing-header")
+        (dest / "CATALOG.json").unlink()
+        with self.assertRaises(LllRefusal) as caught:
+            catalog.load_catalog(dest)
+        self.assertIn("CATALOG_FILE_MISSING", str(caught.exception))
+        self.assertEqual(len(catalog.catalog_check(dest)), 1)
+
+        dest = _scratch_catalog(scratch / "bad-header")
+        (dest / "CATALOG.json").write_text("{")
+        with self.assertRaises(LllRefusal) as caught:
+            catalog.load_catalog(dest)
+        self.assertIn("CATALOG_FIELD_INVALID", str(caught.exception))
+
+        dest = _scratch_catalog(scratch / "list-header")
+        (dest / "CATALOG.json").write_text("[]")
+        with self.assertRaises(LllRefusal):
+            catalog.load_catalog(dest)
+
+    def _assert_plants_file_drift_refused(self, scratch):
+        dest = _scratch_catalog(scratch / "sha")
+        (dest / "plants.jsonl").write_bytes(b"drift\n")
+        with self.assertRaises(LllRefusal) as caught:
+            catalog.load_catalog(dest)
+        self.assertIn("PLANTS_SHA_MISMATCH", str(caught.exception))
+
+        dest = _scratch_catalog(scratch / "bad-line", plants_lines=["{"])
+        with self.assertRaises(LllRefusal) as caught:
+            catalog.load_catalog(dest)
+        self.assertIn("PLANT_FIELD_INVALID", str(caught.exception))
+
+        dest = _scratch_catalog(scratch / "list-line", plants_lines=["[]"])
+        with self.assertRaises(LllRefusal):
+            catalog.load_catalog(dest)
+
+        lines = (COMMITTED / "plants.jsonl").read_text().splitlines()
+        dest = _scratch_catalog(
+            scratch / "dup", plants_lines=[lines[0], lines[0]]
+        )
+        with self.assertRaises(LllRefusal) as caught:
+            catalog.load_catalog(dest)
+        self.assertIn("PLANT_DUPLICATE", str(caught.exception))
+
+        dest = _scratch_catalog(scratch / "no-plants")
+        (dest / "plants.jsonl").unlink()
+        with self.assertRaises(LllRefusal) as caught:
+            catalog.load_catalog(dest)
+        self.assertIn("CATALOG_FILE_MISSING", str(caught.exception))
+
     def test_load_catalog_refuses_drifted_files(self):
         scratch = Path(tempfile.mkdtemp(prefix="lll-badcat-"))
         try:
-            dest = _scratch_catalog(scratch / "missing-header")
-            (dest / "CATALOG.json").unlink()
-            with self.assertRaises(LllRefusal) as caught:
-                catalog.load_catalog(dest)
-            self.assertIn("CATALOG_FILE_MISSING", str(caught.exception))
-            self.assertEqual(len(catalog.catalog_check(dest)), 1)
-
-            dest = _scratch_catalog(scratch / "bad-header")
-            (dest / "CATALOG.json").write_text("{")
-            with self.assertRaises(LllRefusal) as caught:
-                catalog.load_catalog(dest)
-            self.assertIn("CATALOG_FIELD_INVALID", str(caught.exception))
-
-            dest = _scratch_catalog(scratch / "list-header")
-            (dest / "CATALOG.json").write_text("[]")
-            with self.assertRaises(LllRefusal):
-                catalog.load_catalog(dest)
-
-            dest = _scratch_catalog(scratch / "sha")
-            (dest / "plants.jsonl").write_bytes(b"drift\n")
-            with self.assertRaises(LllRefusal) as caught:
-                catalog.load_catalog(dest)
-            self.assertIn("PLANTS_SHA_MISMATCH", str(caught.exception))
-
-            dest = _scratch_catalog(scratch / "bad-line", plants_lines=["{"])
-            with self.assertRaises(LllRefusal) as caught:
-                catalog.load_catalog(dest)
-            self.assertIn("PLANT_FIELD_INVALID", str(caught.exception))
-
-            dest = _scratch_catalog(scratch / "list-line", plants_lines=["[]"])
-            with self.assertRaises(LllRefusal):
-                catalog.load_catalog(dest)
-
-            lines = (COMMITTED / "plants.jsonl").read_text().splitlines()
-            dest = _scratch_catalog(
-                scratch / "dup", plants_lines=[lines[0], lines[0]]
-            )
-            with self.assertRaises(LllRefusal) as caught:
-                catalog.load_catalog(dest)
-            self.assertIn("PLANT_DUPLICATE", str(caught.exception))
-
-            dest = _scratch_catalog(scratch / "no-plants")
-            (dest / "plants.jsonl").unlink()
-            with self.assertRaises(LllRefusal) as caught:
-                catalog.load_catalog(dest)
-            self.assertIn("CATALOG_FILE_MISSING", str(caught.exception))
+            self._assert_header_drift_refused(scratch)
+            self._assert_plants_file_drift_refused(scratch)
 
             dest = _scratch_catalog(scratch / "factory", header={"factory": "nope"})
             with self.assertRaises(LllRefusal) as caught:

@@ -44,6 +44,7 @@ import os
 import shutil
 import sys
 from collections import Counter
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import NamedTuple
 
@@ -369,7 +370,7 @@ def load_units_migration_bytes(payload, *, label="<memory>"):
         raise RewardOntologyError("calibration payload must be bytes")
     try:
         document = json.loads(payload.decode("utf-8"), parse_constant=_reject_json_constant)
-    except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
+    except ValueError as exc:  # UnicodeDecodeError and json.JSONDecodeError included
         raise RewardOntologyError(f"{label}: invalid calibration JSON: {exc}") from exc
     return units_migration_catalog(document, label)
 
@@ -521,6 +522,86 @@ def _write_new_text(path, text):
     _write_new_bytes(path, text.encode("utf-8"))
 
 
+def _jsonl_text(lines):
+    """Join JSONL lines with LF framing; an empty file stays empty."""
+    return "\n".join(lines) + ("\n" if lines else "")
+
+
+def _manifest_text(manifest_entries):
+    return json.dumps(manifest_entries, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
+
+
+class _ConvertDestinations(NamedTuple):
+    """The record, sidecar, and optional manifest files one conversion creates."""
+
+    output_path: Path
+    sidecar_path: Path
+    manifest_path: Path | None
+
+    def paths(self):
+        destinations = [self.output_path, self.sidecar_path]
+        if self.manifest_path is not None:
+            destinations.append(self.manifest_path)
+        return destinations
+
+
+@dataclass
+class _ConvertedRows:
+    """Sidecar lines, manifest entries, and comparability counts accumulated across files."""
+
+    sidecar_lines: list = field(default_factory=list)
+    manifest_entries: list = field(default_factory=list)
+    counts: Counter = field(default_factory=Counter)
+
+    @property
+    def records(self):
+        return len(self.manifest_entries)
+
+    def add_file(self, rows):
+        """Consume one file's converted rows and return that file's record lines."""
+        output_lines = []
+        for output_line, sidecar_line, manifest_entry, comparability in rows:
+            output_lines.append(output_line)
+            self.sidecar_lines.append(sidecar_line)
+            self.manifest_entries.append(manifest_entry)
+            self.counts[comparability] += 1
+        return output_lines
+
+
+def _preflight_convert_destinations(input_path, destinations):
+    """Refuse aliased, colliding, or pre-existing outputs before any row is converted."""
+    resolved_destinations = {destination.resolve() for destination in destinations}
+    if input_path.resolve() in resolved_destinations:
+        raise RewardOntologyError("input and output paths must be distinct")
+    if len(resolved_destinations) != len(destinations):
+        raise RewardOntologyError("record, sidecar, and manifest outputs must be distinct")
+    for destination in destinations:
+        if destination.exists():
+            raise RewardOntologyError(f"refusing to overwrite existing path: {destination}")
+
+
+def _write_conversion(destinations, output_lines, converted):
+    """Write every requested output or none of them."""
+    written = []
+    try:
+        _write_new_text(destinations.output_path, _jsonl_text(output_lines))
+        written.append(destinations.output_path)
+        _write_new_text(destinations.sidecar_path, _jsonl_text(converted.sidecar_lines))
+        written.append(destinations.sidecar_path)
+        if destinations.manifest_path is not None:
+            _write_new_text(
+                destinations.manifest_path,
+                _manifest_text(converted.manifest_entries),
+            )
+            written.append(destinations.manifest_path)
+    except BaseException:
+        # Every requested output or none, so a retry is never blocked by a
+        # partial record/sidecar/manifest transaction.
+        for destination in reversed(written):
+            destination.unlink(missing_ok=True)
+        raise
+
+
 def convert_jsonl(
     input_path,
     output_path,
@@ -532,77 +613,46 @@ def convert_jsonl(
 ):
     """Convert JSONL and optionally emit a gate-compatible record manifest."""
     input_path = Path(input_path)
-    output_path = Path(output_path)
-    sidecar_path = Path(sidecar_path)
-    manifest_path = Path(manifest_path) if manifest_path is not None else None
-    destinations = [output_path, sidecar_path]
-    if manifest_path is not None:
-        destinations.append(manifest_path)
-    resolved_destinations = {destination.resolve() for destination in destinations}
-    if input_path.resolve() in resolved_destinations:
-        raise RewardOntologyError("input and output paths must be distinct")
-    if len(resolved_destinations) != len(destinations):
-        raise RewardOntologyError("record, sidecar, and manifest outputs must be distinct")
-    for destination in destinations:
-        if destination.exists():
-            raise RewardOntologyError(f"refusing to overwrite existing path: {destination}")
+    destinations = _ConvertDestinations(
+        Path(output_path),
+        Path(sidecar_path),
+        Path(manifest_path) if manifest_path is not None else None,
+    )
+    _preflight_convert_destinations(input_path, destinations.paths())
 
-    stable_source_path = source_path or str(input_path)
-    output_lines = []
-    sidecar_lines = []
-    manifest_entries = []
-    counts = Counter()
-    for output_line, sidecar_line, manifest_entry, comparability in _converted_jsonl_rows(
-        input_path,
-        source_path=stable_source_path,
-        calibration_catalog=calibration_catalog,
-    ):
-        output_lines.append(output_line)
-        sidecar_lines.append(sidecar_line)
-        manifest_entries.append(manifest_entry)
-        counts[comparability] += 1
+    converted = _ConvertedRows()
+    output_lines = converted.add_file(
+        _converted_jsonl_rows(
+            input_path,
+            source_path=source_path or str(input_path),
+            calibration_catalog=calibration_catalog,
+        )
+    )
 
-    for destination in destinations:
+    for destination in destinations.paths():
         destination.parent.mkdir(parents=True, exist_ok=True)
-    written = []
-    try:
-        _write_new_text(
-            output_path,
-            "\n".join(output_lines) + ("\n" if output_lines else ""),
-        )
-        written.append(output_path)
-        _write_new_text(
-            sidecar_path,
-            "\n".join(sidecar_lines) + ("\n" if sidecar_lines else ""),
-        )
-        written.append(sidecar_path)
-        if manifest_path is not None:
-            _write_new_text(
-                manifest_path,
-                json.dumps(manifest_entries, ensure_ascii=False, indent=2, sort_keys=True)
-                + "\n",
-            )
-            written.append(manifest_path)
-    except BaseException:
-        # Every requested output or none, so a retry is never blocked by a
-        # partial record/sidecar/manifest transaction.
-        for destination in reversed(written):
-            destination.unlink(missing_ok=True)
-        raise
+    _write_conversion(destinations, output_lines, converted)
     summary = {
         "input": str(input_path),
-        "output": str(output_path),
-        "sidecars": str(sidecar_path),
+        "output": str(destinations.output_path),
+        "sidecars": str(destinations.sidecar_path),
         "records": len(output_lines),
-        "comparability": dict(sorted(counts.items())),
+        "comparability": dict(sorted(converted.counts.items())),
     }
-    if manifest_path is not None:
-        summary["manifest"] = str(manifest_path)
+    if destinations.manifest_path is not None:
+        summary["manifest"] = str(destinations.manifest_path)
     return summary
 
 
 def _absolute_path(path):
     return Path(os.path.abspath(os.fspath(path)))
+
+
+def _is_non_directory_component(walked, absolute):
+    """An existing component above the final path that is not a directory."""
+    if walked == absolute:
+        return False
+    return os.path.lexists(walked) and not walked.is_dir()
 
 
 def _reject_symlink_components(path, label):
@@ -616,7 +666,7 @@ def _reject_symlink_components(path, label):
             raise RewardOntologyError(
                 f"{label} contains a symlinked path component: {walked}"
             )
-        if walked != absolute and os.path.lexists(walked) and not walked.is_dir():
+        if _is_non_directory_component(walked, absolute):
             raise RewardOntologyError(
                 f"{label} has a non-directory path component: {walked}"
             )
@@ -673,6 +723,57 @@ def _new_run_destination(destination, source_root):
     return destination
 
 
+def _create_run_root(output_root):
+    try:
+        output_root.mkdir(parents=True, exist_ok=False)
+    except FileExistsError as exc:
+        raise RewardOntologyError(
+            f"refusing to overwrite existing run destination: {output_root}"
+        ) from exc
+
+
+def _convert_run_files(source_root, source_paths, output_root, calibration_catalog):
+    """Convert each source JSONL to its relative output path; aggregate the rest."""
+    converted = _ConvertedRows()
+    for input_path in source_paths:
+        relative = input_path.relative_to(source_root)
+        relative_source = relative.as_posix()
+        output_lines = converted.add_file(
+            _converted_jsonl_rows(
+                input_path,
+                source_path=relative_source,
+                calibration_catalog=calibration_catalog,
+            )
+        )
+        output_path = output_root / relative
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        _write_new_text(output_path, _jsonl_text(output_lines))
+    return converted
+
+
+def _copy_units_migration(output_root, units_migration):
+    migration_path = Path(units_migration)
+    try:
+        migration_payload = migration_path.read_bytes()
+    except OSError as exc:
+        raise RewardOntologyError(
+            f"cannot read calibration {migration_path}: {exc}"
+        ) from exc
+    _write_new_bytes(output_root / RUN_CALIBRATION_FILENAME, migration_payload)
+
+
+def _write_run_aggregates(output_root, source_root, converted, units_migration):
+    """Write the lane-root sidecars, manifest, and optional calibration copy."""
+    if not converted.records:
+        raise RewardOntologyError(f"source run holds no JSONL records: {source_root}")
+    sidecar_path = output_root / RUN_SIDECAR_FILENAME
+    manifest_path = output_root / RUN_MANIFEST_FILENAME
+    _write_new_text(sidecar_path, "\n".join(converted.sidecar_lines) + "\n")
+    _write_new_text(manifest_path, _manifest_text(converted.manifest_entries))
+    if units_migration is not None:
+        _copy_units_migration(output_root, units_migration)
+
+
 def convert_run(
     input_dir,
     output_dir,
@@ -688,63 +789,13 @@ def convert_run(
     """
     source_root, source_paths = _run_source_paths(input_dir)
     output_root = _new_run_destination(output_dir, source_root)
-    try:
-        output_root.mkdir(parents=True, exist_ok=False)
-    except FileExistsError as exc:
-        raise RewardOntologyError(
-            f"refusing to overwrite existing run destination: {output_root}"
-        ) from exc
+    _create_run_root(output_root)
 
-    sidecar_lines = []
-    manifest_entries = []
-    counts = Counter()
-    records = 0
     try:
-        for input_path in source_paths:
-            relative = input_path.relative_to(source_root)
-            relative_source = relative.as_posix()
-            output_lines = []
-            for (
-                output_line,
-                sidecar_line,
-                manifest_entry,
-                comparability,
-            ) in _converted_jsonl_rows(
-                input_path,
-                source_path=relative_source,
-                calibration_catalog=calibration_catalog,
-            ):
-                output_lines.append(output_line)
-                sidecar_lines.append(sidecar_line)
-                manifest_entries.append(manifest_entry)
-                counts[comparability] += 1
-                records += 1
-            output_path = output_root / relative
-            output_path.parent.mkdir(parents=True, exist_ok=True)
-            _write_new_text(
-                output_path,
-                "\n".join(output_lines) + ("\n" if output_lines else ""),
-            )
-
-        if not records:
-            raise RewardOntologyError(f"source run holds no JSONL records: {source_root}")
-        sidecar_path = output_root / RUN_SIDECAR_FILENAME
-        manifest_path = output_root / RUN_MANIFEST_FILENAME
-        _write_new_text(sidecar_path, "\n".join(sidecar_lines) + "\n")
-        _write_new_text(
-            manifest_path,
-            json.dumps(manifest_entries, ensure_ascii=False, indent=2, sort_keys=True)
-            + "\n",
+        converted = _convert_run_files(
+            source_root, source_paths, output_root, calibration_catalog
         )
-        if units_migration is not None:
-            migration_path = Path(units_migration)
-            try:
-                migration_payload = migration_path.read_bytes()
-            except OSError as exc:
-                raise RewardOntologyError(
-                    f"cannot read calibration {migration_path}: {exc}"
-                ) from exc
-            _write_new_bytes(output_root / RUN_CALIBRATION_FILENAME, migration_payload)
+        _write_run_aggregates(output_root, source_root, converted, units_migration)
     except BaseException:
         shutil.rmtree(output_root, ignore_errors=True)
         raise
@@ -755,8 +806,8 @@ def convert_run(
         "sidecars": str(output_root / RUN_SIDECAR_FILENAME),
         "manifest": str(output_root / RUN_MANIFEST_FILENAME),
         "files": len(source_paths),
-        "records": records,
-        "comparability": dict(sorted(counts.items())),
+        "records": converted.records,
+        "comparability": dict(sorted(converted.counts.items())),
     }
 
 

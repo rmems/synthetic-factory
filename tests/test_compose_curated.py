@@ -110,6 +110,11 @@ class ComposeCurated(unittest.TestCase):
             self.assertEqual(annotation["ontology_version"], "reward-ontology-v1")
             self.assertTrue(annotation["source_sidecar_id"])
 
+    def _lane_stage(self, decision, lane):
+        stage = next((stage for stage in decision.stages if stage["lane"] == lane), None)
+        self.assertIsNotNone(stage, lane)
+        return stage
+
     def test_bridge_order_error_fragment_matches_the_validator(self):
         """The deferral below keys off this exact validator phrasing."""
 
@@ -141,9 +146,9 @@ class ComposeCurated(unittest.TestCase):
         )
 
         self.assertEqual(decision.action, compose_curated.ACTION_RETAINED)
-        identity_stage = next(stage for stage in decision.stages if stage["lane"] == "identity")
+        identity_stage = self._lane_stage(decision, "identity")
         self.assertTrue(identity_stage["detail"]["bridge_order_deferred_to_bridge_lane"])
-        bridge_stage = next(stage for stage in decision.stages if stage["lane"] == "bridge")
+        bridge_stage = self._lane_stage(decision, "bridge")
         # The bridge lane, not identity, owns and records the repair.
         self.assertIn(curate_bridge.REASON_REPAIRED, bridge_stage["reason_codes"])
         times = [event["t_rel_ms"] for event in decision.record["spike_events"]]
@@ -160,7 +165,7 @@ class ComposeCurated(unittest.TestCase):
         )
 
         self.assertEqual(decision.action, compose_curated.ACTION_EXCLUDED)
-        identity_stage = next(stage for stage in decision.stages if stage["lane"] == "identity")
+        identity_stage = self._lane_stage(decision, "identity")
         self.assertNotIn("bridge_order_deferred_to_bridge_lane", identity_stage["detail"])
 
     def test_coding_wrap_records_reach_the_coding_lane(self):
@@ -177,7 +182,7 @@ class ComposeCurated(unittest.TestCase):
             record,
             record_context("thalamic-trajectory-factory/batch-r02.jsonl", 1, "0" * 64),
         )
-        coding_stage = next(stage for stage in decision.stages if stage["lane"] == "coding")
+        coding_stage = self._lane_stage(decision, "coding")
         self.assertNotEqual(coding_stage["action"], compose_curated.ACTION_NOT_APPLICABLE)
         self.assertEqual(coding_stage["transform_name"], curate_coding.TRANSFORM_NAME)
         self.assertIsNotNone(decision.record)
@@ -226,7 +231,7 @@ class ComposeCurated(unittest.TestCase):
         self.assertEqual(decision.action, compose_curated.ACTION_RETAINED)
         self.assertNotIn(curate_rewards.ANNOTATION_FIELD, decision.record)
         self.assertIsNone(decision.reward_sidecar)
-        rewards = next(stage for stage in decision.stages if stage["lane"] == "rewards")
+        rewards = self._lane_stage(decision, "rewards")
         self.assertEqual(rewards["action"], compose_curated.ACTION_NOT_APPLICABLE)
         self.assertEqual(rewards["source_reward_count"], 0)
 

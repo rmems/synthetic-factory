@@ -50,7 +50,6 @@ def build_pair(pair: cat.Pair) -> BuiltPair:
         notes = hopper_notes_md(FACTORY, pair.round_n, pair.ok, pair.bad, ok_ep["id"], bad_ep["id"])
     except envelope.ContractError as exc:
         refuse(FINDING_GENERATE_SHAPE, str(exc))
-        raise
     refuse_when(len(ok_ep["steps"]) != SUCCESS_STEPS, FINDING_GENERATE_SHAPE, "success steps")
     refuse_when(len(bad_ep["steps"]) != HANDOFF_STEPS, FINDING_GENERATE_SHAPE, "handoff steps")
     refuse_when("Novel coverage:" not in notes, FINDING_GENERATE_SHAPE, "NOTES missing Novel coverage")

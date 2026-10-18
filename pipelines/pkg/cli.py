@@ -8,129 +8,43 @@ on success, 2 on a coded refusal or usage error.
 
 from __future__ import annotations
 
-import argparse
-import json
-import sys
-from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
+from . import _contract, generate
 from . import catalog as cat
-from . import generate
-from ._contract import (
-    FACTORY,
-    FAMILY_PREFIX,
-    SOURCE_COMMIT,
-    SOURCE_REF,
-    bind_import_twin,
-    dumps_exact_json,
-    envelope,
-)
+
+# ``python3 -m`` runs this module as ``__main__``, so the import form comes from ``__package__``;
+# type checkers follow the package form.
+if TYPE_CHECKING or __package__.startswith("pipelines."):
+    from ..family_cli import runner
+else:
+    from family_cli import runner
 
 __all__ = ["build_parser", "run"]
 
 
-def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="pkg", description=__doc__)
-    commands = parser.add_subparsers(dest="command", required=True)
-
-    listed = commands.add_parser("catalog", help="print the extracted PKG plant catalog")
-    listed.add_argument("--json", action="store_true")
-
-    check = commands.add_parser("catalog-check", help="fail closed unless the catalog is a 2-stride")
-    check.add_argument("--json", action="store_true")
-
-    gen = commands.add_parser("generate", help="emit one pair (never raw, never publish)")
-    gen.add_argument("--round", type=int, required=True)
-    gen.add_argument("--out", type=Path, default=None, help="new destination; omit to print JSONL")
-    gen.add_argument("--json", action="store_true")
-    return parser
+def _plant_line(plant: Any) -> str:
+    return f"{plant.source_round} {plant.record_id} {plant.role} {plant.kind}"
 
 
-def _emit(payload: dict[str, Any], as_json: bool, text: str) -> None:
-    rendered = (
-        dumps_exact_json(payload, ensure_ascii=True, indent=2, sort_keys=True)
-        if as_json
-        else text
-    )
-    print(rendered)
+_COMMANDS = runner.PlantCatalogCommands(
+    prog="pkg",
+    description=__doc__,
+    family=runner.PlantFamily(_contract, cat, generate, generate.episode),
+    helps=(
+        "print the extracted PKG plant catalog",
+        "fail closed unless the catalog is a 2-stride",
+        "emit one pair (never raw, never publish)",
+    ),
+    plant_line=_plant_line,
+    check_line="catalog-check ok: {plants} plants ({pairs} pairs) r{first_round}-r{last_round}",
+)
+build_parser = _COMMANDS.build_parser
+run = _COMMANDS.run
+main = _COMMANDS.main
 
 
-def _catalog(args: argparse.Namespace) -> int:
-    loaded = cat.load_catalog()
-    if args.json:
-        payload = {
-            "command": "catalog",
-            "source_ref": SOURCE_REF,
-            "source_commit": SOURCE_COMMIT,
-            "family_prefix": FAMILY_PREFIX,
-            "factory": FACTORY,
-            "catalog_id": loaded.catalog_id,
-            "plants": [plant.as_mapping() for plant in loaded.plants],
-        }
-        print(dumps_exact_json(payload, indent=2))
-        return 0
-    print(f"{loaded.catalog_id} {FACTORY} {len(loaded.plants)} plants")
-    for plant in loaded.plants:
-        print(f"{plant.source_round} {plant.record_id} {plant.role} {plant.kind}")
-    return 0
-
-
-def _catalog_check(args: argparse.Namespace) -> int:
-    report = cat.catalog_check()
-    text = (
-        f"catalog-check ok: {report['plants']} plants "
-        f"({report['pairs']} pairs) r{report['first_round']}-r{report['last_round']}"
-    )
-    _emit({"command": "catalog-check", **report}, args.json, text)
-    return 0
-
-
-def _generate(args: argparse.Namespace) -> int:
-    if args.out is None:
-        plants = cat.plants_for_round(args.round)
-        for plant in plants:
-            print(dumps_exact_json(generate.episode(plant), sort_keys=False))
-        return 0
-    summary = generate.run(generate.RunRequest(args.round, args.out))
-    text = f"generated {summary['records']} records into {args.out}"
-    _emit({"command": "generate", "status": "ok", "summary": summary}, args.json, text)
-    return 0
-
-
-_COMMANDS = {
-    "catalog": _catalog,
-    "catalog-check": _catalog_check,
-    "generate": _generate,
-}
-
-
-def _refused(args: argparse.Namespace, refusal: envelope.ContractError) -> int:
-    if getattr(args, "json", False):
-        payload = {
-            "command": args.command,
-            "status": "refused",
-            "code": getattr(refusal, "code", None),
-            "message": str(refusal),
-        }
-        print(json.dumps(payload, sort_keys=True))
-    else:
-        print(str(refusal), file=sys.stderr)
-    return 2
-
-
-def run(argv: list[str] | None = None) -> int:
-    args = build_parser().parse_args(argv)
-    try:
-        return _COMMANDS[args.command](args)
-    except envelope.ContractError as refusal:
-        return _refused(args, refusal)
-
-
-def main() -> None:
-    raise SystemExit(run())
-
-
-bind_import_twin(__name__)
+_contract.bind_import_twin(__name__)
 
 
 if __name__ == "__main__":

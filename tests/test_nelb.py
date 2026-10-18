@@ -250,6 +250,121 @@ class AstExtract(unittest.TestCase):
         self.assertEqual(plants[2].lead_decision, "ACCEPT")
 
 
+_VIEW_ONLY_BUILDER = '''
+def rec_{n}():
+    note = helper_value()
+    rec = {{
+        "id": "nelb-r02-00{n}",
+        1: "integer keys are skipped",
+        "note": note,
+        "language_view": {{
+            "description": "view-only family {n}",
+            "trajectory": {{
+                "state": {{"sim_or_real": "hil", "domain": "domain_{n}", "setting": "Site {n}, bay B."}},
+                "safety_decision": {{"decision": "ACCEPT"}},
+            }},
+            "hold_{n}": {{"safety_decision": {{"decision": "MODIFY"}}}},
+        }},
+        "reconstruction_model": {{"name": "recon_{n}", "formula": "f_{n}"}},
+    }}
+    return rec
+'''
+
+
+def _view_only_source(*builders: str) -> str:
+    return "FACTORY = 'neuromorphic-event-language-bridge'\nROUND = 9\n" + "".join(builders)
+
+
+class AstExtractEdges(unittest.TestCase):
+    """Builder shapes the recovered mills use beyond the plain ``traj``/``traj2`` form."""
+
+    def test_trajectories_come_from_the_returned_view_when_not_assigned(self):
+        source = _view_only_source(*(_VIEW_ONLY_BUILDER.format(n=n) for n in (1, 2, 3)))
+        plants = cat.plants_from_source(source, "view-only")
+        self.assertEqual([plant.record_id for plant in plants],
+                         ["nelb-r02-001", "nelb-r02-002", "nelb-r02-003"])
+        self.assertEqual({plant.source_round for plant in plants}, {2})
+        self.assertEqual([plant.index for plant in plants], [1, 2, 3])
+        first = plants[0]
+        self.assertEqual((first.lead_decision, first.companion_decision), ("ACCEPT", "MODIFY"))
+        self.assertEqual(first.companion_key, "hold_1")
+        self.assertEqual((first.site, first.domain, first.sim_or_real), ("Site 1", "domain_1", "hil"))
+        self.assertEqual((first.reconstruction, first.formula), ("recon_1", "f_1"))
+        self.assertEqual(first.goal, "view-only family 1")
+
+    def test_a_companion_bound_to_traj2_is_named_by_its_view_key(self):
+        builder = _VIEW_ONLY_BUILDER.format(n=1).replace(
+            '"hold_1": {"safety_decision": {"decision": "MODIFY"}},', '"hold_1": traj2,'
+        ).replace(
+            "    note = helper_value()\n",
+            "    note = helper_value()\n    traj2 = {'safety_decision': {'decision': 'REJECT'}}\n",
+        )
+        source = _view_only_source(
+            builder, *(_VIEW_ONLY_BUILDER.format(n=n) for n in (2, 3))
+        )
+        first = cat.plants_from_source(source, "traj2-name")[0]
+        self.assertEqual((first.companion_key, first.companion_decision), ("hold_1", "REJECT"))
+
+    def test_a_skipped_builder_keeps_its_position_index(self):
+        skipped = (
+            "def rec_skip():\n"
+            "    value = 3\n"
+            "    return value\n"
+            "    return\n"
+        )
+        three = _view_only_source(*(_VIEW_ONLY_BUILDER.format(n=n) for n in (1, 2, 3)), skipped)
+        self.assertEqual([plant.index for plant in cat.plants_from_source(three, "tail")],
+                         [1, 2, 3])
+        middle = _view_only_source(
+            _VIEW_ONLY_BUILDER.format(n=1), skipped,
+            *(_VIEW_ONLY_BUILDER.format(n=n) for n in (2, 3)),
+        )
+        with self.assertRaises(NelbRefusal) as ctx:
+            cat.plants_from_source(middle, "middle")
+        self.assertEqual(ctx.exception.code, "CATALOG_FIELD_INVALID")
+        self.assertIn("index must be 1..3, got 4", str(ctx.exception))
+
+    def test_a_non_dict_language_view_falls_back_to_the_default_companion(self):
+        builder = _VIEW_ONLY_BUILDER.format(n=1).replace(
+            '"language_view": {', '"language_view": view_name, "unused": {'
+        )
+        source = _view_only_source(builder, *(_VIEW_ONLY_BUILDER.format(n=n) for n in (2, 3)))
+        with self.assertRaises(NelbRefusal) as ctx:
+            cat.plants_from_source(source, "no-view")
+        self.assertEqual(ctx.exception.code, "CATALOG_FIELD_INVALID")
+        self.assertIn("lead_decision", str(ctx.exception))
+
+    def test_pairs_rows_that_are_not_dicts_are_skipped_but_keep_their_offset(self):
+        def rows(indexed: bool) -> str:
+            return ", ".join(
+                f"{{'id': 'nelb-r03-00{n}', 'domain': 'd{n}', 'lead_decision': 'ACCEPT', "
+                f"'companion_decision': 'REJECT', 'state': {{'setting': 'Bay {n}, north.'}}"
+                + (f", 'index': {n}" if indexed else "")
+                + "}"
+                for n in (1, 2, 3)
+            )
+
+        plants = cat.plants_from_source(f"ROUND = 3\nPAIRS = [not_a_dict, {rows(True)}]\n", "pairs")
+        self.assertEqual([plant.index for plant in plants], [1, 2, 3])
+        self.assertEqual([plant.site for plant in plants], ["Bay 1", "Bay 2", "Bay 3"])
+        self.assertEqual({plant.companion_key for plant in plants}, {"trajectory_companion"})
+        by_offset = f"ROUND = 3\nPAIRS = [not_a_dict, {rows(False)}]\n"
+        with self.assertRaises(NelbRefusal) as ctx:
+            cat.plants_from_source(by_offset, "offsets")
+        self.assertIn("index must be 1..3, got 4", str(ctx.exception))
+
+    def test_unparseable_and_foreign_sources_are_refused(self):
+        with self.assertRaises(NelbRefusal) as ctx:
+            cat.plants_from_source("def broken(:\n", "broken")
+        self.assertEqual(ctx.exception.code, "CATALOG_AST_NOT_A_PLANT")
+        with self.assertRaises(NelbRefusal) as ctx:
+            cat.plants_from_source("FACTORY = 'other'\n", "foreign")
+        self.assertEqual(ctx.exception.code, "CATALOG_AST_NOT_A_PLANT")
+        with self.assertRaises(NelbRefusal) as ctx:
+            cat.plants_from_source("import os\ndef helper():\n    return 1\n", "empty")
+        self.assertEqual(ctx.exception.code, "CATALOG_TRIPLE_STRIDE")
+
+
 class CommittedCatalog(unittest.TestCase):
     def test_catalog_covers_recovered_triples_with_r01_pinned(self):
         loaded = cat.load_catalog()
@@ -341,9 +456,12 @@ class Generate(unittest.TestCase):
         def interrupt(*_args, **_kwargs):
             raise KeyboardInterrupt
 
-        with mock.patch.object(generate, "_fsync_destination", interrupt):
-            with self.assertRaises(KeyboardInterrupt):
-                generate.run(generate.RunRequest(1, out))
+        request = generate.RunRequest(1, out)
+        with (
+            mock.patch.object(generate, "_fsync_destination", interrupt),
+            self.assertRaises(KeyboardInterrupt),
+        ):
+            generate.run(request)
         self.assertFalse(out.exists())
         summary = generate.run(generate.RunRequest(1, out))
         self.assertEqual(summary["records"], 3)

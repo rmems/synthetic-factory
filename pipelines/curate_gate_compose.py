@@ -271,7 +271,7 @@ def _output_summary(relative: str, target: Path, records: list[dict[str, Any]]) 
     }
 
 
-def _canonical_line(item: dict[str, Any], record) -> bytes:
+def _canonical_line(_item: dict[str, Any], record) -> bytes:
     return (dumps_exact_json(record, ensure_ascii=False, sort_keys=True) + "\n").encode("utf-8")
 
 

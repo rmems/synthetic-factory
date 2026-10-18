@@ -289,7 +289,8 @@ class PreferencePurityRawCorpusFidelity(unittest.TestCase):
 class DocumentedExportLayoutIsAuditable(unittest.TestCase):
     """The manifest is provenance, not a training record."""
 
-    def export(self, root, manifest_dir):
+    @staticmethod
+    def export(root, manifest_dir):
         run = curate_preferences.curate_source(PURITY_FIXTURES)
         new = root / "curated-run" / "failure-as-fuel-preference-cascade"
         new.mkdir(parents=True)

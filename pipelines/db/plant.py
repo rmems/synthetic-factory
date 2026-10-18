@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import TypedDict
 
 from . import config as cfg
@@ -70,8 +71,9 @@ def make_plant(
         "catalog": catalog, "abort": abort, "col_type": col_type,
         "lock_fail": lock_fail or "", "db": db,
     }
+    fields: Mapping[str, object] = record
     for key in REQUIRED_KEYS:
-        if not record[key]:
+        if not fields[key]:
             raise ValueError(f"empty {key} in {slug!r}")
     return record
 

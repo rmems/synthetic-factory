@@ -94,6 +94,28 @@ class DbmFamilyLayoutTests(unittest.TestCase):
                 self.assertNotIn(token, text, f"{name} contains {token}")
 
 
+class DbmExtractEdgeTests(unittest.TestCase):
+    """``pl(**kwargs)`` shape refusals and annotated assignments on small in-memory mills."""
+
+    def _refused(self, source: str, fragment: str) -> None:
+        with self.assertRaises(DbmRefusal) as caught:
+            ast_extract_leftover3_plants(source)
+        self.assertEqual(caught.exception.code, "dbm.catalog.plant")
+        self.assertIn(fragment, str(caught.exception))
+
+    def test_only_keyword_pl_calls_are_plants(self):
+        for item in ("{'slug': 'x'}", "other(slug='x')", "pl('x')", "pl(**base)", "mod.pl(slug='x')"):
+            with self.subTest(item=item):
+                self._refused(f"PLANTS = [{item}]\n", "PLANTS[0]: expected pl(**kwargs)")
+        self._refused("PLANTS = [pl(slug='')]\n", "PLANTS[0].slug must be a non-empty string")
+        self._refused("PLANTS = [pl(slug='x')]\n", "PLANTS[0] missing")
+
+    def test_annotated_assignments_bind_and_valueless_ones_do_not(self):
+        self._refused("PLANTS: list\nOTHER = 1\n", "source has no PLANTS assignment")
+        self._refused("PLANTS: list = [pl(slug='x')]\n", "PLANTS[0] missing")
+        self._refused("obj.PLANTS: list = []\nPLANTS: list = [pl()]\n", "PLANTS[0] missing")
+
+
 class DbmCatalogTests(unittest.TestCase):
     def test_reviewed_prefix_maps_to_factory(self):
         self.assertEqual(REVIEWED_MILL_PREFIX_HOMES[FAMILY_PREFIX], FACTORY)
@@ -151,7 +173,9 @@ class DbmCatalogTests(unittest.TestCase):
         gen_src = _legacy_source(LEGACY_PLANTS_GEN)
         if gen_src is None:
             self.skipTest("legacy-mill-lane r1340 plant generator is not available")
-        r1340 = next(pin for pin in loaded.mills if pin.path.endswith("dbm-mill-r1340.py"))
+        matches = [pin for pin in loaded.mills if pin.path.endswith("dbm-mill-r1340.py")]
+        self.assertEqual(len(matches), 1)
+        r1340 = matches[0]
         slugs = ast_extract_gen_slugs(gen_src)
         self.assertEqual(slugs[0], r1340.first_slug)
         self.assertEqual(slugs[-1], r1340.last_slug)

@@ -27,7 +27,8 @@ class CalibrationAuthentication(ResearchExportAllowed, unittest.TestCase):
     swapped conversion factor would silently rescale every reward.
     """
 
-    def write_calibration(self, root, text=ONE_CALIBRATION, canonical=True):
+    @staticmethod
+    def write_calibration(root, text=ONE_CALIBRATION, canonical=True):
         if canonical:
             path = root / compose_curated.FFPC_UNITS_MIGRATION
         else:
@@ -37,7 +38,8 @@ class CalibrationAuthentication(ResearchExportAllowed, unittest.TestCase):
         path.write_bytes(payload)
         return path, hashlib.sha256(payload).hexdigest()
 
-    def summary_for(self, path, digest, overrides=None):
+    @staticmethod
+    def summary_for(path, digest, overrides=None):
         values = {
             "mode": "source_run",
             "records": 1,
@@ -57,7 +59,8 @@ class CalibrationAuthentication(ResearchExportAllowed, unittest.TestCase):
             "calibrated_records": records if calibrated is None else calibrated,
         }
 
-    def authenticate(self, summary, root):
+    @staticmethod
+    def authenticate(summary, root):
         return export_hf._authenticated_calibration(summary, root)
 
     def assert_refused(self, summary, root, fragment):
@@ -280,7 +283,8 @@ class CalibrationAuthentication(ResearchExportAllowed, unittest.TestCase):
 class CalibrationPayloadLoading(unittest.TestCase):
     """Only well-formed calibration entries reach the catalog."""
 
-    def load(self, text):
+    @staticmethod
+    def load(text):
         payload = text.encode("utf-8") if isinstance(text, str) else text
         return export_hf._load_calibration_payload(payload, Path("/pinned/units.json"))
 

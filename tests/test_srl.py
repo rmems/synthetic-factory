@@ -14,6 +14,7 @@ import io
 import json
 import subprocess
 import sys
+import types
 import unittest
 from pathlib import Path
 
@@ -94,8 +95,62 @@ def _legacy_namespace():
         if isinstance(node, ast.FunctionDef) and node.name in ("hid", "episode"):
             keep = True
         if keep:
-            exec(compile(ast.Module([node], type_ignores=[]), "<legacy>", "exec"), ns)
+            _bind_legacy_statement(node, ns)
     return ns
+
+
+def _bind_legacy_statement(node: ast.stmt, ns: dict) -> None:
+    """Bind one kept legacy statement without ``exec``.
+
+    Assignments in the pinned mill are literals. ``hid`` and ``episode`` are
+    ordinary functions; their bodies run only when the test calls them.
+    """
+
+    if isinstance(node, ast.FunctionDef):
+        _bind_legacy_function(node, ns)
+        return
+    if isinstance(node, ast.Assign):
+        _bind_legacy_assign(node, ns)
+        return
+    if isinstance(node, ast.AnnAssign):
+        _bind_legacy_annotation(node, ns)
+
+
+def _bind_legacy_function(node: ast.FunctionDef, ns: dict) -> None:
+    module = ast.fix_missing_locations(ast.Module(body=[node], type_ignores=[]))
+    code = compile(module, "<legacy>", "exec")
+    defaults = tuple(ast.literal_eval(item) for item in node.args.defaults)
+    ns[node.name] = types.FunctionType(
+        _legacy_function_code(code, node.name), ns, node.name, defaults or None
+    )
+
+
+def _legacy_function_code(code: types.CodeType, name: str) -> types.CodeType:
+    for item in code.co_consts:
+        if _is_legacy_code(item, name):
+            return item
+    raise AssertionError(name)
+
+
+def _is_legacy_code(item: object, name: str) -> bool:
+    if not isinstance(item, types.CodeType):
+        return False
+    return item.co_name == name
+
+
+def _bind_legacy_assign(node: ast.Assign, ns: dict) -> None:
+    value = ast.literal_eval(node.value)
+    for target in node.targets:
+        if isinstance(target, ast.Name):
+            ns[target.id] = value
+
+
+def _bind_legacy_annotation(node: ast.AnnAssign, ns: dict) -> None:
+    if not isinstance(node.target, ast.Name):
+        return
+    if node.value is None:
+        return
+    ns[node.target.id] = ast.literal_eval(node.value)
 
 
 class SrlPackageLayout(unittest.TestCase):
@@ -245,6 +300,15 @@ class SrlCli(unittest.TestCase):
         code, out, err = invoke(["notes", "--round", "6110", "--slug", "networkd-dhcp-ipv4-only"])
         self.assertEqual((code, err), (0, ""))
         self.assertIn("Novel coverage: 42%", out)
+
+    def test_single_record_needs_a_round_and_no_count(self):
+        cases = (
+            (["generate", "--index", "3"], "missing_round: pass --round or --window\n"),
+            (["generate", "--round", "6110", "--index", "3", "--count", "2"], "count_requires_window\n"),
+        )
+        for argv, message in cases:
+            with self.subTest(argv=argv):
+                self.assertEqual(invoke(argv), (2, "", message))
 
 
 if __name__ == "__main__":

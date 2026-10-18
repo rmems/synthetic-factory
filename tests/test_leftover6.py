@@ -312,31 +312,36 @@ class Leftover6CatalogTests(unittest.TestCase):
     def test_loader_fails_closed_on_a_missing_case_field(self):
         rows = _catalog_rows()
         del rows[0]["ticket"]
-        with _fixture(pairs=dumps_jsonl(rows)) as dest:
-            with self.assertRaisesRegex(CatalogError, "keys differ"):
-                load_catalog(dest)
+        with (
+            _fixture(pairs=dumps_jsonl(rows)) as dest,
+            self.assertRaisesRegex(CatalogError, "keys differ"),
+        ):
+            load_catalog(dest)
 
     def test_loader_normalizes_non_scalar_unicode_to_catalog_error(self):
         rows = _catalog_rows()
         rows[0]['fail'] = '\ud800'
         payload = ''.join(json.dumps(row) + '\n' for row in rows)
-        with _fixture(pairs=payload) as directory:
-            with self.assertRaises(CatalogError):
-                load_catalog(directory)
+        with _fixture(pairs=payload) as directory, self.assertRaises(CatalogError):
+            load_catalog(directory)
 
     def test_loader_refuses_a_wrong_pair_value_type(self):
         rows = _catalog_rows()
         rows[0]["round"] = "260"
-        with _fixture(pairs=dumps_jsonl(rows)) as dest:
-            with self.assertRaisesRegex(CatalogError, "round must be an integer"):
-                load_catalog(dest)
+        with (
+            _fixture(pairs=dumps_jsonl(rows)) as dest,
+            self.assertRaisesRegex(CatalogError, "round must be an integer"),
+        ):
+            load_catalog(dest)
 
     def test_loader_refuses_a_non_string_pair_kind(self):
         rows = _catalog_rows()
         rows[0]["kind"] = []
-        with _fixture(pairs=dumps_jsonl(rows)) as dest:
-            with self.assertRaisesRegex(CatalogError, "kind is not a leftover6 pair"):
-                load_catalog(dest)
+        with (
+            _fixture(pairs=dumps_jsonl(rows)) as dest,
+            self.assertRaisesRegex(CatalogError, "kind is not a leftover6 pair"),
+        ):
+            load_catalog(dest)
 
     def test_loader_refuses_duplicate_json_keys_and_non_lf_framing(self):
         pairs = PAIRS_JSONL.read_bytes()
@@ -345,9 +350,12 @@ class Leftover6CatalogTests(unittest.TestCase):
             ("duplicate", duplicate, "duplicate JSON object key"),
             ("crlf", pairs.replace(b"\n", b"\r\n"), "carriage returns"),
         ):
-            with self.subTest(label=label), _fixture(pairs=candidate) as dest:
-                with self.assertRaisesRegex(CatalogError, expected):
-                    load_catalog(dest)
+            with (
+                self.subTest(label=label),
+                _fixture(pairs=candidate) as dest,
+                self.assertRaisesRegex(CatalogError, expected),
+            ):
+                load_catalog(dest)
 
     def test_loader_keeps_unicode_line_separator_inside_a_json_string(self):
         pairs = PAIRS_JSONL.read_bytes().replace(
@@ -369,9 +377,11 @@ class Leftover6CatalogTests(unittest.TestCase):
                 rows = [json.loads(line) for line in (CONFIG_DIR / filename).read_text().splitlines()]
                 rows[index][field] += " altered"
                 key = "pairs" if filename == "pairs.jsonl" else "plants"
-                with _fixture(**{key: dumps_jsonl(rows)}) as dest:
-                    with self.assertRaisesRegex(CatalogError, "pinned row content"):
-                        load_catalog(dest)
+                with (
+                    _fixture(**{key: dumps_jsonl(rows)}) as dest,
+                    self.assertRaisesRegex(CatalogError, "pinned row content"),
+                ):
+                    load_catalog(dest)
 
     def test_vendor_extension_is_case_insensitive(self):
         for name in ("mill_gql_leftover6_r260.PY", "SBOX-MILL-PLANTS-LEFTOVER6.Py"):
@@ -381,21 +391,27 @@ class Leftover6CatalogTests(unittest.TestCase):
     def test_loader_refuses_stale_declared_totals(self):
         header = json.loads(CATALOG_JSON.read_text(encoding="utf-8"))
         header["n_pair_rows_committed"] += 1
-        with _fixture(header=json.dumps(header)) as dest:
-            with self.assertRaisesRegex(CatalogError, "n_pair_rows_committed"):
-                load_catalog(dest)
+        with (
+            _fixture(header=json.dumps(header)) as dest,
+            self.assertRaisesRegex(CatalogError, "n_pair_rows_committed"),
+        ):
+            load_catalog(dest)
 
     def test_loader_refuses_duplicate_or_gapped_pair_rows(self):
         rows = _catalog_rows()
         rows[1]["slug"] = rows[0]["slug"]
-        with _fixture(pairs=dumps_jsonl(rows)) as dest:
-            with self.assertRaisesRegex(CatalogError, "duplicate identities"):
-                load_catalog(dest)
+        with (
+            _fixture(pairs=dumps_jsonl(rows)) as dest,
+            self.assertRaisesRegex(CatalogError, "duplicate identities"),
+        ):
+            load_catalog(dest)
         rows[1]["slug"] = "unique-test-slug"
         rows[1]["round"] += 1
-        with _fixture(pairs=dumps_jsonl(rows)) as dest:
-            with self.assertRaisesRegex(CatalogError, "not contiguous"):
-                load_catalog(dest)
+        with (
+            _fixture(pairs=dumps_jsonl(rows)) as dest,
+            self.assertRaisesRegex(CatalogError, "not contiguous"),
+        ):
+            load_catalog(dest)
 
 
 class Leftover6LegacyExtractTests(unittest.TestCase):

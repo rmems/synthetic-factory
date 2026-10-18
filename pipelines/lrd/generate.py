@@ -67,12 +67,12 @@ class GenerateRequest:
 
 def _walk_keys(value: Any) -> list[str]:
     if isinstance(value, dict):
-        keys = list(value)
+        keys: list[str] = list(value)
         for item in value.values():
             keys.extend(_walk_keys(item))
         return keys
     if isinstance(value, list):
-        keys: list[str] = []
+        keys = []
         for item in value:
             keys.extend(_walk_keys(item))
         return keys
@@ -108,6 +108,17 @@ def _step(n: int, basis: str, name: str, args: dict[str, str], observation: str)
 def steps_ok(plant: cat.Plant) -> list[dict[str, Any]]:
     """Success trajectory from ``lrd_r157.steps_ok``. Sixteen steps."""
 
+    return [
+        *_ok_inspect_steps(plant),
+        *_ok_runbook_steps(plant),
+        *_ok_metrics_steps(plant),
+        *_ok_fix_steps(plant),
+    ]
+
+
+def _ok_inspect_steps(plant: cat.Plant) -> list[dict[str, Any]]:
+    """Steps 1-5: list, failing tests, writer, config, side metrics."""
+
     d = plant.mod
     field = plant.field
     return [
@@ -131,6 +142,15 @@ def steps_ok(plant: cat.Plant) -> list[dict[str, Any]]:
         _step(5, "Observation: Side metrics.",
               "bash", {"command": f"rg -n '{field}' metrics {d} | head"},
               f"{plant.conf} {field}\nkept"),
+    ]
+
+
+def _ok_runbook_steps(plant: cat.Plant) -> list[dict[str, Any]]:
+    """Steps 6-7: runbook 502, retried with the cached fixture as fallback."""
+
+    d = plant.mod
+    field = plant.field
+    return [
         _step(
             6,
             f"Observation: Fetch {plant.domain} runbook.",
@@ -154,6 +174,15 @@ def steps_ok(plant: cat.Plant) -> list[dict[str, Any]]:
             },
             f"cached: omit leftover leftover leftover {field}. mute blinds warn.",
         ),
+    ]
+
+
+def _ok_metrics_steps(plant: cat.Plant) -> list[dict[str, Any]]:
+    """Steps 8-9: metrics 429, retried."""
+
+    d = plant.mod
+    field = plant.field
+    return [
         _step(
             8,
             "Observation: Metrics next.",
@@ -177,6 +206,15 @@ def steps_ok(plant: cat.Plant) -> list[dict[str, Any]]:
             },
             f"{plant.conf} {field} | kept",
         ),
+    ]
+
+
+def _ok_fix_steps(plant: cat.Plant) -> list[dict[str, Any]]:
+    """Steps 10-16: wrong-layer patch, plan change, redact, green, close."""
+
+    d = plant.mod
+    field = plant.field
+    return [
         _step(10, f"Observation: First closed patch: {plant.naive}.",
               "edit_file", {"path": f"{d}/{plant.conf2}", "old": plant.old2, "new": plant.new2},
               "1 replacement"),
@@ -219,6 +257,12 @@ def steps_ok(plant: cat.Plant) -> list[dict[str, Any]]:
 def steps_fail(plant: cat.Plant) -> list[dict[str, Any]]:
     """Handoff trajectory from ``lrd_r157.steps_fail``. Seventeen steps."""
 
+    return [*_fail_inspect_steps(plant), *_fail_fetch_steps(plant), *_fail_handoff_steps(plant)]
+
+
+def _fail_inspect_steps(plant: cat.Plant) -> list[dict[str, Any]]:
+    """Steps 1-5: list, failing tests, README vs runbook, config."""
+
     d = plant.drop
     field = plant.field
     return [
@@ -242,6 +286,14 @@ def steps_fail(plant: cat.Plant) -> list[dict[str, Any]]:
               f"Redact {field}; do not {plant.naive}."),
         _step(5, "Observation: agent follows README anyway.",
               "read_file", {"path": f"{d}/{plant.conf2}"}, plant.old2[:200]),
+    ]
+
+
+def _fail_fetch_steps(plant: cat.Plant) -> list[dict[str, Any]]:
+    """Steps 6-9: runbook 502 and metrics 429, each retried."""
+
+    d = plant.drop
+    return [
         _step(
             6,
             "Observation: 502 runbook.",
@@ -269,6 +321,15 @@ def steps_fail(plant: cat.Plant) -> list[dict[str, Any]]:
         ),
         _step(9, "Observation: retry metrics.",
               "bash", {"command": "sleep 2 && echo METRICS"}, "warn still required"),
+    ]
+
+
+def _fail_handoff_steps(plant: cat.Plant) -> list[dict[str, Any]]:
+    """Steps 10-17: wrong-layer disable, handoff only, residual leak."""
+
+    d = plant.drop
+    field = plant.field
+    return [
         _step(10, f"Observation: apply {plant.naive}.",
               "edit_file", {"path": f"{d}/{plant.conf2}", "old": plant.old2, "new": plant.new2},
               "1 replacement"),

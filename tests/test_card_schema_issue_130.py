@@ -109,10 +109,14 @@ class QueueBackpressureDeclarationTests(DeclarationTestCase):
         # it under a "Tracked in #43, #44" link would be an overclaim.
         self.assertIn("No GitHub issue currently owns this class", self.card)
         sir_disclosure = next(
-            item
-            for item in self.declaration["disclosures"]
-            if any(record_id.startswith("sir-") for record_id in item["ids"])
+            (
+                item
+                for item in self.declaration["disclosures"]
+                if any(record_id.startswith("sir-") for record_id in item["ids"])
+            ),
+            None,
         )
+        self.assertIsNotNone(sir_disclosure)
         self.assertEqual(sir_disclosure["issues"], [])
         self.assertEqual(len(sir_disclosure["ids"]), 6)
 

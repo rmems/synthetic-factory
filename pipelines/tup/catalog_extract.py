@@ -8,7 +8,7 @@ import hashlib
 import re
 import subprocess
 from collections.abc import Mapping, Sequence
-from typing import Any
+from typing import Any, TypeGuard
 
 from ._contract import FINDING_SOURCE_NOT_PARSEABLE, SOURCE_REF, refuse, refuse_when, repo_root
 
@@ -73,101 +73,95 @@ def _const_eval(node: ast.AST) -> Any:
     )
 
 
-def _parse_mill(source: str) -> ast.Module:
+def _is_name(node: ast.expr, name: str) -> bool:
+    return isinstance(node, ast.Name) and node.id == name
+
+
+def _single_target_value(node: ast.stmt, name: str) -> ast.expr | None:
+    """The value a one-target ``Assign`` or a plain-name ``AnnAssign`` binds to ``name``."""
+
+    if isinstance(node, ast.Assign) and len(node.targets) == 1:
+        return node.value if _is_name(node.targets[0], name) else None
+    if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+        return node.value if node.target.id == name else None
+    return None
+
+
+def _assigned_list(tree: ast.Module, name: str) -> ast.List | ast.Tuple | None:
+    for node in tree.body:
+        value = _single_target_value(node, name)
+        if isinstance(value, (ast.List, ast.Tuple)):
+            return value
+    return None
+
+
+def _is_families_assign(stmt: ast.stmt) -> TypeGuard[ast.Assign]:
+    return isinstance(stmt, ast.Assign) and _is_name(stmt.targets[0], "families")
+
+
+def _families_list_assign(func: ast.FunctionDef) -> ast.Assign | None:
+    return next(
+        (
+            stmt
+            for stmt in func.body
+            if _is_families_assign(stmt) and isinstance(stmt.value, (ast.List, ast.Tuple))
+        ),
+        None,
+    )
+
+
+def _family_function(tree: ast.Module) -> ast.FunctionDef | None:
+    best: ast.FunctionDef | None = None
+    best_count = -1
+    for node in tree.body:
+        if not isinstance(node, ast.FunctionDef) or not _FAMILY_FN_RE.fullmatch(node.name):
+            continue
+        assign = _families_list_assign(node)
+        if assign is None:
+            continue
+        count = len(assign.value.elts)
+        if count > best_count:
+            best = node
+            best_count = count
+    return best
+
+
+def _parse_mill_source(source: str) -> ast.Module:
     try:
         return ast.parse(source)
     except SyntaxError as exc:
         refuse(FINDING_SOURCE_NOT_PARSEABLE, f"mill source is not parseable: {exc}")
 
 
-def _single_target(node: ast.stmt) -> tuple[str | None, ast.expr | None]:
-    """``(name, value)`` of ``NAME = value`` (one target) or ``NAME: T = value``."""
-
-    if isinstance(node, ast.Assign) and len(node.targets) == 1:
-        target = node.targets[0]
-        return (target.id, node.value) if isinstance(target, ast.Name) else (None, None)
-    if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
-        return node.target.id, node.value
-    return None, None
-
-
-def _bound_value(node: ast.stmt, name: str) -> ast.expr | None:
-    """The value of ``name: T = ...`` or of an assignment with any ``name`` target."""
-
-    if isinstance(node, ast.AnnAssign):
-        bound = isinstance(node.target, ast.Name) and node.target.id == name
-        return node.value if bound else None
-    if isinstance(node, ast.Assign):
-        bound = any(isinstance(target, ast.Name) and target.id == name for target in node.targets)
-        return node.value if bound else None
-    return None
-
-
-def _assigned_list(tree: ast.Module, name: str) -> ast.List | ast.Tuple | None:
-    for node in tree.body:
-        target, value = _single_target(node)
-        if target == name and isinstance(value, (ast.List, ast.Tuple)):
-            return value
-    return None
-
-
-def _families_value(stmt: ast.stmt) -> ast.expr | None:
-    """The value of a ``families = ...`` statement (first target), else None."""
-
-    if not isinstance(stmt, ast.Assign):
-        return None
-    target = stmt.targets[0]
-    if isinstance(target, ast.Name) and target.id == "families":
-        return stmt.value
-    return None
-
-
-def _family_list_size(node: ast.stmt) -> int | None:
-    """Length of the ``families`` list literal in an ``extra_*`` catalog function."""
-
-    if not isinstance(node, ast.FunctionDef) or not _FAMILY_FN_RE.fullmatch(node.name):
-        return None
-    values = (_families_value(stmt) for stmt in node.body)
-    listed = next((value for value in values if isinstance(value, (ast.List, ast.Tuple))), None)
-    return None if listed is None else len(listed.elts)
-
-
-def _family_function(tree: ast.Module) -> ast.FunctionDef | None:
-    """The ``extra_*`` function with the longest ``families`` list (first wins a tie)."""
-
-    best: ast.FunctionDef | None = None
-    best_count = -1
-    for node in (stmt for stmt in tree.body if isinstance(stmt, ast.FunctionDef)):
-        count = _family_list_size(node)
-        if count is not None and count > best_count:
-            best = node
-            best_count = count
-    return best
-
-
 def family_rows_from_source(source: str) -> list[dict[str, Any]]:
     """Return compact family dicts from ``extra_catalog`` / ``extra_v*``."""
 
-    tree = _parse_mill(source)
+    tree = _parse_mill_source(source)
     func = _family_function(tree)
-    if func is None:
-        refuse(FINDING_SOURCE_NOT_PARSEABLE, "missing extra_* catalog function")
-    families = next((value for value in map(_families_value, func.body) if value is not None), None)
-    if families is None or not isinstance(families, (ast.List, ast.Tuple)):
-        refuse(FINDING_SOURCE_NOT_PARSEABLE, "missing families list")
-    rows = [_family_row(elt, f"families[{index}]") for index, elt in enumerate(families.elts)]
+    refuse_when(func is None, FINDING_SOURCE_NOT_PARSEABLE, "missing extra_* catalog function")
+    assign = next((node for node in func.body if _is_families_assign(node)), None)
+    refuse_when(
+        assign is None or not isinstance(assign.value, (ast.List, ast.Tuple)),
+        FINDING_SOURCE_NOT_PARSEABLE,
+        "missing families list",
+    )
+    rows = [_family_row(elt, f"families[{index}]") for index, elt in enumerate(assign.value.elts)]
     refuse_when(not rows, FINDING_SOURCE_NOT_PARSEABLE, "extra catalog families is empty")
     return rows
 
 
-def _family_row(elt: ast.AST, label: str) -> dict[str, Any]:
-    """``(bin, keep, grep, [(short, verify, destroy), ...])`` as a compact family dict."""
-
-    if not isinstance(elt, (ast.List, ast.Tuple)) or len(elt.elts) != 4:
-        refuse(FINDING_SOURCE_NOT_PARSEABLE, f"{label} is not a 4-tuple")
+def _family_row(elt: Any, label: str) -> dict[str, Any]:
+    refuse_when(
+        not isinstance(elt, (ast.List, ast.Tuple)) or len(elt.elts) != 4,
+        FINDING_SOURCE_NOT_PARSEABLE,
+        f"{label} is not a 4-tuple",
+    )
     cmds_node = elt.elts[3]
-    if not isinstance(cmds_node, (ast.List, ast.Tuple)) or not cmds_node.elts:
-        refuse(FINDING_SOURCE_NOT_PARSEABLE, f"{label}.cmds is empty")
+    refuse_when(
+        not isinstance(cmds_node, (ast.List, ast.Tuple)) or not cmds_node.elts,
+        FINDING_SOURCE_NOT_PARSEABLE,
+        f"{label}.cmds is empty",
+    )
     cmds = [
         _family_cmd(cmd, f"{label}.cmds[{cmd_index}]")
         for cmd_index, cmd in enumerate(cmds_node.elts)
@@ -180,9 +174,12 @@ def _family_row(elt: ast.AST, label: str) -> dict[str, Any]:
     }
 
 
-def _family_cmd(cmd: ast.AST, label: str) -> list[str]:
-    if not isinstance(cmd, (ast.List, ast.Tuple)) or len(cmd.elts) != 3:
-        refuse(FINDING_SOURCE_NOT_PARSEABLE, f"{label} is not a 3-tuple")
+def _family_cmd(cmd: Any, label: str) -> list[str]:
+    refuse_when(
+        not isinstance(cmd, (ast.List, ast.Tuple)) or len(cmd.elts) != 3,
+        FINDING_SOURCE_NOT_PARSEABLE,
+        f"{label} is not a 3-tuple",
+    )
     return [
         _literal_str(cmd.elts[0], f"{label}.short"),
         _literal_str(cmd.elts[1], f"{label}.verify"),
@@ -226,10 +223,7 @@ def _row_tuple_to_plant(row: tuple[Any, ...], *, mill_id: str, index: int) -> di
 def plant_rows_from_source(source: str, *, mill_id: str, var: str | None = None) -> list[dict[str, Any]]:
     """AST-extract ``ROWS`` / ``NEW_ROWS`` / ``SPECS`` tuple lists."""
 
-    try:
-        tree = ast.parse(source)
-    except SyntaxError as exc:
-        refuse(FINDING_SOURCE_NOT_PARSEABLE, f"mill source is not parseable: {exc}")
+    tree = _parse_mill_source(source)
     chosen = var
     nodes: ast.List | ast.Tuple | None = None
     if chosen:
@@ -317,6 +311,16 @@ def _plant_from_plant_call(node: ast.Call, *, mill_id: str, index: int) -> dict[
     }
 
 
+def _bound_value(node: ast.stmt, name: str) -> ast.expr | None:
+    """The value ``node`` binds to ``name`` (any ``Assign`` target or a plain ``AnnAssign``)."""
+
+    if isinstance(node, ast.AnnAssign):
+        return node.value if _is_name(node.target, name) else None
+    if isinstance(node, ast.Assign):
+        return node.value if any(_is_name(target, name) for target in node.targets) else None
+    return None
+
+
 def _assigned_plants_list(tree: ast.Module) -> ast.List | None:
     for node in tree.body:
         value = _bound_value(node, "PLANTS")
@@ -328,10 +332,7 @@ def _assigned_plants_list(tree: ast.Module) -> ast.List | None:
 def leftover_plants_from_source(source: str, *, mill_id: str) -> list[dict[str, Any]]:
     """AST-extract ``PLANTS`` entries built with ``P(...)`` or ``plant(...)``."""
 
-    try:
-        tree = ast.parse(source)
-    except SyntaxError as exc:
-        refuse(FINDING_SOURCE_NOT_PARSEABLE, f"mill source is not parseable: {exc}")
+    tree = _parse_mill_source(source)
     nodes = _assigned_plants_list(tree)
     refuse_when(nodes is None, FINDING_SOURCE_NOT_PARSEABLE, f"missing PLANTS in {mill_id}")
     rows: list[dict[str, Any]] = []
@@ -357,9 +358,9 @@ def leftover_plants_from_source(source: str, *, mill_id: str) -> list[dict[str, 
 def round_plants_from_source(source: str, *, mill_id: str) -> list[dict[str, Any]]:
     """AST-extract nested ``ROUNDS`` triple batches (slug, tool, fork, verify, ...)."""
 
-    rounds_node = _rounds_list(_parse_mill(source))
-    if rounds_node is None:
-        refuse(FINDING_SOURCE_NOT_PARSEABLE, f"missing ROUNDS in {mill_id}")
+    tree = _parse_mill_source(source)
+    rounds_node = _last_rounds_list(tree)
+    refuse_when(rounds_node is None, FINDING_SOURCE_NOT_PARSEABLE, f"missing ROUNDS in {mill_id}")
     rows: list[dict[str, Any]] = []
     for group_index, group in enumerate(rounds_node.elts):
         refuse_when(
@@ -368,32 +369,33 @@ def round_plants_from_source(source: str, *, mill_id: str) -> list[dict[str, Any
             f"ROUNDS[{group_index}] is not a list",
         )
         rows.extend(
-            _round_plant_row(elt, f"ROUNDS[{group_index}][{plant_index}]", mill_id)
+            _round_plant(elt, f"ROUNDS[{group_index}][{plant_index}]", mill_id=mill_id)
             for plant_index, elt in enumerate(group.elts)
         )
     refuse_when(not rows, FINDING_SOURCE_NOT_PARSEABLE, f"ROUNDS is empty in {mill_id}")
     return rows
 
 
-def _rounds_list(tree: ast.Module) -> ast.List | None:
-    """The last top-level ``ROUNDS = [...]`` list (annotated assignments do not count)."""
-
+def _last_rounds_list(tree: ast.Module) -> ast.List | None:
     rounds_node: ast.List | None = None
     for node in tree.body:
-        value = _bound_value(node, "ROUNDS") if isinstance(node, ast.Assign) else None
+        if not isinstance(node, ast.Assign):
+            continue
+        value = _bound_value(node, "ROUNDS")
         if isinstance(value, ast.List):
             rounds_node = value
     return rounds_node
 
 
-def _round_plant_row(elt: ast.AST, label: str, mill_id: str) -> dict[str, Any]:
-    """One ``(slug, tool, fork, verify, destroy, keep, grep, wait)`` literal 8-tuple."""
-
-    if not isinstance(elt, ast.Tuple) or len(elt.elts) != 8:
-        refuse(FINDING_SOURCE_NOT_PARSEABLE, f"{label} is not an 8-tuple")
+def _round_plant(elt: Any, label: str, *, mill_id: str) -> dict[str, Any]:
+    refuse_when(
+        not isinstance(elt, ast.Tuple) or len(elt.elts) != 8,
+        FINDING_SOURCE_NOT_PARSEABLE,
+        f"{label} is not an 8-tuple",
+    )
     slug = _literal_value(elt.elts[0], f"{label}.slug")
     tool = _literal_value(elt.elts[1], f"{label}.tool")
-    _literal_value(elt.elts[2], f"{label}.fork")  # the fork must be a literal too; it is not kept
+    _literal_value(elt.elts[2], f"{label}.fork")
     verify = _literal_value(elt.elts[3], f"{label}.verify")
     destroy = _literal_value(elt.elts[4], f"{label}.destroy")
     keep = _literal_value(elt.elts[5], f"{label}.keep")
@@ -410,14 +412,6 @@ def _round_plant_row(elt: ast.AST, label: str, mill_id: str) -> dict[str, Any]:
         "wait": int(wait),
         "grep": str(grep),
     }
-
-
-def is_skipped_slug(slug: str, banned: frozenset[str], prefixes: tuple[str, ...]) -> bool:
-    """A banned slug or prefix, or one the mills always drop (``yq-eval*``, ``pacman*``)."""
-
-    if slug in banned or any(slug.startswith(prefix) for prefix in prefixes):
-        return True
-    return slug.startswith(("yq-eval", "pacman"))
 
 
 def expand_family_rows(
@@ -441,15 +435,13 @@ def expand_family_rows(
             slug = f"{bin_name}-{short}"
             if is_skipped_slug(slug, banned, prefixes):
                 continue
-            verify = f"{bin_name} {verify_args}".strip()
-            dest = destroy if str(destroy).startswith(("rm ", bin_name)) else f"{bin_name} {destroy}"
             plants.append(
                 {
                     "mill_id": mill_id,
                     "slug": slug,
                     "bin": bin_name.split()[0],
-                    "verify": verify,
-                    "destroy": dest,
+                    "verify": f"{bin_name} {verify_args}".strip(),
+                    "destroy": _expanded_destroy(bin_name, destroy),
                     "keep": keep,
                     "wait": 3 + (index % 5),
                     "grep": grep,
@@ -457,3 +449,15 @@ def expand_family_rows(
             )
             index += 1
     return plants
+
+
+def is_skipped_slug(slug: str, banned: frozenset[str], prefixes: tuple[str, ...]) -> bool:
+    """Banned slugs and prefixes, plus the ``yq-eval`` / ``pacman`` waves, never expand."""
+
+    if slug in banned or any(slug.startswith(prefix) for prefix in prefixes):
+        return True
+    return slug.startswith(("yq-eval", "pacman"))
+
+
+def _expanded_destroy(bin_name: str, destroy: Any) -> Any:
+    return destroy if str(destroy).startswith(("rm ", bin_name)) else f"{bin_name} {destroy}"

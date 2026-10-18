@@ -71,22 +71,33 @@ def _hidden_check_moved(record: dict[str, Any], program: cat.Program) -> bool:
     return {key: stored.get(key) for key in pinned} != pinned
 
 
+def _pinned_program(catalog: cat.Catalog, program_id: str) -> cat.Program | None:
+    """The catalog's program under this id, or None when it does not pin one."""
+
+    return next((p for p in catalog.programs if p.program_id == program_id), None)
+
+
+def _expected_lineage(program: cat.Program, catalog: cat.Catalog) -> dict[str, Any]:
+    """The split lineage a record of this program must carry under this catalog."""
+
+    return {
+        "lineage_id": program.program_id, "group_id": program.group_id, "split": program.split,
+        "policy_sha256": None if catalog.split_policy is None else catalog.split_policy.sha256,
+    }
+
+
 def _catalog_drift(record: dict[str, Any], catalog: cat.Catalog) -> str | None:
     """Why the catalog is no longer the record's program, or None."""
 
     source = record["scenario"]["source"]
-    program_id = source["program_id"]
-    program = next((p for p in catalog.programs if p.program_id == program_id), None)
+    program = _pinned_program(catalog, source["program_id"])
     if program is None or program.sha256 != source["module_sha256"]:
         return "the catalog does not pin this program"
     if cat.upstream_json(program) != source["upstream"]:
         return "the program's upstream identity moved"
     if _hidden_check_moved(record, program):
         return "the hidden cases or reference moved"
-    expected_lineage = {
-        "lineage_id": program.program_id, "group_id": program.group_id, "split": program.split,
-        "policy_sha256": None if catalog.split_policy is None else catalog.split_policy.sha256,
-    }
+    expected_lineage = _expected_lineage(program, catalog)
     if record["provenance"].get("split_lineage") != expected_lineage:
         return "the program's lineage, group or split moved"
     return None
@@ -259,7 +270,8 @@ def replay_record(
     failed entry, never natural ineligibility (Greptile and Codex on #202).
     """
 
-    result = record.get("result") if isinstance(record.get("result"), dict) else {}
+    stored = record.get("result")
+    result = stored if isinstance(stored, dict) else {}
     claims_positive = (
         result.get("outcome") == cv.OUTCOME_ACCEPTED
         and result.get("oracle_status") == cv.STATUS_VALIDATED

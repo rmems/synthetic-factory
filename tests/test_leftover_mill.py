@@ -133,7 +133,8 @@ class FrozenLedger(unittest.TestCase):
 
 
 class AuditRun(unittest.TestCase):
-    def _tree(self, root):
+    @staticmethod
+    def _tree(root):
         write(
             root / "email-webhook-retry-factory" / "batch-r56.jsonl",
             [
@@ -223,7 +224,8 @@ class AuditRun(unittest.TestCase):
 
 
 class Cli(unittest.TestCase):
-    def _invoke(self, *args):
+    @staticmethod
+    def _invoke(*args):
         return subprocess.run(
             [sys.executable, str(MILL), *args],
             capture_output=True,
@@ -242,7 +244,8 @@ class Cli(unittest.TestCase):
         self.assertEqual(json.loads(regular.stdout)["quarantined"], 1)
         self.assertEqual(strict.returncode, 1, strict.stdout)
 
-    def _tree(self, root):
+    @staticmethod
+    def _tree(root):
         write(
             root / "observability-debug-factory" / "batch-r500.jsonl",
             [

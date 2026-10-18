@@ -202,17 +202,40 @@ def _proposed(plant: cat.Plant, *, side: str) -> dict[str, Any]:
     }
 
 
-def _traj(plant: cat.Plant, *, side: str, decision: str) -> dict[str, Any]:
+def _rationale(plant: cat.Plant, *, side: str, decision: str) -> str:
     if side == "t1":
-        rationale = (
+        return (
             f"A correct NELB gate starts from {plant.formula or plant.reconstruction}, "
             f"not a vendor last-good. Lead {decision} at {plant.site or plant.record_id}."
         )
-    else:
-        rationale = (
-            f"Companion {decision} on {plant.companion_key}: the extracted diagnosis "
-            f"keeps {plant.reconstruction or plant.domain} as the live interlock."
-        )
+    return (
+        f"Companion {decision} on {plant.companion_key}: the extracted diagnosis "
+        f"keeps {plant.reconstruction or plant.domain} as the live interlock."
+    )
+
+
+def _reward_components(success: bool, total: float) -> dict[str, Any]:
+    return {
+        "safety": 0.8 if success else -0.8,
+        "verification": 0.4 if success else -0.3,
+        "task_progress": 0.35 if success else 0.2,
+        "total": total,
+    }
+
+
+def _traj_meta(plant: cat.Plant, *, side: str) -> dict[str, Any]:
+    return {
+        "factory": FACTORY,
+        "round": plant.source_round,
+        "generator": GENERATOR,
+        "isolation": ISOLATION,
+        "run": RUN_LABEL,
+        "tags": ["bridge_pair", side, RECORD_KIND],
+    }
+
+
+def _traj(plant: cat.Plant, *, side: str, decision: str) -> dict[str, Any]:
+    rationale = _rationale(plant, side=side, decision=decision)
     narrative = plant.goal
     total = 1.55
     success = True
@@ -232,20 +255,8 @@ def _traj(plant: cat.Plant, *, side: str, decision: str) -> dict[str, Any]:
             "success": success,
             "narrative": narrative,
         },
-        "reward_components": {
-            "safety": 0.8 if success else -0.8,
-            "verification": 0.4 if success else -0.3,
-            "task_progress": 0.35 if success else 0.2,
-            "total": total,
-        },
-        "meta": {
-            "factory": FACTORY,
-            "round": plant.source_round,
-            "generator": GENERATOR,
-            "isolation": ISOLATION,
-            "run": RUN_LABEL,
-            "tags": ["bridge_pair", side, RECORD_KIND],
-        },
+        "reward_components": _reward_components(success, total),
+        "meta": _traj_meta(plant, side=side),
     }
 
 

@@ -3,13 +3,18 @@
 
 from __future__ import annotations
 
+import ast
+import contextlib
+import hashlib
 import json
+import shlex
 import shutil
 import subprocess
 import sys
 import tempfile
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
+from dataclasses import replace
 from io import StringIO
 from pathlib import Path
 
@@ -306,6 +311,13 @@ class GeneratePairs(unittest.TestCase):
             generate.run(generate.GenerateRequest(FIXTURE, dest))
         self.assertEqual(caught.exception.code, FINDING_USAGE)
 
+    def test_query_command_keeps_single_quote_inside_data_argument(self):
+        query = "{resource.service.name='svc-a'}"
+        command = generate._query_call(query)
+        argv = shlex.split(command)
+        index = argv.index("--data-urlencode")
+        self.assertEqual(argv[index + 1], f"query={query}")
+
 
 class CliSurface(unittest.TestCase):
     def setUp(self):
@@ -355,6 +367,162 @@ class ImportTwins(unittest.TestCase):
         import pipelines.obs.catalog as packaged
 
         self.assertIs(packaged, catalog)
+
+
+R401_ROW = (
+    "'tempo', 'tiny-r401', 'tiny-r401-left', 'svc-a', 'lsvc-b', 'dash', 'ldash', '.yq',"
+    " 'fail line', 'fix line', 'fv', 'xv', '.false.yq', 'false lead', 'fo', 'fn', 'fp',"
+    " 'f2o', 'f2n', 'f2p', 'lie', 'llie', 'new_vs', 73"
+)
+
+
+def _spec_index(**pin) -> dict:
+    row = {"mill_id": "obs_leftover9", "count": 1, "first": "a", "last": "b", **pin}
+    return {"kind": catalog.SPEC_INDEX_KIND, "total": 1, "mills": [row]}
+
+
+class RefusalBranches(unittest.TestCase):
+    """Each extracted check's refusal fires with its code and message."""
+
+    @contextlib.contextmanager
+    def _refusal(self, code, message):
+        with self.assertRaises(ObsRefusal) as caught:
+            yield
+        self.assertEqual(caught.exception.code, code)
+        self.assertIn(message, str(caught.exception))
+
+    def _catalog_copy(self, edit_meta=None, specs=None) -> Path:
+        root = Path(tempfile.mkdtemp(prefix="obs-refusal-"))
+        self.addCleanup(shutil.rmtree, root, True)
+        dest = root / "catalog"
+        shutil.copytree(FIXTURE, dest)
+        meta_path = dest / "CATALOG.json"
+        meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        if specs is not None:
+            payload = (json.dumps(specs, sort_keys=True) + "\n").encode("utf-8")
+            (dest / "leftover-specs.jsonl").write_bytes(payload)
+            meta["digests"]["leftover_specs_sha256"] = hashlib.sha256(payload).hexdigest()
+            meta["plant_count"] = 2
+        if edit_meta is not None:
+            edit_meta(meta)
+        meta_path.write_text(json.dumps(meta, indent=2) + "\n", encoding="utf-8")
+        return dest
+
+    def test_const_eval_reads_containers_and_refuses_the_rest(self):
+        expected = [1, (2, -3), {4}, {"k": -1.5}]
+        node = ast.parse("[1, (2, -3), {4}, {'k': -1.5}]", mode="eval").body
+        self.assertEqual(catalog._const_eval(node), expected)
+        for text, message in (
+            ("{**extra}", "uses dict unpacking"),
+            ("{1: name, **extra}", "uses dict unpacking"),
+            ("not 1", "(UnaryOp)"),
+            ("name", "(Name)"),
+        ):
+            node = ast.parse(text, mode="eval").body
+            with self.subTest(text=text), self._refusal(FINDING_SOURCE_NOT_PARSEABLE, message):
+                catalog._const_eval(node)
+
+    def test_kind_bits_read_one_row_per_kind_and_default_to_am(self):
+        for kind in catalog.DEFAULT_KIND_NS:
+            with self.subTest(kind=kind):
+                bits = catalog._kind_bits(kind, "svc-a", "lsvc-b", "fv")
+                self.assertEqual(tuple(bits), catalog._KIND_BIT_KEYS)
+                self.assertIn("svc-a", bits["query"])
+                self.assertIn("lsvc-b", bits["lquery"])
+                self.assertIn("fv", bits["exec_err"] + bits["exec_obs"])
+        self.assertEqual(catalog._kind_bits("zzz", "s-1", "l", "f"),
+                         catalog._kind_bits("am", "s-1", "l", "f"))
+
+    def test_positional_r401_plants_expand_with_kind_bits(self):
+        rows = catalog.plants_from_source(f"PAIRS = [P({R401_ROW})]\n", mill_id="obs_r401",
+                                          source="r401.py", shape="hop")
+        self.assertEqual(rows[0]["query"], '{resource.service.name="svc-a"}')
+        self.assertEqual(rows[0]["ns"], "tempo")
+        self.assertEqual(rows[0]["file"], "tempo/dash.yaml")
+
+    def test_plants_from_source_refuses_each_malformed_literal(self):
+        hop = {key: "x" for key in catalog.HOP_REQUIRED}
+        spec = {key: "x" for key in catalog.SPEC_REQUIRED}
+        missing = catalog.FINDING_PLANT_FIELD_MISSING
+        invalid = catalog.FINDING_PLANT_FIELD_INVALID
+        cases = (
+            ("PAIRS = [x.y()]", "obs_r1", FINDING_SOURCE_NOT_PARSEABLE, "(Call)"),
+            ("PAIRS = [foo()]", "obs_r1", FINDING_SOURCE_NOT_PARSEABLE, "(Call)"),
+            ("PAIRS = [P(1, k=2)]", "obs_r1", FINDING_SOURCE_NOT_PARSEABLE, "(Call)"),
+            ("PAIRS = [{'slug': 's'}]", "obs-1", invalid, "is not obs_*"),
+            ("PAIRS = [(1, 2)]", "obs_r1", FINDING_SOURCE_NOT_PARSEABLE,
+             "s.py[0] is not an object"),
+            ("PAIRS = [{'slug': 's'}]", "obs_r1", missing, "s.py[0] missing lslug"),
+            (f"PAIRS = [{dict(hop, slug='-x')!r}]", "obs_r1", invalid, "is not a plant slug"),
+            ("SPECS = [(1, 2)]", "obs_leftover9", FINDING_SOURCE_NOT_PARSEABLE,
+             "is not a 17-tuple"),
+            ("SPECS = [{'vendor': 'v'}]", "obs_leftover9", missing, "s.py[0] missing ok_slug"),
+            (f"SPECS = [{dict(spec, ok_slug='-x')!r}]", "obs_leftover9", invalid,
+             "s.py[0].ok_slug is not a slug"),
+        )
+        for text, mill_id, code, message in cases:
+            with self.subTest(message=message, text=text[:24]), self._refusal(code, message):
+                catalog.plants_from_source(text + "\n", mill_id=mill_id, source="s.py")
+        origin = catalog._Origin("obs_leftover9", "s.py", 9)
+        with self._refusal(FINDING_SOURCE_NOT_PARSEABLE, "s.py[0] is not an object"):
+            catalog._spec_from_raw(1, origin, 0, "leftover9")
+
+    def test_plant_rows_refuse_an_unknown_shape_or_missing_key(self):
+        row = json.loads((FIXTURE / "hop-plants.jsonl").read_text(encoding="utf-8"))
+        loose = dict(row, shape="loose")
+        with self._refusal(catalog.FINDING_PLANT_FIELD_INVALID, "p.shape is not a reviewed shape"):
+            catalog._plant_from_row(loose, "p")
+        trimmed = {key: value for key, value in row.items() if key != "lslug"}
+        with self._refusal(catalog.FINDING_PLANT_FIELD_MISSING, "p missing lslug"):
+            catalog._plant_from_row(trimmed, "p")
+
+    def test_spec_index_catalog_loads_and_refuses_drifted_pins(self):
+        loaded = catalog.load_catalog(self._catalog_copy(specs=_spec_index()))
+        self.assertEqual(loaded.leftover_spec_index["total"], 1)
+        self.assertEqual(len(loaded.plants), 2)
+        cases = (
+            (_spec_index(count=2), "obs_leftover9 leftover-spec index does not match"),
+            (_spec_index(mill_id="obs_leftover10"), "index mills do not match catalog"),
+        )
+        for specs, message in cases:
+            copy = self._catalog_copy(specs=specs)
+            with (
+                self.subTest(message=message),
+                self._refusal(FINDING_CATALOG_FIELD_INVALID, message),
+            ):
+                catalog.load_catalog(copy)
+
+    def test_mill_pins_refuse_a_plant_mill_missing_from_the_catalog(self):
+        loaded = catalog.load_catalog(FIXTURE)
+        with self._refusal(FINDING_CATALOG_FIELD_INVALID, "catalog mills do not match"):
+            catalog._refuse_mill_pins(loaded.mills[:2], loaded.plants, None)
+
+    def test_catalog_header_refusals(self):
+        cases = (
+            (lambda meta: meta.update(format="obs-catalog/0"), "format must be obs-catalog/1"),
+            (lambda meta: meta.update(quota_per_round=3), "quota_per_round must be 2"),
+        )
+        for edit, message in cases:
+            copy = self._catalog_copy(edit)
+            with (
+                self.subTest(message=message),
+                self._refusal(FINDING_CATALOG_FIELD_INVALID, message),
+            ):
+                catalog.load_catalog(copy)
+        broken = self._catalog_copy()
+        (broken / "CATALOG.json").write_text("{", encoding="utf-8")
+        with self._refusal(FINDING_CATALOG_FIELD_INVALID, "CATALOG.json is not strict JSON"):
+            catalog.load_catalog(broken)
+
+    def test_job_selection_by_mill_and_with_no_pair_plants(self):
+        loaded = catalog.load_catalog(FIXTURE)
+        request = generate.GenerateRequest(FIXTURE, Path("unused"), mill_id="obs_r0002")
+        selected = generate._selected_plants(loaded, request)
+        self.assertEqual(selected, loaded.mill_plants("obs_r0002"))
+        specs_only = replace(loaded, plants=loaded.mill_plants("obs_leftover9"))
+        everything = generate.GenerateRequest(FIXTURE, Path("unused"), all_plants=True)
+        with self._refusal(FINDING_USAGE, "catalog has no hop or leftover3 plants"):
+            generate._selected_plants(specs_only, everything)
 
 
 if __name__ == "__main__":

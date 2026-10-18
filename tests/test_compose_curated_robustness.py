@@ -37,7 +37,8 @@ def record_context(path: str, line: int, sha256: str) -> compose_curated.RecordC
 class ComposeSourceLineResourceLimits(unittest.TestCase):
     """One malformed line must be excluded, never abort the whole composition."""
 
-    def compose(self, physical_line):
+    @staticmethod
+    def compose(physical_line):
         return compose_curated.compose_source_line(
             physical_line,
             compose_curated.SourceLineCoordinate(
@@ -164,7 +165,8 @@ class ComposeSourceLineResourceLimits(unittest.TestCase):
         added = []
 
         class CapturingIndex:
-            def add(self, *args, **kwargs):
+            @staticmethod
+            def add(*args, **kwargs):
                 added.append((args, kwargs))
 
             @staticmethod
@@ -192,7 +194,8 @@ class ComposeSourceLineResourceLimits(unittest.TestCase):
         added = []
 
         class CapturingIndex:
-            def add(self, *args, **kwargs):
+            @staticmethod
+            def add(*args, **kwargs):
                 added.append((args, kwargs))
 
             @staticmethod
@@ -314,7 +317,8 @@ class CodingStepRepairDeferral(unittest.TestCase):
     the lane that knows how to repair, exactly like the bridge-order path.
     """
 
-    def compose(self, record, line=1):
+    @staticmethod
+    def compose(record, line=1):
         return compose_curated.compose_record(
             record,
             record_context("agentic-coding-trajectory-factory/batch-r01.jsonl", line, "6" * 64),
