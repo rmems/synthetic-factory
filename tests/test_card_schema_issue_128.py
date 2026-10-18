@@ -40,11 +40,11 @@ class ObservabilityDebugDeclarationTests(DeclarationTestCase):
         "tags": ["synthetic-data", "trajectories", "observability", "tracing"],
     }
     SUMMARY = publisher.PayloadSummary(
-        records=1749,
-        bytes_=10567586,
+        records=2869,
+        bytes_=17170432,
         first="r01",
-        last="r875",
-        names=["batch-r01.jsonl", "batch-r500.jsonl", "batch-r875.jsonl"],
+        last="r1435",
+        names=["batch-r01.jsonl", "batch-r500.jsonl", "batch-r1435.jsonl"],
     )
 
     def test_declaration_matches_the_observed_union_schema(self):
@@ -54,14 +54,15 @@ class ObservabilityDebugDeclarationTests(DeclarationTestCase):
             with self.subTest(scalar=scalar):
                 self.assertEqual(names[scalar]["dtype"], "string")
                 self.assertNotIn("optional", names[scalar])
-                self.assertIn("present on all 1749 records", names[scalar]["note"])
-        # `plan` is a string on all 1749 records here, unlike #36 where it is optional.
+                self.assertIn("present on all 2869 records", names[scalar]["note"])
+        # `plan` is a string on all 2869 records here, unlike #36 where it is optional.
         self.assertNotIn("optional", names["plan"])
         self.assertEqual(names["plan"]["dtype"], "string")
         self.assertEqual(names["meta"]["dtype"], "json")
         self.assertEqual(names["reward"]["dtype"], "json")
         self.assert_episode_steps(names)
-        self.assertEqual(self.declaration["issues"], [69])
+        self.assertIn(69, self.declaration["issues"])
+        self.assertIn(405, self.declaration["issues"])
 
     def test_episode_only_extras_are_optional_typed_structs_not_json(self):
         names = self.names()

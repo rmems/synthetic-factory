@@ -11,9 +11,9 @@ from __future__ import annotations
 import ast
 import hashlib
 import json
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeGuard
 
 from .catalog_ast import (
     UNSET,
@@ -62,6 +62,38 @@ PAIR_IDENTITY_KEYS = (
     "success_plant",
     "success_slug",
 )
+# Unpack order of an ``add``/``add_row`` catalog row and of a ``RAW`` literal row.
+_CATALOG_ROW_FIELDS = (
+    "success_slug",
+    "success_domain",
+    "fail_slug",
+    "fail_domain",
+    "leftover_ok",
+    "leftover_bad",
+    "first_ok",
+    "first_bad",
+    "fix_ok",
+    "fix_bad",
+    "kind",
+)
+_RAW_ROW_FIELDS = (
+    "success_slug",
+    "success_domain",
+    "leftover_ok",
+    "first_ok",
+    "fix_ok",
+    "fail_slug",
+    "fail_domain",
+    "leftover_bad",
+    "first_bad",
+    "fix_bad",
+    "kind",
+)
+# Defaults for a parameterless ``catalog()``: (dest, start_round, eval_pair offset).
+_PLAIN_CATALOG_DEFAULTS = {
+    SHAPE_FSTRING: ("mill_plants_aa", 1161, 680),
+    SHAPE_ADD_TABLES: ("mill_plants_w", 801, 320),
+}
 PAIR_ROW_KEYS = (
     "dest",
     "fail_domain",
@@ -158,18 +190,7 @@ def _extract_catalogs(
 ) -> list[dict[str, Any]]:
     raw = env.get("RAW")
     if isinstance(raw, list) and raw:
-        planted = _plant_raw_rows(raw, env, _void_base(tree, default=72))
-        dest = _destination_module(tree) or "mill_plants_x"
-        return [
-            _catalog_record(
-                SHAPE_RAW,
-                planted,
-                dest=dest,
-                start_round=catalog_first_from_name(path) or 927,
-                void_base=_void_base(tree, default=72),
-                offset=_eval_pair_offset(tree, default=446),
-            )
-        ]
+        return [_raw_catalog(tree, env, raw, path=path)]
 
     catalog_fn = function_named(tree, "catalog")
     if catalog_fn is None:
@@ -177,47 +198,74 @@ def _extract_catalogs(
 
     emit_calls = _emit_calls(tree, dict(env))
     if emit_calls:
-        catalogs = []
-        for emit in emit_calls:
-            bindings = {name: emit[name] for name in _CATALOG_PARAMS}
-            rows = _interpret_catalog(catalog_fn, env, bindings, path=path)
-            planted = _plant_catalog_rows(rows, env, emit["void_base"])
-            catalogs.append(
-                _catalog_record(
-                    SHAPE_PARAM,
-                    planted,
-                    dest=emit["mod"],
-                    start_round=emit["start_round"],
-                    void_base=emit["void_base"],
-                    offset=emit["offset"],
-                    tag=emit["tag"],
-                    to=emit["to"],
-                    kw1=emit["kw1"],
-                    kw2=emit["kw2"],
-                    kw3=emit["kw3"],
-                )
-            )
-        return catalogs
-
+        return [_param_catalog(catalog_fn, env, emit, path=path) for emit in emit_calls]
     rows = _interpret_catalog(catalog_fn, env, {}, path=path)
+    return [_plain_catalog(tree, env, rows, path=path)]
+
+
+def _raw_catalog(
+    tree: ast.AST,
+    env: Mapping[str, Any],
+    raw: list[Any],
+    *,
+    path: str,
+) -> dict[str, Any]:
+    planted = _plant_raw_rows(raw, env, _void_base(tree, default=72))
+    dest = _destination_module(tree) or "mill_plants_x"
+    return _catalog_record(
+        SHAPE_RAW,
+        planted,
+        {
+            "dest": dest,
+            "start_round": catalog_first_from_name(path) or 927,
+            "void_base": _void_base(tree, default=72),
+            "offset": _eval_pair_offset(tree, default=446),
+        },
+    )
+
+
+def _param_catalog(
+    catalog_fn: ast.FunctionDef,
+    env: Mapping[str, Any],
+    emit: Mapping[str, Any],
+    *,
+    path: str,
+) -> dict[str, Any]:
+    bindings = {name: emit[name] for name in _CATALOG_PARAMS}
+    rows = _interpret_catalog(catalog_fn, env, bindings, path=path)
+    planted = _plant_catalog_rows(rows, env, emit["void_base"])
+    return _catalog_record(
+        SHAPE_PARAM,
+        planted,
+        {
+            "dest": emit["mod"],
+            "start_round": emit["start_round"],
+            "void_base": emit["void_base"],
+            "offset": emit["offset"],
+        },
+        params=bindings,
+    )
+
+
+def _plain_catalog(
+    tree: ast.AST,
+    env: Mapping[str, Any],
+    rows: list[tuple[Any, ...]],
+    *,
+    path: str,
+) -> dict[str, Any]:
     void_base = _void_base(tree, default=59 if "PLANTED_OK" in env else 96)
     planted = _plant_catalog_rows(rows, env, void_base)
     shape = SHAPE_FSTRING if "METS" in env else SHAPE_ADD_TABLES
-    dest = _destination_module(tree) or (
-        "mill_plants_aa" if shape == SHAPE_FSTRING else "mill_plants_w"
+    default_dest, default_start, default_offset = _PLAIN_CATALOG_DEFAULTS[shape]
+    dest = _destination_module(tree) or default_dest
+    start = catalog_first_from_name(path) or default_start
+    offset = _eval_pair_offset(tree, default=default_offset)
+    return _catalog_record(
+        shape,
+        planted,
+        {"dest": dest, "start_round": start, "void_base": void_base, "offset": offset},
     )
-    start = catalog_first_from_name(path) or (1161 if shape == SHAPE_FSTRING else 801)
-    offset = _eval_pair_offset(tree, default=680 if shape == SHAPE_FSTRING else 320)
-    return [
-        _catalog_record(
-            shape,
-            planted,
-            dest=dest,
-            start_round=start,
-            void_base=void_base,
-            offset=offset,
-        )
-    ]
 
 
 def _interpret_catalog(
@@ -230,7 +278,7 @@ def _interpret_catalog(
     local = dict(env)
     local.update(args)
     rows: list[tuple[Any, ...]] = []
-    _exec_body(fn.body, local, rows, path=path, fn_name=fn.name)
+    _exec_body(fn.body, local, rows, f"{path}:{fn.name}")
     return rows
 
 
@@ -238,34 +286,32 @@ def _exec_body(
     body: list[ast.stmt],
     env: dict[str, Any],
     rows: list[tuple[Any, ...]],
-    *,
-    path: str,
-    fn_name: str,
+    ctx: str,
 ) -> Any:
-    ctx = f"{path}:{fn_name}"
+    """Run one ``catalog()`` body; ``ctx`` is ``"<path>:<fn name>"``.
+
+    Assignments, ``for`` loops, bare calls and ``return`` run here; nested defs and
+    every other statement are skipped. Dispatching in this frame keeps a nested
+    ``for`` at two frames per level (``_exec_body`` and ``_exec_for``).
+    """
+
     for stmt in body:
-        if isinstance(stmt, ast.FunctionDef):
-            continue
         if isinstance(stmt, (ast.Assign, ast.AnnAssign)):
             _exec_assign(stmt, env, ctx)
-            continue
-        if isinstance(stmt, ast.For):
-            _exec_for(stmt, env, rows, path=path, fn_name=fn_name)
-            continue
-        if isinstance(stmt, ast.Expr) and isinstance(stmt.value, ast.Call):
+        elif isinstance(stmt, ast.For):
+            _exec_for(stmt, env, rows, ctx)
+        elif isinstance(stmt, ast.Expr) and isinstance(stmt.value, ast.Call):
             _exec_call(stmt.value, env, rows, ctx)
-            continue
-        if isinstance(stmt, ast.Return):
-            if stmt.value is None:
-                return None
-            return require(stmt.value, env, f"{ctx} return")
+        elif isinstance(stmt, ast.Return):
+            return None if stmt.value is None else require(stmt.value, env, f"{ctx} return")
     return UNSET
 
 
 def _exec_assign(stmt: ast.stmt, env: dict[str, Any], ctx: str) -> None:
     if isinstance(stmt, ast.AnnAssign):
-        if isinstance(stmt.target, ast.Name) and stmt.value is not None:
-            env[stmt.target.id] = require(stmt.value, env, f"{ctx} assign")
+        annotated = _annotated_binding(stmt)
+        if annotated is not None:
+            env[annotated[0]] = require(annotated[1], env, f"{ctx} assign")
         return
     if not isinstance(stmt, ast.Assign) or len(stmt.targets) != 1:
         raise ValueError(f"{ctx}: unsupported assignment")
@@ -275,30 +321,45 @@ def _exec_assign(stmt: ast.stmt, env: dict[str, Any], ctx: str) -> None:
         env[target.id] = value
         return
     if isinstance(target, ast.Tuple) and isinstance(value, (tuple, list)):
-        names = [elt.id for elt in target.elts if isinstance(elt, ast.Name)]
-        if len(names) != len(value):
-            raise ValueError(f"{ctx}: unpack length mismatch")
-        for name, item in zip(names, value, strict=True):
-            env[name] = item
+        _unpack_names(target, value, env, ctx)
         return
     raise ValueError(f"{ctx}: unsupported assignment target")
+
+
+def _annotated_binding(stmt: ast.AnnAssign) -> tuple[str, ast.expr] | None:
+    """``(name, value)`` for ``name: T = value``; a bare annotation binds nothing."""
+
+    if isinstance(stmt.target, ast.Name) and stmt.value is not None:
+        return stmt.target.id, stmt.value
+    return None
+
+
+def _unpack_names(
+    target: ast.Tuple,
+    value: tuple[Any, ...] | list[Any],
+    env: dict[str, Any],
+    ctx: str,
+) -> None:
+    names = [elt.id for elt in target.elts if isinstance(elt, ast.Name)]
+    if len(names) != len(value):
+        raise ValueError(f"{ctx}: unpack length mismatch")
+    for name, item in zip(names, value, strict=True):
+        env[name] = item
 
 
 def _exec_for(
     stmt: ast.For,
     env: dict[str, Any],
     rows: list[tuple[Any, ...]],
-    *,
-    path: str,
-    fn_name: str,
+    ctx: str,
 ) -> None:
-    ctx = f"{path}:{fn_name}:for"
-    iterable = require(stmt.iter, env, ctx)
+    for_ctx = f"{ctx}:for"
+    iterable = require(stmt.iter, env, for_ctx)
     if not isinstance(iterable, (list, tuple)):
-        raise ValueError(f"{ctx}: iter is not a sequence")
+        raise ValueError(f"{for_ctx}: iter is not a sequence")
     for item in iterable:
-        _bind_target(stmt.target, item, env, ctx)
-        _exec_body(stmt.body, env, rows, path=path, fn_name=fn_name)
+        _bind_target(stmt.target, item, env, for_ctx)
+        _exec_body(stmt.body, env, rows, ctx)
 
 
 def _bind_target(target: ast.AST, value: Any, env: dict[str, Any], ctx: str) -> None:
@@ -337,31 +398,7 @@ def _plant_catalog_rows(
     env: Mapping[str, Any],
     void_base: int,
 ) -> list[dict[str, Any]]:
-    ok_names, bad_names = _plant_name_tables(env)
-    planted = []
-    for index, row in enumerate(rows):
-        if len(row) != 11:
-            raise ValueError(f"catalog row is not an 11-tuple: {len(row)}")
-        ok_slug, ok_dom, bad_slug, bad_dom, lok, lbad, fok, fbad, xok, xbad, kind = row
-        plant_n = void_base + index // 10
-        planted.append(
-            _pair_identity(
-                ok_slug,
-                ok_dom,
-                bad_slug,
-                bad_dom,
-                f"{ok_names[index % 10]}-{plant_n}",
-                f"{bad_names[index % 10]}-{plant_n}",
-                lok,
-                lbad,
-                fok,
-                fbad,
-                xok,
-                xbad,
-                kind,
-            )
-        )
-    return planted
+    return _plant_rows(map(_catalog_row_fields, rows), env, void_base)
 
 
 def _plant_raw_rows(
@@ -369,28 +406,37 @@ def _plant_raw_rows(
     env: Mapping[str, Any],
     void_base: int,
 ) -> list[dict[str, Any]]:
+    return _plant_rows(map(_raw_row_fields, raw), env, void_base)
+
+
+def _catalog_row_fields(row: tuple[Any, ...]) -> dict[str, Any]:
+    if len(row) != 11:
+        raise ValueError(f"catalog row is not an 11-tuple: {len(row)}")
+    return dict(zip(_CATALOG_ROW_FIELDS, row, strict=True))
+
+
+def _raw_row_fields(row: Any) -> dict[str, Any]:
+    if not isinstance(row, (tuple, list)) or len(row) != 11:
+        raise ValueError("RAW row is not an 11-tuple")
+    return dict(zip(_RAW_ROW_FIELDS, row, strict=True))
+
+
+def _plant_rows(
+    field_rows: Iterable[Mapping[str, Any]],
+    env: Mapping[str, Any],
+    void_base: int,
+) -> list[dict[str, Any]]:
+    """Name each row's plants; the name tables are checked before any row is."""
+
     ok_names, bad_names = _plant_name_tables(env)
     planted = []
-    for index, row in enumerate(raw):
-        if not isinstance(row, (tuple, list)) or len(row) != 11:
-            raise ValueError("RAW row is not an 11-tuple")
-        ok_slug, ok_dom, lok, fok, xok, bad_slug, bad_dom, lbad, fbad, xbad, kind = row
+    for index, fields in enumerate(field_rows):
         plant_n = void_base + index // 10
         planted.append(
             _pair_identity(
-                ok_slug,
-                ok_dom,
-                bad_slug,
-                bad_dom,
+                fields,
                 f"{ok_names[index % 10]}-{plant_n}",
                 f"{bad_names[index % 10]}-{plant_n}",
-                lok,
-                lbad,
-                fok,
-                fbad,
-                xok,
-                xbad,
-                kind,
             )
         )
     return planted
@@ -407,70 +453,54 @@ def _plant_name_tables(env: Mapping[str, Any]) -> tuple[list[str], list[str]]:
 
 
 def _pair_identity(
-    ok_slug: Any,
-    ok_dom: Any,
-    bad_slug: Any,
-    bad_dom: Any,
+    fields: Mapping[str, Any],
     ok_plant: Any,
     bad_plant: Any,
-    leftover_ok: Any,
-    leftover_bad: Any,
-    first_ok: Any,
-    first_bad: Any,
-    fix_ok: Any,
-    fix_bad: Any,
-    kind: Any,
 ) -> dict[str, Any]:
     return {
-        "success_slug": ok_slug,
-        "success_domain": ok_dom,
-        "fail_slug": bad_slug,
-        "fail_domain": bad_dom,
+        "success_slug": fields["success_slug"],
+        "success_domain": fields["success_domain"],
+        "fail_slug": fields["fail_slug"],
+        "fail_domain": fields["fail_domain"],
         "success_plant": ok_plant,
         "fail_plant": bad_plant,
-        "leftover_ok": leftover_ok,
-        "leftover_bad": leftover_bad,
-        "first_ok": first_ok,
-        "first_bad": first_bad,
-        "fix_ok": fix_ok,
-        "fix_bad": fix_bad,
-        "kind": kind,
+        "leftover_ok": fields["leftover_ok"],
+        "leftover_bad": fields["leftover_bad"],
+        "first_ok": fields["first_ok"],
+        "first_bad": fields["first_bad"],
+        "fix_ok": fields["fix_ok"],
+        "fix_bad": fields["fix_bad"],
+        "kind": fields["kind"],
     }
 
 
 def _catalog_record(
     shape: str,
     pairs: list[dict[str, Any]],
+    placement: Mapping[str, Any],
     *,
-    dest: str,
-    start_round: int,
-    void_base: int,
-    offset: int,
-    tag: str | None = None,
-    to: int | None = None,
-    kw1: str | None = None,
-    kw2: str | None = None,
-    kw3: str | None = None,
+    params: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
+    """``placement`` is where the mill emits the rows (``dest``, ``start_round``,
+    ``void_base``, ``offset``); ``params`` are the ``catalog(tag, to, kw1, kw2, kw3)``
+    bindings, if any."""
+
     if not pairs:
-        raise ValueError(f"{dest} extracted zero pairs")
+        raise ValueError(f"{placement['dest']} extracted zero pairs")
     record = {
-        "dest": dest,
+        "dest": placement["dest"],
         "shape": shape,
         "n_rows": len(pairs),
         "first_slug": pairs[0]["success_slug"],
         "last_slug": pairs[-1]["success_slug"],
-        "start_round": start_round,
-        "void_base": void_base,
-        "offset": offset,
+        "start_round": placement["start_round"],
+        "void_base": placement["void_base"],
+        "offset": placement["offset"],
         "pairs": pairs,
     }
-    if tag is not None:
-        record["tag"] = tag
-        record["to"] = to
-        record["kw1"] = kw1
-        record["kw2"] = kw2
-        record["kw3"] = kw3
+    if params is not None and params["tag"] is not None:
+        for key in _CATALOG_PARAMS:
+            record[key] = params[key]
     return record
 
 
@@ -482,26 +512,42 @@ def _emit_calls(tree: ast.AST, env: dict[str, Any]) -> list[dict[str, Any]]:
     local = dict(env)
     rebuilt: list[dict[str, Any]] = []
     for stmt in main.body:
-        call = None
-        assigned = None
-        if isinstance(stmt, ast.Assign) and len(stmt.targets) == 1:
-            if isinstance(stmt.targets[0], ast.Name) and isinstance(stmt.value, ast.Call):
-                assigned = stmt.targets[0].id
-                call = stmt.value
-        elif isinstance(stmt, ast.Expr) and isinstance(stmt.value, ast.Call):
-            call = stmt.value
-        if call is None or not isinstance(call.func, ast.Name) or call.func.id != "emit":
+        assigned, call = _statement_call(stmt)
+        if not _is_emit_call(call):
             continue
-        args = [require(arg, local, "main:emit") for arg in call.args]
-        if len(args) != len(_EMIT_FIELDS):
-            raise ValueError("emit() does not have 10 positional arguments")
-        record = dict(zip(_EMIT_FIELDS, args, strict=True))
+        record = _emit_record(call, local)
         bindings = {name: record[name] for name in _CATALOG_PARAMS}
         rows = _interpret_catalog(catalog_fn, env, bindings, path="emit")
         if assigned is not None:
             local[assigned] = len(rows)
         rebuilt.append(record)
     return rebuilt
+
+
+def _statement_call(stmt: ast.stmt) -> tuple[str | None, ast.Call | None]:
+    """``(name, call)`` for ``name = f(...)``; ``(None, call)`` for ``f(...)``."""
+
+    if isinstance(stmt, ast.Expr) and isinstance(stmt.value, ast.Call):
+        return None, stmt.value
+    if not isinstance(stmt, ast.Assign) or len(stmt.targets) != 1:
+        return None, None
+    target = stmt.targets[0]
+    if isinstance(target, ast.Name) and isinstance(stmt.value, ast.Call):
+        return target.id, stmt.value
+    return None, None
+
+
+def _is_emit_call(call: ast.Call | None) -> TypeGuard[ast.Call]:
+    if call is None or not isinstance(call.func, ast.Name):
+        return False
+    return call.func.id == "emit"
+
+
+def _emit_record(call: ast.Call, env: Mapping[str, Any]) -> dict[str, Any]:
+    args = [require(arg, env, "main:emit") for arg in call.args]
+    if len(args) != len(_EMIT_FIELDS):
+        raise ValueError("emit() does not have 10 positional arguments")
+    return dict(zip(_EMIT_FIELDS, args, strict=True))
 
 
 def _void_base(tree: ast.AST, *, default: int) -> int:
@@ -530,34 +576,46 @@ def _void_base_from_body(body: list[ast.stmt]) -> int | None:
 
 def _eval_pair_offset(tree: ast.AST, *, default: int) -> int:
     for node in ast.walk(tree):
-        if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Name):
-            continue
-        if node.func.id != "eval_pair" or len(node.args) < 2:
-            continue
-        offset_node = node.args[-2]
-        if isinstance(offset_node, ast.BinOp) and isinstance(offset_node.op, ast.Add):
-            right = resolve(offset_node.right, {})
-            if isinstance(right, int):
-                return right
+        offset = _eval_pair_call_offset(node)
+        if offset is not None:
+            return offset
     return default
 
 
+def _eval_pair_call_offset(node: ast.AST) -> int | None:
+    """``N`` from ``eval_pair(..., <expr> + N, <last>)``; else ``None``."""
+
+    if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Name):
+        return None
+    if node.func.id != "eval_pair" or len(node.args) < 2:
+        return None
+    offset_node = node.args[-2]
+    if not isinstance(offset_node, ast.BinOp) or not isinstance(offset_node.op, ast.Add):
+        return None
+    right = resolve(offset_node.right, {})
+    return right if isinstance(right, int) else None
+
+
 def _destination_module(tree: ast.AST) -> str | None:
-    for node in getattr(tree, "body", ()):
-        name, value = assignment_of(node)
-        if name == "OUT" and value is not None:
-            found = joined_path_constant(value)
-            if found:
-                return Path(found).stem
+    found = _assigned_path_stem(getattr(tree, "body", ()), "OUT")
+    if found is not None:
+        return found
     main = function_named(tree, "main")
     if main is None:
         return None
-    for stmt in main.body:
-        name, value = assignment_of(stmt)
-        if name == "dest" and value is not None:
-            found = joined_path_constant(value)
-            if found:
-                return Path(found).stem
+    return _assigned_path_stem(main.body, "dest")
+
+
+def _assigned_path_stem(body: Iterable[ast.stmt], name: str) -> str | None:
+    """Stem of the first non-empty joined-path constant assigned to ``name``."""
+
+    for stmt in body:
+        assigned, value = assignment_of(stmt)
+        if assigned != name or value is None:
+            continue
+        found = joined_path_constant(value)
+        if found:
+            return Path(found).stem
     return None
 
 
@@ -661,30 +719,41 @@ def dumps_catalog(document: Mapping[str, Any]) -> str:
 
 
 def _encode(value: Any, level: int, key: str | None) -> str:
+    # Recursion stays in this function (the comprehensions run in its frame), so a
+    # nested dict or list level costs one frame; _encode_flat never recurses.
     pad = "  " * level
+    flat = _encode_flat(value, pad, key)
+    if flat is not None:
+        return flat
     if isinstance(value, dict):
-        if not value:
-            return "{}"
         parts = [
             f"{pad}  {json.dumps(item_key)}: {_encode(value[item_key], level + 1, item_key)}"
             for item_key in sorted(value)
         ]
         return "{\n" + ",\n".join(parts) + f"\n{pad}}}"
-    if isinstance(value, list):
-        if not value:
-            return "[]"
-        if key == "pairs":
-            lines = [
-                f"{pad}  "
-                + json.dumps(
-                    item, ensure_ascii=True, sort_keys=True, separators=(", ", ": ")
-                )
-                for item in value
-            ]
-            return "[\n" + ",\n".join(lines) + f"\n{pad}]"
-        lines = [f"{pad}  {_encode(item, level + 1, None)}" for item in value]
-        return "[\n" + ",\n".join(lines) + f"\n{pad}]"
-    return json.dumps(value, ensure_ascii=True)
+    lines = [f"{pad}  {_encode(item, level + 1, None)}" for item in value]
+    return _bracketed(lines, pad)
+
+
+def _encode_flat(value: Any, pad: str, key: str | None) -> str | None:
+    """Scalars, empty containers, and a ``pairs`` list (one compact pair identity per
+    line); ``None`` for a non-empty dict or list that needs ``_encode`` to recurse."""
+
+    if not isinstance(value, (dict, list)):
+        return json.dumps(value, ensure_ascii=True)
+    if not value:
+        return "{}" if isinstance(value, dict) else "[]"
+    if isinstance(value, dict) or key != "pairs":
+        return None
+    lines = [
+        f"{pad}  " + json.dumps(item, ensure_ascii=True, sort_keys=True, separators=(", ", ": "))
+        for item in value
+    ]
+    return _bracketed(lines, pad)
+
+
+def _bracketed(lines: list[str], pad: str) -> str:
+    return "[\n" + ",\n".join(lines) + f"\n{pad}]"
 
 
 def catalog_json_path(package_dir: Path | None = None) -> Path:

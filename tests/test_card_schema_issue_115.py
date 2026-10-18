@@ -2,6 +2,7 @@
 """Issue #54 leaf tests for the per-dataset card schema declaration."""
 
 import unittest
+from typing import ClassVar
 
 from card_schema_test_support import (
     EPISODE_FIELD_ORDER,
@@ -30,7 +31,7 @@ class EmailWebhookRetryDeclarationTests(DeclarationTestCase):
     text: 190 records, 3131 steps, 0 parse failures.
     """
 
-    PAYLOAD_NAMES = [f"batch-r{index:02d}.jsonl" for index in range(1, 96)]
+    PAYLOAD_NAMES: ClassVar[list[str]] = [f"batch-r{index:02d}.jsonl" for index in range(1, 96)]
 
     DATASET = EMAIL_WEBHOOK
     ISSUE = 54

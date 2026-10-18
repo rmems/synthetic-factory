@@ -25,7 +25,8 @@ import curate_rewards  # noqa: E402
 
 
 class ReviewFollowUpPolicyTests(unittest.TestCase):
-    def policy(self):
+    @staticmethod
+    def policy():
         return copy.deepcopy(curate_rewards.CONVERSION_POLICY)
 
     def test_numeric_pattern_must_match_and_stay_numeric(self):

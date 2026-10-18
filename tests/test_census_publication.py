@@ -8,26 +8,18 @@ import unittest
 from pathlib import Path
 
 TESTS = Path(__file__).resolve().parent
-REPO = TESTS.parent
 sys.path.insert(0, str(TESTS))
 from test_census import _invoke, _snapshot  # noqa: E402
 
 
 class CensusProceduralPublication(unittest.TestCase):
     def test_completed_code_repair_batch_is_counted_without_changing_round_files(self):
-        from tests.code_repair_test_support import generate
-        from code_repair import publication
+        from tests.code_repair_admission_test_support import RAW_RUN, copy_published_factory
 
         with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            run_dir = root / "generated"
-            generate.run(generate.RunRequest(
-                REPO / "catalogs/python-repair-v1", run_dir,
-                20260908, 12, "2026-09-09T00:00:00.000Z",
-            ))
-            factory = root / "outputs/raw/2099-01-01/python-function-repair-factory"
-            factory.mkdir(parents=True)
-            manifest = publication.publish_run(publication.PublishRequest(run_dir, factory, 1))
+            # A private copy of the process-wide real publication; census only reads it.
+            factory = copy_published_factory(Path(temporary) / RAW_RUN)
+            manifest = json.loads((factory / "ROUND-r01.complete.json").read_bytes())
             before = _snapshot(factory)
             result = _invoke(str(factory.parent))
             self.assertEqual(result.returncode, 0, result.stderr)

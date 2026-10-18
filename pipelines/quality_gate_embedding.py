@@ -12,11 +12,21 @@ from __future__ import annotations
 import hashlib
 import itertools
 import math
+import sys
 import unicodedata
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 
-from quality_gate_identity import canonical_blob, semantic_similarity_view
+if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("quality_gate_embedding")
+    from .quality_gate_identity import canonical_blob, semantic_similarity_view
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "quality_gate_embedding"
+    )
+    from quality_gate_identity import canonical_blob, semantic_similarity_view
 
 
 DEFAULT_EMBEDDING_THRESHOLD: float = 0.97
@@ -704,3 +714,7 @@ def _embedding_duplicates(records, threshold, max_pairs):
         records, union, best_match, threshold
     )
     return duplicates, clusters, stats
+
+
+if __package__:
+    _expose_package_sibling(__name__)

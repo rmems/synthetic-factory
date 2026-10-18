@@ -22,7 +22,7 @@ from tests.code_repair_test_support import required_item
 class EmittedEvidenceContract(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.root, cls.run_dir, cls.records, cls.row = build_generated_admission_evidence(cls)
+        cls.root, cls.run_dir, cls.records, cls.row = build_generated_admission_evidence()
         cls.trusted = admission.load_trusted_catalog(cls.row)
 
     def candidates_with(self, changed):

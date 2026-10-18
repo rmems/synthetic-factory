@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import multiprocessing
 import sys
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Iterable
 
 if __package__:
     from . import pipeline_import_catalog

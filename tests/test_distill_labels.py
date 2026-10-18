@@ -31,7 +31,8 @@ class FamilyOracleLabels(unittest.TestCase):
         patcher.start()
         self.addCleanup(patcher.stop)
 
-    def leak_findings(self, errors):
+    @staticmethod
+    def leak_findings(errors):
         return [e for e in errors if oc.LABEL_IN_GENERATOR_NAMESPACE in e]
 
     def test_a_missing_family_policy_is_a_finding_not_a_skip(self):

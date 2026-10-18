@@ -19,6 +19,7 @@ from ._contract import (
     FINDING_AST_NOT_A_PLANT,
     FINDING_FIELD_INVALID,
     FINDING_SOURCE_NOT_PARSEABLE,
+    MacRefusal,
     bind_import_twin,
     refuse,
     refuse_when,
@@ -38,11 +39,10 @@ __all__ = [
 
 
 def _const(node: ast.AST, where: str) -> Any:
-    refuse_when(
-        not isinstance(node, ast.Constant),
-        FINDING_AST_NOT_A_PLANT,
-        f"{where} is not a constant ({type(node).__name__})",
-    )
+    if not isinstance(node, ast.Constant):
+        raise MacRefusal(
+            FINDING_AST_NOT_A_PLANT, f"{where} is not a constant ({type(node).__name__})"
+        )
     return node.value
 
 
@@ -103,9 +103,10 @@ def _assigned_name(node: ast.AST) -> tuple[str, ast.AST] | None:
         target = node.targets[0]
         if isinstance(target, ast.Name):
             return target.id, node.value
-    if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
-        if node.value is not None:
-            return node.target.id, node.value
+    if not isinstance(node, ast.AnnAssign) or node.value is None:
+        return None
+    if isinstance(node.target, ast.Name):
+        return node.target.id, node.value
     return None
 
 
@@ -136,26 +137,48 @@ def plants_from_source(text: str) -> tuple[dict[str, Any], ...]:
     if not isinstance(tree, ast.Module):
         refuse(FINDING_SOURCE_NOT_PARSEABLE, "mill source is not a module")
 
-    scen: list[dict[str, Any]] = []
-    for node in tree.body:
-        bound = _assigned_name(node)
-        if bound is None or bound[0] != "SCEN" or not isinstance(bound[1], ast.List):
-            continue
-        for index, elt in enumerate(bound[1].elts):
-            if isinstance(elt, ast.Call):
-                row = _scen_row(elt, f"SCEN[{index}]")
-                if row is not None:
-                    scen.append(row)
+    scen = _scen_rows(tree)
     if scen:
         return tuple(scen)
 
+    rows = _call_rows(tree)
+    if rows:
+        return rows
+    refuse(FINDING_AST_NOT_A_PLANT, "source has no P(), A(), or SCEN catalog")
+
+
+def _scen_list(node: ast.AST) -> ast.List | None:
+    """The list literal bound to ``SCEN`` by ``node``, if it binds one."""
+    bound = _assigned_name(node)
+    if bound is None or bound[0] != "SCEN":
+        return None
+    return bound[1] if isinstance(bound[1], ast.List) else None
+
+
+def _scen_list_rows(listed: ast.List) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for index, elt in enumerate(listed.elts):
+        if isinstance(elt, ast.Call):
+            row = _scen_row(elt, f"SCEN[{index}]")
+            if row is not None:
+                rows.append(row)
+    return rows
+
+
+def _scen_rows(tree: ast.Module) -> list[dict[str, Any]]:
+    scen: list[dict[str, Any]] = []
+    for node in tree.body:
+        listed = _scen_list(node)
+        if listed is not None:
+            scen.extend(_scen_list_rows(listed))
+    return scen
+
+
+def _call_rows(tree: ast.Module) -> tuple[dict[str, Any], ...]:
+    """``A()`` rows when the source has any, else its ``P()`` rows (possibly none)."""
     visitor = _CatalogVisitor()
     visitor.visit(tree)
-    if visitor.a_rows:
-        return tuple(visitor.a_rows)
-    if visitor.p_rows:
-        return tuple(visitor.p_rows)
-    refuse(FINDING_AST_NOT_A_PLANT, "source has no P(), A(), or SCEN catalog")
+    return tuple(visitor.a_rows or visitor.p_rows)
 
 
 bind_import_twin(__name__)

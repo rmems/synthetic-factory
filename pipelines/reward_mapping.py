@@ -155,7 +155,8 @@ def _pointer(tokens) -> str:
     return "/" + "/".join(_pointer_escape(token) for token in tokens)
 
 
-def _policy_disposition(key, observed_types, arithmetic):
+def _declared_group_disposition(key, arithmetic):
+    """The disposition a non-component key group assigns to ``key``, or None."""
     groups = arithmetic["non_component_keys"]
     if key == arithmetic["declared_total_field"]:
         return DISPOSITION_DECLARED_TOTAL
@@ -163,11 +164,27 @@ def _policy_disposition(key, observed_types, arithmetic):
         return DISPOSITION_UNIT_CALIBRATION
     if key in groups[DISPOSITION_NARRATIVE]:
         return DISPOSITION_NARRATIVE
-    types = set(observed_types)
+    return None
+
+
+def _policy_disposition(key, observed_types, arithmetic):
+    declared = _declared_group_disposition(key, arithmetic)
+    if declared is not None:
+        return declared
+    return _observed_type_disposition(key, set(observed_types), arithmetic)
+
+
+def _observed_type_disposition(key, types, arithmetic):
+    """Numbers are magnitude terms and strings narrative; the rest is structural."""
     if types <= {"number", "value-object"}:
         return DISPOSITION_MAGNITUDE_TERM
     if types == {"string"}:
         return DISPOSITION_NARRATIVE
+    return _structural_disposition(key, types, arithmetic)
+
+
+def _structural_disposition(key, types, arithmetic):
+    """Object/array keys are structure, or a container when declared; others are ambiguous."""
     if types == {"object"}:
         return (
             DISPOSITION_CONTAINER

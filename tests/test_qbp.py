@@ -190,28 +190,24 @@ class QbpGenerateTests(unittest.TestCase):
             lines = batch.read_text(encoding="utf-8").splitlines()
             self.assertEqual(len(lines), 2)
             self.assertEqual(json.loads(lines[0])["id"], written[0].ok["id"])
+            again = gen.GenerateRequest(
+                catalog=loaded,
+                mill_id="qbp-mill-leftover3-r42",
+                rounds=(42,),
+            )
             with self.assertRaises(QbpRefusal) as raised:
-                gen.generate(
-                    dest,
-                    gen.GenerateRequest(
-                        catalog=loaded,
-                        mill_id="qbp-mill-leftover3-r42",
-                        rounds=(42,),
-                    ),
-                )
+                gen.generate(dest, again)
             self.assertEqual(raised.exception.code, FINDING_GENERATE_DEST_EXISTS)
 
     def test_generate_refuses_the_raw_tree(self):
         loaded = catalog_check(root=REPO)
+        request = gen.GenerateRequest(
+            catalog=loaded,
+            mill_id="qbp-mill-leftover3-r42",
+            rounds=(42,),
+        )
         with self.assertRaises(QbpRefusal) as raised:
-            gen.generate(
-                DEFAULT_RAW_OUTPUT_ROOT / "qbp-forbidden",
-                gen.GenerateRequest(
-                    catalog=loaded,
-                    mill_id="qbp-mill-leftover3-r42",
-                    rounds=(42,),
-                ),
-            )
+            gen.generate(DEFAULT_RAW_OUTPUT_ROOT / "qbp-forbidden", request)
         self.assertEqual(raised.exception.code, FINDING_GENERATE_RAW_TREE)
 
 

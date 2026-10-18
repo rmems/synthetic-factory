@@ -13,7 +13,8 @@ class SourceBoundaries(unittest.TestCase):
     def setUp(self):
         self.source = _dict_source([TINY_PAIR], FAC=FACTORY, PREFIX=RECORD_PREFIX)
 
-    def _extract(self, source, **kwargs):
+    @staticmethod
+    def _extract(source, **kwargs):
         return catalog.plants_from_source(source, mill_id="csv_r114", source="literal.py", **kwargs)
 
     def _refuses(self, source):
@@ -93,7 +94,7 @@ class SourceBoundaries(unittest.TestCase):
         original = self.source
 
         class ForgedSource(str):
-            def encode(self, *args, **kwargs):
+            def encode(self, *_args, **_kwargs):
                 return original.encode("utf-8")
 
         self._refuses(ForgedSource(self.source))

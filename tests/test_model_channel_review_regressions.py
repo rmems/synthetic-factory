@@ -231,15 +231,25 @@ class FacadeCompatibility(unittest.TestCase):
             generate._require_episode(mismatched)
 
     def test_staged_check_episode_rejects_the_legacy_kwargs(self):
-        with self.assertRaises(TypeError):
-            validate_run_episode.check_episode(
-                episode_payload(),
-                "candidate episode",
-                **{
-                    "forbid_hidden_thought": True,
-                    "enforce_terminal_outcome": True,
-                },
-            )
+        payload = episode_payload()
+        staged = validate_run_episode.EpisodeOptions(
+            forbid_hidden_thought=True, enforce_terminal_outcome=True
+        )
+        # The same arguments in the staged spelling validate cleanly, so the
+        # only thing that can raise below is the legacy keyword itself.
+        self.assertEqual(
+            validate_run_episode.check_episode(payload, "candidate episode", options=staged),
+            [],
+        )
+        for legacy in ("forbid_hidden_thought", "enforce_terminal_outcome"):
+            with (
+                self.subTest(legacy=legacy),
+                self.assertRaisesRegex(
+                    TypeError,
+                    rf"^check_episode\(\) got an unexpected keyword argument '{legacy}'$",
+                ),
+            ):
+                validate_run_episode.check_episode(payload, "candidate episode", **{legacy: True})
 
 
 class OperatorPathGuards(unittest.TestCase):

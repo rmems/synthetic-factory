@@ -204,19 +204,21 @@ class SignatureEscapingTests(unittest.TestCase):
                 self.assertEqual(reward_parse._signature_members(signature, "shape"), {key: "int"})
 
 
-class FactoryNameContractTests(unittest.TestCase):
-    def _validate_factory(self, name):
-        entry = {"records": 1, "comparability": {"class": 1}, "reason_codes": {"reason": 1}}
-        return reward_vocabulary._validate_factory_entry(name, entry, "policy", {"class"}, {"reason"})
+def _validate_factory(name):
+    entry = {"records": 1, "comparability": {"class": 1}, "reason_codes": {"reason": 1}}
+    catalogues = reward_vocabulary._ClassificationCatalogues({"class"}, {"reason"})
+    return reward_vocabulary._validate_factory_entry(name, entry, "policy", catalogues)
 
+
+class FactoryNameContractTests(unittest.TestCase):
     def test_factory_names_follow_the_existing_schema_pattern(self):
         for name in (" ", "\t", "Factory", "factory_name", "factory/name", "-factory", "factory\n"):
             with self.subTest(name=name):
                 with self.assertRaisesRegex(reward_parse.RewardOntologyError, "factory names must match"):
-                    self._validate_factory(name)
+                    _validate_factory(name)
         for name in ("factory", "factory-2", "2factory", "x-"):
             with self.subTest(name=name):
-                self.assertEqual(self._validate_factory(name)[0], 1)
+                self.assertEqual(_validate_factory(name)[0], 1)
 
     def test_source_component_names_remain_literal(self):
         contract = reward_parse.NamedObjectContract("keys", "bad key", "entry", "bad entry")

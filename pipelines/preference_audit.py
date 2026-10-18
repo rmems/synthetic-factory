@@ -67,26 +67,48 @@ def build_audit(run: CurationRun) -> dict[str, Any]:
 
     summary = run.summary
     impure_pairs = [
-        {
-            "source_path": entry["source_path"],
-            "source_line": entry["source_line"],
-            "source_sha256": entry["source_sha256"],
-            "record_id": entry["source_record_id"],
-            "action": entry["action"],
-            "classification": entry["classification"],
-            "reason_codes": list(entry["reason_codes"]),
-            "same_state": entry["same_state"],
-            "same_proposed_action": entry["same_proposed_action"],
-            "divergent_context_fields": _divergent_context_fields(entry),
-            "context_diff_paths": list(entry["context_diff_paths"]),
-        }
-        for entry in run.manifest
-        if entry["action"] in (ACTION_REPAIRED, ACTION_EXCLUDED)
-        and (
-            entry["same_state"] is not True
-            or entry["same_proposed_action"] is not True
-        )
+        _impure_pair_row(entry) for entry in run.manifest if _is_audited_impure_entry(entry)
     ]
+    _require_balanced_reconciliation(summary, impure_pairs)
+    return {
+        "schema_version": AUDIT_SCHEMA_VERSION,
+        "audit": AUDIT_NAME,
+        "transform": dict(summary["transform"]),
+        "summary": _audit_summary(summary),
+        "source_files": [dict(entry) for entry in run.source_files],
+        "impure_pairs": impure_pairs,
+    }
+
+
+def _is_audited_impure_entry(entry: dict[str, Any]) -> bool:
+    """A repaired or excluded pair whose two sides do not provably share context."""
+
+    if entry["action"] not in (ACTION_REPAIRED, ACTION_EXCLUDED):
+        return False
+    return entry["same_state"] is not True or entry["same_proposed_action"] is not True
+
+
+def _impure_pair_row(entry: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "source_path": entry["source_path"],
+        "source_line": entry["source_line"],
+        "source_sha256": entry["source_sha256"],
+        "record_id": entry["source_record_id"],
+        "action": entry["action"],
+        "classification": entry["classification"],
+        "reason_codes": list(entry["reason_codes"]),
+        "same_state": entry["same_state"],
+        "same_proposed_action": entry["same_proposed_action"],
+        "divergent_context_fields": _divergent_context_fields(entry),
+        "context_diff_paths": list(entry["context_diff_paths"]),
+    }
+
+
+def _require_balanced_reconciliation(
+    summary: dict[str, Any], impure_pairs: list[dict[str, Any]]
+) -> None:
+    """The listed rows and the four divergence buckets must both equal the impure count."""
+
     balanced = (
         summary["state_only_divergent_pairs"]
         + summary["proposed_action_only_divergent_pairs"]
@@ -99,29 +121,27 @@ def build_audit(run: CurationRun) -> dict[str, Any]:
             f"({len(impure_pairs)} listed, {balanced} bucketed, "
             f"{summary['impure_pairs']} impure)"
         )
+
+
+def _audit_summary(summary: dict[str, Any]) -> dict[str, Any]:
+    """The published counters, renamed from the curation summary they reconcile against."""
+
     return {
-        "schema_version": AUDIT_SCHEMA_VERSION,
-        "audit": AUDIT_NAME,
-        "transform": dict(summary["transform"]),
-        "summary": {
-            "preference_pairs": summary["preference_records"],
-            "impure_pairs": summary["impure_pairs"],
-            "same_state_pairs": summary["same_state_pairs"],
-            "state_divergent_pairs": summary["state_divergent_pairs"],
-            "state_undetermined_pairs": summary["state_undetermined_pairs"],
-            "proposed_action_divergent_pairs": summary["proposed_action_divergent_pairs"],
-            "proposed_action_undetermined_pairs": summary["proposed_action_undetermined_pairs"],
-            "state_only_divergent_pairs": summary["state_only_divergent_pairs"],
-            "proposed_action_only_divergent_pairs": summary["proposed_action_only_divergent_pairs"],
-            "both_context_fields_divergent_pairs": summary["both_context_fields_divergent_pairs"],
-            "context_undetermined_pairs": summary["context_undetermined_pairs"],
-            "curated_retained_pairs": summary["retained_pairs"],
-            "curated_repaired_pairs": summary["actions"].get(ACTION_REPAIRED, 0),
-            "curated_excluded_pairs": summary["excluded_pairs"],
-            "retained_context_purity_pct": summary["retained_context_purity_pct"],
-        },
-        "source_files": [dict(entry) for entry in run.source_files],
-        "impure_pairs": impure_pairs,
+        "preference_pairs": summary["preference_records"],
+        "impure_pairs": summary["impure_pairs"],
+        "same_state_pairs": summary["same_state_pairs"],
+        "state_divergent_pairs": summary["state_divergent_pairs"],
+        "state_undetermined_pairs": summary["state_undetermined_pairs"],
+        "proposed_action_divergent_pairs": summary["proposed_action_divergent_pairs"],
+        "proposed_action_undetermined_pairs": summary["proposed_action_undetermined_pairs"],
+        "state_only_divergent_pairs": summary["state_only_divergent_pairs"],
+        "proposed_action_only_divergent_pairs": summary["proposed_action_only_divergent_pairs"],
+        "both_context_fields_divergent_pairs": summary["both_context_fields_divergent_pairs"],
+        "context_undetermined_pairs": summary["context_undetermined_pairs"],
+        "curated_retained_pairs": summary["retained_pairs"],
+        "curated_repaired_pairs": summary["actions"].get(ACTION_REPAIRED, 0),
+        "curated_excluded_pairs": summary["excluded_pairs"],
+        "retained_context_purity_pct": summary["retained_context_purity_pct"],
     }
 
 

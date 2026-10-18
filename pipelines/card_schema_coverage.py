@@ -10,7 +10,17 @@ file. Both directions are reported rather than tolerated (see
 
 from __future__ import annotations
 
+import sys
 from fnmatch import fnmatchcase
+
+if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("card_schema_coverage")
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "card_schema_coverage"
+    )
 
 __all__ = ("payload_coverage_errors",)
 
@@ -93,3 +103,7 @@ def payload_coverage_errors(declaration: dict, payload_names: list[str]) -> list
             + ", ".join(unused)
         )
     return errors
+
+
+if __package__:
+    _expose_package_sibling(__name__)

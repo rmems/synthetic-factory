@@ -73,17 +73,9 @@ def _gate_compute_blockers(bridge):
     ]
 
 
-def _distillation_blockers(bridge):
+def _raster_blockers(bridge, denominator):
+    """Sidecar, routing-table, and raster-defect blockers for distillation records."""
     blockers = []
-    denominator = bridge.get("distillation_records", 0)
-    if bridge.get("wrong_kind_records"):
-        blockers.append(
-            f"{bridge['wrong_kind_records']} wrong-kind distillation records "
-            f"(non-Bridge records in {BRIDGE_FACTORY_SLUG} batches, "
-            f"non-Thalamic records in {THALAMIC_FACTORY_SLUG} or "
-            f"{OUROBOROS_FACTORY_SLUG} batches)"
-        )
-
     messages = (
         (
             "raster_missing_pairs",
@@ -106,9 +98,12 @@ def _distillation_blockers(bridge):
             f"{defects}/{denominator} raster-gated distillation records have raster or "
             f"spike-budget defects ({codes})"
         )
+    return blockers
 
-    blockers.extend(_gate_compute_blockers(bridge))
 
+def _gate_snn_blockers(bridge):
+    """Missing-batch and invalid-spec blockers for spike-implemented gates."""
+    blockers = []
     missing_batches = bridge.get("gate_snn_missing_batches", 0)
     batch_count = bridge.get("gate_snn_batches", 0)
     if missing_batches:
@@ -123,6 +118,22 @@ def _distillation_blockers(bridge):
             f"{invalid_gates}/{bridge.get('gate_snn_records', 0)} "
             "spike-implemented gate specs are invalid"
         )
+    return blockers
+
+
+def _distillation_blockers(bridge):
+    blockers = []
+    denominator = bridge.get("distillation_records", 0)
+    if bridge.get("wrong_kind_records"):
+        blockers.append(
+            f"{bridge['wrong_kind_records']} wrong-kind distillation records "
+            f"(non-Bridge records in {BRIDGE_FACTORY_SLUG} batches, "
+            f"non-Thalamic records in {THALAMIC_FACTORY_SLUG} or "
+            f"{OUROBOROS_FACTORY_SLUG} batches)"
+        )
+    blockers.extend(_raster_blockers(bridge, denominator))
+    blockers.extend(_gate_compute_blockers(bridge))
+    blockers.extend(_gate_snn_blockers(bridge))
     return blockers
 
 
@@ -335,6 +346,33 @@ def _add_oracle_report(report, state):
             report["training_ready"] = False
 
 
+def _totals_report(state, eligible_records):
+    """The stable ``totals`` section, keyed in its published order."""
+    totals = state["totals"]
+    return {
+        "files": totals["files"],
+        "records": totals["records"],
+        "eligible_records": eligible_records,
+        "parity_research_records": totals["parity_research_records"],
+        "research_only_records": totals["research_only_records"],
+        "invalid_parity_records": totals["invalid_parity_records"],
+        "exact_json_contract_errors": totals["exact_json_contract_errors"],
+        "bytes": totals["bytes"],
+        "approx_tokens": totals["approx_tokens"],
+        "by_kind": dict(sorted(state["kinds"].items())),
+    }
+
+
+def _record_invariants_report(state):
+    """Error and warning counts with their first ten examples."""
+    return {
+        "errors": len(state["record_errors"]),
+        "warnings": len(state["unresolved_record_warnings"]),
+        "error_examples": state["record_errors"][:10],
+        "warning_examples": state["unresolved_record_warnings"][:10],
+    }
+
+
 def build_report(**state):
     """Assemble the stable public report from eligible-record counters."""
 
@@ -352,18 +390,7 @@ def build_report(**state):
     gates, gate_errors = _gate_report(state)
     report = {
         "run_dir": str(state["run_dir"]),
-        "totals": {
-            "files": totals["files"],
-            "records": totals["records"],
-            "eligible_records": eligible_records,
-            "parity_research_records": totals["parity_research_records"],
-            "research_only_records": totals["research_only_records"],
-            "invalid_parity_records": totals["invalid_parity_records"],
-            "exact_json_contract_errors": totals["exact_json_contract_errors"],
-            "bytes": totals["bytes"],
-            "approx_tokens": totals["approx_tokens"],
-            "by_kind": dict(sorted(state["kinds"].items())),
-        },
+        "totals": _totals_report(state, eligible_records),
         "factories": _factory_report(state["factories"]),
         "mill_mix": state["mill_mix"],
         "identity": _identity_report(state, eligible_records),
@@ -380,12 +407,7 @@ def build_report(**state):
         "episodes": dict(state["episodes"]),
         "hidden_thought_examples": state["hidden_thought_examples"],
         "exact_duplicates": state["exact_duplicates"],
-        "record_invariants": {
-            "errors": len(state["record_errors"]),
-            "warnings": len(state["unresolved_record_warnings"]),
-            "error_examples": state["record_errors"][:10],
-            "warning_examples": state["unresolved_record_warnings"][:10],
-        },
+        "record_invariants": _record_invariants_report(state),
         "blockers": blockers,
         "training_ready": not blockers,
     }

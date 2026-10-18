@@ -10,7 +10,8 @@ from pipelines import curate_identity as identity, curate_parity_policy as polic
 
 
 class ParityRegistry(unittest.TestCase):
-    def _load(self, row, schema='factory-registry-v0.4'):
+    @staticmethod
+    def _load(row, schema='factory-registry-v0.4'):
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary) / 'registry.json'
             path.write_text(json.dumps({'schema_version': schema, 'lookup_key': 'path_id', 'factories': [row]}))
@@ -41,8 +42,9 @@ class ParityRegistry(unittest.TestCase):
 
     def test_legacy_schema_cannot_claim_native_route(self):
         for version in ('factory-registry-v0.1', 'factory-registry-v0.2', 'factory-registry-v0.3'):
+            row = policy.reviewed_row('hardware_parity')
             with self.subTest(version=version), self.assertRaises(identity.IdentityCurationError):
-                self._load(policy.reviewed_row('hardware_parity'), version)
+                self._load(row, version)
 
     def test_modified_policy_copy_has_no_authority(self):
         document = policy.load_policy()

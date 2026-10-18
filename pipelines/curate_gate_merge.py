@@ -118,6 +118,17 @@ class MergeScope(NamedTuple):
         return self._replace(path=(*self.path, part))
 
 
+def _all_instances(kind: type, *values: Any) -> bool:
+    return all(isinstance(value, kind) for value in values)
+
+
+def _aligned_lists(baseline: Any, current: Any, lane_value: Any) -> bool:
+    """Three lists of one length merge position by position."""
+    return _all_instances(list, baseline, current, lane_value) and (
+        len(baseline) == len(current) == len(lane_value)
+    )
+
+
 def _merge_lane_delta(
     baseline: Any,
     current: Any,
@@ -137,12 +148,10 @@ def _merge_lane_delta(
     if _same_json(current, lane_value):
         return copy.deepcopy(current)
 
-    if all(isinstance(value, dict) for value in (baseline, current, lane_value)):
+    if _all_instances(dict, baseline, current, lane_value):
         return _merge_object_delta(baseline, current, lane_value, scope)
 
-    if all(isinstance(value, list) for value in (baseline, current, lane_value)) and (
-        len(baseline) == len(current) == len(lane_value)
-    ):
+    if _aligned_lists(baseline, current, lane_value):
         return _merge_sequence_delta(baseline, current, lane_value, scope)
 
     source_path, source_line = scope.source_key

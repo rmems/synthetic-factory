@@ -8,6 +8,17 @@ JSONL slices for ``code-review-preference-factory``. Catalog rows carry
 
 __all__ = ("_contract catalog generate cli r432 r538").split()
 
+from typing import TYPE_CHECKING
+
 from ._contract import bind_import_twin
+
+if TYPE_CHECKING:
+    from pathlib import Path
+    from typing import Any, Protocol
+
+    class WaveCatalogCheck(Protocol):
+        """``catalog_check`` as ``wave_catalog.install_wave`` binds it on each wave module."""
+
+        def __call__(self, directory: Path | None = None) -> dict[str, Any]: ...
 
 bind_import_twin(__name__)

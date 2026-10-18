@@ -309,7 +309,8 @@ class LegacyCodingManifestFixtureTests(unittest.TestCase):
 
 
 class CurateCodingVerifyCliTests(unittest.TestCase):
-    def run_cli(self, *arguments):
+    @staticmethod
+    def run_cli(*arguments):
         return subprocess.run(
             [sys.executable, str(PIPELINES / "curate_coding.py"), *arguments],
             capture_output=True,
@@ -334,7 +335,8 @@ class CurateCodingVerifyCliTests(unittest.TestCase):
                 {"expected_source_steps": 2, "violations": []},
             )
 
-    def _episode_output_paths(self, root: Path):
+    @staticmethod
+    def _episode_output_paths(root: Path):
         source = root / "episodes.jsonl"
         output = root / "new" / "coding.jsonl"
         manifest = root / "new" / "manifest.jsonl"

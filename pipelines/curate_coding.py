@@ -35,6 +35,7 @@ import re
 import sys
 import unicodedata
 from collections import Counter
+from collections.abc import Iterable, Iterator
 from pathlib import Path
 from typing import Any, cast
 
@@ -192,29 +193,44 @@ def _normalize_text(value: Any) -> str | None:
     return normalized or None
 
 
+def _is_sentence_end(text: str, index: int) -> bool:
+    """Whether ``text[index]`` closes a sentence: terminal punctuation, then space or end."""
+    if text[index] not in ".!?":
+        return False
+    return index + 1 == len(text) or text[index + 1].isspace()
+
+
+def _sentence_ends_within(text: str, limit: int) -> list[int]:
+    """Every sentence-end offset up to ``limit``; stops at the first one beyond it."""
+    sentence_ends = []
+    for index in range(len(text)):
+        if not _is_sentence_end(text, index):
+            continue
+        if index + 1 > limit:
+            break
+        sentence_ends.append(index + 1)
+    return sentence_ends
+
+
+def _word_boundary_excerpt(text: str, limit: int) -> str:
+    """Cut at the last word boundary before ``limit`` (or hard-cut) and mark the elision."""
+    cut = text.rfind(" ", 0, limit)
+    if cut < max(24, limit // 2):
+        cut = limit - 1
+    return text[:cut].rstrip(" ,;:-") + "…"
+
+
 def _concise(text: str, limit: int = MAX_DECISION_BASIS_CHARS) -> tuple[str, bool]:
     """Normalize text and retain a bounded visible-evidence excerpt."""
     normalized = " ".join(text.split())
     if len(normalized) <= limit:
         return normalized, False
 
-    sentence_ends = []
-    for index, character in enumerate(normalized):
-        if character in ".!?" and (
-            index + 1 == len(normalized) or normalized[index + 1].isspace()
-        ):
-            if index + 1 <= limit:
-                sentence_ends.append(index + 1)
-            else:
-                break
-
+    sentence_ends = _sentence_ends_within(normalized, limit)
     if sentence_ends and sentence_ends[-1] >= min(48, limit // 2):
         return normalized[: sentence_ends[-1]], True
 
-    cut = normalized.rfind(" ", 0, limit)
-    if cut < max(24, limit // 2):
-        cut = limit - 1
-    return normalized[:cut].rstrip(" ,;:-") + "…", True
+    return _word_boundary_excerpt(normalized, limit), True
 
 
 def _visible_value(value: Any) -> str | None:
@@ -225,6 +241,22 @@ def _visible_value(value: Any) -> str | None:
     if isinstance(value, (dict, list)) and value:
         return canonical_json(value)
     return None
+
+
+def _structured_tool_call_evidence(tool_call: dict[str, Any]) -> str:
+    """Render a non-empty tool-call mapping from its visible name and arguments."""
+    tool_name = _normalize_text(tool_call.get("name")) or "unnamed tool"
+    args = tool_call.get("args")
+    if isinstance(args, (dict, list)) and args:
+        return f"{tool_name} with visible arguments {canonical_json(args)}"
+    return tool_name
+
+
+def _tool_call_evidence(tool_call: Any) -> str | None:
+    """Visible tool-call evidence: a non-empty mapping, else non-blank text, else None."""
+    if isinstance(tool_call, dict) and tool_call:
+        return _structured_tool_call_evidence(tool_call)
+    return _normalize_text(tool_call)
 
 
 def _derive_decision_basis(step: dict[str, Any]) -> tuple[str | None, str | None, bool]:
@@ -239,28 +271,17 @@ def _derive_decision_basis(step: dict[str, Any]) -> tuple[str | None, str | None
         basis, concised = _concise(f"{label}: {evidence}")
         return basis, field, concised
 
-    tool_call = step.get("tool_call")
-    if isinstance(tool_call, dict) and tool_call:
-        tool_name = _normalize_text(tool_call.get("name")) or "unnamed tool"
-        args = tool_call.get("args")
-        if isinstance(args, (dict, list)) and args:
-            evidence = f"{tool_name} with visible arguments {canonical_json(args)}"
-        else:
-            evidence = tool_name
-        basis, concised = _concise(f"Tool call: {evidence}")
-        return basis, "tool_call", concised
-
-    tool_text = _normalize_text(tool_call)
-    if tool_text is not None:
-        basis, concised = _concise(f"Tool call: {tool_text}")
+    tool_evidence = _tool_call_evidence(step.get("tool_call"))
+    if tool_evidence is not None:
+        basis, concised = _concise(f"Tool call: {tool_evidence}")
         return basis, "tool_call", concised
 
     return None, None, False
 
 
-def curate_step(step: Any, source_step_index: int) -> tuple[dict[str, Any] | None, dict[str, Any]]:
-    """Curate one step and return its output plus a step-level manifest entry."""
-    manifest: dict[str, Any] = {
+def _new_step_manifest(step: Any, source_step_index: int) -> dict[str, Any]:
+    """The step-level manifest entry before curation decides the step's action."""
+    return {
         "source_step_index": source_step_index,
         "source_step_number": step.get("n") if isinstance(step, dict) else None,
         "action": "excluded",
@@ -268,6 +289,16 @@ def curate_step(step: Any, source_step_index: int) -> tuple[dict[str, Any] | Non
         "evidence_source": None,
         "hidden_reasoning_fields_removed": 0,
     }
+
+
+def _removal_reasons(removed: int) -> list[str]:
+    """The leading reason code that reports a hidden-reasoning removal, if any."""
+    return [REASON_HIDDEN_REASONING_REMOVED] if removed else []
+
+
+def curate_step(step: Any, source_step_index: int) -> tuple[dict[str, Any] | None, dict[str, Any]]:
+    """Curate one step and return its output plus a step-level manifest entry."""
+    manifest = _new_step_manifest(step, source_step_index)
     if not isinstance(step, dict):
         manifest["reason_codes"] = [REASON_STEP_NOT_OBJECT]
         return None, manifest
@@ -276,19 +307,13 @@ def curate_step(step: Any, source_step_index: int) -> tuple[dict[str, Any] | Non
     manifest["hidden_reasoning_fields_removed"] = removed
     basis, evidence_source, concised = _derive_decision_basis(cleaned)
     if basis is None:
-        reasons = []
-        if removed:
-            reasons.append(REASON_HIDDEN_REASONING_REMOVED)
-        reasons.append(REASON_NO_VISIBLE_EVIDENCE)
-        manifest["reason_codes"] = reasons
+        manifest["reason_codes"] = _removal_reasons(removed) + [REASON_NO_VISIBLE_EVIDENCE]
         return None, manifest
 
     prior_basis = cleaned.get("decision_basis")
     cleaned["decision_basis"] = basis
     changed = bool(removed) or prior_basis != basis
-    reasons = []
-    if removed:
-        reasons.append(REASON_HIDDEN_REASONING_REMOVED)
+    reasons = _removal_reasons(removed)
     reasons.append(_EVIDENCE_REASON[cast(str, evidence_source)])
     if concised:
         reasons.append(REASON_BASIS_CONCISED)
@@ -387,6 +412,74 @@ def _record_steps(record: Any) -> list[Any] | None:
     return steps if isinstance(steps, list) else None
 
 
+def _curate_steps(steps: list[Any]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Curate every source step; return the retained steps and one action per source step."""
+    retained_steps = []
+    step_actions = []
+    for source_index, step in enumerate(steps, 1):
+        curated_step, step_manifest = curate_step(step, source_index)
+        if curated_step is not None:
+            retained_steps.append(curated_step)
+            step_manifest["output_step_index"] = len(retained_steps)
+        else:
+            step_manifest["output_step_index"] = None
+        step_actions.append(step_manifest)
+    return retained_steps, step_actions
+
+
+def _step_counts(
+    steps: list[Any],
+    retained_steps: list[dict[str, Any]],
+    step_actions: list[dict[str, Any]],
+) -> dict[str, int]:
+    """The record-level step accounting: source, retained, migrated, and excluded."""
+    migrated = sum(item["action"] == "migrated" for item in step_actions)
+    excluded = sum(item["action"] == "excluded" for item in step_actions)
+    return {
+        "source": len(steps),
+        "retained": len(retained_steps),
+        "migrated": migrated,
+        "excluded": excluded,
+    }
+
+
+def _episode_reasons(
+    record_reasoning_removed: int,
+    record_steps_path: str,
+    step_counts: dict[str, int],
+) -> list[str]:
+    """Reason codes for an emitted episode, in manifest order."""
+    reasons = _removal_reasons(record_reasoning_removed)
+    if record_steps_path != "steps":
+        reasons.append(REASON_WRAP_RECORD)
+    if step_counts["migrated"]:
+        reasons.append(REASON_STEPS_MIGRATED)
+    if step_counts["excluded"]:
+        reasons.append(REASON_STEPS_EXCLUDED)
+    return reasons
+
+
+def _emit_episode(
+    manifest: dict[str, Any],
+    record: dict[str, Any],
+    cleaned_record: dict[str, Any],
+    reasons: list[str],
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Record the emitted episode's action, reasons, and output identity."""
+    changed = cleaned_record != record
+    manifest.update(
+        {
+            "action": "modified" if changed else "unchanged",
+            "reason_codes": reasons,
+            "output_id": _record_id(cleaned_record),
+            "output_hash": hash_value(cleaned_record),
+        }
+    )
+    if contains_hidden_reasoning_key(cleaned_record):
+        raise AssertionError("coding curation emitted a hidden-reasoning key")
+    return cleaned_record, manifest
+
+
 def curate_episode(
     record: Any,
     *,
@@ -414,25 +507,8 @@ def curate_episode(
 
     cleaned_record, record_reasoning_removed = _strip_hidden_reasoning_keys(record)
     manifest["hidden_reasoning_fields_removed"] = record_reasoning_removed
-    retained_steps = []
-    step_actions = []
-    for source_index, step in enumerate(steps, 1):
-        curated_step, step_manifest = curate_step(step, source_index)
-        if curated_step is not None:
-            retained_steps.append(curated_step)
-            step_manifest["output_step_index"] = len(retained_steps)
-        else:
-            step_manifest["output_step_index"] = None
-        step_actions.append(step_manifest)
-
-    migrated = sum(item["action"] == "migrated" for item in step_actions)
-    excluded = sum(item["action"] == "excluded" for item in step_actions)
-    manifest["step_counts"] = {
-        "source": len(steps),
-        "retained": len(retained_steps),
-        "migrated": migrated,
-        "excluded": excluded,
-    }
+    retained_steps, step_actions = _curate_steps(steps)
+    manifest["step_counts"] = _step_counts(steps, retained_steps, step_actions)
     manifest["step_actions"] = step_actions
 
     if not retained_steps:
@@ -440,28 +516,10 @@ def curate_episode(
         return None, manifest
 
     _steps_holder(cleaned_record, record_steps_path)["steps"] = retained_steps
-    reasons = []
-    if record_reasoning_removed:
-        reasons.append(REASON_HIDDEN_REASONING_REMOVED)
-    if record_steps_path != "steps":
-        reasons.append(REASON_WRAP_RECORD)
-    if migrated:
-        reasons.append(REASON_STEPS_MIGRATED)
-    if excluded:
-        reasons.append(REASON_STEPS_EXCLUDED)
-
-    changed = cleaned_record != record
-    manifest.update(
-        {
-            "action": "modified" if changed else "unchanged",
-            "reason_codes": reasons,
-            "output_id": _record_id(cleaned_record),
-            "output_hash": hash_value(cleaned_record),
-        }
+    reasons = _episode_reasons(
+        record_reasoning_removed, record_steps_path, manifest["step_counts"]
     )
-    if contains_hidden_reasoning_key(cleaned_record):
-        raise AssertionError("coding curation emitted a hidden-reasoning key")
-    return cleaned_record, manifest
+    return _emit_episode(manifest, record, cleaned_record, reasons)
 
 
 def _excluded_line_manifest(
@@ -476,72 +534,73 @@ def _excluded_line_manifest(
     return manifest
 
 
-def curate_jsonl(
-    source_path: str | Path,
-    *,
-    logical_source_path: str | None = None,
+def _record_line_bytes(terminated_line: bytes) -> bytes:
+    """Strip one physical line's LF terminator and the single CR paired with it."""
+    has_lf_terminator = terminated_line.endswith(b"\n")
+    physical_line = (
+        terminated_line[:-1]
+        if has_lf_terminator
+        else terminated_line
+    )
+    # JSONL is framed by literal LF. Remove only the one CR that is
+    # paired with that LF; any additional CR is source payload and is
+    # therefore part of the authenticated line digest.
+    return (
+        physical_line[:-1]
+        if has_lf_terminator and physical_line.endswith(b"\r")
+        else physical_line
+    )
+
+
+def _nonblank_record_lines(handle: Iterable[bytes]) -> Iterator[tuple[int, bytes]]:
+    """Yield each nonblank line's 1-based physical line number and record bytes."""
+    for line_number, terminated_line in enumerate(handle, 1):
+        raw_line = _record_line_bytes(terminated_line)
+        if raw_line.strip():
+            yield line_number, raw_line
+
+
+def _parse_record_line(raw_line: bytes) -> tuple[Any, str | None]:
+    """Decode one line as strict UTF-8 JSON; return the record or an exclusion reason."""
+    try:
+        text = raw_line.decode("utf-8")
+    except UnicodeDecodeError:
+        return None, REASON_INVALID_UTF8
+    try:
+        record = json.loads(text, parse_constant=_reject_json_constant)
+        hash_value(record)
+    except (TypeError, ValueError, RecursionError):  # json.JSONDecodeError included
+        return None, REASON_INVALID_JSON
+    return record, None
+
+
+def _curate_jsonl_line(
+    raw_line: bytes, source_label: str, line_number: int
+) -> tuple[dict[str, Any] | None, dict[str, Any]]:
+    """Curate one nonblank source line, excluding undecodable or invalid JSON."""
+    source_hash = hashlib.sha256(raw_line).hexdigest()
+    record, reason = _parse_record_line(raw_line)
+    if reason is not None:
+        return None, _excluded_line_manifest(
+            source_path=source_label,
+            source_line=line_number,
+            source_hash=source_hash,
+            reason=reason,
+        )
+    return curate_episode(
+        record,
+        source_path=source_label,
+        source_line=line_number,
+        source_hash=source_hash,
+    )
+
+
+def _jsonl_summary(
+    source_label: str,
+    records: list[dict[str, Any]],
+    manifests: list[dict[str, Any]],
 ) -> dict[str, Any]:
-    """Read a JSONL source without mutation and curate every nonblank line."""
-    source = Path(source_path)
-    source_label = logical_source_path or str(source)
-    records = []
-    manifests = []
-
-    with source.open("rb") as handle:
-        for line_number, terminated_line in enumerate(handle, 1):
-            has_lf_terminator = terminated_line.endswith(b"\n")
-            physical_line = (
-                terminated_line[:-1]
-                if has_lf_terminator
-                else terminated_line
-            )
-            # JSONL is framed by literal LF. Remove only the one CR that is
-            # paired with that LF; any additional CR is source payload and is
-            # therefore part of the authenticated line digest.
-            raw_line = (
-                physical_line[:-1]
-                if has_lf_terminator and physical_line.endswith(b"\r")
-                else physical_line
-            )
-            if not raw_line.strip():
-                continue
-            source_hash = hashlib.sha256(raw_line).hexdigest()
-            try:
-                text = raw_line.decode("utf-8")
-            except UnicodeDecodeError:
-                manifests.append(
-                    _excluded_line_manifest(
-                        source_path=source_label,
-                        source_line=line_number,
-                        source_hash=source_hash,
-                        reason=REASON_INVALID_UTF8,
-                    )
-                )
-                continue
-            try:
-                record = json.loads(text, parse_constant=_reject_json_constant)
-                hash_value(record)
-            except (json.JSONDecodeError, TypeError, ValueError, RecursionError):
-                manifests.append(
-                    _excluded_line_manifest(
-                        source_path=source_label,
-                        source_line=line_number,
-                        source_hash=source_hash,
-                        reason=REASON_INVALID_JSON,
-                    )
-                )
-                continue
-
-            curated, manifest = curate_episode(
-                record,
-                source_path=source_label,
-                source_line=line_number,
-                source_hash=source_hash,
-            )
-            manifests.append(manifest)
-            if curated is not None:
-                records.append(curated)
-
+    """Aggregate one source file's record and step dispositions."""
     step_counts: Counter[str] = Counter()
     evidence_sources: Counter[str] = Counter()
     steps_paths: Counter[str] = Counter()
@@ -554,7 +613,7 @@ def curate_jsonl(
             if evidence:
                 evidence_sources[evidence] += 1
 
-    summary = {
+    return {
         "source_path": source_label,
         "input_records": len(manifests),
         "output_records": len(records),
@@ -569,11 +628,34 @@ def curate_jsonl(
         "wrap_records": steps_paths[f"{WRAP_STEPS_PARENT}.steps"],
         "decision_basis_sources": dict(sorted(evidence_sources.items())),
     }
+
+
+def curate_jsonl(
+    source_path: str | Path,
+    *,
+    logical_source_path: str | None = None,
+) -> dict[str, Any]:
+    """Read a JSONL source without mutation and curate every nonblank line."""
+    source = Path(source_path)
+    source_label = logical_source_path or str(source)
+    records = []
+    manifests = []
+
+    with source.open("rb") as handle:
+        for line_number, raw_line in _nonblank_record_lines(handle):
+            curated, manifest = _curate_jsonl_line(raw_line, source_label, line_number)
+            manifests.append(manifest)
+            if curated is not None:
+                records.append(curated)
+
+    summary = _jsonl_summary(source_label, records, manifests)
     return {"records": records, "manifest": manifests, "summary": summary}
 
 if __package__:
+    from . import coding_run_io as _run_io
     from .coding_verify import verify_curation, verify_manifest
 else:
+    import coding_run_io as _run_io
     from coding_verify import verify_curation, verify_manifest
 
 __all__ = [
@@ -620,49 +702,16 @@ __all__ = [
 ]
 
 
-def _is_under_raw(path: Path) -> bool:
-    parts = path.resolve(strict=False).parts
-    return any(
-        parts[index : index + 2] == ("outputs", "raw")
-        for index in range(len(parts) - 1)
-    )
-
-
-def _created_file_identity(descriptor: int) -> tuple[int, int]:
-    metadata = os.fstat(descriptor)
-    return metadata.st_dev, metadata.st_ino
-
-
-def _created_directory_identity(path: Path) -> tuple[int, int]:
-    metadata = os.lstat(path)
-    return metadata.st_dev, metadata.st_ino
-
-
-def _unlink_created_file(path: Path, identity: tuple[int, int]) -> bool:
-    """Remove ``path`` only while it still names the file this process created."""
-    try:
-        metadata = os.lstat(path)
-    except FileNotFoundError:
-        return False
-    if (metadata.st_dev, metadata.st_ino) != identity:
-        return False
-    path.unlink()
-    return True
-
-
-def _rmdir_created_directory(path: Path, identity: tuple[int, int]) -> bool:
-    """Remove an empty directory only while its pathname retains our inode."""
-    try:
-        metadata = os.lstat(path)
-    except FileNotFoundError:
-        return False
-    if (metadata.st_dev, metadata.st_ino) != identity:
-        return False
-    try:
-        path.rmdir()
-    except OSError:
-        return False
-    return True
+_is_under_raw = _run_io.is_under_raw
+_created_file_identity = _run_io.created_file_identity
+_created_directory_identity = _run_io.created_directory_identity
+_unlink_created_file = _run_io.unlink_created_file
+_rmdir_created_directory = _run_io.rmdir_created_directory
+_preflight_destinations = _run_io.preflight_destinations
+_source_jsonl_paths = _run_io.source_jsonl_paths
+_new_run_destination = _run_io.new_run_destination
+_make_output_directories = _run_io.make_output_directories
+_rollback_created = _run_io.rollback_created
 
 
 def _write_new_jsonl(
@@ -686,53 +735,63 @@ def _write_new_jsonl(
     return identity
 
 
-def _preflight_destinations(paths: list[Path]) -> None:
-    resolved = [path.resolve(strict=False) for path in paths]
-    if len(set(resolved)) != len(resolved):
-        raise ValueError("output destinations must be distinct")
-    for path in paths:
-        if _is_under_raw(path):
-            raise ValueError(f"refusing to write inside immutable raw evidence: {path}")
-        if path.exists():
-            raise FileExistsError(f"refusing to replace existing destination: {path}")
+_RUN_SUMMARY_TOTALS = (
+    "input_records",
+    "output_records",
+    "excluded_records",
+    "source_steps",
+    "retained_steps",
+    "migrated_steps",
+    "excluded_steps",
+    "hidden_reasoning_fields_removed",
+    "wrap_records",
+)
 
 
-def _source_jsonl_paths(source_root: Path) -> tuple[Path, list[Path]]:
-    declared = Path(os.path.abspath(source_root))
-    if declared.is_symlink():
-        raise ValueError(f"source run must not be a symlink: {declared}")
-    try:
-        resolved = declared.resolve(strict=True)
-    except OSError as exc:
-        raise ValueError(f"source run is not a directory: {declared}") from exc
-    if not resolved.is_dir():
-        raise ValueError(f"source run is not a directory: {declared}")
-    paths = []
-    for path in resolved.rglob("*"):
-        if path.is_symlink():
-            raise ValueError(f"source run contains a symlinked path: {path}")
-        if path.is_file() and path.suffix == ".jsonl":
-            paths.append(path)
-    paths.sort(key=lambda jsonl_path: jsonl_path.relative_to(resolved).as_posix())
-    if not paths:
-        raise ValueError(f"source run holds no JSONL files: {resolved}")
-    if resolved / RUN_MANIFEST_FILENAME in paths:
-        raise ValueError(
-            f"source JSONL conflicts with aggregate manifest name: {RUN_MANIFEST_FILENAME}"
+def _write_curated_files(
+    source_root: Path,
+    source_paths: list[Path],
+    output_root: Path,
+    created_files: list[tuple[Path, tuple[int, int]]],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Curate and write each source file at its relative path; return manifests and summaries."""
+    manifests: list[dict[str, Any]] = []
+    summaries: list[dict[str, Any]] = []
+    for source_path in source_paths:
+        relative = source_path.relative_to(source_root)
+        result = curate_jsonl(
+            source_path,
+            logical_source_path=relative.as_posix(),
         )
-    return resolved, paths
+        output_path = output_root / relative
+        identity = _write_new_jsonl(output_path, result["records"])
+        created_files.append((output_path, identity))
+        manifests.extend(result["manifest"])
+        summaries.append(result["summary"])
+    return manifests, summaries
 
 
-def _new_run_destination(destination: Path, source_root: Path) -> Path:
-    declared = Path(os.path.abspath(destination))
-    if _is_under_raw(declared):
-        raise ValueError(f"refusing to write inside immutable raw evidence: {declared}")
-    if os.path.lexists(declared):
-        raise FileExistsError(f"refusing to replace existing destination: {declared}")
-    resolved = declared.resolve(strict=False)
-    if resolved == source_root or source_root in resolved.parents:
-        raise ValueError(f"output directory must be outside the source run: {declared}")
-    return declared
+def _run_summary(
+    source_root: Path,
+    output_root: Path,
+    source_paths: list[Path],
+    summaries: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Aggregate the per-file summaries into the lane-level report."""
+    evidence_sources: Counter[str] = Counter()
+    for summary in summaries:
+        evidence_sources.update(summary["decision_basis_sources"])
+    totals = {
+        field: sum(summary[field] for summary in summaries) for field in _RUN_SUMMARY_TOTALS
+    }
+    return {
+        "source_path": str(source_root),
+        "output_path": str(output_root),
+        "manifest_path": str(output_root / RUN_MANIFEST_FILENAME),
+        "input_files": len(source_paths),
+        **totals,
+        "decision_basis_sources": dict(sorted(evidence_sources.items())),
+    }
 
 
 def curate_run(source_dir: str | Path, output_dir: str | Path) -> dict[str, Any]:
@@ -741,70 +800,23 @@ def curate_run(source_dir: str | Path, output_dir: str | Path) -> dict[str, Any]
     output_root = _new_run_destination(Path(output_dir), source_root)
     output_root.mkdir(parents=True, exist_ok=False)
 
-    manifests: list[dict[str, Any]] = []
-    summaries: list[dict[str, Any]] = []
     created_files: list[tuple[Path, tuple[int, int]]] = []
     created_directories = [
         (output_root, _created_directory_identity(output_root))
     ]
     try:
-        relative_directories = {
-            parent
-            for source_path in source_paths
-            for parent in source_path.relative_to(source_root).parents
-            if parent != Path(".")
-        }
-        for relative in sorted(
-            relative_directories,
-            key=lambda relative_path: (len(relative_path.parts), relative_path.parts),
-        ):
-            directory = output_root / relative
-            directory.mkdir()
-            created_directories.append(
-                (directory, _created_directory_identity(directory))
-            )
-        for source_path in source_paths:
-            relative = source_path.relative_to(source_root)
-            result = curate_jsonl(
-                source_path,
-                logical_source_path=relative.as_posix(),
-            )
-            output_path = output_root / relative
-            identity = _write_new_jsonl(output_path, result["records"])
-            created_files.append((output_path, identity))
-            manifests.extend(result["manifest"])
-            summaries.append(result["summary"])
+        _make_output_directories(output_root, source_root, source_paths, created_directories)
+        manifests, summaries = _write_curated_files(
+            source_root, source_paths, output_root, created_files
+        )
         manifest_path = output_root / RUN_MANIFEST_FILENAME
         identity = _write_new_jsonl(manifest_path, manifests)
         created_files.append((manifest_path, identity))
     except BaseException:
-        for path, identity in reversed(created_files):
-            _unlink_created_file(path, identity)
-        for path, identity in reversed(created_directories):
-            _rmdir_created_directory(path, identity)
+        _rollback_created(created_files, created_directories)
         raise
 
-    evidence_sources: Counter[str] = Counter()
-    for summary in summaries:
-        evidence_sources.update(summary["decision_basis_sources"])
-    return {
-        "source_path": str(source_root),
-        "output_path": str(output_root),
-        "manifest_path": str(output_root / RUN_MANIFEST_FILENAME),
-        "input_files": len(source_paths),
-        "input_records": sum(summary["input_records"] for summary in summaries),
-        "output_records": sum(summary["output_records"] for summary in summaries),
-        "excluded_records": sum(summary["excluded_records"] for summary in summaries),
-        "source_steps": sum(summary["source_steps"] for summary in summaries),
-        "retained_steps": sum(summary["retained_steps"] for summary in summaries),
-        "migrated_steps": sum(summary["migrated_steps"] for summary in summaries),
-        "excluded_steps": sum(summary["excluded_steps"] for summary in summaries),
-        "hidden_reasoning_fields_removed": sum(
-            summary["hidden_reasoning_fields_removed"] for summary in summaries
-        ),
-        "wrap_records": sum(summary["wrap_records"] for summary in summaries),
-        "decision_basis_sources": dict(sorted(evidence_sources.items())),
-    }
+    return _run_summary(source_root, output_root, source_paths, summaries)
 
 
 write_new_jsonl = _write_new_jsonl

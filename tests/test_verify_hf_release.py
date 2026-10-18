@@ -3,10 +3,12 @@
 
 import hashlib
 import base64
+import io
 import json
 import sys
 import unittest
 from pathlib import Path
+from unittest import mock
 
 
 REPO = Path(__file__).resolve().parents[1]
@@ -474,6 +476,165 @@ class ReleaseVerifierTests(unittest.TestCase):
             verify_hf_release.public_url(
                 "someone-else/dataset", "README.md", "https://huggingface.co"
             )
+
+
+CODE_REPAIR_REPO = "rmems/python-function-repair-20261006"
+REPLAY_EVIDENCE = {
+    "status": "passed",
+    "counts": {"records": 3, "positives": 2, "passed": 2, "failed": 0, "not_replayed": 1},
+    "records": [
+        {"record_id": "a", "status": "replayed", "code": "REPLAY_PASSED"},
+        {"record_id": "b", "status": "replayed", "code": "REPLAY_PASSED"},
+        {"record_id": "c", "status": "not_replayed", "outcome": "rejected",
+         "oracle_status": "validated"},
+    ],
+}
+RUN_EVIDENCE = {
+    "records": 3, "count": 3, "catalog": {"program_count": 4},
+    "outcomes": {"accepted": 2, "rejected": 1},
+    "oracle_statuses": {"validated": 3}, "skips": {},
+}
+HONEST_REPLAY_CARD = """# Card
+
+> **Verification:** independent replay covered only part of the batch: 2 of 3
+> candidates replayed and passed, 0 failed, and 1 not replayed (the rejected row); its
+> overall `status: passed` applies to the replayed subset.
+> The rows mix 2 accepted and 1 rejected outcomes, with 3 validated oracle statuses.
+
+3 candidates from 3 requested draws.
+"""
+
+
+class ReplayClaimVerifierTests(unittest.TestCase):
+    """Issue #420: a code-repair card may claim no more replay than its evidence shows."""
+
+    def setUp(self) -> None:
+        self.files = {
+            "README.md": HONEST_REPLAY_CARD,
+            "evidence/REPLAY.json": json.dumps(REPLAY_EVIDENCE),
+            "evidence/RUN.json": json.dumps(RUN_EVIDENCE),
+        }
+
+    def text_fetcher(self, url: str, timeout: float) -> str:
+        prefix = f"https://huggingface.co/datasets/{CODE_REPAIR_REPO}/raw/main/"
+        self.assertTrue(url.startswith(prefix), url)
+        return self.files[url.removeprefix(prefix)]
+
+    def verify(self) -> verify_hf_release.CheckResult:
+        return verify_hf_release.verify_replay_claims(
+            CODE_REPAIR_REPO, text_fetcher=self.text_fetcher
+        )
+
+    def test_code_repair_release_is_verified_by_its_evidence(self) -> None:
+        self.assertIn(CODE_REPAIR_REPO, verify_hf_release.REPLAY_CLAIM_REPOS)
+        self.assertNotIn(CODE_REPAIR_REPO, verify_hf_release.DATASET_REPOS)
+
+    def test_honest_card_passes(self) -> None:
+        self.assertEqual(self.verify().errors, ())
+
+    def test_full_batch_overclaim_fails(self) -> None:
+        self.files["README.md"] = (
+            "> **Verification:** every candidate carries its execution evidence and the\n"
+            "> full batch passed independent replay (`evidence/REPLAY.json`: status\n"
+            "> passed). 2 accepted, 1 rejected, 3 validated.\n"
+        )
+        result = self.verify()
+        self.assertFalse(result.ok)
+        self.assertIn(
+            "Card overclaims replay ('full batch passed'): 2 of 3 passed, 0 failed, "
+            "1 not replayed",
+            result.errors,
+        )
+        self.assertIn(
+            "Verification must state '2 of 3' from evidence/REPLAY.json", result.errors
+        )
+
+    def test_invalid_evidence_json_fails_closed(self) -> None:
+        self.files["evidence/REPLAY.json"] = "{"
+        self.assertEqual(len(self.verify().errors), 1)
+        self.assertIn("evidence/REPLAY.json is invalid JSON", self.verify().errors[0])
+        self.files["evidence/REPLAY.json"] = "[]"
+        self.assertIn("must contain a JSON object", self.verify().errors[0])
+
+    def test_self_contradicting_evidence_fails_closed(self) -> None:
+        self.files["evidence/RUN.json"] = json.dumps(dict(RUN_EVIDENCE, records=4))
+        self.assertIn("evidence cannot support a card claim", self.verify().errors[0])
+
+    def test_fetch_failure_is_reported(self) -> None:
+        def failing(url: str, timeout: float) -> str:
+            raise OSError("offline")
+
+        result = verify_hf_release.verify_replay_claims(
+            CODE_REPAIR_REPO, text_fetcher=failing
+        )
+        self.assertEqual(result.errors, ("public fetch failed: offline",))
+
+    def test_unexpected_fetch_errors_are_not_swallowed(self) -> None:
+        def broken(url: str, timeout: float) -> str:
+            raise KeyError("bug in the fetcher")
+
+        with self.assertRaises(KeyError):
+            verify_hf_release.verify_replay_claims(CODE_REPAIR_REPO, text_fetcher=broken)
+
+    def test_repositories_dispatch_to_their_contract(self) -> None:
+        dataset_repo = verify_hf_release.DATASET_REPOS[0]
+        with (
+            mock.patch.object(verify_hf_release, "verify_replay_claims") as claims,
+            mock.patch.object(verify_hf_release, "verify_dataset") as dataset,
+        ):
+            verify_hf_release.verify_repositories((CODE_REPAIR_REPO, dataset_repo))
+        self.assertEqual(claims.call_args_list, [mock.call(CODE_REPAIR_REPO, timeout=30.0)])
+        self.assertEqual(dataset.call_args_list, [mock.call(dataset_repo, timeout=30.0)])
+
+
+class ParquetFooterReaderTests(unittest.TestCase):
+    def test_skip_reads_fixed_width_fields(self) -> None:
+        reader = verify_hf_release._CompactReader(bytes(9))
+        reader.skip(reader.BOOLEAN_TRUE)  # the value rides in the type nibble
+        self.assertEqual(reader.offset, 0)
+        reader.skip(reader.BYTE)
+        self.assertEqual(reader.offset, 1)
+        reader.skip(reader.DOUBLE)
+        self.assertEqual(reader.offset, 9)
+
+    def test_truncated_footer_metadata_is_reported(self) -> None:
+        footer = bytes([0x15])  # field 1, type I32, with its varint missing
+        viewer = b"PAR1" + footer + len(footer).to_bytes(4, "little") + b"PAR1"
+        errors = verify_hf_release._viewer_errors(_card(), viewer)
+        self.assertTrue(
+            any("invalid Parquet footer metadata" in error for error in errors), errors
+        )
+
+
+def run_cli(argv: list[str], ok: bool) -> tuple[int, list[str]]:
+    """Run the verifier CLI with every repository check stubbed; return exit code and repos."""
+    calls: list[str] = []
+
+    def fake(repo: str, *, timeout: float) -> verify_hf_release.CheckResult:
+        calls.append(repo)
+        return verify_hf_release.CheckResult(repo, () if ok else ("bad card",))
+
+    with (
+        mock.patch.object(verify_hf_release, "verify_repository", side_effect=fake),
+        mock.patch("sys.stdout", new_callable=io.StringIO),
+        mock.patch("sys.stderr", new_callable=io.StringIO),
+    ):
+        code = verify_hf_release.main(argv)
+    return code, calls
+
+
+class VerifierCliTests(unittest.TestCase):
+    def test_default_run_covers_only_releases_that_pass_today(self) -> None:
+        # The code-repair card still overclaims on the Hub (#420), so it is checked on
+        # request until its card-only fix merges; the default run must stay green.
+        code, calls = run_cli([], ok=True)
+        self.assertEqual(code, 0)
+        self.assertEqual(calls, list(verify_hf_release.DATASET_REPOS))
+        self.assertNotIn(CODE_REPAIR_REPO, verify_hf_release.DEFAULT_REPOS)
+
+    def test_code_repair_release_can_be_selected_and_fails_the_run(self) -> None:
+        code, calls = run_cli(["--repo", CODE_REPAIR_REPO], ok=False)
+        self.assertEqual((code, calls), (1, [CODE_REPAIR_REPO]))
 
 
 if __name__ == "__main__":

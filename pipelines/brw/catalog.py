@@ -15,7 +15,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from ._contract import CATALOG_FIRST, BrwError
+from ._contract import _EXACT_INT, CATALOG_FIRST, BrwError
 
 __all__ = [
     "PAIRS",
@@ -50,7 +50,7 @@ __all__ = [
     "slugs",
 ]
 
-PAIRS: tuple[dict[str, Any], ...] = tuple([
+PAIRS: tuple[dict[str, Any], ...] = (
     {
         "shape": "shift",
         "css": "offset-anchor:right 50%",
@@ -747,7 +747,7 @@ PAIRS: tuple[dict[str, Any], ...] = tuple([
         "reflect": ":nth-child(An+B of S) counts only matching siblings.",
         "coverage": 13,
     },
-])
+)
 
 
 def slugs() -> tuple[str, ...]:
@@ -876,6 +876,16 @@ def _sha256_bytes(raw: bytes) -> str:
     return hashlib.sha256(raw).hexdigest()
 
 
+def _committed_mill_rows(mills: list[Any]) -> int:
+    """Each header mill in ``_MILL_ORDER`` with its committed row count; their total."""
+    for (mill_id, row_count), mill in zip(_MILL_ORDER, mills, strict=True):
+        if mill.get("mill_id") != mill_id:
+            raise BrwError(f"unexpected mill_id: {mill.get('mill_id')!r}")
+        if mill.get("n_rows_committed") != row_count:
+            raise BrwError(f"{mill_id} committed row count drifted")
+    return sum(row_count for _, row_count in _MILL_ORDER)
+
+
 def _load_leftover_header() -> dict[str, Any]:
     path = LEFTOVER_DIR / LEFTOVER_HEADER_NAME
     if not path.is_file():
@@ -886,13 +896,7 @@ def _load_leftover_header() -> dict[str, Any]:
     mills = header.get("mills")
     if not isinstance(mills, list) or len(mills) != len(_MILL_ORDER):
         raise BrwError("leftover header mill row count drifted")
-    expected_rows = 0
-    for (mill_id, row_count), mill in zip(_MILL_ORDER, mills, strict=True):
-        if mill.get("mill_id") != mill_id:
-            raise BrwError(f"unexpected mill_id: {mill.get('mill_id')!r}")
-        if mill.get("n_rows_committed") != row_count:
-            raise BrwError(f"{mill_id} committed row count drifted")
-        expected_rows += row_count
+    expected_rows = _committed_mill_rows(mills)
     if header.get("n_pair_rows_committed") != expected_rows:
         raise BrwError("leftover header committed row count drifted")
     if expected_rows != LEFTOVER_PAIR_COUNT:
@@ -900,8 +904,8 @@ def _load_leftover_header() -> dict[str, Any]:
     return header
 
 
-def _load_leftover_pairs(header: dict[str, Any]) -> tuple[dict[str, Any], ...]:
-    path = LEFTOVER_DIR / LEFTOVER_PAIRS_NAME
+def _pinned_leftover_bytes(path: Path, header: dict[str, Any]) -> bytes:
+    """``pairs.jsonl`` bytes, refused unless LF-framed and pinned by the header digest."""
     if not path.is_file():
         raise BrwError(f"missing leftover pairs: {path}")
     raw = path.read_bytes()
@@ -913,6 +917,11 @@ def _load_leftover_pairs(header: dict[str, Any]) -> tuple[dict[str, Any], ...]:
     expected = header.get("pairs_sha256")
     if digest != expected:
         raise BrwError(f"leftover pairs sha256 mismatch: {digest} != {expected}")
+    return raw
+
+
+def _load_leftover_pairs(header: dict[str, Any]) -> tuple[dict[str, Any], ...]:
+    raw = _pinned_leftover_bytes(LEFTOVER_DIR / LEFTOVER_PAIRS_NAME, header)
     rows: list[dict[str, Any]] = []
     for line in raw.decode("utf-8").splitlines():
         if not line or line[:1] in {" ", "\t"}:
@@ -934,69 +943,60 @@ R212_PAIRS = LEFTOVER_PAIRS[:R212_PAIR_COUNT]
 R383_PAIRS = LEFTOVER_PAIRS[R212_PAIR_COUNT : R212_PAIR_COUNT + R383_PAIR_COUNT]
 R395_PAIRS = LEFTOVER_PAIRS[R212_PAIR_COUNT + R383_PAIR_COUNT : R212_PAIR_COUNT + R383_PAIR_COUNT + R395_PAIR_COUNT]
 R395_EXTRA_PAIRS = LEFTOVER_PAIRS[R212_PAIR_COUNT + R383_PAIR_COUNT + R395_PAIR_COUNT :]
+_Pairs = tuple[dict[str, Any], ...]
+
+
+def _mill_slugs(pairs: _Pairs) -> tuple[str, ...]:
+    return tuple(f"{pair['ok_place']}-{pair['widget']}" for pair in pairs)
+
+
+def _mill_pair_at(pairs: _Pairs, mill: str, index: int) -> dict[str, Any]:
+    if type(index) not in _EXACT_INT or not 0 <= index < len(pairs):
+        raise BrwError(f"unknown_{mill}_index: {index!r}")
+    return pairs[index]
+
+
+def _mill_pair_for_round(pairs: _Pairs, mill: str, first: int, rnd: int) -> dict[str, Any]:
+    if type(rnd) not in _EXACT_INT:
+        raise BrwError(f"invalid_round: {rnd!r}")
+    idx = rnd - first
+    if idx < 0 or idx >= len(pairs):
+        last = first + len(pairs) - 1
+        raise BrwError(f"no {mill} catalog entry for r{rnd} (first={first} last={last})")
+    return pairs[idx]
 
 
 def r212_slugs() -> tuple[str, ...]:
-    return tuple(f"{pair['ok_place']}-{pair['widget']}" for pair in R212_PAIRS)
+    return _mill_slugs(R212_PAIRS)
 
 
 def r212_pair_at(index: int) -> dict[str, Any]:
-    if type(index) is not int or not 0 <= index < len(R212_PAIRS):
-        raise BrwError(f"unknown_r212_index: {index!r}")
-    return R212_PAIRS[index]
+    return _mill_pair_at(R212_PAIRS, "r212", index)
 
 
 def r212_pair_for_round(rnd: int) -> dict[str, Any]:
-    if type(rnd) is not int:
-        raise BrwError(f"invalid_round: {rnd!r}")
-    idx = rnd - R212_CATALOG_FIRST
-    if idx < 0 or idx >= len(R212_PAIRS):
-        last = R212_CATALOG_FIRST + len(R212_PAIRS) - 1
-        raise BrwError(
-            f"no r212 catalog entry for r{rnd} (first={R212_CATALOG_FIRST} last={last})"
-        )
-    return R212_PAIRS[idx]
+    return _mill_pair_for_round(R212_PAIRS, "r212", R212_CATALOG_FIRST, rnd)
 
 
 def r383_slugs() -> tuple[str, ...]:
-    return tuple(f"{pair['ok_place']}-{pair['widget']}" for pair in R383_PAIRS)
+    return _mill_slugs(R383_PAIRS)
 
 
 def r383_pair_at(index: int) -> dict[str, Any]:
-    if type(index) is not int or not 0 <= index < len(R383_PAIRS):
-        raise BrwError(f"unknown_r383_index: {index!r}")
-    return R383_PAIRS[index]
+    return _mill_pair_at(R383_PAIRS, "r383", index)
 
 
 def r383_pair_for_round(rnd: int) -> dict[str, Any]:
-    if type(rnd) is not int:
-        raise BrwError(f"invalid_round: {rnd!r}")
-    idx = rnd - R383_CATALOG_FIRST
-    if idx < 0 or idx >= len(R383_PAIRS):
-        last = R383_CATALOG_FIRST + len(R383_PAIRS) - 1
-        raise BrwError(
-            f"no r383 catalog entry for r{rnd} (first={R383_CATALOG_FIRST} last={last})"
-        )
-    return R383_PAIRS[idx]
+    return _mill_pair_for_round(R383_PAIRS, "r383", R383_CATALOG_FIRST, rnd)
 
 
 def r395_slugs() -> tuple[str, ...]:
-    return tuple(f"{pair['ok_place']}-{pair['widget']}" for pair in R395_PAIRS)
+    return _mill_slugs(R395_PAIRS)
 
 
 def r395_pair_at(index: int) -> dict[str, Any]:
-    if type(index) is not int or not 0 <= index < len(R395_PAIRS):
-        raise BrwError(f"unknown_r395_index: {index!r}")
-    return R395_PAIRS[index]
+    return _mill_pair_at(R395_PAIRS, "r395", index)
 
 
 def r395_pair_for_round(rnd: int) -> dict[str, Any]:
-    if type(rnd) is not int:
-        raise BrwError(f"invalid_round: {rnd!r}")
-    idx = rnd - R395_CATALOG_FIRST
-    if idx < 0 or idx >= len(R395_PAIRS):
-        last = R395_CATALOG_FIRST + len(R395_PAIRS) - 1
-        raise BrwError(
-            f"no r395 catalog entry for r{rnd} (first={R395_CATALOG_FIRST} last={last})"
-        )
-    return R395_PAIRS[idx]
+    return _mill_pair_for_round(R395_PAIRS, "r395", R395_CATALOG_FIRST, rnd)

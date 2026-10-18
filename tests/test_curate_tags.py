@@ -36,18 +36,18 @@ class NormalizationTests(unittest.TestCase):
 
 class SourcePathSpellingTests(unittest.TestCase):
     def test_utf8_path_keeps_non_ascii_spelling(self):
-        path = Path("/tmp/fábrica/café.jsonl")
-        self.assertEqual(display_source_path(path), "/tmp/fábrica/café.jsonl")
+        path = Path("/srv/fábrica/café.jsonl")
+        self.assertEqual(display_source_path(path), "/srv/fábrica/café.jsonl")
         latin1_corruption = os.fsencode(os.fspath(path)).decode("latin-1")
         self.assertNotEqual(display_source_path(path), latin1_corruption)
 
     def test_non_utf8_bytes_are_rejected(self):
-        raw = b"/tmp/caf\xff.jsonl"
+        raw = b"/srv/caf\xff.jsonl"
         path = Path(os.fsdecode(raw))
         with self.assertRaises(UnicodeDecodeError):
             display_source_path(path)
-        y_umlaut = Path("/tmp/\u00ff.jsonl")
-        self.assertEqual(display_source_path(y_umlaut), "/tmp/\u00ff.jsonl")
+        y_umlaut = Path("/srv/\u00ff.jsonl")
+        self.assertEqual(display_source_path(y_umlaut), "/srv/\u00ff.jsonl")
 
 
 if __name__ == "__main__":

@@ -54,7 +54,8 @@ class EstablishedIdentifiersAreInTheVocabulary(unittest.TestCase):
 class SharedTelemetryDoesNotDiluteContrast(unittest.TestCase):
     """A long unchanged spike stream must not outvote a changed action."""
 
-    def _pair(self, spikes):
+    @staticmethod
+    def _pair(spikes):
         chosen = {
             "executed_action": {"action": "proceed"},
             "spike_events": _spike_stream(spikes),

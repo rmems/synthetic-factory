@@ -98,9 +98,10 @@ class ComposeCuratedAgenticAndLaneGates(unittest.TestCase):
 
             manifest = read_jsonl(root / "curated" / summary["manifest"]["path"])
             coding_stages = [
-                next(stage for stage in entry["stages"] if stage["lane"] == "coding")
+                next((stage for stage in entry["stages"] if stage["lane"] == "coding"), None)
                 for entry in manifest
             ]
+            self.assertNotIn(None, coding_stages)
             self.assertEqual(
                 {stage["transform_name"] for stage in coding_stages},
                 {curate_agentic.TRANSFORM_NAME},

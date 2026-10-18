@@ -72,7 +72,9 @@ def literal_value(node: ast.AST, env: Mapping[str, Any]) -> Any:
     """Resolve a constant, name, f-string, or string add; else ``UNSET``."""
 
     resolver = _LITERAL.get(type(node))
-    return UNSET if resolver is None else resolver(node, env)
+    if resolver is None:
+        return UNSET
+    return resolver(node, env)
 
 
 def _literal_constant(node: ast.Constant, _env: Mapping[str, Any]) -> Any:
@@ -112,7 +114,8 @@ def _literal_add(node: ast.BinOp, env: Mapping[str, Any]) -> Any:
     return UNSET
 
 
-_LITERAL: dict[type[ast.AST], Callable[[Any, Mapping[str, Any]], Any]] = {
+_LiteralResolver = Callable[[ast.AST, Mapping[str, Any]], Any]
+_LITERAL: dict[type[ast.AST], _LiteralResolver] = {
     ast.Constant: _literal_constant,
     ast.Name: _literal_name,
     ast.Attribute: _literal_attr,

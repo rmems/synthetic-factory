@@ -10,10 +10,12 @@ shape and the no-exec contract without publishing a raw round.
 """
 
 import ast
+import importlib.util
 import io
 import json
 import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from typing import ClassVar
@@ -124,22 +126,36 @@ class DlkNeverExec(unittest.TestCase):
     BANNED_IMPORTS: ClassVar[set[str]] = {"subprocess"}
     BANNED_DEFS: ClassVar[set[str]] = {"txn", "main"}
 
+    def _banned_import_names(self, node):
+        if isinstance(node, ast.Import):
+            return [
+                alias.name
+                for alias in node.names
+                if alias.name.split(".")[0] in self.BANNED_IMPORTS
+            ]
+        if (isinstance(node, ast.ImportFrom) and node.module
+                and node.module.split(".")[0] in self.BANNED_IMPORTS):
+            return [node.module]
+        return []
+
+    def _banned_findings(self, path):
+        """(module, "import" | "def", name) for each banned exec surface in one module."""
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        findings = []
+        for node in ast.walk(tree):
+            findings.extend(
+                (path.name, "import", name) for name in self._banned_import_names(node)
+            )
+            if (isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+                    and node.name in self.BANNED_DEFS):
+                findings.append((path.name, "def", node.name))
+        return findings
+
     def test_no_banned_imports_or_defs_in_package_modules(self):
         package_dir = REPO / "pipelines" / "dlk"
         findings = []
         for path in sorted(package_dir.glob("*.py")):
-            tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-            for node in ast.walk(tree):
-                if isinstance(node, ast.Import):
-                    for alias in node.names:
-                        if alias.name.split(".")[0] in self.BANNED_IMPORTS:
-                            findings.append((path.name, "import", alias.name))
-                elif (isinstance(node, ast.ImportFrom) and node.module
-                      and node.module.split(".")[0] in self.BANNED_IMPORTS):
-                    findings.append((path.name, "import", node.module))
-                elif (isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-                      and node.name in self.BANNED_DEFS):
-                    findings.append((path.name, "def", node.name))
+            findings.extend(self._banned_findings(path))
         self.assertEqual(findings, [], f"banned exec surface found: {findings}")
 
     def test_generate_has_no_main_guard(self):
@@ -161,7 +177,8 @@ class DlkNeverExec(unittest.TestCase):
 
 
 class DlkCli(unittest.TestCase):
-    def _run(self, *argv):
+    @staticmethod
+    def _run(*argv):
         import contextlib
         buf = io.StringIO()
         with contextlib.redirect_stdout(buf):
@@ -207,6 +224,29 @@ class DlkCli(unittest.TestCase):
         self.assertEqual(payload["plants"], 32)
 
 
+def _is_plants_assignment(node):
+    return isinstance(node, ast.Assign) and any(
+        isinstance(t, ast.Name) and t.id == "PLANTS" for t in node.targets
+    )
+
+
+def _import_legacy_builders(builders, round_no):
+    """Import only the kept legacy builder functions from a throwaway module file.
+
+    The selected ``FunctionDef`` nodes are unparsed, in source order, into one
+    module that is loaded from a temporary directory and never registered in
+    ``sys.modules``; nothing else from the legacy mill (``txn``/``main``) runs.
+    """
+    source = ast.unparse(ast.Module(body=builders, type_ignores=[]))
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / f"legacy_r{round_no}.py"
+        path.write_text(source + "\n", encoding="utf-8")
+        spec = importlib.util.spec_from_file_location(f"legacy_r{round_no}", path)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+    return {node.name: getattr(module, node.name) for node in builders}
+
+
 class DlkFidelityToLegacy(unittest.TestCase):
     """Optionally prove the cleaned builders reproduce the legacy records byte-for-byte.
 
@@ -221,46 +261,49 @@ class DlkFidelityToLegacy(unittest.TestCase):
         1280: "experiments/dlk_r1280_leftover3_mill.py",
     }
 
-    def _legacy_module(self, round):
-        path = self.LEGACY_FILES[round]
+    def _legacy_source(self, round_no):
+        path = self.LEGACY_FILES[round_no]
         proc = subprocess.run(
             ["git", "show", f"origin/legacy-mill-lane:{path}"],
             capture_output=True, text=True, cwd=str(REPO), check=False,
         )
         if proc.returncode != 0:
             self.skipTest(f"origin/legacy-mill-lane not available: {proc.stderr.strip()}")
-        src = proc.stdout
+        return proc.stdout
+
+    def _legacy_module(self, round_no):
+        src = self._legacy_source(round_no)
         tree = ast.parse(src)
         keep = {"step", "success_ep", "fail_ep", "notes", "PLANTS"}
         namespace: dict = {}
+        builders = []
         for node in tree.body:
             if isinstance(node, (ast.FunctionDef, ast.Assign)) and getattr(node, "lineno", None):
                 if isinstance(node, ast.FunctionDef) and node.name in keep:
-                    exec(compile(ast.Module([node], []), "<legacy>", "exec"), namespace)  # noqa: S102
-                elif isinstance(node, ast.Assign) and any(
-                    isinstance(t, ast.Name) and t.id == "PLANTS" for t in node.targets
-                ):
+                    builders.append(node)
+                elif _is_plants_assignment(node):
                     namespace["PLANTS"] = ast.literal_eval(node.value)
+        namespace.update(_import_legacy_builders(builders, round_no))
         return namespace
 
     def test_cleaned_records_match_legacy_byte_for_byte(self):
-        for round in (1214, 1280):
-            legacy = self._legacy_module(round)
-            catalog = load_catalog(round)
+        for round_no in (1214, 1280):
+            legacy = self._legacy_module(round_no)
+            catalog = load_catalog(round_no)
             self.assertEqual(len(catalog.plants), len(legacy["PLANTS"]))
             for plant, legacy_plant in zip(catalog.plants, legacy["PLANTS"]):
-                s_clean = generate.success_ep(round, plant)
-                f_clean = generate.fail_ep(round, plant)
-                s_legacy = legacy["success_ep"](round, legacy_plant)
-                f_legacy = legacy["fail_ep"](round, legacy_plant)
+                s_clean = generate.success_ep(round_no, plant)
+                f_clean = generate.fail_ep(round_no, plant)
+                s_legacy = legacy["success_ep"](round_no, legacy_plant)
+                f_legacy = legacy["fail_ep"](round_no, legacy_plant)
                 self.assertEqual(s_clean, s_legacy,
-                                 f"success_ep drift at r{round} {plant.slug}")
+                                 f"success_ep drift at r{round_no} {plant.slug}")
                 self.assertEqual(f_clean, f_legacy,
-                                 f"fail_ep drift at r{round} {plant.slug}")
-                n_clean = generate.notes(round, plant, s_clean, f_clean)
-                n_legacy = legacy["notes"](round, legacy_plant, s_legacy, f_legacy)
+                                 f"fail_ep drift at r{round_no} {plant.slug}")
+                n_clean = generate.notes(round_no, plant, s_clean, f_clean)
+                n_legacy = legacy["notes"](round_no, legacy_plant, s_legacy, f_legacy)
                 self.assertEqual(n_clean, n_legacy,
-                                 f"notes drift at r{round} {plant.slug}")
+                                 f"notes drift at r{round_no} {plant.slug}")
 
 
 if __name__ == "__main__":

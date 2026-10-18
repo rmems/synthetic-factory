@@ -10,6 +10,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
 
+# python:*-slim has no ubuntu user; Cloud agents clone with git and escalate with sudo.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         bubblewrap \
@@ -18,10 +19,8 @@ RUN apt-get update \
         curl \
         git \
         sudo \
-    && rm -rf /var/lib/apt/lists/*
-
-# python:*-slim has no ubuntu user; Cloud agents clone with git and escalate with sudo.
-RUN groupadd --gid 1000 ubuntu \
+    && rm -rf /var/lib/apt/lists/* \
+    && groupadd --gid 1000 ubuntu \
     && useradd --uid 1000 --gid 1000 --create-home --shell /bin/bash ubuntu \
     && printf 'ubuntu ALL=(ALL) NOPASSWD:ALL\n' > /etc/sudoers.d/ubuntu \
     && chmod 0440 /etc/sudoers.d/ubuntu

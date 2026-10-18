@@ -49,17 +49,22 @@ class EmbeddingCandidateChannels(unittest.TestCase):
 
     def test_nonchain_only_candidate_fallback_is_isolated(self):
         boundary = next(
-            iter(quality_gate.embedding_tokens({"state": {"note": " "}}))
+            iter(quality_gate.embedding_tokens({"state": {"note": " "}})), None
         )
+        self.assertIsNotNone(boundary)
         lexical = next(
-            token
-            for token in quality_gate.embedding_tokens(
-                {"state": {"note": "customer"}}
-            )
-            if not token.startswith(
-                quality_gate_embedding._NONCHAIN_STRING_MARK
-            )
+            (
+                token
+                for token in quality_gate.embedding_tokens(
+                    {"state": {"note": "customer"}}
+                )
+                if not token.startswith(
+                    quality_gate_embedding._NONCHAIN_STRING_MARK
+                )
+            ),
+            None,
         )
+        self.assertIsNotNone(lexical)
 
         self.assertIsNotNone(
             quality_gate_embedding._candidate_signature({boundary: 1.0})

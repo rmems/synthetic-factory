@@ -22,7 +22,6 @@ else:
     from operator_paths import operator_path
 
 DISTILLABLE_URL = "https://openrouter.ai/api/v1/models?distillable=true"
-_ALIAS_MARKERS = ("~", ":free", ":batch")
 
 
 class OpenRouterError(ValueError):

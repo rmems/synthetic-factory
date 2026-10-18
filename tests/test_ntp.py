@@ -473,5 +473,17 @@ class NtpLegacyExtractTests(unittest.TestCase):
             self.assertEqual(list(dest.glob("ntp-mill*.py")), [])
 
 
+class NtpExtractShapeTests(unittest.TestCase):
+    def test_mixed_constructors_are_not_extractable(self):
+        source = _LEFTOVER_SNIPPET.replace("l_from(0,", "other(0,")
+        with self.assertRaisesRegex(ValueError, "has no extractable NTP catalog assignment"):
+            extract_mill_catalog(source, path="experiments/ntp-mill-unique-leftover.py")
+
+    def test_slugless_identity_is_not_extractable(self):
+        source = _LEFTOVER_SNIPPET.replace('"openlineage-event-leftover"', "NAME")
+        with self.assertRaisesRegex(ValueError, "has no extractable NTP catalog assignment"):
+            extract_mill_catalog(source, path="experiments/ntp-mill-unique-leftover.py")
+
+
 if __name__ == "__main__":
     unittest.main()

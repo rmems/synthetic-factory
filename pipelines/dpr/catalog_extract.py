@@ -12,7 +12,8 @@ import ast
 import hashlib
 import json
 import re
-from collections.abc import Mapping
+from collections.abc import Callable, Iterator, Mapping, Sequence
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -73,27 +74,35 @@ def _jsonable(value: Any) -> Any:
     return value
 
 
+def _dict_items(node: ast.Dict) -> list[tuple[ast.expr, ast.expr]]:
+    """The key and value nodes of a dict literal; ``**`` unpacking refuses before any is read."""
+
+    items: list[tuple[ast.expr, ast.expr]] = []
+    for key, value in zip(node.keys, node.values):
+        if key is None:
+            raise DprExtractError("catalog dict uses unpacking")
+        items.append((key, value))
+    return items
+
+
+def _signed(node: ast.AST) -> ast.UnaryOp:
+    """A unary minus or plus; any other node is not a constant."""
+
+    if isinstance(node, ast.UnaryOp) and isinstance(node.op, (ast.USub, ast.UAdd)):
+        return node
+    raise DprExtractError(f"catalog node is not a constant ({type(node).__name__})")
+
+
 def _const_eval(node: ast.AST) -> Any:
     if isinstance(node, ast.Constant):
         return node.value
-    if isinstance(node, ast.List):
-        return [_const_eval(item) for item in node.elts]
-    if isinstance(node, ast.Tuple):
-        return [_const_eval(item) for item in node.elts]
-    if isinstance(node, ast.Set):
+    if isinstance(node, (ast.List, ast.Tuple, ast.Set)):
         return [_const_eval(item) for item in node.elts]
     if isinstance(node, ast.Dict):
-        if any(key is None for key in node.keys):
-            raise DprExtractError("catalog dict uses unpacking")
-        return {
-            _const_eval(key): _const_eval(value)
-            for key, value in zip(node.keys, node.values)
-        }
-    if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
-        return -_const_eval(node.operand)
-    if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.UAdd):
-        return +_const_eval(node.operand)
-    raise DprExtractError(f"catalog node is not a constant ({type(node).__name__})")
+        return {_const_eval(key): _const_eval(value) for key, value in _dict_items(node)}
+    signed = _signed(node)
+    operand = _const_eval(signed.operand)
+    return -operand if isinstance(signed.op, ast.USub) else +operand
 
 
 def _assignment_names(node: ast.stmt) -> list[str]:
@@ -138,7 +147,9 @@ def _literal_or_none(node: ast.AST) -> Any | None:
         return None
 
 
-def _extract_ctor(node: ast.AST) -> dict[str, Any]:
+def _ctor_call(node: ast.AST) -> tuple[ast.Call, str]:
+    """A pair side's call and constructor name, refused unless it is a plain known call."""
+
     if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Name):
         raise DprExtractError(f"pair side is not a constructor call ({type(node).__name__})")
     ctor = node.func.id
@@ -148,11 +159,16 @@ def _extract_ctor(node: ast.AST) -> dict[str, Any]:
         raise DprExtractError(f"{ctor}() uses starred arguments")
     if any(keyword.arg is None for keyword in node.keywords):
         raise DprExtractError(f"{ctor}() uses keyword unpacking")
+    return node, ctor
+
+
+def _extract_ctor(node: ast.AST) -> dict[str, Any]:
+    call, ctor = _ctor_call(node)
     row: dict[str, Any] = {"ctor": ctor}
-    if node.args:
-        row["args"] = [_const_eval(arg) for arg in node.args]
-    if node.keywords:
-        row["kwargs"] = {keyword.arg: _const_eval(keyword.value) for keyword in node.keywords}
+    if call.args:
+        row["args"] = [_const_eval(arg) for arg in call.args]
+    if call.keywords:
+        row["kwargs"] = {keyword.arg: _const_eval(keyword.value) for keyword in call.keywords}
     if "args" not in row and "kwargs" not in row:
         raise DprExtractError(f"{ctor}() has no arguments")
     return row
@@ -199,47 +215,78 @@ def _catalog_list_name(nodes: Mapping[str, ast.AST]) -> str:
     raise DprExtractError("source has no list-literal CATALOG / PAIRS / NEW_PAIRS / MORE")
 
 
-def extract_joined_path_constant(source: str, name: str) -> str | None:
-    """``NAME = <expr> / "relative/path"`` → the string operand, if that is the shape."""
+def _assigned_values(tree: ast.Module, name: str) -> Iterator[ast.AST]:
+    """Values of top-level ``=`` assignments that bind ``name``, in source order."""
 
-    tree = ast.parse(source)
     for node in tree.body:
         if not isinstance(node, ast.Assign):
             continue
-        if not any(isinstance(target, ast.Name) and target.id == name for target in node.targets):
-            continue
-        value = node.value
-        if isinstance(value, ast.BinOp) and isinstance(value.op, ast.Div):
-            if isinstance(value.right, ast.Constant) and isinstance(value.right.value, str):
-                return value.right.value
+        if any(isinstance(target, ast.Name) and target.id == name for target in node.targets):
+            yield node.value
+
+
+def _str_constant(node: ast.AST) -> str | None:
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return node.value
     return None
+
+
+def _joined_path_operand(value: ast.AST) -> str | None:
+    if not isinstance(value, ast.BinOp) or not isinstance(value.op, ast.Div):
+        return None
+    return _str_constant(value.right)
+
+
+def _path_call_operand(value: ast.AST) -> str | None:
+    if not isinstance(value, ast.Call) or not isinstance(value.func, ast.Name):
+        return None
+    if value.func.id != "Path" or len(value.args) != 1:
+        return None
+    return _str_constant(value.args[0])
+
+
+def _first_operand(source: str, name: str, operand: Callable[[ast.AST], str | None]) -> str | None:
+    for value in _assigned_values(ast.parse(source), name):
+        text = operand(value)
+        if text is not None:
+            return text
+    return None
+
+
+def extract_joined_path_constant(source: str, name: str) -> str | None:
+    """``NAME = <expr> / "relative/path"`` → the string operand, if that is the shape."""
+
+    return _first_operand(source, name, _joined_path_operand)
 
 
 def extract_call_path_constant(source: str, name: str) -> str | None:
     """``NAME = Path("/tmp/dpr_mill_rNNNN.py")`` → the string operand."""
 
-    tree = ast.parse(source)
-    for node in tree.body:
-        if not isinstance(node, ast.Assign):
-            continue
-        if not any(isinstance(target, ast.Name) and target.id == name for target in node.targets):
-            continue
-        value = node.value
-        if (
-            isinstance(value, ast.Call)
-            and isinstance(value.func, ast.Name)
-            and value.func.id == "Path"
-            and len(value.args) == 1
-            and isinstance(value.args[0], ast.Constant)
-            and isinstance(value.args[0].value, str)
-        ):
-            return value.args[0].value
-    return None
+    return _first_operand(source, name, _path_call_operand)
 
 
 def _refuse_hopper(path: str) -> None:
     if is_hopper_path(path):
         raise DprExtractError(f"{path} is an lrd hopper; excluded from the dpr catalog")
+
+
+@dataclass(frozen=True)
+class _MillText:
+    """One mill source file's identity: where it lives, its bytes, and its named round."""
+
+    path: str
+    mill_id: str
+    blob_sha: str
+    payload: bytes
+    named_first: int | None
+
+    def identity(self) -> dict[str, Any]:
+        return {
+            "mill_id": self.mill_id,
+            "path": self.path,
+            "blob_sha": self.blob_sha,
+            "sha256": sha256_bytes(self.payload),
+        }
 
 
 def extract_mill_catalog(
@@ -253,27 +300,17 @@ def extract_mill_catalog(
     _refuse_hopper(path)
     payload = source.encode()
     nodes = extract_catalog_nodes(source, filename=path)
-    mill_id = mill_id_for_path(path)
-    named_first = catalog_first_from_name(path)
-    list_name = _catalog_list_name(nodes)
-    if list_name == "CATALOG":
-        return _plants_record(
-            nodes,
-            path=path,
-            mill_id=mill_id,
-            blob_sha=blob_sha,
-            payload=payload,
-            named_first=named_first,
-        )
-    return _pairs_record(
-        nodes,
-        list_name=list_name,
+    mill = _MillText(
         path=path,
-        mill_id=mill_id,
+        mill_id=mill_id_for_path(path),
         blob_sha=blob_sha,
         payload=payload,
-        named_first=named_first,
+        named_first=catalog_first_from_name(path),
     )
+    list_name = _catalog_list_name(nodes)
+    if list_name == "CATALOG":
+        return _plants_record(nodes, mill)
+    return _pairs_record(nodes, list_name, mill)
 
 
 def _optional_int(nodes: Mapping[str, ast.AST], name: str) -> int | None:
@@ -294,18 +331,7 @@ def _optional_text(nodes: Mapping[str, ast.AST], name: str) -> str | None:
     return value if isinstance(value, str) and value else None
 
 
-def _plants_record(
-    nodes: Mapping[str, ast.AST],
-    *,
-    path: str,
-    mill_id: str,
-    blob_sha: str,
-    payload: bytes,
-    named_first: int | None,
-) -> dict[str, Any]:
-    plants = [_jsonable(_const_eval(item)) for item in _list_rows(nodes["CATALOG"])]
-    if not plants:
-        raise DprExtractError(f"{path}: CATALOG is empty")
+def _refuse_bad_plant_rows(plants: list[Any], path: str) -> None:
     for index, row in enumerate(plants):
         if not isinstance(row, dict):
             raise DprExtractError(f"{path}: CATALOG[{index}] is not a dict")
@@ -314,15 +340,24 @@ def _plants_record(
             raise DprExtractError(f"{path}: CATALOG[{index}] missing {missing}")
         if not isinstance(row["slug"], str) or not row["slug"]:
             raise DprExtractError(f"{path}: CATALOG[{index}].slug is empty")
+
+
+def _plants_generator(nodes: Mapping[str, ast.AST]) -> str:
+    return _optional_text(nodes, "GEN") or _optional_text(nodes, "GENERATOR") or GENERATOR
+
+
+def _plants_record(nodes: Mapping[str, ast.AST], mill: _MillText) -> dict[str, Any]:
+    path = mill.path
+    plants = [_jsonable(_const_eval(item)) for item in _list_rows(nodes["CATALOG"])]
+    if not plants:
+        raise DprExtractError(f"{path}: CATALOG is empty")
+    _refuse_bad_plant_rows(plants, path)
     factory = _optional_text(nodes, "FACTORY") or FACTORY
-    generator = _optional_text(nodes, "GEN") or _optional_text(nodes, "GENERATOR") or GENERATOR
+    generator = _plants_generator(nodes)
     return {
-        "mill_id": mill_id,
-        "path": path,
-        "blob_sha": blob_sha,
-        "sha256": sha256_bytes(payload),
+        **mill.identity(),
         "kind": KIND_PLANTS,
-        "catalog_first": named_first,
+        "catalog_first": mill.named_first,
         "n_rows": len(plants),
         "max_rounds": _optional_int(nodes, "MAX_ROUNDS"),
         "first_slug": plants[0]["slug"],
@@ -334,25 +369,15 @@ def _plants_record(
 
 
 def _pairs_record(
-    nodes: Mapping[str, ast.AST],
-    *,
-    list_name: str,
-    path: str,
-    mill_id: str,
-    blob_sha: str,
-    payload: bytes,
-    named_first: int | None,
+    nodes: Mapping[str, ast.AST], list_name: str, mill: _MillText
 ) -> dict[str, Any]:
     pairs = [_jsonable(_pair_from_tuple(item)) for item in _list_rows(nodes[list_name])]
     if not pairs:
-        raise DprExtractError(f"{path}: {list_name} is empty")
-    catalog_first = _optional_int(nodes, "START") or named_first
+        raise DprExtractError(f"{mill.path}: {list_name} is empty")
+    catalog_first = _optional_int(nodes, "START") or mill.named_first
     generator = _optional_text(nodes, "GENERATOR") or GENERATOR
     return {
-        "mill_id": mill_id,
-        "path": path,
-        "blob_sha": blob_sha,
-        "sha256": sha256_bytes(payload),
+        **mill.identity(),
         "kind": KIND_PAIRS,
         "list_name": list_name,
         "catalog_first": catalog_first,
@@ -382,27 +407,31 @@ def compact_deferred_pair(mill_id: str, path: str, pair: Mapping[str, Any]) -> d
     }
 
 
-def select_deferred_pair_rows(mills: list[Mapping[str, Any]]) -> list[dict[str, Any]]:
+def _deferred_pairs(mill: Mapping[str, Any]) -> list[Any]:
+    """The pairs a mill defers: none under "all", the interior under "ends", else every pair."""
+
+    policy = REPRESENTATIVE_PAIR_POLICY.get(mill["mill_id"])
+    if policy == "all":
+        return []
+    pairs = list(mill.get("pairs") or ())
+    if policy != "ends":
+        return pairs
+    return pairs[1:-1] if len(pairs) > 2 else []
+
+
+def select_deferred_pair_rows(mills: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
     ordered = sorted(
         (mill for mill in mills if mill.get("kind") == KIND_PAIRS),
         key=lambda mill: (mill.get("catalog_first") or 0, mill["mill_id"]),
     )
     rows: list[dict[str, Any]] = []
     for mill in ordered:
-        policy = REPRESENTATIVE_PAIR_POLICY.get(mill["mill_id"])
-        if policy == "all":
-            continue
-        pairs = list(mill.get("pairs") or ())
-        if policy == "ends":
-            if len(pairs) <= 2:
-                continue
-            pairs = pairs[1:-1]
-        for pair in pairs:
+        for pair in _deferred_pairs(mill):
             rows.append(compact_deferred_pair(mill["mill_id"], mill["path"], pair))
     return rows
 
 
-def select_representative_pair_rows(mills: list[Mapping[str, Any]]) -> list[dict[str, Any]]:
+def select_representative_pair_rows(mills: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for mill in mills:
         if mill.get("kind") != KIND_PAIRS:
@@ -419,7 +448,7 @@ def select_representative_pair_rows(mills: list[Mapping[str, Any]]) -> list[dict
     return rows
 
 
-def select_representative_plant_rows(mills: list[Mapping[str, Any]]) -> list[dict[str, Any]]:
+def select_representative_plant_rows(mills: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for mill in mills:
         if mill.get("kind") != KIND_PLANTS:
@@ -456,7 +485,7 @@ def dumps_catalog(document: Mapping[str, Any]) -> str:
     return json.dumps(document, ensure_ascii=True, indent=2, sort_keys=True) + "\n"
 
 
-def dumps_jsonl(rows: list[Mapping[str, Any]]) -> str:
+def dumps_jsonl(rows: Sequence[Mapping[str, Any]]) -> str:
     lines = [
         json.dumps(row, ensure_ascii=True, sort_keys=True, separators=(",", ":"))
         for row in rows

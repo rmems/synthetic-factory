@@ -30,6 +30,80 @@ import curate_gate  # noqa: E402
 import curate_rewards  # noqa: E402
 
 
+def _first_matching(items, predicate):
+    """The first item predicate accepts; a missing item fails the test instead of leaking."""
+    for item in filter(predicate, items):
+        return item
+    raise AssertionError("no item matches the fixture lookup")
+
+
+def _manifest_entry(entries, source_path, source_line):
+    return _first_matching(
+        entries,
+        lambda entry: entry["source_path"] == source_path
+        and entry["source_line"] == source_line,
+    )
+
+
+def _keep_only_root_owner_mappings(entry):
+    """Drop every nested-owner id and provenance mapping from an identity manifest entry."""
+    entry["id_mappings"] = [
+        mapping for mapping in entry["id_mappings"] if mapping["owner_path"] == "/"
+    ]
+    entry["provenance_mappings"] = [
+        mapping
+        for mapping in entry["provenance_mappings"]
+        if mapping["owner_path"] == "/" and mapping.get("state_path") is None
+    ]
+
+
+def _sidecar_document(documents, sidecar_id):
+    return _first_matching(documents, lambda document: document["sidecar_id"] == sidecar_id)
+
+
+def _reseal_sidecar(document):
+    """Recompute a reward sidecar's content-derived id after editing its body."""
+    body = dict(document)
+    body.pop("sidecar_id")
+    document["sidecar_id"] = "sha256:" + curate_gate.record_sha256(body)
+
+
+def _forge_reward_values(record, sidecar, forged):
+    """Rewrite record's rewards to forged and re-hash the matching sidecar source_rewards."""
+    if isinstance(record.get("reward_components"), dict):
+        record["reward_components"]["task_progress"] = forged
+        record["reward_components"]["total"] = forged
+    for reward in sidecar["source_rewards"]:
+        pointer = reward.get("json_pointer")
+        if pointer == "/reward_components":
+            reward["value"] = copy.deepcopy(record["reward_components"])
+        elif pointer in ("/reward_components/task_progress", "/reward_components/total"):
+            reward["value"] = forged
+        reward["value_sha256"] = "sha256:" + curate_gate.record_sha256(reward["value"])
+
+
+def _magnitude_comparable_annotation(reason_codes, sidecar_id):
+    """Reward-annotation fields claiming a magnitude-comparable USD calibration."""
+    return {
+        "comparability": curate_rewards.MAGNITUDE_COMPARABLE,
+        "reason_codes": list(reason_codes),
+        "source_sidecar_id": sidecar_id,
+        "magnitude": {
+            "canonical_unit": curate_rewards.CANONICAL_UNIT,
+            "aggregation": "linear_unit_conversion_only",
+            "values": [
+                {
+                    "json_pointer": "/reward_components",
+                    "source_total": 0.5,
+                    "source_unit_usd": 10000,
+                    "conversion_factor": 1,
+                    "canonical_value": 0.5,
+                }
+            ],
+        },
+    }
+
+
 class CorpusGateTests(unittest.TestCase):
     def setUp(self):
         self._temp = tempfile.TemporaryDirectory(prefix="curate-gate-")
@@ -249,19 +323,8 @@ class CorpusGateTests(unittest.TestCase):
     def test_retained_identity_mapping_must_cover_every_nested_owner(self):
         fixture = GateFixture(self.root)
         entries = json.loads(fixture.manifest_paths[1].read_text())
-        preference = next(
-            entry
-            for entry in entries
-            if entry["source_path"] == "thalamic-mini/batch-r02.jsonl" and entry["source_line"] == 2
-        )
-        preference["id_mappings"] = [
-            mapping for mapping in preference["id_mappings"] if mapping["owner_path"] == "/"
-        ]
-        preference["provenance_mappings"] = [
-            mapping
-            for mapping in preference["provenance_mappings"]
-            if mapping["owner_path"] == "/" and mapping.get("state_path") is None
-        ]
+        preference = _manifest_entry(entries, "thalamic-mini/batch-r02.jsonl", 2)
+        _keep_only_root_owner_mappings(preference)
         fixture.manifest_paths[1].write_text(json.dumps(entries), encoding="utf-8")
 
         code, _report, stderr = _captured_main(
@@ -443,7 +506,7 @@ class CorpusGateTests(unittest.TestCase):
 
         sidecar_path = fixture.lane_reward / "reward-sidecars.jsonl"
         documents = _read_jsonl(sidecar_path)
-        target = next(document for document in documents if document["sidecar_id"] == old_id)
+        target = _first_matching(documents, lambda document: document["sidecar_id"] == old_id)
         target["source_rewards"][0]["value"] = "forged but self-consistently sealed"
         body = dict(target)
         body.pop("sidecar_id")
@@ -472,23 +535,11 @@ class CorpusGateTests(unittest.TestCase):
         old_id = records[0]["reward_training"]["source_sidecar_id"]
         sidecar_path = fixture.lane_reward / "reward-sidecars.jsonl"
         documents = _read_jsonl(sidecar_path)
-        target = next(document for document in documents if document["sidecar_id"] == old_id)
+        target = _sidecar_document(documents, old_id)
         original_digest = target["source"]["record_sha256"]
-        forged = 0.8
-        if isinstance(records[0].get("reward_components"), dict):
-            records[0]["reward_components"]["task_progress"] = forged
-            records[0]["reward_components"]["total"] = forged
-        for reward in target["source_rewards"]:
-            pointer = reward.get("json_pointer")
-            if pointer == "/reward_components":
-                reward["value"] = copy.deepcopy(records[0]["reward_components"])
-            elif pointer in ("/reward_components/task_progress", "/reward_components/total"):
-                reward["value"] = forged
-            reward["value_sha256"] = "sha256:" + curate_gate.record_sha256(reward["value"])
+        _forge_reward_values(records[0], target, 0.8)
         target["source"]["record_sha256"] = original_digest
-        body = dict(target)
-        body.pop("sidecar_id")
-        target["sidecar_id"] = "sha256:" + curate_gate.record_sha256(body)
+        _reseal_sidecar(target)
         records[0]["reward_training"]["source_sidecar_id"] = target["sidecar_id"]
         _write_jsonl(sidecar_path, documents)
         _write_jsonl(reward_output, records)
@@ -514,7 +565,7 @@ class CorpusGateTests(unittest.TestCase):
 
         sidecar_path = fixture.lane_reward / "reward-sidecars.jsonl"
         documents = _read_jsonl(sidecar_path)
-        target = next(document for document in documents if document["sidecar_id"] == old_id)
+        target = _sidecar_document(documents, old_id)
         forged_reasons = [
             "explicit_usd_unit_calibration",
             "reward_arithmetic_verified",
@@ -523,29 +574,8 @@ class CorpusGateTests(unittest.TestCase):
             "comparability": curate_rewards.MAGNITUDE_COMPARABLE,
             "reason_codes": list(forged_reasons),
         }
-        body = dict(target)
-        body.pop("sidecar_id")
-        target["sidecar_id"] = "sha256:" + curate_gate.record_sha256(body)
-        annotation.update(
-            {
-                "comparability": curate_rewards.MAGNITUDE_COMPARABLE,
-                "reason_codes": list(forged_reasons),
-                "source_sidecar_id": target["sidecar_id"],
-                "magnitude": {
-                    "canonical_unit": curate_rewards.CANONICAL_UNIT,
-                    "aggregation": "linear_unit_conversion_only",
-                    "values": [
-                        {
-                            "json_pointer": "/reward_components",
-                            "source_total": 0.5,
-                            "source_unit_usd": 10000,
-                            "conversion_factor": 1,
-                            "canonical_value": 0.5,
-                        }
-                    ],
-                },
-            }
-        )
+        _reseal_sidecar(target)
+        annotation.update(_magnitude_comparable_annotation(forged_reasons, target["sidecar_id"]))
         annotation.pop("order", None)
         curate_rewards.validate_ontology_document(annotation)
         curate_rewards.validate_ontology_document(target)

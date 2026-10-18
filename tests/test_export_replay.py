@@ -51,7 +51,9 @@ class ReplayAuthenticationContexts(unittest.TestCase):
             ):
                 context.summary = {"forged": True}
 
-    def test_each_replayed_aggregate_has_its_specific_failure(self):
+    @staticmethod
+    def _one_record_replay_contract():
+        """One retained and one excluded record: the replay snapshot and its summary."""
         snapshot = export_replay._ReplaySnapshot(
             counts=Counter(
                 {
@@ -88,6 +90,10 @@ class ReplayAuthenticationContexts(unittest.TestCase):
             "transforms": compose_curated.transform_contract(),
             "rights": {"lanes": {"research": 0, "training": 0}, "training_exportable": False},
         }
+        return snapshot, summary
+
+    def test_each_replayed_aggregate_has_its_specific_failure(self):
+        snapshot, summary = self._one_record_replay_contract()
         mutations = (
             ("counts", {}, "source/output counts do not reproduce"),
             ("lane_actions", {}, "lane action counts do not reproduce"),

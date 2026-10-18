@@ -7,9 +7,10 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
+from unittest import mock
 
-from pipelines import compose_curated
-from pipelines import training_audit
+from pipelines import compose_curated, compose_curated_rights, training_audit
 from tests.compose_curated_test_support import (
     assert_research_only_audit,
     build_source_run,
@@ -65,3 +66,42 @@ class ComposeCuratedRights(unittest.TestCase):
         self.assertEqual(entry["rights"]["project_training_policy"], "blocked")
         stages = [stage["lane"] for stage in entry["stages"] if stage["lane"] != "source"]
         self.assertEqual(stages[:5], list(compose_curated.LANE_ORDER)[: len(stages)])
+
+
+def _replay_source():
+    return SimpleNamespace(
+        record={}, source_path="batch-r01.jsonl", source_line=1,
+        source_sha256="0" * 64, source_json="{}",
+    )
+
+
+def _appending(*stages):
+    def compose(_record, out, _coordinates):
+        out.extend(stages)
+    return compose
+
+
+def _replay(*stages):
+    """Replay with an identity compose that appends exactly ``stages``."""
+    with mock.patch.object(
+        compose_curated_rights, "_compose_identity_stage_with_source", _appending(*stages)
+    ):
+        return compose_curated_rights._replayed_identity_stage(_replay_source())
+
+
+class ReplayedIdentityStageCount(unittest.TestCase):
+    """The replay accepts exactly the one identity stage compose appends."""
+
+    def test_one_retained_stage_returns_its_detail_with_the_source_bytes(self):
+        stage = {"action": "retained", "detail": {"source": {"line": 1}}}
+        expected = _replay(stage)
+        self.assertEqual(expected, {"source": {"line": 1, "original": "{}"}})
+
+    def test_no_stage_or_extra_stages_are_refused(self):
+        retained = {"action": "retained", "detail": {"source": {}}}
+        for stages in ((), (retained, retained)):
+            with (
+                self.subTest(count=len(stages)),
+                self.assertRaisesRegex(ValueError, "values to unpack"),
+            ):
+                _replay(*stages)

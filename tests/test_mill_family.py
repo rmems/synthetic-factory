@@ -90,8 +90,9 @@ class DestStampedMill(unittest.TestCase):
             (SEARCH, SEARCH_NATIVE),
         )
         finding = next(
-            item for item in mills.findings() if item.record_id == stray["id"]
+            (item for item in mills.findings() if item.record_id == stray["id"]), None
         )
+        self.assertIsNotNone(finding)
         self.assertIn("leftover", stray["id"])
         self.assertIn(REASON_FOREIGN_MILL_ID_PREFIX, finding.reason_codes)
         self.assertEqual(finding.home_factories, (SEARCH,))

@@ -7,11 +7,17 @@ import json
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 from .catalog_extract import catalog_json_path, rows_jsonl_path
 from .plants_extract import plants_jsonl_path, sha256_bytes as plants_sha256_bytes
-from .sources import MILL_SOURCES, PLANT_SOURCE, catalog_sources, plant_sources, slug_sources
+from .sources import (
+    MILL_SOURCES,
+    MillSource,
+    catalog_sources,
+    plant_sources,
+    slug_sources,
+)
 from .vocabulary import (
     CATALOG_SCHEMA_ID,
     FACTORY,
@@ -122,18 +128,7 @@ class LefCatalog:
 def load_catalog(path=None) -> LefCatalog:
     catalog_path = path if path is not None else catalog_json_path()
     document = json.loads(catalog_path.read_text(encoding="utf-8"))
-    if document.get("schema") != CATALOG_SCHEMA_ID:
-        raise ValueError(f"{catalog_path} schema is not {CATALOG_SCHEMA_ID}")
-    if document.get("preserve_commit") != PRESERVE_COMMIT:
-        raise ValueError(f"{catalog_path} preserve_commit drifted from vocabulary")
-    if document.get("factory") != FACTORY or document.get("generator") != GENERATOR:
-        raise ValueError(f"{catalog_path} factory/generator drifted from vocabulary")
-    if document.get("slice") != SLICE_ID:
-        raise ValueError(f"{catalog_path} slice drifted from vocabulary")
-    if document.get("slice_mill") != SLICE_MILL_ID:
-        raise ValueError(f"{catalog_path} slice_mill drifted from vocabulary")
-    if document.get("slice_rows_file") != ROWS_FILENAME:
-        raise ValueError(f"{catalog_path} slice_rows_file drifted from vocabulary")
+    _check_header(document, catalog_path)
     mills = {mill_id: _mill_from_row(row) for mill_id, row in document["mills"].items()}
     tables_by_mill = _load_all_slice_tables(
         rows_jsonl_path(catalog_path.parent), mills
@@ -143,23 +138,7 @@ def load_catalog(path=None) -> LefCatalog:
         for mill_id, mill in mills.items()
     }
     slugs = _slugs_from_row(document["slugs"])
-    plants_row = document.get("plants")
-    plants = (
-        _load_plants_catalog(plants_row, catalog_path.parent)
-        if plants_row is not None
-        else None
-    )
-    plants_b_row = document.get("plants_b")
-    plants_b = (
-        _load_plants_catalog(
-            plants_b_row,
-            catalog_path.parent,
-            default_filename=PLANTS_B_FILENAME,
-            pair_count=PLANTS_B_PAIR_COUNT,
-        )
-        if plants_b_row is not None
-        else None
-    )
+    plants, plants_b = _load_archive_b_plants(document, catalog_path.parent)
     catalog = LefCatalog(
         schema=document["schema"],
         source_ref=document["source_ref"],
@@ -179,10 +158,58 @@ def load_catalog(path=None) -> LefCatalog:
     return catalog
 
 
+def _check_header(document: Mapping[str, Any], catalog_path: Path) -> None:
+    """Refuse a header whose identity drifted from the vocabulary pins."""
+
+    if document.get("schema") != CATALOG_SCHEMA_ID:
+        raise ValueError(f"{catalog_path} schema is not {CATALOG_SCHEMA_ID}")
+    if document.get("preserve_commit") != PRESERVE_COMMIT:
+        raise ValueError(f"{catalog_path} preserve_commit drifted from vocabulary")
+    if document.get("factory") != FACTORY or document.get("generator") != GENERATOR:
+        raise ValueError(f"{catalog_path} factory/generator drifted from vocabulary")
+    if document.get("slice") != SLICE_ID:
+        raise ValueError(f"{catalog_path} slice drifted from vocabulary")
+    if document.get("slice_mill") != SLICE_MILL_ID:
+        raise ValueError(f"{catalog_path} slice_mill drifted from vocabulary")
+    if document.get("slice_rows_file") != ROWS_FILENAME:
+        raise ValueError(f"{catalog_path} slice_rows_file drifted from vocabulary")
+
+
+def _load_archive_b_plants(
+    document: Mapping[str, Any], package_dir: Path
+) -> tuple[PlantsCatalog | None, PlantsCatalog | None]:
+    """The optional ``plants`` and ``plants_b`` slices, in that order."""
+
+    plants_row = document.get("plants")
+    plants = (
+        _load_plants_catalog(plants_row, package_dir)
+        if plants_row is not None
+        else None
+    )
+    plants_b_row = document.get("plants_b")
+    plants_b = (
+        _load_plants_catalog(
+            plants_b_row,
+            package_dir,
+            default_filename=PLANTS_B_FILENAME,
+            pair_count=PLANTS_B_PAIR_COUNT,
+        )
+        if plants_b_row is not None
+        else None
+    )
+    return plants, plants_b
+
+
+def _tuple_or_none(value: Any) -> tuple[Any, ...] | None:
+    return tuple(value) if value else None
+
+
+def _rows_or_none(value: Any) -> tuple[tuple[Any, ...], ...] | None:
+    return tuple(tuple(item) for item in value) if value else None
+
+
 def _mill_from_row(row: Mapping[str, Any]) -> MillCatalog:
     tables = row.get("tables")
-    stems = row.get("stems")
-    lims = row.get("lims")
     return MillCatalog(
         mill_id=row["mill_id"],
         path=row["path"],
@@ -198,16 +225,14 @@ def _mill_from_row(row: Mapping[str, Any]) -> MillCatalog:
         last_slug=row["last_slug"],
         generator=row["generator"],
         factory=row["factory"],
-        banned_slugs=tuple(row["banned_slugs"]) if row.get("banned_slugs") else None,
-        banned_snippets=(
-            tuple(row["banned_snippets"]) if row.get("banned_snippets") else None
-        ),
-        banned_keys=tuple(row["banned_keys"]) if row.get("banned_keys") else None,
+        banned_slugs=_tuple_or_none(row.get("banned_slugs")),
+        banned_snippets=_tuple_or_none(row.get("banned_snippets")),
+        banned_keys=_tuple_or_none(row.get("banned_keys")),
         tables=_tables_from_row(tables) if tables else None,
-        stems=tuple(tuple(row) for row in stems) if stems else None,
-        froms=tuple(row["froms"]) if row.get("froms") else None,
-        canons=tuple(row["canons"]) if row.get("canons") else None,
-        lims=tuple(tuple(item) for item in lims) if lims else None,
+        stems=_rows_or_none(row.get("stems")),
+        froms=_tuple_or_none(row.get("froms")),
+        canons=_tuple_or_none(row.get("canons")),
+        lims=_rows_or_none(row.get("lims")),
         nums=row.get("nums"),
     )
 
@@ -221,29 +246,44 @@ def _tables_from_row(
     }
 
 
-def _parse_slice_rows(path: Path) -> list[dict[str, Any]]:
+def _read_lf_jsonl(path: Path, label: str) -> str:
     try:
         text = path.read_text(encoding="utf-8")
     except OSError as exc:
-        raise ValueError(f"cannot load leftover slice {path}: {exc}") from exc
+        raise ValueError(f"cannot load {label} {path}: {exc}") from exc
     if "\r" in text or not text.endswith("\n"):
         raise ValueError(f"{path.name} must be LF-framed jsonl")
+    return text
+
+
+def _json_line(line: str, where: str) -> Any:
+    try:
+        return json.loads(line)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"{where} is not JSON: {exc}") from exc
+
+
+def _slice_row(line: str, where: str, expected_index: int) -> dict[str, Any]:
+    """One ``rows.jsonl`` line: the next index and every table at its arity."""
+
+    if not line:
+        raise ValueError(f"{where} is empty")
+    row = _json_line(line, where)
+    if not isinstance(row, dict) or row.get("i") != expected_index:
+        raise ValueError(f"{where} index drifted from {expected_index}")
+    for name in TABLE_NAMES:
+        item = row.get(name)
+        expect = len(TABLE_FIELDS[name])
+        if not isinstance(item, list) or len(item) != expect:
+            raise ValueError(f"{where} {name} arity drifted")
+    return row
+
+
+def _parse_slice_rows(path: Path) -> list[dict[str, Any]]:
+    text = _read_lf_jsonl(path, "leftover slice")
     rows: list[dict[str, Any]] = []
     for index, line in enumerate(text.splitlines(), start=1):
-        if not line:
-            raise ValueError(f"{path.name}:{index} is empty")
-        try:
-            row = json.loads(line)
-        except json.JSONDecodeError as exc:
-            raise ValueError(f"{path.name}:{index} is not JSON: {exc}") from exc
-        if not isinstance(row, dict) or row.get("i") != len(rows):
-            raise ValueError(f"{path.name}:{index} index drifted from {len(rows)}")
-        for name in TABLE_NAMES:
-            item = row.get(name)
-            expect = len(TABLE_FIELDS[name])
-            if not isinstance(item, list) or len(item) != expect:
-                raise ValueError(f"{path.name}:{index} {name} arity drifted")
-        rows.append(row)
+        rows.append(_slice_row(line, f"{path.name}:{index}", len(rows)))
     if not rows:
         raise ValueError(f"{path.name} must contain at least one slice row")
     return rows
@@ -281,42 +321,38 @@ def _load_all_slice_tables(
     return tables_by_mill
 
 
+def _plant_pair_row(line: str, where: str, expected_index: int) -> PlantPair:
+    """One compact ``plants.jsonl`` line: the next index with ok/bad objects."""
+
+    if not line:
+        raise ValueError(f"{where} is empty")
+    if line.startswith((" ", "\t")):
+        raise ValueError(f"{where} must be compact jsonl")
+    row = _json_line(line, where)
+    if not isinstance(row, dict):
+        raise ValueError(f"{where} is not an object")
+    if row.get("i") != expected_index:
+        raise ValueError(f"{where} index drifted from {expected_index}")
+    ok = row.get("ok")
+    bad = row.get("bad")
+    if not isinstance(ok, dict) or not isinstance(bad, dict):
+        raise ValueError(f"{where} missing ok/bad objects")
+    return PlantPair(
+        index=row["i"],
+        base_round=row["base_round"],
+        mill_id=row["mill_id"],
+        plant_id=row["plant_id"],
+        source=row["source"],
+        ok=ok,
+        bad=bad,
+    )
+
+
 def _parse_plants_jsonl(path: Path, *, expected: int) -> list[PlantPair]:
-    try:
-        text = path.read_text(encoding="utf-8")
-    except OSError as exc:
-        raise ValueError(f"cannot load plants slice {path}: {exc}") from exc
-    if "\r" in text or not text.endswith("\n"):
-        raise ValueError(f"{path.name} must be LF-framed jsonl")
+    text = _read_lf_jsonl(path, "plants slice")
     rows: list[PlantPair] = []
     for index, line in enumerate(text.splitlines(), start=1):
-        if not line:
-            raise ValueError(f"{path.name}:{index} is empty")
-        if line.startswith((" ", "\t")):
-            raise ValueError(f"{path.name}:{index} must be compact jsonl")
-        try:
-            row = json.loads(line)
-        except json.JSONDecodeError as exc:
-            raise ValueError(f"{path.name}:{index} is not JSON: {exc}") from exc
-        if not isinstance(row, dict):
-            raise ValueError(f"{path.name}:{index} is not an object")
-        if row.get("i") != len(rows):
-            raise ValueError(f"{path.name}:{index} index drifted from {len(rows)}")
-        ok = row.get("ok")
-        bad = row.get("bad")
-        if not isinstance(ok, dict) or not isinstance(bad, dict):
-            raise ValueError(f"{path.name}:{index} missing ok/bad objects")
-        rows.append(
-            PlantPair(
-                index=row["i"],
-                base_round=row["base_round"],
-                mill_id=row["mill_id"],
-                plant_id=row["plant_id"],
-                source=row["source"],
-                ok=ok,
-                bad=bad,
-            )
-        )
+        rows.append(_plant_pair_row(line, f"{path.name}:{index}", len(rows)))
     if len(rows) != expected:
         raise ValueError(f"{path.name} row count {len(rows)} != {expected}")
     return rows
@@ -374,6 +410,14 @@ def _slugs_from_row(row: Mapping[str, Any]) -> SlugListing:
     )
 
 
+class _PlantSlot(NamedTuple):
+    """How one Archive B slice names itself in refusals, and its pinned pair count."""
+
+    label: str
+    jsonl: str
+    pair_count: int
+
+
 def _bind_sources(catalog: LefCatalog) -> None:
     expected = {source.mill_id: source for source in catalog_sources()}
     if set(catalog.mills) != set(expected):
@@ -384,80 +428,97 @@ def _bind_sources(catalog: LefCatalog) -> None:
         )
     if len(MILL_SOURCES) != 7:
         raise ValueError(f"expected 7 leftover sources, found {len(MILL_SOURCES)}")
+    _bind_slug_pin(catalog.slugs)
+    widths = 0
+    for mill_id, mill in catalog.mills.items():
+        _bind_mill(mill_id, mill, expected[mill_id])
+        widths += mill.n_rows
+    if catalog.n_catalog_rows != widths:
+        raise ValueError("catalog n_catalog_rows drifted from mill widths")
+    _bind_archive_b(catalog)
+
+
+def _bind_archive_b(catalog: LefCatalog) -> None:
+    plant_pins = {pin.mill_id: pin for pin in plant_sources()}
+    if catalog.plants is not None:
+        slot = _PlantSlot("plant", PLANTS_FILENAME, PLANTS_PAIR_COUNT)
+        _bind_plants(catalog.plants, plant_pins, slot)
+    if catalog.plants_b is not None:
+        slot = _PlantSlot("plants_b", PLANTS_B_FILENAME, PLANTS_B_PAIR_COUNT)
+        _bind_plants(catalog.plants_b, plant_pins, slot)
+
+
+def _bind_slug_pin(slugs: SlugListing) -> None:
     slug_pins = slug_sources()
     if len(slug_pins) != 1:
         raise ValueError("expected one leftover used-slug listing pin")
     pin = slug_pins[0]
-    if (
-        catalog.slugs.path != pin.path
-        or catalog.slugs.blob_sha != pin.blob_sha
-        or catalog.slugs.mill_id != pin.mill_id
-    ):
+    if (slugs.path, slugs.blob_sha, slugs.mill_id) != (pin.path, pin.blob_sha, pin.mill_id):
         raise ValueError("used-slug listing pin disagrees with sources.py")
-    widths = 0
-    for mill_id, mill in catalog.mills.items():
-        source = expected[mill_id]
-        if mill.path != source.path or mill.blob_sha != source.blob_sha:
-            raise ValueError(f"{mill_id} pin disagrees with sources.py")
-        if mill.kind != source.kind:
-            raise ValueError(f"{mill_id} kind disagrees with sources.py")
-        if mill.n_rows * 6 != mill.n_table_rows:
-            raise ValueError(f"{mill_id} n_table_rows does not match n_rows")
-        if mill.n_rows * 3 != mill.n_pair_slots:
-            raise ValueError(f"{mill_id} n_pair_slots does not match n_rows")
-        if mill.shape == SHAPE_TABLES:
-            if mill.kind != KIND_TABLES:
-                raise ValueError(f"{mill_id} tables shape must use kind=tables")
-        elif mill.shape == SHAPE_STEMS:
-            if mill.kind != KIND_STEMS:
-                raise ValueError(f"{mill_id} stems shape must use kind=stems")
-            if mill.stems is not None:
-                raise ValueError(f"{mill_id} must omit stems from the header")
-        else:
-            raise ValueError(f"{mill_id} has unknown shape {mill.shape!r}")
-        if mill.tables is None:
-            raise ValueError(f"{mill_id} omitted tables")
-        for name in TABLE_NAMES:
-            if len(mill.tables[name]) != mill.n_rows:
-                raise ValueError(f"{mill_id} {name} width drifted from n_rows")
-        if mill.tables["CACHE_OK"][0][0] != mill.first_slug:
-            raise ValueError(f"{mill_id} first_slug drifted from slice rows")
-        if mill.tables["CACHE_OK"][-1][0] != mill.last_slug:
-            raise ValueError(f"{mill_id} last_slug drifted from slice rows")
-        widths += mill.n_rows
-    if catalog.n_catalog_rows != widths:
-        raise ValueError("catalog n_catalog_rows drifted from mill widths")
-    plant_pins = {pin.mill_id: pin for pin in plant_sources()}
-    if catalog.plants is not None:
-        pin = plant_pins.get(catalog.plants.mill_id)
-        if pin is None:
-            raise ValueError("Archive B plant mill_id missing from sources.py")
-        plants = catalog.plants
-        if plants.path != pin.path:
-            raise ValueError("Archive B plant pin disagrees with sources.py")
-        if plants.blob_sha != pin.blob_sha:
-            raise ValueError("Archive B plant blob_sha disagrees with sources.py")
-        if plants.kind != pin.kind or plants.kind != KIND_PLANTS:
-            raise ValueError("Archive B plant kind disagrees with sources.py")
-        if plants.n_pairs != PLANTS_PAIR_COUNT:
-            raise ValueError("Archive B plant n_pairs drifted from vocabulary")
-        if len(plants.pairs) != plants.n_pairs:
-            raise ValueError("plants.jsonl width drifted from header n_pairs")
-    if catalog.plants_b is not None:
-        pin = plant_pins.get(catalog.plants_b.mill_id)
-        if pin is None:
-            raise ValueError("Archive B plants_b mill_id missing from sources.py")
-        plants_b = catalog.plants_b
-        if plants_b.path != pin.path:
-            raise ValueError("Archive B plants_b pin disagrees with sources.py")
-        if plants_b.blob_sha != pin.blob_sha:
-            raise ValueError("Archive B plants_b blob_sha disagrees with sources.py")
-        if plants_b.kind != pin.kind or plants_b.kind != KIND_PLANTS:
-            raise ValueError("Archive B plants_b kind disagrees with sources.py")
-        if plants_b.n_pairs != PLANTS_B_PAIR_COUNT:
-            raise ValueError("Archive B plants_b n_pairs drifted from vocabulary")
-        if len(plants_b.pairs) != plants_b.n_pairs:
-            raise ValueError("plants_b.jsonl width drifted from header n_pairs")
+
+
+def _bind_mill(mill_id: str, mill: MillCatalog, source: MillSource) -> None:
+    if mill.path != source.path or mill.blob_sha != source.blob_sha:
+        raise ValueError(f"{mill_id} pin disagrees with sources.py")
+    if mill.kind != source.kind:
+        raise ValueError(f"{mill_id} kind disagrees with sources.py")
+    if mill.n_rows * 6 != mill.n_table_rows:
+        raise ValueError(f"{mill_id} n_table_rows does not match n_rows")
+    if mill.n_rows * 3 != mill.n_pair_slots:
+        raise ValueError(f"{mill_id} n_pair_slots does not match n_rows")
+    _bind_mill_shape(mill_id, mill)
+    _bind_mill_tables(mill_id, mill)
+
+
+def _bind_mill_shape(mill_id: str, mill: MillCatalog) -> None:
+    if mill.shape == SHAPE_TABLES:
+        if mill.kind != KIND_TABLES:
+            raise ValueError(f"{mill_id} tables shape must use kind=tables")
+        return
+    if mill.shape != SHAPE_STEMS:
+        raise ValueError(f"{mill_id} has unknown shape {mill.shape!r}")
+    if mill.kind != KIND_STEMS:
+        raise ValueError(f"{mill_id} stems shape must use kind=stems")
+    if mill.stems is not None:
+        raise ValueError(f"{mill_id} must omit stems from the header")
+
+
+def _bind_mill_tables(mill_id: str, mill: MillCatalog) -> None:
+    """The slice rows bound to this mill: present, n_rows wide, first/last slugs pinned."""
+
+    if mill.tables is None:
+        raise ValueError(f"{mill_id} omitted tables")
+    for name in TABLE_NAMES:
+        if len(mill.tables[name]) != mill.n_rows:
+            raise ValueError(f"{mill_id} {name} width drifted from n_rows")
+    if mill.tables["CACHE_OK"][0][0] != mill.first_slug:
+        raise ValueError(f"{mill_id} first_slug drifted from slice rows")
+    if mill.tables["CACHE_OK"][-1][0] != mill.last_slug:
+        raise ValueError(f"{mill_id} last_slug drifted from slice rows")
+
+
+def _refuse_archive_b_plant_dimensions(plants: PlantsCatalog, slot: _PlantSlot) -> None:
+    if plants.n_pairs != slot.pair_count:
+        raise ValueError(f"Archive B {slot.label} n_pairs drifted from vocabulary")
+    if plants.plants_file != slot.jsonl:
+        raise ValueError(f"Archive B {slot.label} plants_file drifted from {slot.jsonl}")
+    if len(plants.pairs) != plants.n_pairs:
+        raise ValueError(f"{slot.jsonl} width drifted from header n_pairs")
+
+
+def _bind_plants(
+    plants: PlantsCatalog, plant_pins: Mapping[str, MillSource], slot: _PlantSlot
+) -> None:
+    pin = plant_pins.get(plants.mill_id)
+    if pin is None:
+        raise ValueError(f"Archive B {slot.label} mill_id missing from sources.py")
+    if plants.path != pin.path:
+        raise ValueError(f"Archive B {slot.label} pin disagrees with sources.py")
+    if plants.blob_sha != pin.blob_sha:
+        raise ValueError(f"Archive B {slot.label} blob_sha disagrees with sources.py")
+    if plants.kind != pin.kind or plants.kind != KIND_PLANTS:
+        raise ValueError(f"Archive B {slot.label} kind disagrees with sources.py")
+    _refuse_archive_b_plant_dimensions(plants, slot)
 
 
 CATALOG = load_catalog() if catalog_json_path().exists() else None

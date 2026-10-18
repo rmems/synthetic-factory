@@ -263,11 +263,12 @@ class TaxonomyDocumentTests(unittest.TestCase):
             for exception_type in REGEX_RESOURCE_EXCEPTION_TYPES:
                 with self.subTest(stage=stage, exception=exception_type.__name__):
                     forced = exception_type("forced resource failure")
+                    document = minimal_taxonomy()
                     with (
                         mock.patch(target, side_effect=forced),
                         self.assertRaises(TagTaxonomyError) as raised,
                     ):
-                        Taxonomy(minimal_taxonomy(), source="<test>")
+                        Taxonomy(document, source="<test>")
 
                     self.assertIn("not a valid regex", str(raised.exception))
                     self.assertIs(raised.exception.__cause__, forced)

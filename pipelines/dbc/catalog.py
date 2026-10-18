@@ -100,11 +100,15 @@ def _jsonl_row(line: str, index: int) -> dict[str, Any]:
         raise ValueError(f"pairs.jsonl:{index} names an excluded leftover3 launderer")
     if row["fail_handoff"] is not True:
         raise ValueError(f"pairs.jsonl:{index} fail_handoff must be true")
-    if not isinstance(row["success_slug"], str) or not row["success_slug"]:
-        raise ValueError(f"pairs.jsonl:{index} success_slug must be non-empty")
-    if not isinstance(row["fail_slug"], str) or not row["fail_slug"]:
-        raise ValueError(f"pairs.jsonl:{index} fail_slug must be non-empty")
+    _require_slug(row, "success_slug", index)
+    _require_slug(row, "fail_slug", index)
     return row
+
+
+def _require_slug(row: Mapping[str, Any], key: str, index: int) -> None:
+    value = row[key]
+    if not isinstance(value, str) or not value:
+        raise ValueError(f"pairs.jsonl:{index} {key} must be non-empty")
 
 
 def _is_launderer(mill_id: str, source_path: str) -> bool:
@@ -211,6 +215,18 @@ def _bind_sources(catalog: DbcCatalog) -> None:
         )
     if len(MILL_SOURCES) != 67:
         raise ValueError(f"expected 67 included DBC sources, found {len(MILL_SOURCES)}")
+    _bind_launderers(catalog)
+    _bind_pair_widths(catalog)
+    for mill_id, mill in catalog.mills.items():
+        source = expected[mill_id]
+        if mill.path != source.path or mill.blob_sha != source.blob_sha:
+            raise ValueError(f"{mill_id} pin disagrees with sources.py")
+        _bind_mill_pairs(mill, source.path)
+
+
+def _bind_launderers(catalog: DbcCatalog) -> None:
+    """The two excluded r597/r600 launderers stay pinned and out of the catalog."""
+
     if len(EXCLUDED_LAUNDERERS) != 2:
         raise ValueError(f"expected 2 excluded launderers, found {len(EXCLUDED_LAUNDERERS)}")
     excluded_paths = {source.path for source in EXCLUDED_LAUNDERERS}
@@ -219,6 +235,9 @@ def _bind_sources(catalog: DbcCatalog) -> None:
     launderer_ids = {source.mill_id for source in EXCLUDED_LAUNDERERS}
     if any(mill_id in catalog.mills for mill_id in launderer_ids):
         raise ValueError("launderer mill leaked into the committed catalog")
+
+
+def _bind_pair_widths(catalog: DbcCatalog) -> None:
     if catalog.n_pair_rows != N_PAIR_ROWS:
         raise ValueError(f"catalog n_pair_rows drifted from {N_PAIR_ROWS}")
     if catalog.n_deferred_pair_rows != DEFERRED_PAIR_ROWS:
@@ -226,11 +245,6 @@ def _bind_sources(catalog: DbcCatalog) -> None:
     slice_mill = catalog.mills[SLICE_MILL_ID]
     if len(slice_mill.pairs) != SLICE_PAIR_ROWS:
         raise ValueError("r193 slice n_rows does not match extracted pairs")
-    for mill_id, mill in catalog.mills.items():
-        source = expected[mill_id]
-        if mill.path != source.path or mill.blob_sha != source.blob_sha:
-            raise ValueError(f"{mill_id} pin disagrees with sources.py")
-        _bind_mill_pairs(mill, source.path)
 
 
 def _bind_mill_pairs(mill: MillCatalog, source_path: str) -> None:
@@ -244,6 +258,12 @@ def _bind_mill_pairs(mill: MillCatalog, source_path: str) -> None:
         raise ValueError(f"{mill.mill_id} first_slug drifted from pairs.jsonl")
     if mill.pairs[-1]["success_slug"] != mill.last_slug:
         raise ValueError(f"{mill.mill_id} last_slug drifted from pairs.jsonl")
+    _bind_pair_provenance(mill, source_path)
+
+
+def _bind_pair_provenance(mill: MillCatalog, source_path: str) -> None:
+    """Every deferred pair names this mill and its pinned source path."""
+
     if any(pair["source_path"] != source_path for pair in mill.pairs):
         raise ValueError(f"{mill.mill_id} source_path drifted from pairs.jsonl")
     if any(pair["mill_id"] != mill.mill_id for pair in mill.pairs):

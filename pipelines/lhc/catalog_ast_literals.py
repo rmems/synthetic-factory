@@ -7,13 +7,14 @@
 from __future__ import annotations
 
 import ast
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from typing import Any
 
 UNSET = object()
 
 
-def _items(nodes: list[ast.AST], env: Mapping[str, Any]) -> list[Any] | object:
+def _items(nodes: Sequence[ast.AST], env: Mapping[str, Any]) -> Any:
+    """The resolved items as a list, or ``UNSET`` when any item is not a literal."""
     resolved: list[Any] = []
     for node in nodes:
         item = literal_value(node, env)
