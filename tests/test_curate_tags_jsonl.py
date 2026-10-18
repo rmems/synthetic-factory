@@ -72,13 +72,10 @@ class EntropyTests(unittest.TestCase):
             summary["entropy_bits"]["canonical"], summary["entropy_bits"]["source"]
         )
         self.assertGreater(summary["entropy_bits"]["reduction"], 1.0)
+        # Reported to six places; reduction is source minus canonical (4.835061 - 1.022664).
         self.assertEqual(
-            summary["entropy_bits"]["reduction"],
-            round(
-                summary["entropy_bits"]["source"]
-                - summary["entropy_bits"]["canonical"],
-                6,
-            ),
+            summary["entropy_bits"],
+            {"source": 4.835061, "canonical": 1.022664, "reduction": 3.812397},
         )
 
 
@@ -140,10 +137,8 @@ class CurateJsonlTests(unittest.TestCase):
         self.assertEqual(result["summary"]["source_tag_uses"], 3)
         self.assertEqual(result["summary"]["source_unique_tags"], 3)
         self.assertEqual(result["manifest"][0]["tag_counts"]["source_unique"], 3)
-        self.assertEqual(
-            result["summary"]["entropy_bits"]["source"],
-            round(math.log2(3), 6),
-        )
+        # log2(3) bits, rounded to the six places the summary reports.
+        self.assertEqual(result["summary"]["entropy_bits"]["source"], 1.584963)
         self.assertEqual(result["summary"]["unmapped_unique_tags"], 2)
         self.assertEqual(
             result["manifest"][0]["unmapped_tags"],
