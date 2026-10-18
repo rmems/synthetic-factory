@@ -366,7 +366,7 @@ def _load_record(line: SourceLine) -> Any:
             parse_constant=reject_json_constant,
             parse_float=parse_finite_json_float,
         )
-    except (json.JSONDecodeError, ValueError) as exc:
+    except ValueError as exc:  # json.JSONDecodeError is a ValueError
         raise TrajectoryCurationError(f"{line.location}: invalid JSON: {exc}") from exc
 
 
@@ -589,20 +589,32 @@ def _render_scan(run: CurationRun, as_json: bool) -> str:
     )
 
 
-def _run_command(args: argparse.Namespace, paths: Inputs) -> int:
+def _required(path: Path | None, argument: str) -> Path:
+    """A path argparse already requires; ``None`` only arrives from a direct caller."""
+
+    if path is None:
+        raise TypeError(f"{argument} must be a path, not None")
+    return path
+
+
+def _curate(paths: Inputs, policy: GatePolicy) -> None:
+    output = _required(paths.output, "output")
+    _reject_raw_destination(output, "output")
+    manifest = _required(paths.manifest, "manifest")
+    _reject_raw_destination(manifest, "manifest")
+    source = _required(paths.source, "source")
+    run = curate_source(source, policy)
+    write_run(run, source, output, manifest)
+    print(json.dumps(run.summary, sort_keys=True))
+
+
+def _run_command(args: argparse.Namespace, paths: Inputs) -> None:
     policy = GatePolicy(enforce_outcome_agreement=args.enforce_outcome_agreement)
     if args.command == "curate":
-        _reject_raw_destination(paths.output, "output")
-        _reject_raw_destination(paths.manifest, "manifest")
-
-    run = curate_source(paths.source, policy)
-    if args.command == "scan":
-        print(_render_scan(run, args.json))
-        return 0
-
-    write_run(run, paths.source, paths.output, paths.manifest)
-    print(json.dumps(run.summary, sort_keys=True))
-    return 0
+        _curate(paths, policy)
+        return
+    run = curate_source(_required(paths.source, "source"), policy)
+    print(_render_scan(run, args.json))
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -610,10 +622,11 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     paths = _inputs(parser, args)
     try:
-        return _run_command(args, paths)
+        _run_command(args, paths)
     except (OSError, PreferenceCurationError, ValueError) as exc:
         print(f"trajectory preference curation failed: {exc}", file=sys.stderr)
         return 1
+    return 0
 
 
 if __package__:

@@ -20,6 +20,25 @@ from test_oracle_grounded_cli import (
 )
 
 
+def _encoder_manifest_for(args, availability, item):
+    """Build the generate manifest of a one-record encoder run holding ``item``."""
+    job = oracle_generate.FamilyJob(
+        count=args.count,
+        seed=args.seed,
+        round_number=args.round_number,
+        commit=PINNED_COMMIT,
+        dirty=False,
+        require_runtime=args.require_runtime,
+    )
+    outputs = oracle_generate.RunOutputs(
+        [families.ENCODER_FAMILY],
+        availability,
+        {families.ENCODER_FAMILY: ([item], [], [])},
+        {},
+    )
+    return oracle_generate.build_manifest(job, outputs)
+
+
 class GenerateCliCase03(unittest.TestCase):
     def test_the_manifest_note_reflects_whether_anything_is_publishable(self):
         # A run none of whose records earned publication must not claim
@@ -28,23 +47,6 @@ class GenerateCliCase03(unittest.TestCase):
         # and publication tooling, so it must track the records.
         args = oracle_generate.parse_args(["--count", "1", "ignored-out-dir"])
         availability = oracles.availability_report(())
-
-        def manifest_for(item):
-            job = oracle_generate.FamilyJob(
-                count=args.count,
-                seed=args.seed,
-                round_number=args.round_number,
-                commit=PINNED_COMMIT,
-                dirty=False,
-                require_runtime=args.require_runtime,
-            )
-            outputs = oracle_generate.RunOutputs(
-                [families.ENCODER_FAMILY],
-                availability,
-                {families.ENCODER_FAMILY: ([item], [], [])},
-                {},
-            )
-            return oracle_generate.build_manifest(job, outputs)
 
         # Unresolved dirty state is unresolved provenance, so even a reference
         # record at the current digest cannot be published.
@@ -55,7 +57,7 @@ class GenerateCliCase03(unittest.TestCase):
             run=record.RecordRunContext(commit=PINNED_COMMIT, dirty=None, environ={}),
         )
         self.assertFalse(unpublishable["validation"]["publishable"])
-        manifest = manifest_for(unpublishable)
+        manifest = _encoder_manifest_for(args, availability, unpublishable)
         self.assertIn("no record here", manifest["note"])
         # The validator recomputes the note, so the two vocabularies must be
         # byte-identical or every generated run would fail note validation.
@@ -64,16 +66,20 @@ class GenerateCliCase03(unittest.TestCase):
         # #171: an accepted reference record at the current digest is
         # publishable, and so is the same record measured by a named runtime.
         reference = next(
-            item
-            for item in (build(families.ENCODER_FAMILY, index) for index in range(24))
-            if item["validation"]["status"] == "accepted"
+            (
+                item
+                for item in (build(families.ENCODER_FAMILY, index) for index in range(24))
+                if item["validation"]["status"] == "accepted"
+            ),
+            None,
         )
+        self.assertIsNotNone(reference, "no accepted encoder reference record in 24 builds")
         for publishable in (reference, relabel_as_named_runtime(reference)):
             with self.subTest(implementation=publishable["oracle"]["implementation"]):
                 self.assertTrue(
                     publishable["validation"]["publishable"], publishable["validation"]
                 )
-                manifest = manifest_for(publishable)
+                manifest = _encoder_manifest_for(args, availability, publishable)
                 self.assertNotIn("no record here", manifest["note"])
                 self.assertIn("publishable", manifest["note"])
                 self.assertEqual(manifest["note"], oracle_validate.MANIFEST_NOTE_PUBLISHABLE)

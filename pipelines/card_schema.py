@@ -68,18 +68,37 @@ The declaration mechanism is split by responsibility across sibling modules --
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 
-from card_schema_core import CardSchemaError, DATASET_NAME_RE, _require
-from card_schema_coverage import payload_coverage_errors
-from card_schema_render import (
-    body_section,
-    field_notes,
-    json_columns,
-    undeclared_body_section,
-)
-from card_schema_validate import validate
-from card_schema_yaml import _yaml_scalar, metadata_yaml, yaml_features
+if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("card_schema")
+    from .card_schema_core import DATASET_NAME_RE, CardSchemaError, _require
+    from .card_schema_coverage import payload_coverage_errors
+    from .card_schema_render import (
+        body_section,
+        field_notes,
+        json_columns,
+        undeclared_body_section,
+    )
+    from .card_schema_validate import validate
+    from .card_schema_yaml import _yaml_scalar, metadata_yaml, yaml_features
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "card_schema"
+    )
+    from card_schema_core import DATASET_NAME_RE, CardSchemaError, _require
+    from card_schema_coverage import payload_coverage_errors
+    from card_schema_render import (
+        body_section,
+        field_notes,
+        json_columns,
+        undeclared_body_section,
+    )
+    from card_schema_validate import validate
+    from card_schema_yaml import _yaml_scalar, metadata_yaml, yaml_features
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SCHEMA_ROOT = REPO_ROOT / "config" / "card-schemas"
@@ -188,3 +207,7 @@ def _validated_declaration(payload: object, dataset: str, path: Path) -> dict:
         return validate(payload, dataset)
     except CardSchemaError as exc:
         raise CardSchemaError(f"invalid card schema {path}: {exc}") from exc
+
+
+if __package__:
+    _expose_package_sibling(__name__)

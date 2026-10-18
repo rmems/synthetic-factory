@@ -52,9 +52,10 @@ class CerMillUsageBurstTests(unittest.TestCase):
         self.assertIn("Novel coverage: 85%", notes)
 
     def test_sid_is_deterministic(self):
+        # Pinned literal: sha256("1966:cache-status-hit-stale:leftover3")[:4] == "38a1".
         self.assertEqual(
             cer_builder.sid(1966, "cache-status-hit-stale"),
-            cer_builder.sid(1966, "cache-status-hit-stale"),
+            "cer-r1966-cache-status-hit-stale-38a1",
         )
 
 

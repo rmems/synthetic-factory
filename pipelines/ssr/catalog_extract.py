@@ -12,9 +12,9 @@ import ast
 import hashlib
 import json
 import re
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeGuard
 
 from .catalog_ast import (
     UNSET,
@@ -153,62 +153,81 @@ def _empty_record(shape: str) -> dict[str, Any]:
     }
 
 
+def _named_list(node: ast.stmt, name: str) -> ast.List | None:
+    """Non-empty list literal assigned to ``name`` by a simple assignment."""
+
+    assigned, value = assignment_of(node)
+    if assigned != name or not isinstance(value, ast.List) or not value.elts:
+        return None
+    return value
+
+
 def _literal_pairs(tree: ast.AST) -> dict[str, Any] | None:
     for node in getattr(tree, "body", ()):
-        name, value = assignment_of(node)
-        if name != "PAIRS" or not isinstance(value, ast.List) or not value.elts:
+        pairs = _dict_pairs(_named_list(node, "PAIRS"))
+        if pairs is None:
             continue
-        if not all(_is_dict_pair(elt) for elt in value.elts):
-            continue
-        rows = []
-        for elt in value.elts:
-            assert isinstance(elt, ast.Tuple)
-            success = literal_value(elt.elts[0])
-            fail = literal_value(elt.elts[1])
-            if not isinstance(success, dict) or not isinstance(fail, dict):
-                return None
-            rows.append(_pair_row(success, fail))
+        rows = _literal_pair_rows(pairs)
+        if rows is None:
+            return None
         if rows and rows[0]["success_slug"]:
             return _rows_record(SHAPE_LITERAL, rows)
     return None
 
 
+def _dict_pairs(value: ast.List | None) -> list[ast.Tuple] | None:
+    """The list's elements when every one is a ``(dict, dict)`` tuple, else ``None``."""
+
+    if value is None:
+        return None
+    pairs = [elt for elt in value.elts if _is_dict_pair(elt)]
+    return pairs if len(pairs) == len(value.elts) else None
+
+
+def _literal_pair_rows(elts: list[ast.Tuple]) -> list[dict[str, Any]] | None:
+    rows = []
+    for elt in elts:
+        success = literal_value(elt.elts[0])
+        fail = literal_value(elt.elts[1])
+        if not isinstance(success, dict) or not isinstance(fail, dict):
+            return None
+        rows.append(_pair_row(success, fail))
+    return rows
+
+
 def _ctor_pairs(tree: ast.AST) -> dict[str, Any] | None:
     for node in getattr(tree, "body", ()):
-        name, value = assignment_of(node)
-        if name != "PAIRS" or not isinstance(value, ast.List) or not value.elts:
+        value = _named_list(node, "PAIRS")
+        if value is None or _ctor_pair(value.elts[0]) is None:
             continue
-        first = _ctor_pair(value.elts[0])
-        if first is None:
-            continue
-        rows = []
         ctor_shape = SHAPE_S if _tuple_ctor_name(value.elts[0]) == "S" else SHAPE_PLANT
-        for elt in value.elts:
-            pair = _ctor_pair(elt)
-            if pair is None:
-                return None
-            rows.append(pair)
+        rows = _ctor_pair_rows(value.elts)
+        if rows is None:
+            return None
         return _rows_record(ctor_shape, rows)
     return None
 
 
+def _ctor_pair_rows(elts: list[ast.expr]) -> list[dict[str, Any]] | None:
+    rows = []
+    for elt in elts:
+        pair = _ctor_pair(elt)
+        if pair is None:
+            return None
+        rows.append(pair)
+    return rows
+
+
 def _rows_pairs(tree: ast.AST) -> dict[str, Any] | None:
     for node in getattr(tree, "body", ()):
-        name, value = assignment_of(node)
-        if name != "ROWS" or not isinstance(value, ast.List) or not value.elts:
+        value = _named_list(node, "ROWS")
+        if value is None:
             continue
         resolved = literal_value(value)
         if not isinstance(resolved, list) or not resolved:
             return None
-        plants: list[dict[str, str | None]] = []
-        for item in resolved:
-            if not isinstance(item, tuple) or len(item) < 2:
-                return None
-            scanner, tail = item[0], item[1]
-            if not isinstance(scanner, str) or not isinstance(tail, str):
-                return None
-            plants.append({"slug": f"{scanner}-{tail}", "scanner": scanner})
-        if len(plants) % 2:
+        plants = _row_plants(resolved)
+        if plants is None or len(plants) % 2:
             return None
         rows = [
             _pair_row(plants[index], plants[index + 1])
@@ -218,21 +237,22 @@ def _rows_pairs(tree: ast.AST) -> dict[str, Any] | None:
     return None
 
 
+def _row_plants(resolved: list[Any]) -> list[dict[str, str | None]] | None:
+    """``(scanner, tail, ...)`` rows as plant identities; ``None`` on any bad row."""
+
+    plants: list[dict[str, str | None]] = []
+    for item in resolved:
+        if not isinstance(item, tuple) or len(item) < 2:
+            return None
+        scanner, tail = item[0], item[1]
+        if not isinstance(scanner, str) or not isinstance(tail, str):
+            return None
+        plants.append({"slug": f"{scanner}-{tail}", "scanner": scanner})
+    return plants
+
+
 def _tails_record(tree: ast.AST) -> dict[str, Any] | None:
-    tails: list[str] | None = None
-    scanners: list[str] | None = None
-    for node in getattr(tree, "body", ()):
-        name, value = assignment_of(node)
-        if name == "TAILS" and value is not None:
-            resolved = literal_value(value)
-            if isinstance(resolved, list) and resolved and all(
-                isinstance(item, str) for item in resolved
-            ):
-                tails = [str(item) for item in resolved]
-        if name == "SCAN" and isinstance(value, ast.Dict):
-            resolved = literal_value(value)
-            if isinstance(resolved, dict):
-                scanners = [str(key) for key in resolved if isinstance(key, str)]
+    tails, scanners = _tails_and_scanners(tree)
     if tails is None or len(tails) < 2:
         return None
     n_rows = len(tails) // 2
@@ -256,6 +276,36 @@ def _tails_record(tree: ast.AST) -> dict[str, Any] | None:
         "tails": tails,
         "pairs": tail_pair_rows(scanners, tails),
     }
+
+
+def _tails_and_scanners(tree: ast.AST) -> tuple[list[str] | None, list[str] | None]:
+    """Last literal ``TAILS`` string list and ``SCAN`` dict keys; ``None`` when absent."""
+
+    tails: list[str] | None = None
+    scanners: list[str] | None = None
+    for node in getattr(tree, "body", ()):
+        name, value = assignment_of(node)
+        if name == "TAILS" and value is not None:
+            tails = _literal_tails(value, tails)
+        if name == "SCAN" and isinstance(value, ast.Dict):
+            scanners = _literal_scan_keys(value, scanners)
+    return tails, scanners
+
+
+def _literal_tails(value: ast.AST, previous: list[str] | None) -> list[str] | None:
+    resolved = literal_value(value)
+    if not isinstance(resolved, list) or not resolved:
+        return previous
+    if not all(isinstance(item, str) for item in resolved):
+        return previous
+    return [str(item) for item in resolved]
+
+
+def _literal_scan_keys(value: ast.Dict, previous: list[str] | None) -> list[str] | None:
+    resolved = literal_value(value)
+    if not isinstance(resolved, dict):
+        return previous
+    return [str(key) for key in resolved if isinstance(key, str)]
 
 
 def _tail_slug(scanners: list[str], tails: list[str], index: int) -> str:
@@ -284,7 +334,7 @@ def tail_pair_rows(scanners: list[str], tails: list[str]) -> list[dict[str, Any]
     return rows
 
 
-def _is_dict_pair(node: ast.AST) -> bool:
+def _is_dict_pair(node: ast.AST) -> TypeGuard[ast.Tuple]:
     if not isinstance(node, ast.Tuple) or len(node.elts) != 2:
         return False
     return all(isinstance(elt, ast.Dict) for elt in node.elts)
@@ -373,7 +423,7 @@ def mill_summary(record: Mapping[str, Any], *, include_pairs: bool) -> dict[str,
     return summary
 
 
-def inherited_scanners(records: list[Mapping[str, Any]]) -> list[str]:
+def inherited_scanners(records: Sequence[Mapping[str, Any]]) -> list[str]:
     """``SCAN`` keys from the latest mill that defined them as a literal dict."""
 
     found: list[str] = []
@@ -485,16 +535,20 @@ def deferred_pair_rows(
     for record in records:
         if record.get("kind") != KIND_PAIRS or record["mill_id"] == SLICE_MILL_ID:
             continue
-        filled = apply_inherited_scanners(record, scanners)
-        pairs = list(filled.get("pairs") or ())
-        if len(pairs) != filled["n_rows"]:
-            raise ValueError(
-                f"{filled['mill_id']} deferred pairs {len(pairs)} != n_rows {filled['n_rows']}"
-            )
-        rows.extend(compact_deferred_pair(filled, pair) for pair in pairs)
+        rows.extend(_mill_deferred_rows(record, scanners))
     if expected_rows is not None and len(rows) != expected_rows:
         raise ValueError(f"deferred pair rows {len(rows)} != pin {expected_rows}")
     return rows
+
+
+def _mill_deferred_rows(record: dict[str, Any], scanners: list[str]) -> list[dict[str, Any]]:
+    filled = apply_inherited_scanners(record, scanners)
+    pairs = list(filled.get("pairs") or ())
+    if len(pairs) != filled["n_rows"]:
+        raise ValueError(
+            f"{filled['mill_id']} deferred pairs {len(pairs)} != n_rows {filled['n_rows']}"
+        )
+    return [compact_deferred_pair(filled, pair) for pair in pairs]
 
 
 def apply_inherited_scanners(
@@ -507,27 +561,47 @@ def apply_inherited_scanners(
         return record
     updated = dict(record)
     if not record.get("first_slug"):
-        first_tail = record.get("first_tail")
-        last_success_tail = record.get("last_success_tail")
-        n_tails = record.get("n_tails")
-        if scanners and isinstance(first_tail, str) and isinstance(n_tails, int):
-            updated["first_slug"] = f"{scanners[0]}-{first_tail}-leftover"
-            if isinstance(last_success_tail, str) and n_tails >= 2:
-                last_index = n_tails - 2
-                updated["last_slug"] = (
-                    f"{scanners[last_index % len(scanners)]}-{last_success_tail}-leftover"
-                )
-    tails = record.get("tails")
-    local = record.get("scanners")
-    if isinstance(local, list) and local:
-        chosen = [str(item) for item in local]
-    else:
-        chosen = list(scanners)
-    if (
-        chosen
-        and isinstance(tails, list)
-        and len(tails) >= 2
-        and not updated.get("pairs")
-    ):
-        updated["pairs"] = tail_pair_rows(chosen, [str(item) for item in tails])
+        _fill_inherited_slugs(updated, record, scanners)
+    _fill_inherited_pairs(updated, record, scanners)
     return updated if updated != record else record
+
+
+def _fill_inherited_slugs(
+    updated: dict[str, Any],
+    record: Mapping[str, Any],
+    scanners: list[str],
+) -> None:
+    first_tail = record.get("first_tail")
+    last_success_tail = record.get("last_success_tail")
+    n_tails = record.get("n_tails")
+    if not scanners or not isinstance(first_tail, str):
+        return
+    if not isinstance(n_tails, int):
+        return
+    updated["first_slug"] = f"{scanners[0]}-{first_tail}-leftover"
+    if isinstance(last_success_tail, str) and n_tails >= 2:
+        last_index = n_tails - 2
+        updated["last_slug"] = (
+            f"{scanners[last_index % len(scanners)]}-{last_success_tail}-leftover"
+        )
+
+
+def _fill_inherited_pairs(
+    updated: dict[str, Any],
+    record: Mapping[str, Any],
+    scanners: list[str],
+) -> None:
+    tails = record.get("tails")
+    chosen = _chosen_scanners(record.get("scanners"), scanners)
+    if not chosen or updated.get("pairs"):
+        return
+    if isinstance(tails, list) and len(tails) >= 2:
+        updated["pairs"] = tail_pair_rows(chosen, [str(item) for item in tails])
+
+
+def _chosen_scanners(local: Any, inherited: list[str]) -> list[str]:
+    """A mill's own ``SCAN`` keys when it has them, else the inherited ones."""
+
+    if isinstance(local, list) and local:
+        return [str(item) for item in local]
+    return list(inherited)

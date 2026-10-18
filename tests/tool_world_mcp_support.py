@@ -15,6 +15,8 @@ import json
 
 from tests import tool_world_test_support as support
 
+# The support module goes first: it puts pipelines/ on sys.path for the import below.
+# isort: split
 from tool_world import faults as faults_mod
 
 PACK = "tickets-mcp"

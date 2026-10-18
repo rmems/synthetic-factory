@@ -11,7 +11,7 @@ from __future__ import annotations
 import ast
 import hashlib
 import json
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -132,37 +132,54 @@ def _extract_shape(tree: ast.AST, *, path: str) -> dict[str, Any]:
 
 
 def _s_from_lists(tree: ast.AST) -> dict[str, Any] | None:
-    success_nodes, leftover_nodes = _named_lists(tree, "SUCCESS", "LEFTOVER")
-    if success_nodes is None or leftover_nodes is None:
+    nodes = _ctor_lists(tree, "s_from", "l_from")
+    if nodes is None:
         return None
-    if not success_nodes or not leftover_nodes:
-        return None
-    if not all(call_name(elt) == "s_from" for elt in success_nodes):
-        return None
-    if not all(call_name(elt) == "l_from" for elt in leftover_nodes):
-        return None
-    success = [_s_from_identity(elt) for elt in success_nodes]
-    leftover = [_l_from_identity(elt) for elt in leftover_nodes]
-    if any(row["slug"] is None for row in (*success, *leftover)):
-        return None
-    return _theme_record(SHAPE_S_FROM, success, leftover)
+    success_nodes, leftover_nodes = nodes
+    return _slugged_theme_record(
+        SHAPE_S_FROM,
+        [_s_from_identity(elt) for elt in success_nodes],
+        [_l_from_identity(elt) for elt in leftover_nodes],
+    )
 
 
 def _s_l_kwargs_lists(tree: ast.AST) -> dict[str, Any] | None:
-    success_nodes, leftover_nodes = _named_lists(tree, "SUCCESS", "LEFTOVER")
-    if success_nodes is None or leftover_nodes is None:
+    nodes = _ctor_lists(tree, "S", "L")
+    if nodes is None:
         return None
+    success_nodes, leftover_nodes = nodes
+    return _slugged_theme_record(
+        SHAPE_S_L_KW,
+        [_s_kwargs_identity(elt) for elt in success_nodes],
+        [_l_kwargs_identity(elt) for elt in leftover_nodes],
+    )
+
+
+def _ctor_lists(
+    tree: ast.AST,
+    success_ctor: str,
+    leftover_ctor: str,
+) -> tuple[list[Any], list[Any]] | None:
+    """Non-empty ``SUCCESS`` / ``LEFTOVER`` lists built only from the named constructors."""
+
+    success_nodes, leftover_nodes = _named_lists(tree, "SUCCESS", "LEFTOVER")
     if not success_nodes or not leftover_nodes:
         return None
-    if not all(call_name(elt) == "S" for elt in success_nodes):
+    if not all(call_name(elt) == success_ctor for elt in success_nodes):
         return None
-    if not all(call_name(elt) == "L" for elt in leftover_nodes):
+    if not all(call_name(elt) == leftover_ctor for elt in leftover_nodes):
         return None
-    success = [_s_kwargs_identity(elt) for elt in success_nodes]
-    leftover = [_l_kwargs_identity(elt) for elt in leftover_nodes]
+    return success_nodes, leftover_nodes
+
+
+def _slugged_theme_record(
+    shape: str,
+    success: list[dict[str, Any]],
+    leftover: list[dict[str, Any]],
+) -> dict[str, Any] | None:
     if any(row["slug"] is None for row in (*success, *leftover)):
         return None
-    return _theme_record(SHAPE_S_L_KW, success, leftover)
+    return _theme_record(shape, success, leftover)
 
 
 def _named_lists(tree: ast.AST, *names: str) -> tuple[list[Any] | None, ...]:
@@ -181,10 +198,10 @@ def _s_from_identity(node: Any) -> dict[str, Any]:
     stem = args[_S_FROM_STEM]
     return {
         "index": args[0] if isinstance(args[0], int) else None,
-        "slug": args[_S_FROM_SLUG] if isinstance(args[_S_FROM_SLUG], str) else None,
-        "stem": stem if isinstance(stem, str) else None,
-        "plant": f"{PLANT_PREFIX}{stem}" if isinstance(stem, str) else None,
-        "artifact": args[_S_FROM_ARTIFACT] if isinstance(args[_S_FROM_ARTIFACT], str) else None,
+        "slug": _text(args[_S_FROM_SLUG]),
+        "stem": _text(stem),
+        "plant": _plant(stem),
+        "artifact": _text(args[_S_FROM_ARTIFACT]),
     }
 
 
@@ -193,13 +210,12 @@ def _l_from_identity(node: Any) -> dict[str, Any]:
     if args is None or len(args) < _L_FROM_LEFTOVER + 1:
         return {"slug": None, "stem": None, "plant": None, "leftover": None, "index": None}
     stem = args[_L_FROM_STEM]
-    leftover = args[_L_FROM_LEFTOVER]
     return {
         "index": args[0] if isinstance(args[0], int) else None,
-        "slug": args[_L_FROM_SLUG] if isinstance(args[_L_FROM_SLUG], str) else None,
-        "stem": stem if isinstance(stem, str) else None,
-        "plant": f"{PLANT_PREFIX}{stem}" if isinstance(stem, str) else None,
-        "leftover": leftover if isinstance(leftover, str) else None,
+        "slug": _text(args[_L_FROM_SLUG]),
+        "stem": _text(stem),
+        "plant": _plant(stem),
+        "leftover": _text(args[_L_FROM_LEFTOVER]),
     }
 
 
@@ -207,23 +223,30 @@ def _s_kwargs_identity(node: Any) -> dict[str, Any]:
     kwargs = call_kwargs(node) or {}
     stem = kwargs.get("stem")
     return {
-        "slug": kwargs.get("slug") if isinstance(kwargs.get("slug"), str) else None,
-        "stem": stem if isinstance(stem, str) else None,
-        "plant": f"{PLANT_PREFIX}{stem}" if isinstance(stem, str) else None,
-        "artifact": kwargs.get("artifact") if isinstance(kwargs.get("artifact"), str) else None,
+        "slug": _text(kwargs.get("slug")),
+        "stem": _text(stem),
+        "plant": _plant(stem),
+        "artifact": _text(kwargs.get("artifact")),
     }
 
 
 def _l_kwargs_identity(node: Any) -> dict[str, Any]:
     kwargs = call_kwargs(node) or {}
     stem = kwargs.get("stem")
-    leftover = kwargs.get("leftover")
     return {
-        "slug": kwargs.get("slug") if isinstance(kwargs.get("slug"), str) else None,
-        "stem": stem if isinstance(stem, str) else None,
-        "plant": f"{PLANT_PREFIX}{stem}" if isinstance(stem, str) else None,
-        "leftover": leftover if isinstance(leftover, str) else None,
+        "slug": _text(kwargs.get("slug")),
+        "stem": _text(stem),
+        "plant": _plant(stem),
+        "leftover": _text(kwargs.get("leftover")),
     }
+
+
+def _text(value: Any) -> str | None:
+    return value if isinstance(value, str) else None
+
+
+def _plant(stem: Any) -> str | None:
+    return f"{PLANT_PREFIX}{stem}" if isinstance(stem, str) else None
 
 
 def _theme_record(
@@ -297,9 +320,7 @@ def catalog_document(mills: list[dict[str, Any]]) -> dict[str, Any]:
     identity_rows = sum(
         len(mill.get("success") or ()) + len(mill.get("leftover") or ())
         for mill in mills
-        if is_slice_mill(mill["mill_id"])
-        or is_theme_mill(mill["mill_id"])
-        or is_pair_mill(mill["mill_id"])
+        if _commits_identity_rows(mill["mill_id"])
     )
     return {
         "schema": CATALOG_SCHEMA_ID,
@@ -330,11 +351,10 @@ def split_catalog(
     mills = document["mills"]
     for mill_id in sorted(mills):
         mill = mills[mill_id]
-        mill_rows.append({key: mill[key] for key in mill if key not in ("success", "leftover")})
+        mill_rows.append(_mill_row(mill))
         if not is_slice_mill(mill_id):
             continue
-        leftover_rows.extend({**row, "kind": "success"} for row in mill.get("success") or ())
-        leftover_rows.extend({**row, "kind": "leftover"} for row in mill.get("leftover") or ())
+        leftover_rows.extend(_kind_rows(mill, {}))
     header = {key: document[key] for key in document if key != "mills"}
     header["mills_filename"] = MILLS_FILENAME
     header["leftover_filename"] = LEFTOVER_FILENAME
@@ -346,28 +366,34 @@ def split_catalog(
 def split_theme_rows(document: Mapping[str, Any]) -> list[dict[str, Any]]:
     """Compact r1326+ theme identities (leftover.jsonl shape plus mill_id)."""
 
-    rows: list[dict[str, Any]] = []
-    mills = document["mills"]
-    for mill_id in sorted(mills):
-        if not is_theme_mill(mill_id):
-            continue
-        mill = mills[mill_id]
-        rows.extend({**row, "kind": "success", "mill_id": mill_id} for row in mill.get("success") or ())
-        rows.extend({**row, "kind": "leftover", "mill_id": mill_id} for row in mill.get("leftover") or ())
-    return rows
+    return _tagged_kind_rows(document, is_theme_mill)
 
 
 def split_pair_rows(document: Mapping[str, Any]) -> list[dict[str, Any]]:
     """Compact orch / lll / llll identities (themes.jsonl shape plus mill_id)."""
 
+    return _tagged_kind_rows(document, is_pair_mill)
+
+
+def _mill_row(mill: Mapping[str, Any]) -> dict[str, Any]:
+    return {key: mill[key] for key in mill if key not in ("success", "leftover")}
+
+
+def _tagged_kind_rows(document: Mapping[str, Any], selects) -> list[dict[str, Any]]:
+    """Success then leftover identities of each selected mill, tagged with ``mill_id``."""
+
     rows: list[dict[str, Any]] = []
     mills = document["mills"]
     for mill_id in sorted(mills):
-        if not is_pair_mill(mill_id):
+        if not selects(mill_id):
             continue
-        mill = mills[mill_id]
-        rows.extend({**row, "kind": "success", "mill_id": mill_id} for row in mill.get("success") or ())
-        rows.extend({**row, "kind": "leftover", "mill_id": mill_id} for row in mill.get("leftover") or ())
+        rows.extend(_kind_rows(mills[mill_id], {"mill_id": mill_id}))
+    return rows
+
+
+def _kind_rows(mill: Mapping[str, Any], tags: Mapping[str, Any]) -> list[dict[str, Any]]:
+    rows = [{**row, "kind": "success", **tags} for row in mill.get("success") or ()]
+    rows.extend({**row, "kind": "leftover", **tags} for row in mill.get("leftover") or ())
     return rows
 
 
@@ -376,7 +402,7 @@ def dumps_catalog(document: Mapping[str, Any]) -> str:
     return json.dumps(header, ensure_ascii=True, indent=2, sort_keys=True) + "\n"
 
 
-def dumps_jsonl(rows: list[Mapping[str, Any]]) -> str:
+def dumps_jsonl(rows: Sequence[Mapping[str, Any]]) -> str:
     return "".join(
         json.dumps(row, ensure_ascii=True, separators=(",", ":"), sort_keys=True) + "\n"
         for row in rows
@@ -433,3 +459,7 @@ def is_theme_mill(mill_id: str) -> bool:
 
 def is_pair_mill(mill_id: str) -> bool:
     return mill_id in PAIR_MILL_IDS
+
+
+def _commits_identity_rows(mill_id: str) -> bool:
+    return is_slice_mill(mill_id) or is_theme_mill(mill_id) or is_pair_mill(mill_id)

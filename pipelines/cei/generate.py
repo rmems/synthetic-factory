@@ -13,7 +13,7 @@ from __future__ import annotations
 import hashlib
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 from . import catalog as cat
 from ._contract import (
@@ -174,139 +174,214 @@ def _meta(round_n: int, side: cat.Side, catalog_id: str, plant: cat.Plant) -> di
     }
 
 
-def build_success(
-    round_n: int,
-    side: cat.Side,
-    catalog_id: str,
-    plant: cat.Plant,
-) -> dict[str, Any]:
-    """16-step success episode. Hopper-faithful; generator is ``cei-mill``."""
+class _Workspace(NamedTuple):
+    """The files one episode works in, as both side shapes present them."""
 
-    _goal_ok(side.goal)
-    src, test, cfg = _paths(side)
-    eid = _episode_id(round_n, side.slug)
-    listing = f"{src} {cfg}\n{test}"
-    pytest_args = f"{test} -q --tb=short"
-    fail_obs = f"{test}::{side.test_fn} FAILED\nE   {side.fail_msg}"
-    still_obs = f"{test}::{side.test_fn} FAILED\nE   {side.still_msg}"
-    steps = [
+    mod: str
+    src: str
+    test: str
+    test_fn: str
+    test_body: str
+    grep_command: str
+    grep_hit: str
+    src_body: str
+    fail_msg: str
+    still_msg: str
+
+    @property
+    def pytest_args(self) -> str:
+        return f"{self.test} -q --tb=short"
+
+    @property
+    def node(self) -> str:
+        return f"{self.test}::{self.test_fn}"
+
+
+def _hop_workspace(side: cat.Side) -> _Workspace:
+    src, test, _cfg = _paths(side)
+    return _Workspace(
+        mod=side.mod,
+        src=src,
+        test=test,
+        test_fn=side.test_fn,
+        test_body=side.test_body,
+        grep_command=f"rg -n '{side.grep_pat}' src {side.mod} tests",
+        grep_hit=side.grep_hit,
+        src_body=side.src_body,
+        fail_msg=side.fail_msg,
+        still_msg=side.still_msg,
+    )
+
+
+def _investigation_steps(ws: _Workspace) -> list[dict[str, Any]]:
+    """Steps 1-5: list the tree, reproduce the failure, read the test, grep, read the source."""
+
+    return [
         _step(
             1,
-            f"Plan: list src {side.mod} and tests before touching conversion or config.",
-            _bash(f"ls -la src {side.mod} tests | head -40"),
-            listing,
-            f"Tree shows {src} plus tests. Run the named failing target next.",
+            f"Plan: list src {ws.mod} and tests before touching conversion or config.",
+            _bash(f"ls -la src {ws.mod} tests | head -40"),
+            f"{ws.src} {ws.mod}/cfg.yml\n{ws.test}",
+            f"Tree shows {ws.src} plus tests. Run the named failing target next.",
         ),
         _step(
             2,
             (
                 "Observation: listing named the test files. "
-                f"Run `{pytest_args}` to capture the failure."
+                f"Run `{ws.pytest_args}` to capture the failure."
             ),
-            _pytest(pytest_args),
-            fail_obs,
-            f"Failure is at {test}::{side.test_fn}. Read that test before a one-line fix.",
+            _pytest(ws.pytest_args),
+            f"{ws.node} FAILED\nE   {ws.fail_msg}",
+            f"Failure is at {ws.node}. Read that test before a one-line fix.",
         ),
         _step(
             3,
-            f"Observation: {test}::{side.test_fn} is red. Read {test} around the assertion.",
-            _read(test),
-            side.test_body,
+            f"Observation: {ws.node} is red. Read {ws.test} around the assertion.",
+            _read(ws.test),
+            ws.test_body,
             "Test contract is visible. Search implementation symbols next.",
         ),
         _step(
             4,
             "Observation: test file imported the production helper. Grep those symbols.",
-            _bash(f"rg -n '{side.grep_pat}' src {side.mod} tests"),
-            side.grep_hit,
-            f"Grep hit {src}. Read it before editing the first match.",
+            _bash(ws.grep_command),
+            ws.grep_hit,
+            f"Grep hit {ws.src}. Read it before editing the first match.",
         ),
         _step(
             5,
-            f"Observation: grep listed {src}. Read it before any patch.",
-            _read(src),
-            side.src_body,
+            f"Observation: grep listed {ws.src}. Read it before any patch.",
+            _read(ws.src),
+            ws.src_body,
             "First read done. Fetch vendor docs next; do not patch on a hunch yet.",
         ),
+    ]
+
+
+# Docs fetches sit at steps 6-7 and 8-9; what the agent says depends on which pair it is.
+_DOCS_NEED = {
+    6: "Observation: local files are in. Need the changelog/registry before editing.",
+    8: "Observation: local files are in. Need the second remote document before editing.",
+}
+_GATEWAY_RESUME = {
+    6: "Degraded path used the local fixture. Continue with that content.",
+    8: "Degraded path used the local fixture. Resume the local debug plan.",
+}
+_RATE_LIMIT_RETRY_AFTER = {6: 6, 8: 5}
+_RATE_LIMIT_RESUME = {
+    6: "Retry succeeded. Continue with that document.",
+    8: "Retry succeeded. Resume the local debug plan with that document in hand.",
+}
+
+
+def _gateway_recovery_steps(n: int, url: str, doc: str) -> list[dict[str, Any]]:
+    """Step ``n`` fetches ``url`` into a 502; step ``n + 1`` recovers it with backoff."""
+
+    return [
         _step(
-            6,
-            "Observation: local files are in. Need the changelog/registry before editing.",
-            _fetch(side.docs_url),
-            f"GET {side.docs_url}\nHTTP/1.1 502 Bad Gateway\nBad Gateway.",
+            n,
+            _DOCS_NEED[n],
+            _fetch(url),
+            f"GET {url}\nHTTP/1.1 502 Bad Gateway\nBad Gateway.",
             "Call failed with upstream gateway failure. Recover with backoff.",
         ),
         _step(
-            7,
+            n + 1,
             (
                 "Observation: the prior call returned an upstream gateway failure. "
                 "Retry once with 2s backoff."
             ),
-            _fetch(side.docs_url),
-            (
-                f"retry after 2s backoff; local vendor fixture\n"
-                f"HTTP/1.1 200 OK\n{side.docs_ok}"
-            ),
-            "Degraded path used the local fixture. Continue with that content.",
+            _fetch(url),
+            f"retry after 2s backoff; local vendor fixture\nHTTP/1.1 200 OK\n{doc}",
+            _GATEWAY_RESUME[n],
         ),
+    ]
+
+
+def _rate_limit_recovery_steps(n: int, url: str, doc: str) -> list[dict[str, Any]]:
+    """Step ``n`` fetches ``url`` into a 429; step ``n + 1`` sleeps and retries it."""
+
+    return [
         _step(
-            8,
-            "Observation: local files are in. Need the second remote document before editing.",
-            _fetch(side.docs_url2),
+            n,
+            _DOCS_NEED[n],
+            _fetch(url),
             (
-                f"GET {side.docs_url2}\nHTTP/1.1 429 Too Many Requests\n"
-                "Retry-After: 5\nX-RateLimit-Remaining: 0"
+                f"GET {url}\nHTTP/1.1 429 Too Many Requests\n"
+                f"Retry-After: {_RATE_LIMIT_RETRY_AFTER[n]}\nX-RateLimit-Remaining: 0"
             ),
             "Call failed with rate-limit status with Retry-After. Recover with backoff.",
         ),
         _step(
-            9,
+            n + 1,
             (
                 "Observation: the prior call returned rate-limit status with Retry-After. "
                 "Sleep then retry."
             ),
-            _fetch(side.docs_url2),
-            f"sleep + jitter retry of the same URL\nHTTP/1.1 200 OK\n{side.docs_ok2}",
-            "Retry succeeded. Resume the local debug plan with that document in hand.",
+            _fetch(url),
+            f"sleep + jitter retry of the same URL\nHTTP/1.1 200 OK\n{doc}",
+            _RATE_LIMIT_RESUME[n],
         ),
-        _step(
-            10,
-            f"Observation: docs and source are in. Apply the first patch to {src}.",
-            _edit(src, side.first_old, side.first_new),
-            side.first_obs,
-            "Patch applied. Re-run the failing test; do not assume green.",
-        ),
-        _step(
-            11,
-            f"Observation: edit wrote {src}. Re-run the same failing node.",
-            _pytest(pytest_args),
-            still_obs,
-            "Still red after the first patch. Re-read the implementation; hypothesis is wrong.",
-        ),
-        _step(
-            12,
-            f"Observation: post-edit test still failed ({test}::{side.test_fn}). Re-read {src}.",
-            _read(src),
-            side.reread_obs,
-            f"Plan change: {side.plan_change}",
-        ),
-        _step(
-            13,
-            f"Reflection: {side.plan_change}"[:240],
-            _edit(src, side.first_new, side.fix_new),
-            side.fix_obs,
-            "Corrective patch applied. Run the original failing node again.",
-        ),
+    ]
+
+
+def _first_patch_step(ws: _Workspace, patch: dict[str, Any], observation: str) -> dict[str, Any]:
+    return _step(
+        10,
+        f"Observation: docs and source are in. Apply the first patch to {ws.src}.",
+        patch,
+        observation,
+        "Patch applied. Re-run the failing test; do not assume green.",
+    )
+
+
+def _still_red_step(ws: _Workspace) -> dict[str, Any]:
+    return _step(
+        11,
+        f"Observation: edit wrote {ws.src}. Re-run the same failing node.",
+        _pytest(ws.pytest_args),
+        f"{ws.node} FAILED\nE   {ws.still_msg}",
+        "Still red after the first patch. Re-read the implementation; hypothesis is wrong.",
+    )
+
+
+def _reread_step(ws: _Workspace, observation: str, reflection: str) -> dict[str, Any]:
+    return _step(
+        12,
+        f"Observation: post-edit test still failed ({ws.node}). Re-read {ws.src}.",
+        _read(ws.src),
+        observation,
+        reflection,
+    )
+
+
+def _corrective_patch_step(
+    plan_change: str, patch: dict[str, Any], observation: str
+) -> dict[str, Any]:
+    return _step(
+        13,
+        f"Reflection: {plan_change}"[:240],
+        patch,
+        observation,
+        "Corrective patch applied. Run the original failing node again.",
+    )
+
+
+def _verified_fix_steps(ws: _Workspace, slug: str) -> list[dict[str, Any]]:
+    """Steps 14-16 of a success episode: green node, broader check, diffstat."""
+
+    return [
         _step(
             14,
             "Observation: fix edit returned clean. Re-run the original failing test node.",
-            _pytest(pytest_args),
+            _pytest(ws.pytest_args),
             "1 passed in 0.16s",
             "Result recorded. Run one broader check before declaring the outcome.",
         ),
         _step(
             15,
-            f"Observation: focused run finished. Run broader check `pytest {test} -q`.",
-            _bash(f"pytest {test} -q"),
+            f"Observation: focused run finished. Run broader check `pytest {ws.test} -q`.",
+            _bash(f"pytest {ws.test} -q"),
             "3 passed in 0.28s",
             "Broader check captured. Stop; residual risk belongs in the outcome text.",
         ),
@@ -317,31 +392,129 @@ def build_success(
                 "Show the diff of patched files for the handoff note."
             ),
             _bash("git diff --stat | head -n 40"),
-            f"diffstat for {side.slug}: {src} | 9 ++++++---. No other modified paths.",
+            f"diffstat for {slug}: {ws.src} | 9 ++++++---. No other modified paths.",
             "Diff is the review artifact. No further edits.",
         ),
     ]
+
+
+def _handoff_ticket_step(
+    ws: _Workspace, plan_change: str, ticket_line: str, observation: str
+) -> dict[str, Any]:
+    return _step(
+        13,
+        f"Reflection: {plan_change}"[:240],
+        _edit(f"{ws.mod}/handoff.md", "", ticket_line),
+        observation,
+        "Handoff ticket written. Run the original failing node again.",
+    )
+
+
+def _handoff_close_steps(ws: _Workspace, slug: str, ticket: str) -> list[dict[str, Any]]:
+    """Steps 14-17 of a handoff episode: still red with the ticket, diffstat, lint."""
+
+    ticket_path = f"{ws.mod}/handoff.md"
+    return [
+        _step(
+            14,
+            "Observation: handoff edit returned clean. Re-run the original failing test node.",
+            _pytest(ws.pytest_args),
+            f"{ws.node} FAILED  # handoff: {ticket}\n1 failed",
+            "Result recorded. Run one broader check before declaring the outcome.",
+        ),
+        _step(
+            15,
+            (
+                "Observation: focused run finished. "
+                f"Run broader check `pytest {ws.test} -q; echo {ticket}`."
+            ),
+            _bash(f"pytest {ws.test} -q; echo {ticket}"),
+            f"1 failed, 2 passed\n{ticket}",
+            "Broader check captured. Residual risk belongs in the outcome text.",
+        ),
+        _step(
+            16,
+            (
+                "Observation: broader check is on disk. "
+                "Show the diff of patched files for the handoff note."
+            ),
+            _bash("git diff --stat | head -n 40"),
+            f"diffstat for {slug}: {ws.src} | 8 +++++---. {ticket_path} added.",
+            "Diff is the review artifact. Lint next.",
+        ),
+        _step(
+            17,
+            "Observation: diffstat listed the patched files. Run a linter on those paths only.",
+            _bash("ruff check tests || true; echo lint-end"),
+            "All checks passed!\nlint-end",
+            "Lint clean. Episode complete.",
+        ),
+    ]
+
+
+def _success_reward() -> dict[str, Any]:
+    return {
+        "success": True,
+        "tests_passed": 3,
+        "retries": 2,
+        "duration_min": 610,
+        "wasted_calls": 180,
+        "cost_steps": 16,
+        "plan_changes": 1,
+    }
+
+
+def _handoff_reward() -> dict[str, Any]:
+    return {
+        "success": False,
+        "tests_passed": 2,
+        "retries": 2,
+        "duration_min": 640,
+        "wasted_calls": 210,
+        "cost_steps": 17,
+        "plan_changes": 1,
+    }
+
+
+def _checked_episode(record: dict[str, Any], expected_steps: int) -> dict[str, Any]:
+    if len(record["steps"]) != expected_steps:
+        raise CeiRefusal(FINDING_USAGE, f"{record['id']} expected {expected_steps} steps")
+    _refuse_banned(record)
+    return record
+
+
+def build_success(
+    round_n: int,
+    side: cat.Side,
+    catalog_id: str,
+    plant: cat.Plant,
+) -> dict[str, Any]:
+    """16-step success episode. Hopper-faithful; generator is ``cei-mill``."""
+
+    _goal_ok(side.goal)
+    ws = _hop_workspace(side)
+    steps = [
+        *_investigation_steps(ws),
+        *_gateway_recovery_steps(6, side.docs_url, side.docs_ok),
+        *_rate_limit_recovery_steps(8, side.docs_url2, side.docs_ok2),
+        _first_patch_step(ws, _edit(ws.src, side.first_old, side.first_new), side.first_obs),
+        _still_red_step(ws),
+        _reread_step(ws, side.reread_obs, f"Plan change: {side.plan_change}"),
+        _corrective_patch_step(
+            side.plan_change, _edit(ws.src, side.first_new, side.fix_new), side.fix_obs
+        ),
+        *_verified_fix_steps(ws, side.slug),
+    ]
     record = {
-        "id": eid,
+        "id": _episode_id(round_n, side.slug),
         "goal": side.goal,
         "plan": side.plan,
         "steps": steps,
         "outcome": side.outcome,
-        "reward": {
-            "success": True,
-            "tests_passed": 3,
-            "retries": 2,
-            "duration_min": 610,
-            "wasted_calls": 180,
-            "cost_steps": 16,
-            "plan_changes": 1,
-        },
+        "reward": _success_reward(),
         "meta": _meta(round_n, side, catalog_id, plant),
     }
-    if len(steps) != 16:
-        raise CeiRefusal(FINDING_USAGE, f"{eid} expected 16 steps")
-    _refuse_banned(record)
-    return record
+    return _checked_episode(record, 16)
 
 
 def build_fail(
@@ -355,181 +528,48 @@ def build_fail(
     _goal_ok(side.goal)
     if not side.ticket:
         raise CeiRefusal(FINDING_USAGE, f"{side.slug} handoff missing ticket")
-    src, test, cfg = _paths(side)
-    eid = _episode_id(round_n, side.slug)
+    ws = _hop_workspace(side)
     ticket = side.ticket
-    ticket_path = f"{side.mod}/handoff.md"
-    listing = f"{src} {cfg}\n{test}"
-    pytest_args = f"{test} -q --tb=short"
-    fail_obs = f"{test}::{side.test_fn} FAILED\nE   {side.fail_msg}"
-    still_obs = f"{test}::{side.test_fn} FAILED\nE   {side.still_msg}"
     steps = [
-        _step(
-            1,
-            f"Plan: list src {side.mod} and tests before touching conversion or config.",
-            _bash(f"ls -la src {side.mod} tests | head -40"),
-            listing,
-            f"Tree shows {src} plus tests. Run the named failing target next.",
-        ),
-        _step(
-            2,
-            (
-                "Observation: listing named the test files. "
-                f"Run `{pytest_args}` to capture the failure."
-            ),
-            _pytest(pytest_args),
-            fail_obs,
-            f"Failure is at {test}::{side.test_fn}. Read that test before a one-line fix.",
-        ),
-        _step(
-            3,
-            f"Observation: {test}::{side.test_fn} is red. Read {test} around the assertion.",
-            _read(test),
-            side.test_body,
-            "Test contract is visible. Search implementation symbols next.",
-        ),
-        _step(
-            4,
-            "Observation: test file imported the production helper. Grep those symbols.",
-            _bash(f"rg -n '{side.grep_pat}' src {side.mod} tests"),
-            side.grep_hit,
-            f"Grep hit {src}. Read it before editing the first match.",
-        ),
-        _step(
-            5,
-            f"Observation: grep listed {src}. Read it before any patch.",
-            _read(src),
-            side.src_body,
-            "First read done. Fetch vendor docs next; do not patch on a hunch yet.",
-        ),
-        _step(
-            6,
-            "Observation: local files are in. Need the changelog/registry before editing.",
-            _fetch(side.docs_url),
-            (
-                f"GET {side.docs_url}\nHTTP/1.1 429 Too Many Requests\n"
-                "Retry-After: 6\nX-RateLimit-Remaining: 0"
-            ),
-            "Call failed with rate-limit status with Retry-After. Recover with backoff.",
-        ),
-        _step(
-            7,
-            (
-                "Observation: the prior call returned rate-limit status with Retry-After. "
-                "Sleep then retry."
-            ),
-            _fetch(side.docs_url),
-            f"sleep + jitter retry of the same URL\nHTTP/1.1 200 OK\n{side.docs_ok}",
-            "Retry succeeded. Continue with that document.",
-        ),
-        _step(
-            8,
-            "Observation: local files are in. Need the second remote document before editing.",
-            _fetch(side.docs_url2),
-            f"GET {side.docs_url2}\nHTTP/1.1 502 Bad Gateway\nBad Gateway.",
-            "Call failed with upstream gateway failure. Recover with backoff.",
-        ),
-        _step(
-            9,
-            (
-                "Observation: the prior call returned an upstream gateway failure. "
-                "Retry once with 2s backoff."
-            ),
-            _fetch(side.docs_url2),
-            (
-                f"retry after 2s backoff; local vendor fixture\n"
-                f"HTTP/1.1 200 OK\n{side.docs_ok2}"
-            ),
-            "Degraded path used the local fixture. Resume the local debug plan.",
-        ),
-        _step(
-            10,
-            f"Observation: docs and source are in. Apply the first patch to {src}.",
-            _edit(src, side.first_old, side.first_new),
-            side.first_obs,
-            "Patch applied. Re-run the failing test; do not assume green.",
-        ),
-        _step(
-            11,
-            f"Observation: edit wrote {src}. Re-run the same failing node.",
-            _pytest(pytest_args),
-            still_obs,
-            "Still red after the first patch. Re-read the implementation; hypothesis is wrong.",
-        ),
-        _step(
-            12,
-            f"Observation: post-edit test still failed ({test}::{side.test_fn}). Re-read {src}.",
-            _read(src),
-            side.reread_obs,
-            f"Plan change: {side.plan_change}",
-        ),
-        _step(
-            13,
-            f"Reflection: {side.plan_change}"[:240],
-            _edit(ticket_path, "", f"# {ticket} {side.ticket_why}"),
-            side.fix_obs,
-            "Handoff ticket written. Run the original failing node again.",
-        ),
-        _step(
-            14,
-            "Observation: handoff edit returned clean. Re-run the original failing test node.",
-            _pytest(pytest_args),
-            f"{test}::{side.test_fn} FAILED  # handoff: {ticket}\n1 failed",
-            "Result recorded. Run one broader check before declaring the outcome.",
-        ),
-        _step(
-            15,
-            (
-                "Observation: focused run finished. "
-                f"Run broader check `pytest {test} -q; echo {ticket}`."
-            ),
-            _bash(f"pytest {test} -q; echo {ticket}"),
-            f"1 failed, 2 passed\n{ticket}",
-            "Broader check captured. Residual risk belongs in the outcome text.",
-        ),
-        _step(
-            16,
-            (
-                "Observation: broader check is on disk. "
-                "Show the diff of patched files for the handoff note."
-            ),
-            _bash("git diff --stat | head -n 40"),
-            f"diffstat for {side.slug}: {src} | 8 +++++---. {ticket_path} added.",
-            "Diff is the review artifact. Lint next.",
-        ),
-        _step(
-            17,
-            "Observation: diffstat listed the patched files. Run a linter on those paths only.",
-            _bash("ruff check tests || true; echo lint-end"),
-            "All checks passed!\nlint-end",
-            "Lint clean. Episode complete.",
-        ),
+        *_investigation_steps(ws),
+        *_rate_limit_recovery_steps(6, side.docs_url, side.docs_ok),
+        *_gateway_recovery_steps(8, side.docs_url2, side.docs_ok2),
+        _first_patch_step(ws, _edit(ws.src, side.first_old, side.first_new), side.first_obs),
+        _still_red_step(ws),
+        _reread_step(ws, side.reread_obs, f"Plan change: {side.plan_change}"),
+        _handoff_ticket_step(ws, side.plan_change, f"# {ticket} {side.ticket_why}", side.fix_obs),
+        *_handoff_close_steps(ws, side.slug, ticket),
     ]
     record = {
-        "id": eid,
+        "id": _episode_id(round_n, side.slug),
         "goal": side.goal,
         "plan": side.plan,
         "steps": steps,
         "outcome": side.outcome,
-        "reward": {
-            "success": False,
-            "tests_passed": 2,
-            "retries": 2,
-            "duration_min": 640,
-            "wasted_calls": 210,
-            "cost_steps": 17,
-            "plan_changes": 1,
-        },
+        "reward": _handoff_reward(),
         "meta": _meta(round_n, side, catalog_id, plant),
     }
-    if len(steps) != 17:
-        raise CeiRefusal(FINDING_USAGE, f"{eid} expected 17 steps")
-    _refuse_banned(record)
-    return record
+    return _checked_episode(record, 17)
 
 
 def _leftover3_paths(side: cat.Leftover3Side) -> tuple[str, str]:
     return f"src/{side.mod}.py", f"tests/test_{side.mod}.py"
+
+
+def _leftover3_workspace(side: cat.Leftover3Side) -> _Workspace:
+    src, test = _leftover3_paths(side)
+    return _Workspace(
+        mod=side.mod,
+        src=src,
+        test=test,
+        test_fn=side.test,
+        test_body=f"def {side.test}():\n    assert drop('{side.file}') binds leftover\n",
+        grep_command=f"rg -n 'unlink|remove|{side.file}|leftover' src {side.mod} tests",
+        grep_hit=f"{src}:2: return {side.wrong}",
+        src_body=f"def drop(path):\n    return {side.wrong}\n",
+        fail_msg=side.fail1,
+        still_msg=side.fail2,
+    )
 
 
 def build_leftover3_success(
@@ -541,163 +581,36 @@ def build_leftover3_success(
     """16-step leftover leftover leftover success. Hopper-faithful; generator is ``cei-mill``."""
 
     _goal_ok(side.goal)
-    src, test = _leftover3_paths(side)
-    eid = _episode_id(round_n, side.slug)
-    listing = f"{src} {side.mod}/cfg.yml\n{test}"
-    pytest_args = f"{test} -q --tb=short"
-    fail_obs = f"{test}::{side.test} FAILED\nE   {side.fail1}"
-    still_obs = f"{test}::{side.test} FAILED\nE   {side.fail2}"
+    ws = _leftover3_workspace(side)
     first_new = f"    return {side.wrong2}"
     steps = [
-        _step(
-            1,
-            f"Plan: list src {side.mod} and tests before touching conversion or config.",
-            _bash(f"ls -la src {side.mod} tests | head -40"),
-            listing,
-            f"Tree shows {src} plus tests. Run the named failing target next.",
-        ),
-        _step(
-            2,
-            (
-                "Observation: listing named the test files. "
-                f"Run `{pytest_args}` to capture the failure."
-            ),
-            _pytest(pytest_args),
-            fail_obs,
-            f"Failure is at {test}::{side.test}. Read that test before a one-line fix.",
-        ),
-        _step(
-            3,
-            f"Observation: {test}::{side.test} is red. Read {test} around the assertion.",
-            _read(test),
-            f"def {side.test}():\n    assert drop('{side.file}') binds leftover\n",
-            "Test contract is visible. Search implementation symbols next.",
-        ),
-        _step(
-            4,
-            "Observation: test file imported the production helper. Grep those symbols.",
-            _bash(f"rg -n 'unlink|remove|{side.file}|leftover' src {side.mod} tests"),
-            f"{src}:2: return {side.wrong}",
-            f"Grep hit {src}. Read it before editing the first match.",
-        ),
-        _step(
-            5,
-            f"Observation: grep listed {src}. Read it before any patch.",
-            _read(src),
-            f"def drop(path):\n    return {side.wrong}\n",
-            "First read done. Fetch vendor docs next; do not patch on a hunch yet.",
-        ),
-        _step(
-            6,
-            "Observation: local files are in. Need the changelog/registry before editing.",
-            _fetch(side.url),
-            f"GET {side.url}\nHTTP/1.1 502 Bad Gateway\nBad Gateway.",
-            "Call failed with upstream gateway failure. Recover with backoff.",
-        ),
-        _step(
-            7,
-            (
-                "Observation: the prior call returned an upstream gateway failure. "
-                "Retry once with 2s backoff."
-            ),
-            _fetch(side.url),
-            f"retry after 2s backoff; local vendor fixture\nHTTP/1.1 200 OK\n{side.doc}",
-            "Degraded path used the local fixture. Continue with that content.",
-        ),
-        _step(
-            8,
-            "Observation: local files are in. Need the second remote document before editing.",
-            _fetch(side.url2),
-            (
-                f"GET {side.url2}\nHTTP/1.1 429 Too Many Requests\n"
-                "Retry-After: 5\nX-RateLimit-Remaining: 0"
-            ),
-            "Call failed with rate-limit status with Retry-After. Recover with backoff.",
-        ),
-        _step(
-            9,
-            (
-                "Observation: the prior call returned rate-limit status with Retry-After. "
-                "Sleep then retry."
-            ),
-            _fetch(side.url2),
-            f"sleep + jitter retry of the same URL\nHTTP/1.1 200 OK\n{side.doc2}",
-            "Retry succeeded. Resume the local debug plan with that document in hand.",
-        ),
-        _step(
-            10,
-            f"Observation: docs and source are in. Apply the first patch to {src}.",
-            _edit(src, f"    return {side.wrong}", first_new),
+        *_investigation_steps(ws),
+        *_gateway_recovery_steps(6, side.url, side.doc),
+        *_rate_limit_recovery_steps(8, side.url2, side.doc2),
+        _first_patch_step(
+            ws,
+            _edit(ws.src, f"    return {side.wrong}", first_new),
             f"patched naive {side.wrong2} (still unlink, not leftover bind)",
-            "Patch applied. Re-run the failing test; do not assume green.",
         ),
-        _step(
-            11,
-            f"Observation: edit wrote {src}. Re-run the same failing node.",
-            _pytest(pytest_args),
-            still_obs,
-            "Still red after the first patch. Re-read the implementation; hypothesis is wrong.",
-        ),
-        _step(
-            12,
-            f"Observation: post-edit test still failed ({test}::{side.test}). Re-read {src}.",
-            _read(src),
-            f"{side.leftover} still present after {side.naive}",
+        _still_red_step(ws),
+        _reread_step(ws, f"{side.leftover} still present after {side.naive}", side.chg),
+        _corrective_patch_step(
             side.chg,
-        ),
-        _step(
-            13,
-            f"Reflection: {side.chg}"[:240],
-            _edit(src, first_new, "    return bind_leftover(path)"),
+            _edit(ws.src, first_new, "    return bind_leftover(path)"),
             f"patched bind leftover then drop ({side.fix})",
-            "Corrective patch applied. Run the original failing node again.",
         ),
-        _step(
-            14,
-            "Observation: fix edit returned clean. Re-run the original failing test node.",
-            _pytest(pytest_args),
-            "1 passed in 0.16s",
-            "Result recorded. Run one broader check before declaring the outcome.",
-        ),
-        _step(
-            15,
-            f"Observation: focused run finished. Run broader check `pytest {test} -q`.",
-            _bash(f"pytest {test} -q"),
-            "3 passed in 0.28s",
-            "Broader check captured. Stop; residual risk belongs in the outcome text.",
-        ),
-        _step(
-            16,
-            (
-                "Observation: broader check is on disk. "
-                "Show the diff of patched files for the handoff note."
-            ),
-            _bash("git diff --stat | head -n 40"),
-            f"diffstat for {side.slug}: {src} | 9 ++++++---. No other modified paths.",
-            "Diff is the review artifact. No further edits.",
-        ),
+        *_verified_fix_steps(ws, side.slug),
     ]
     record = {
-        "id": eid,
+        "id": _episode_id(round_n, side.slug),
         "goal": side.goal,
         "plan": side.plan,
         "steps": steps,
         "outcome": side.outcome,
-        "reward": {
-            "success": True,
-            "tests_passed": 3,
-            "retries": 2,
-            "duration_min": 610,
-            "wasted_calls": 180,
-            "cost_steps": 16,
-            "plan_changes": 1,
-        },
+        "reward": _success_reward(),
         "meta": _leftover3_meta(round_n, side, catalog_id, plant),
     }
-    if len(steps) != 16:
-        raise CeiRefusal(FINDING_USAGE, f"{eid} expected 16 steps")
-    _refuse_banned(record)
-    return record
+    return _checked_episode(record, 16)
 
 
 def build_leftover3_fail(
@@ -711,181 +624,41 @@ def build_leftover3_fail(
     _goal_ok(side.goal)
     if not side.ticket:
         raise CeiRefusal(FINDING_USAGE, f"{side.slug} handoff missing ticket")
-    src, test = _leftover3_paths(side)
-    eid = _episode_id(round_n, side.slug)
+    ws = _leftover3_workspace(side)
     ticket = side.ticket
-    ticket_path = f"{side.mod}/handoff.md"
-    listing = f"{src} {side.mod}/cfg.yml\n{test}"
-    pytest_args = f"{test} -q --tb=short"
-    fail_obs = f"{test}::{side.test} FAILED\nE   {side.fail1}"
-    still_obs = f"{test}::{side.test} FAILED\nE   {side.fail2}"
     steps = [
-        _step(
-            1,
-            f"Plan: list src {side.mod} and tests before touching conversion or config.",
-            _bash(f"ls -la src {side.mod} tests | head -40"),
-            listing,
-            f"Tree shows {src} plus tests. Run the named failing target next.",
-        ),
-        _step(
-            2,
-            (
-                "Observation: listing named the test files. "
-                f"Run `{pytest_args}` to capture the failure."
-            ),
-            _pytest(pytest_args),
-            fail_obs,
-            f"Failure is at {test}::{side.test}. Read that test before a one-line fix.",
-        ),
-        _step(
-            3,
-            f"Observation: {test}::{side.test} is red. Read {test} around the assertion.",
-            _read(test),
-            f"def {side.test}():\n    assert drop('{side.file}') binds leftover\n",
-            "Test contract is visible. Search implementation symbols next.",
-        ),
-        _step(
-            4,
-            "Observation: test file imported the production helper. Grep those symbols.",
-            _bash(f"rg -n 'unlink|remove|{side.file}|leftover' src {side.mod} tests"),
-            f"{src}:2: return {side.wrong}",
-            f"Grep hit {src}. Read it before editing the first match.",
-        ),
-        _step(
-            5,
-            f"Observation: grep listed {src}. Read it before any patch.",
-            _read(src),
-            f"def drop(path):\n    return {side.wrong}\n",
-            "First read done. Fetch vendor docs next; do not patch on a hunch yet.",
-        ),
-        _step(
-            6,
-            "Observation: local files are in. Need the changelog/registry before editing.",
-            _fetch(side.url),
-            (
-                f"GET {side.url}\nHTTP/1.1 429 Too Many Requests\n"
-                "Retry-After: 6\nX-RateLimit-Remaining: 0"
-            ),
-            "Call failed with rate-limit status with Retry-After. Recover with backoff.",
-        ),
-        _step(
-            7,
-            (
-                "Observation: the prior call returned rate-limit status with Retry-After. "
-                "Sleep then retry."
-            ),
-            _fetch(side.url),
-            f"sleep + jitter retry of the same URL\nHTTP/1.1 200 OK\n{side.doc}",
-            "Retry succeeded. Continue with that document.",
-        ),
-        _step(
-            8,
-            "Observation: local files are in. Need the second remote document before editing.",
-            _fetch(side.url2),
-            f"GET {side.url2}\nHTTP/1.1 502 Bad Gateway\nBad Gateway.",
-            "Call failed with upstream gateway failure. Recover with backoff.",
-        ),
-        _step(
-            9,
-            (
-                "Observation: the prior call returned an upstream gateway failure. "
-                "Retry once with 2s backoff."
-            ),
-            _fetch(side.url2),
-            (
-                f"retry after 2s backoff; local vendor fixture\n"
-                f"HTTP/1.1 200 OK\n{side.doc2}"
-            ),
-            "Degraded path used the local fixture. Resume the local debug plan.",
-        ),
-        _step(
-            10,
-            f"Observation: docs and source are in. Apply the first patch to {src}.",
+        *_investigation_steps(ws),
+        *_rate_limit_recovery_steps(6, side.url, side.doc),
+        *_gateway_recovery_steps(8, side.url2, side.doc2),
+        _first_patch_step(
+            ws,
             _edit(
-                src,
+                ws.src,
                 f"    return {side.wrong}",
                 "    return open(path, encoding='utf-8').read().split(',')",
             ),
             "patched text split (still not leftover bind)",
-            "Patch applied. Re-run the failing test; do not assume green.",
         ),
-        _step(
-            11,
-            f"Observation: edit wrote {src}. Re-run the same failing node.",
-            _pytest(pytest_args),
-            still_obs,
-            "Still red after the first patch. Re-read the implementation; hypothesis is wrong.",
-        ),
-        _step(
-            12,
-            f"Observation: post-edit test still failed ({test}::{side.test}). Re-read {src}.",
-            _read(src),
-            f"{side.leftover} remains; need platform reader",
+        _still_red_step(ws),
+        _reread_step(ws, f"{side.leftover} remains; need platform reader", side.chg),
+        _handoff_ticket_step(
+            ws,
             side.chg,
-        ),
-        _step(
-            13,
-            f"Reflection: {side.chg}"[:240],
-            _edit(ticket_path, "", f"# {ticket} leftover ingest owned by platform"),
+            f"# {ticket} leftover ingest owned by platform",
             "ticket filed. still leftover after naive drop",
-            "Handoff ticket written. Run the original failing node again.",
         ),
-        _step(
-            14,
-            "Observation: handoff edit returned clean. Re-run the original failing test node.",
-            _pytest(pytest_args),
-            f"{test}::{side.test} FAILED  # handoff: {ticket}\n1 failed",
-            "Result recorded. Run one broader check before declaring the outcome.",
-        ),
-        _step(
-            15,
-            (
-                "Observation: focused run finished. "
-                f"Run broader check `pytest {test} -q; echo {ticket}`."
-            ),
-            _bash(f"pytest {test} -q; echo {ticket}"),
-            f"1 failed, 2 passed\n{ticket}",
-            "Broader check captured. Residual risk belongs in the outcome text.",
-        ),
-        _step(
-            16,
-            (
-                "Observation: broader check is on disk. "
-                "Show the diff of patched files for the handoff note."
-            ),
-            _bash("git diff --stat | head -n 40"),
-            f"diffstat for {side.slug}: {src} | 8 +++++---. {ticket_path} added.",
-            "Diff is the review artifact. Lint next.",
-        ),
-        _step(
-            17,
-            "Observation: diffstat listed the patched files. Run a linter on those paths only.",
-            _bash("ruff check tests || true; echo lint-end"),
-            "All checks passed!\nlint-end",
-            "Lint clean. Episode complete.",
-        ),
+        *_handoff_close_steps(ws, side.slug, ticket),
     ]
     record = {
-        "id": eid,
+        "id": _episode_id(round_n, side.slug),
         "goal": side.goal,
         "plan": side.plan,
         "steps": steps,
         "outcome": side.outcome,
-        "reward": {
-            "success": False,
-            "tests_passed": 2,
-            "retries": 2,
-            "duration_min": 640,
-            "wasted_calls": 210,
-            "cost_steps": 17,
-            "plan_changes": 1,
-        },
+        "reward": _handoff_reward(),
         "meta": _leftover3_meta(round_n, side, catalog_id, plant),
     }
-    if len(steps) != 17:
-        raise CeiRefusal(FINDING_USAGE, f"{eid} expected 17 steps")
-    _refuse_banned(record)
-    return record
+    return _checked_episode(record, 17)
 
 
 def _leftover3_meta(

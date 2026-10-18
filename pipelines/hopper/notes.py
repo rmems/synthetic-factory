@@ -10,19 +10,24 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
-from ._contract import FINDING_PLANT_FIELD_INVALID, bind_import_twin, refuse_when
+from ._contract import FINDING_PLANT_FIELD_INVALID, bind_import_twin, refuse
 
 __all__ = ["notes_md"]
 
 
 def _coverage(plant: Mapping, label: str) -> int:
     value = plant.get("coverage")
-    refuse_when(
-        not isinstance(value, int) or isinstance(value, bool) or value < 0,
-        FINDING_PLANT_FIELD_INVALID,
-        f"{label} coverage must be a non-negative int, got {value!r}",
-    )
+    if not isinstance(value, int):
+        refuse(FINDING_PLANT_FIELD_INVALID, _coverage_message(label, value))
+    if isinstance(value, bool):
+        refuse(FINDING_PLANT_FIELD_INVALID, _coverage_message(label, value))
+    if value < 0:
+        refuse(FINDING_PLANT_FIELD_INVALID, _coverage_message(label, value))
     return value
+
+
+def _coverage_message(label: str, value: object) -> str:
+    return f"{label} coverage must be a non-negative int, got {value!r}"
 
 
 def notes_md(

@@ -52,12 +52,11 @@ class FaultRunTimeContractGaps(unittest.TestCase):
     def test_a_peak_at_or_below_ambient_is_refused(self):
         ambient = fr.DEFAULT_SYSTEM["ambient_c"]
         for peak in (ambient - 1.0, ambient):
-            with self.subTest(peak=peak):
-                with self.assertRaises(oc.ContractError):
-                    self._run(
-                        "thermal_excursion",
-                        onset_ms=4.0, ramp_ms=8.0, peak_c=peak,
-                    )
+            with self.subTest(peak=peak), self.assertRaises(oc.ContractError):
+                self._run(
+                    "thermal_excursion",
+                    onset_ms=4.0, ramp_ms=8.0, peak_c=peak,
+                )
 
     def test_a_thermal_onset_on_the_last_tick_is_refused(self):
         # The excursion ramps by fraction of ramp_ms; starting on the last
@@ -66,12 +65,11 @@ class FaultRunTimeContractGaps(unittest.TestCase):
             fr.DEFAULT_SYSTEM["ticks"] - 1
         ) * fr.DEFAULT_SYSTEM["tick_ms"]
         for onset in (last_tick_ms, last_tick_ms + 1.0):
-            with self.subTest(onset=onset):
-                with self.assertRaises(oc.ContractError):
-                    self._run(
-                        "thermal_excursion",
-                        onset_ms=onset, ramp_ms=8.0, peak_c=90.0,
-                    )
+            with self.subTest(onset=onset), self.assertRaises(oc.ContractError):
+                self._run(
+                    "thermal_excursion",
+                    onset_ms=onset, ramp_ms=8.0, peak_c=90.0,
+                )
 
     def test_a_fallback_only_channel_list_is_refused(self):
         # "redundant_relay_b" is a known name (the fallback source) but the

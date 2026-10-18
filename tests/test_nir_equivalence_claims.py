@@ -17,6 +17,15 @@ from nir_equivalence_support import (  # noqa: E402
 
 import nir_equivalence as nir  # noqa: E402
 
+
+def _required_item(items):
+    """Return the first selected fixture item, failing clearly when the selection is empty."""
+    try:
+        return next(iter(items))
+    except StopIteration as exc:
+        raise AssertionError("required fixture selection is empty") from exc
+
+
 class UnfalsifiableClaims(unittest.TestCase):
     """A runtime this validator cannot re-execute may never be marked executed."""
 
@@ -26,12 +35,12 @@ class UnfalsifiableClaims(unittest.TestCase):
     def _claim_upstream_executed(self):
         """Dress the absent nir_rs up as having produced a real trace."""
         record = copy.deepcopy(self.records[0])
-        real = next(
+        real = _required_item(
             entry
             for entry in record["oracle"]["runtimes"]
             if entry["status"] == nir.STATUS_EXECUTED
         )
-        ghost = next(
+        ghost = _required_item(
             entry for entry in record["oracle"]["runtimes"] if entry["runtime"] == "nir_rs"
         )
         ghost.update(
@@ -79,7 +88,7 @@ class UnfalsifiableClaims(unittest.TestCase):
 
     def test_executed_entry_missing_output_fields_is_rejected(self):
         record = copy.deepcopy(self.records[0])
-        entry = next(
+        entry = _required_item(
             item
             for item in record["oracle"]["runtimes"]
             if item["status"] == nir.STATUS_EXECUTED
@@ -108,7 +117,7 @@ class UnfalsifiableClaims(unittest.TestCase):
 
     def test_absent_upstream_runtime_cannot_claim_unsupported(self):
         record = copy.deepcopy(self.records[0])
-        entry = next(
+        entry = _required_item(
             item for item in record["oracle"]["runtimes"] if item["runtime"] == "nir_rs"
         )
         entry["status"] = nir.STATUS_UNSUPPORTED
@@ -135,7 +144,7 @@ class ScrubbedDivergence(unittest.TestCase):
 
     def setUp(self):
         self.records = nir.generate_records(round_number=1, steps=10)
-        self.divergent = next(
+        self.divergent = _required_item(
             record
             for record in self.records
             if "DIVERGENCE_SPIKE_COUNT" in record["result"]["reason_codes"]
@@ -168,7 +177,7 @@ class ScrubbedDivergence(unittest.TestCase):
 
     def test_forged_roundtrip_block_is_caught(self):
         record = copy.deepcopy(self.records[0])
-        entry = next(
+        entry = _required_item(
             item
             for item in record["oracle"]["runtimes"]
             if item["status"] == nir.STATUS_EXECUTED
@@ -181,7 +190,7 @@ class ScrubbedDivergence(unittest.TestCase):
 
     def test_forged_parse_failure_claim_is_caught(self):
         record = copy.deepcopy(self.records[0])
-        entry = next(
+        entry = _required_item(
             item
             for item in record["oracle"]["runtimes"]
             if item["status"] == nir.STATUS_EXECUTED
@@ -192,7 +201,7 @@ class ScrubbedDivergence(unittest.TestCase):
 
     def test_unsupported_diagnostic_is_rederived_from_the_exception(self):
         record = copy.deepcopy(
-            next(
+            _required_item(
                 item
                 for item in self.records
                 if any(
@@ -201,7 +210,7 @@ class ScrubbedDivergence(unittest.TestCase):
                 )
             )
         )
-        entry = next(
+        entry = _required_item(
             item
             for item in record["oracle"]["runtimes"]
             if item["status"] == nir.STATUS_UNSUPPORTED
@@ -212,16 +221,15 @@ class ScrubbedDivergence(unittest.TestCase):
 
 
 class MalformedRecordsDoNotCrash(unittest.TestCase):
+    """A bad record must be reported, not raise and abort the whole scan."""
+
     def setUp(self):
         self.record = nir.generate_records(round_number=1, steps=4)[0]
 
     def _assert_reports(self, mutate):
         record = copy.deepcopy(self.record)
         mutate(record)
-        try:
-            errors = nir.validate_record(record, WHERE)
-        except Exception as exc:  # noqa: BLE001 - the point is that none escape
-            self.fail(f"validation raised {type(exc).__name__}: {exc}")
+        errors = nir.validate_record(record, WHERE)
         self.assertTrue(errors)
 
     def test_truthy_non_dict_oracle(self):
@@ -229,7 +237,7 @@ class MalformedRecordsDoNotCrash(unittest.TestCase):
 
     def test_executed_entry_with_empty_outputs(self):
         def mutate(record):
-            entry = next(
+            entry = _required_item(
                 item
                 for item in record["oracle"]["runtimes"]
                 if item["status"] == nir.STATUS_EXECUTED
@@ -240,7 +248,7 @@ class MalformedRecordsDoNotCrash(unittest.TestCase):
 
     def test_executed_entry_missing_output_digest_is_reported_not_raised(self):
         def mutate(record):
-            entry = next(
+            entry = _required_item(
                 item
                 for item in record["oracle"]["runtimes"]
                 if item["status"] == nir.STATUS_EXECUTED
@@ -269,7 +277,7 @@ class MalformedRecordsDoNotCrash(unittest.TestCase):
 
     def test_nonfinite_unavailable_diagnostic_is_reported_not_hashed(self):
         def mutate(record):
-            entry = next(
+            entry = _required_item(
                 item
                 for item in record["oracle"]["runtimes"]
                 if item["status"] == nir.STATUS_UNAVAILABLE

@@ -12,7 +12,8 @@ from tests.test_csv import FIXTURE, FIRST_SLUG, invoke
 
 
 class StageIntegrity(unittest.TestCase):
-    def _request(self, root):
+    @staticmethod
+    def _request(root):
         return generate.GenerateRequest(FIXTURE, root / "run", all_plants=True)
 
     def test_replaced_stage_is_not_recursively_deleted_on_failure(self):
@@ -23,9 +24,11 @@ class StageIntegrity(unittest.TestCase):
                 staged.mkdir()
                 (staged / "foreign").write_text("preserve")
                 raise OSError("injected publication failure")
+            request = self._request(root)
             with patch.object(generate_io, "_publish", replace), self.assertRaises(CsvRefusal):
-                generate.run(self._request(root))
-            replacement = next(root.glob(".csv-stage-*"))
+                generate.run(request)
+            replacement = next(root.glob(".csv-stage-*"), None)
+            self.assertIsNotNone(replacement)
             self.assertEqual((replacement / "foreign").read_text(), "preserve")
             self.assertEqual(list((root / "original-stage").iterdir()), [])
             self.assertFalse((root / "run").exists())
@@ -36,9 +39,11 @@ class StageIntegrity(unittest.TestCase):
             def refuse(parent, staged, destination, *args):
                 (staged / "foreign").write_text("preserve")
                 raise OSError("injected")
+            request = self._request(root)
             with patch.object(generate_io, "_publish", refuse), self.assertRaises(CsvRefusal):
-                generate.run(self._request(root))
-            stage = next(root.glob(".csv-stage-*"))
+                generate.run(request)
+            stage = next(root.glob(".csv-stage-*"), None)
+            self.assertIsNotNone(stage)
             self.assertEqual([path.name for path in stage.iterdir()], ["foreign"])
 
     def test_replacement_stage_cannot_be_published(self):
@@ -50,10 +55,13 @@ class StageIntegrity(unittest.TestCase):
                 staged.mkdir()
                 (staged / "foreign").write_text("preserve")
                 return publish(parent, staged, destination, *args)
+            request = self._request(root)
             with patch.object(generate_io, "_publish", replace), self.assertRaises(CsvRefusal):
-                generate.run(self._request(root))
+                generate.run(request)
             self.assertFalse((root / "run").exists())
-            self.assertEqual(next(root.glob(".csv-stage-*/foreign")).read_text(), "preserve")
+            foreign = next(root.glob(".csv-stage-*/foreign"), None)
+            self.assertIsNotNone(foreign)
+            self.assertEqual(foreign.read_text(), "preserve")
 
 
     def test_name_replaced_after_first_owned_check_is_preserved(self):
@@ -80,10 +88,15 @@ class StageIntegrity(unittest.TestCase):
             def refuse(*args, **kwargs):
                 raise OSError("injected publication failure")
 
-            with patch.object(generate_io._StageFile, "matches", matches):
-                with patch.object(generate_io, "_publish", refuse), self.assertRaises(CsvRefusal):
-                    generate.run(self._request(root))
-            stage = next(root.glob(".csv-stage-*"))
+            request = self._request(root)
+            with (
+                patch.object(generate_io._StageFile, "matches", matches),
+                patch.object(generate_io, "_publish", refuse),
+                self.assertRaises(CsvRefusal),
+            ):
+                generate.run(request)
+            stage = next(root.glob(".csv-stage-*"), None)
+            self.assertIsNotNone(stage)
             self.assertEqual((stage / "records.jsonl").read_text(), "replacement")
 
     def test_empty_replacement_after_first_identity_check_is_preserved(self):

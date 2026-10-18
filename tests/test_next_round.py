@@ -23,6 +23,15 @@ def _invoke(*args):
     )
 
 
+def _keyed_round_entries(factories):
+    """Keep the {name: entry} values of a keyed index that carry ``next_round``."""
+    out = {}
+    for key, value in factories.items():
+        if isinstance(value, dict) and "next_round" in value:
+            out[value.get("factory", key)] = value
+    return out
+
+
 def _index_entries(payload):
     """Normalize NEXT_ROUND.json to {factory_name: entry}."""
     if not isinstance(payload, dict):
@@ -31,10 +40,7 @@ def _index_entries(payload):
     if isinstance(fac, list):
         return {entry["factory"]: entry for entry in fac}
     if isinstance(fac, dict):
-        out = {}
-        for key, value in fac.items():
-            if isinstance(value, dict) and "next_round" in value:
-                out[value.get("factory", key)] = value
+        out = _keyed_round_entries(fac)
         if out:
             return out
     raise AssertionError(f"unrecognized NEXT_ROUND.json shape: {payload!r}")
@@ -56,6 +62,31 @@ def _episode(record_id, round_number):
         "reward": {"success": True},
         "meta": {"factory": "factory", "round": round_number, "generator": "grok-4.6"},
     }
+
+
+def _write_json_line(path, payload):
+    """Write ``payload`` as one JSON line, the way the round markers are stored."""
+    path.write_text(json.dumps(payload) + "\n")
+
+
+def _write_complete_marker(factory, round_number, files):
+    """Commit ``files`` as a one-record round through its completion marker."""
+    marker = factory / f"ROUND-r{round_number:02d}.complete.json"
+    _write_json_line(
+        marker,
+        {
+            "version": 1,
+            "factory": factory.name,
+            "round": round_number,
+            "records": 1,
+            "expected_records": 1,
+            "commit_point": marker.name,
+            "files": [
+                {"name": path.name, "sha256": hashlib.sha256(path.read_bytes()).hexdigest()}
+                for path in files
+            ],
+        },
+    )
 
 
 class NextRoundFromFilenames(unittest.TestCase):
@@ -157,15 +188,13 @@ class NextRoundMarkerMode(unittest.TestCase):
         with tempfile.TemporaryDirectory() as raw:
             factory = Path(raw) / "factory"
             factory.mkdir()
-            (factory / ".round-marker-mode.json").write_text(
-                json.dumps(
-                    {
-                        "version": 1,
-                        "legacy_baseline": 2,
-                        "commit_point": "ROUND-rNN.complete.json",
-                    }
-                )
-                + "\n"
+            _write_json_line(
+                factory / ".round-marker-mode.json",
+                {
+                    "version": 1,
+                    "legacy_baseline": 2,
+                    "commit_point": "ROUND-rNN.complete.json",
+                },
             )
             (factory / "batch-r01.jsonl").write_text(json.dumps(_episode("legacy-1", 1)) + "\n")
             (factory / "batch-r02.jsonl").write_text(json.dumps(_episode("legacy-2", 2)) + "\n")
@@ -173,30 +202,7 @@ class NextRoundMarkerMode(unittest.TestCase):
             batch.write_text(json.dumps(_episode("committed", 3)) + "\n")
             notes = factory / "NOTES-r03.md"
             notes.write_text("committed notes\n")
-            marker = factory / "ROUND-r03.complete.json"
-            marker.write_text(
-                json.dumps(
-                    {
-                        "version": 1,
-                        "factory": "factory",
-                        "round": 3,
-                        "records": 1,
-                        "expected_records": 1,
-                        "commit_point": marker.name,
-                        "files": [
-                            {
-                                "name": batch.name,
-                                "sha256": hashlib.sha256(batch.read_bytes()).hexdigest(),
-                            },
-                            {
-                                "name": notes.name,
-                                "sha256": hashlib.sha256(notes.read_bytes()).hexdigest(),
-                            }
-                        ],
-                    }
-                )
-                + "\n"
-            )
+            _write_complete_marker(factory, 3, (batch, notes))
             (factory / "batch-r99.jsonl").write_text("{not-json\n")
             (factory / "NOTES-r88.md").write_text("uncommitted\n")
 

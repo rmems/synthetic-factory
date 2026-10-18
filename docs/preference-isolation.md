@@ -112,7 +112,7 @@ failures of the same class.
 - No `batch-rNN.jsonl` exists after Session A.
 - `verify-handoff --write-receipt` validates the bounded six-section format and exclusively binds the exact three diagnosis basenames, sizes, and SHA-256 digests before Session B.
 - Session B starts with reset context (new conversation / cleared history).
-- Session B does not open any `rejected-rNN*.json` file.
+- Session B does not open any `rejected-*-rNN.json` file.
 - Final `batch-rNN.jsonl` has exactly 3 lines, each with `chosen` + `rejected` + non-empty `critique`.
 - Every record attests `meta.isolation: "two-session"`.
 - Publication binds each ordered Session A artifact to the pair published
@@ -366,6 +366,7 @@ headroom than "not a copy".
 | `PREFERENCE_ARMS_LABEL_ONLY_COPY` | Removing the gate decision label leaves identical observable behavior; reward relabeling cannot clear it |
 | `PREFERENCE_ARM_EXTENSION_FIELDS` | An arm carries an unknown top-level field that could manufacture lexical distance |
 | `PREFERENCE_ARMS_OBSERVABLES_IDENTICAL` | No shared machine-observable leaf differs; prose edits or one-sided nested padding are not independent behavior |
+| `PREFERENCE_ARM_LIST_ALIGNMENT_UNTRUSTED` | Observable lists cannot be aligned between the arms, so no trusted per-leaf comparison exists |
 
 **Repair on failure.** A near-verbatim pair is not a formatting defect — it
 means Session B did not actually reason from the diagnosis. Re-run Session B

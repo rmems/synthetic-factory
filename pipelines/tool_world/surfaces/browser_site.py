@@ -81,13 +81,16 @@ def check_members(site: Mapping[str, Any], pages: Mapping[str, str], where: str)
     )
 
 
+def _lands(target: str, redirects: Mapping[str, str], pages: Mapping[str, str]) -> bool:
+    """A redirect target is another redirect, a page, or a page path carrying a query."""
+    return target in redirects or target in pages or target.partition("?")[0] in pages
+
+
 def check_redirects(site: Mapping[str, Any], where: str) -> None:
     redirects = site.get("redirects", {})
     pages = site["pages"]
     dangling = sorted(
-        target
-        for target in redirects.values()
-        if target not in redirects and target not in pages and target.partition("?")[0] not in pages
+        target for target in redirects.values() if not _lands(target, redirects, pages)
     )
     cv.refuse_when(
         bool(dangling),

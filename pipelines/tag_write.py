@@ -3,16 +3,28 @@
 from __future__ import annotations
 
 import os
+import sys
 from pathlib import Path
 from typing import Any
 
-from tag_constants import RAW_OUTPUT_ROOT
-from tag_jsonutil import canonical_json
+if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
 
-try:
-    from pipelines.raw_tree_guard import is_under_raw as _is_under_raw_tree
-except ImportError:
-    from raw_tree_guard import is_under_raw as _is_under_raw_tree
+    _assert_direct_sibling("tag_write")
+    from . import raw_tree_guard as _raw_tree_guard
+    from . import tag_constants as _tag_constants
+    from . import tag_jsonutil as _tag_jsonutil
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "tag_write"
+    )
+    import raw_tree_guard as _raw_tree_guard
+    import tag_constants as _tag_constants
+    import tag_jsonutil as _tag_jsonutil
+
+RAW_OUTPUT_ROOT = _tag_constants.RAW_OUTPUT_ROOT
+canonical_json = _tag_jsonutil.canonical_json
+_is_under_raw_tree = _raw_tree_guard.is_under_raw
 
 
 def _is_under_raw(path: Path) -> bool:
@@ -131,3 +143,9 @@ def _prepare_destination_parents(
         path.parent.mkdir(parents=True, exist_ok=True)
         _reject_raw_location(path, path)
         _reject_raw_location(path.parent, path)
+
+
+if __package__:
+    # One module object for both import forms, so the CLI and package callers
+    # share one exclusive writer whichever form loads first.
+    _expose_package_sibling(__name__)

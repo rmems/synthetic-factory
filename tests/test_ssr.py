@@ -108,6 +108,14 @@ def _module_uses_exec(path: Path) -> list[str]:
     return hits
 
 
+def _required_item(items):
+    """Return the first selected fixture item, failing clearly when the selection is empty."""
+    try:
+        return next(iter(items))
+    except StopIteration as exc:
+        raise AssertionError("required fixture selection is empty") from exc
+
+
 class SsrSkeletonTests(unittest.TestCase):
     def test_reviewed_prefix_maps_to_factory(self):
         self.assertEqual(REVIEWED_MILL_PREFIX_HOMES[cv.FAMILY_PREFIX], cv.FACTORY)
@@ -123,8 +131,12 @@ class SsrSkeletonTests(unittest.TestCase):
         self.assertEqual(len(loop_sources()), 36)
         self.assertEqual(len(fast_sources()), 1)
         self.assertEqual(fast_sources()[0].mill_id, "ssr_mill_fast")
-        loop_181 = next(item for item in loop_sources() if item.mill_id == "ssr-loop-r181")
-        loop_1142 = next(item for item in loop_sources() if item.mill_id == "ssr-loop-r1142")
+        loop_181 = _required_item(
+            item for item in loop_sources() if item.mill_id == "ssr-loop-r181"
+        )
+        loop_1142 = _required_item(
+            item for item in loop_sources() if item.mill_id == "ssr-loop-r1142"
+        )
         self.assertEqual(loop_181.companion_mill_path, "experiments/ssr-mill-r181.py")
         self.assertEqual(loop_1142.catalog_json, ".ssr-catalog-r1142.json")
 
@@ -240,7 +252,7 @@ class SsrSkeletonTests(unittest.TestCase):
         self.assertEqual(CATALOG.n_pair_rows, 1604)
         self.assertEqual(CATALOG.slice, "r181")
         self.assertEqual(CATALOG.preserve_commit, cv.PRESERVE_COMMIT)
-        self.assertFalse(CATALOG.mills["ssr-mill-r181"].pairs == ())
+        self.assertNotEqual(CATALOG.mills["ssr-mill-r181"].pairs, ())
         r181 = CATALOG.mills["ssr-mill-r181"]
         self.assertEqual(r181.n_rows, 16)
         self.assertEqual(r181.catalog_first, 181)

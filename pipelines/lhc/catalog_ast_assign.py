@@ -30,7 +30,7 @@ def assignment_of(node: ast.AST) -> tuple[str | None, ast.AST | None]:
     return None, None
 
 
-def assignment_names(node: ast.stmt) -> tuple[str, ...]:
+def assignment_names(node: ast.AST) -> tuple[str, ...]:
     ann = _ann_target_name(node)
     if ann is not None:
         names = [ann]

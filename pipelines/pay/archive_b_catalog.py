@@ -27,7 +27,6 @@ from ._contract import (
     bind_import_twin,
     load_strict_json,
     package_dir,
-    refuse,
     refuse_when,
 )
 from . import pairs as slice_a

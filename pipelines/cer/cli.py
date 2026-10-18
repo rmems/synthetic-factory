@@ -7,6 +7,7 @@ import argparse
 import json
 import sys
 from pathlib import Path
+from typing import Any
 
 if __package__:
     from .usage_burst_plan import PlanValidationError, load_mill_usage_burst_plan
@@ -34,7 +35,7 @@ def run(argv: list[str] | None = None) -> int:
             print(str(exc), file=sys.stderr)
             return 2
         counts = loaded.counts()
-        payload = {
+        payload: dict[str, Any] = {
             "family_prefix": loaded.family_prefix,
             "factory": loaded.factory,
             "slice": loaded.slice,

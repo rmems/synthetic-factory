@@ -326,5 +326,17 @@ class CuratePreferenceSource(unittest.TestCase):
         self.assertEqual([entry["action"] for entry in run.manifest[1:]], ["excluded"] * 3)
 
 
+class RequiredCommandPaths(unittest.TestCase):
+    def test_a_present_path_is_returned_unchanged(self):
+        path = Path("source.jsonl")
+        self.assertIs(curate_preferences._required(path, "source"), path)
+
+    def test_an_absent_required_path_is_refused_not_passed_on(self):
+        with self.assertRaisesRegex(
+            curate_preferences.PreferenceCurationError, "--output is required"
+        ):
+            curate_preferences._required(None, "--output")
+
+
 if __name__ == "__main__":
     unittest.main()

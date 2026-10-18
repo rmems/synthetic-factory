@@ -13,13 +13,21 @@ the card front matter, the shipped ``LICENSE`` text, and ``release-status.json``
 A repository that still calls its license undeclared while shipping an
 Apache-2.0 ``LICENSE`` file fails closed here.
 
+Code-repair releases (``REPLAY_CLAIM_REPOS``) are checked against their own
+evidence instead: the card's replay coverage, outcome and oracle-status splits
+and skip accounting must match ``evidence/REPLAY.json`` and ``evidence/RUN.json``
+(``code_repair.card_claims``). They run when named with ``--repo``; the
+default run covers ``DEFAULT_REPOS``, which must pass against what is published.
+
 Usage:
     python3 pipelines/verify_hf_release.py
     python3 pipelines/verify_hf_release.py --repo rmems/thalamic-relay-trajectories
+    python3 pipelines/verify_hf_release.py --repo rmems/python-function-repair-20261006
 """
 
 import argparse
 import hashlib
+import http.client
 import json
 import re
 import sys
@@ -27,6 +35,8 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from urllib.parse import urlparse
 from urllib.request import Request, urlopen
+
+from code_repair import card_claims
 
 
 DATASET_REPOS = (
@@ -36,6 +46,20 @@ DATASET_REPOS = (
     "rmems/failure-as-fuel-preference-cascade",
     "rmems/agentic-coding-trajectories",
 )
+
+# Code-repair releases carry their own evidence instead of the raw-release
+# contract above; what their cards may claim is derived from that evidence by
+# ``code_repair.card_claims`` (issue #420: a card sold a 97-of-132 replay as the
+# full batch). They are checked on request (``--repo``), not in the default
+# run: the default run must keep passing against what is published today, and
+# this card stays overclaiming until its card-only Hub fix merges. Add a repo to
+# DEFAULT_REPOS once its published card passes.
+REPLAY_CLAIM_REPOS = ("rmems/python-function-repair-20261006",)
+DEFAULT_REPOS = DATASET_REPOS
+# What a public fetch can raise: urllib's URLError/HTTPError and timeouts are
+# OSError, a truncated response is an HTTPException, and a non-Hub URL or a
+# body that is not UTF-8 is a ValueError. Anything else is a bug and propagates.
+FETCH_ERRORS = (OSError, ValueError, http.client.HTTPException)
 
 REQUIRED_CONTRIBUTORS = {
     "Claude Fable 5 (Ultracode)": {"synthetic-data-generation"},
@@ -320,29 +344,26 @@ def _rendered_markdown_source(text: str) -> str:
     return re.sub(r"(?s)<!--.*?(?:-->|\Z)", "", text)
 
 
-def _card_section_errors(card: str, repo: str) -> list[str]:
-    """Require release declarations in their owned Markdown/YAML sections."""
+def _missing_markers(markers: Iterable[str], text: str, label: str) -> list[str]:
+    """One error per marker whose normalized text is absent from ``text``."""
+    normalized = _normalized_text(text)
+    return [
+        f"README missing {label}: {marker}"
+        for marker in markers if _normalized_text(marker) not in normalized
+    ]
 
+
+def _owned_section_errors(rendered_card: str) -> list[str]:
     errors: list[str] = []
-    rendered_card = _rendered_markdown_source(card)
-    normalized_front_matter = _normalized_text(
-        rendered_card.split("\n---\n", 1)[0]
-    )
-    for marker in ("name: source_file", "name: source_line", "name: record_json"):
-        if _normalized_text(marker) not in normalized_front_matter:
-            errors.append(f"README missing required card marker: {marker}")
-
     for section, markers in CARD_SECTION_MARKERS.items():
         section_text = _markdown_section(rendered_card, section)
         if section != "__preamble__" and section_text is None:
             errors.append(f"README missing required section: {section}")
-        normalized_section = _normalized_text(section_text or "")
-        for marker in markers:
-            if _normalized_text(marker) not in normalized_section:
-                errors.append(f"README missing required card marker: {marker}")
+        errors.extend(_missing_markers(markers, section_text or "", "required card marker"))
+    return errors
 
-    purpose = REQUIRED_PURPOSE_TEXT[repo]
-    target = REQUIRED_TARGET_TEXT[repo]
+
+def _purpose_errors(rendered_card: str, repo: str) -> list[str]:
     # Purpose used to be required in the Markdown preamble (everything
     # before the first ``## `` heading). The 2026-08-31 Hub reframe put
     # rights and release-status blockquotes, then a Rights heading, before
@@ -350,30 +371,41 @@ def _card_section_errors(card: str, repo: str) -> list[str]:
     # even though the marker was still on the card (#182). Search the
     # rendered card so those blockquotes may precede it; moving the
     # sentence back into the preamble is a Hub write tracked on #165.
-    normalized_card = _normalized_text(rendered_card)
-    target_section = _normalized_text(
-        _markdown_section(rendered_card, "## Intended model target") or ""
-    )
-    if _normalized_text(purpose) not in normalized_card:
-        errors.append(f"README missing repository purpose marker: {purpose}")
-    if _normalized_text(target) not in target_section:
-        errors.append(f"README missing Spikenaut classification: {target}")
+    target_section = _markdown_section(rendered_card, "## Intended model target") or ""
+    return [
+        *_missing_markers((REQUIRED_PURPOSE_TEXT[repo],), rendered_card,
+                          "repository purpose marker"),
+        *_missing_markers((REQUIRED_TARGET_TEXT[repo],), target_section,
+                          "Spikenaut classification"),
+    ]
 
-    payload_section = _normalized_text(
-        _markdown_section(rendered_card, "## Published raw payload") or ""
-    )
-    for marker in REQUIRED_PAYLOAD_DISCLOSURE.get(repo, ()):
-        if _normalized_text(marker) not in payload_section:
-            errors.append(f"README missing payload-kind disclosure: {marker}")
 
+def _payload_claim_errors(rendered_card: str, repo: str) -> list[str]:
+    payload_section = _markdown_section(rendered_card, "## Published raw payload") or ""
+    errors = _missing_markers(
+        REQUIRED_PAYLOAD_DISCLOSURE.get(repo, ()), payload_section, "payload-kind disclosure"
+    )
     for section, markers in FORBIDDEN_CARD_CLAIMS.get(repo, {}).items():
-        section_text = _normalized_text(
-            _markdown_section(rendered_card, section) or ""
+        section_text = _normalized_text(_markdown_section(rendered_card, section) or "")
+        errors.extend(
+            f"README retains obsolete payload-kind claim: {marker}"
+            for marker in markers if _normalized_text(marker) in section_text
         )
-        for marker in markers:
-            if _normalized_text(marker) in section_text:
-                errors.append(f"README retains obsolete payload-kind claim: {marker}")
     return errors
+
+
+def _card_section_errors(card: str, repo: str) -> list[str]:
+    """Require release declarations in their owned Markdown/YAML sections."""
+
+    rendered_card = _rendered_markdown_source(card)
+    front_matter = rendered_card.split("\n---\n", 1)[0]
+    viewer_markers = ("name: source_file", "name: source_line", "name: record_json")
+    return [
+        *_missing_markers(viewer_markers, front_matter, "required card marker"),
+        *_owned_section_errors(rendered_card),
+        *_purpose_errors(rendered_card, repo),
+        *_payload_claim_errors(rendered_card, repo),
+    ]
 
 
 def _license_family(license_text: str) -> str | None:
@@ -542,12 +574,12 @@ class _CompactReader:
         return field_id, field_type
 
     def skip(self, field_type: int) -> None:
-        if field_type in {self.BOOLEAN_TRUE, self.BOOLEAN_FALSE, self.BYTE}:
-            self._read(1) if field_type == self.BYTE else None
+        # Booleans carry their value in the type nibble, so they occupy no bytes.
+        fixed_widths = {self.BOOLEAN_TRUE: 0, self.BOOLEAN_FALSE: 0, self.BYTE: 1, self.DOUBLE: 8}
+        if field_type in fixed_widths:
+            self._read(fixed_widths[field_type])
         elif field_type in {self.I16, self.I32, self.I64}:
             self._uvarint()
-        elif field_type == self.DOUBLE:
-            self._read(8)
         elif field_type == self.BINARY:
             self._binary()
         elif field_type in {self.LIST, self.SET}:
@@ -614,43 +646,60 @@ class _CompactReader:
         return name
 
 
+def _is_safe_payload_path(path: object) -> bool:
+    if not isinstance(path, str):
+        return False
+    if not path.startswith("data/raw/") or not path.endswith(".jsonl"):
+        return False
+    return all(part not in {"", ".", ".."} for part in path.split("/"))
+
+
+def _snapshot_entry(entry: object) -> tuple[tuple[str, str] | None, str | None]:
+    """One raw payload declaration as ``(path, sha256)``, or the reason it is refused."""
+
+    if not isinstance(entry, dict):
+        return None, "raw_snapshot file declaration must be an object"
+    path, digest = entry.get("path"), entry.get("sha256")
+    if not _is_safe_payload_path(path):
+        return None, f"raw_snapshot has unsafe payload path: {path!r}"
+    if not isinstance(digest, str) or not SHA256_RE.fullmatch(digest):
+        return None, f"raw_snapshot has invalid sha256 for {path}"
+    return (str(path), digest), None
+
+
+def _snapshot_files(provenance: dict, errors: list[str]) -> list | None:
+    """The raw_snapshot file list, or None after recording why there is none."""
+
+    snapshot = provenance.get("raw_snapshot")
+    if not isinstance(snapshot, dict):
+        errors.append("provenance missing raw_snapshot")
+        return None
+    revision = snapshot.get("revision")
+    if not isinstance(revision, str) or not REVISION_RE.fullmatch(revision):
+        errors.append("raw_snapshot must declare a 40-character immutable revision")
+        return None
+    files = snapshot.get("files")
+    if not isinstance(files, list) or not files:
+        errors.append("raw_snapshot must declare at least one raw payload file")
+        return None
+    return files
+
+
 def _snapshot_entries(
     provenance: dict, errors: list[str]
 ) -> tuple[tuple[str, str], ...]:
     """Validate immutable raw-payload declarations and return their paths."""
 
-    snapshot = provenance.get("raw_snapshot")
-    if not isinstance(snapshot, dict):
-        errors.append("provenance missing raw_snapshot")
+    files = _snapshot_files(provenance, errors)
+    if files is None:
         return ()
-    revision = snapshot.get("revision")
-    files = snapshot.get("files")
-    if not isinstance(revision, str) or not REVISION_RE.fullmatch(revision):
-        errors.append("raw_snapshot must declare a 40-character immutable revision")
-        return ()
-    if not isinstance(files, list) or not files:
-        errors.append("raw_snapshot must declare at least one raw payload file")
-        return ()
-
     entries: list[tuple[str, str]] = []
-    for entry in files:
-        if not isinstance(entry, dict):
-            errors.append("raw_snapshot file declaration must be an object")
-            continue
-        path = entry.get("path")
-        digest = entry.get("sha256")
-        if (
-            not isinstance(path, str)
-            or not path.startswith("data/raw/")
-            or not path.endswith(".jsonl")
-            or any(part in {"", ".", ".."} for part in path.split("/"))
-        ):
-            errors.append(f"raw_snapshot has unsafe payload path: {path!r}")
-            continue
-        if not isinstance(digest, str) or not SHA256_RE.fullmatch(digest):
-            errors.append(f"raw_snapshot has invalid sha256 for {path}")
-            continue
-        entries.append((path, digest))
+    for declaration in files:
+        entry, error = _snapshot_entry(declaration)
+        if entry is None:
+            errors.append(str(error))
+        else:
+            entries.append(entry)
     if len(entries) != len({path for path, _digest in entries}):
         errors.append("raw_snapshot repeats a payload path")
     return tuple(entries)
@@ -675,7 +724,7 @@ def _viewer_errors(card: str, viewer_bytes: bytes) -> tuple[str, ...]:
     footer_start = len(viewer_bytes) - 8 - footer_size
     try:
         names, rows = _CompactReader(viewer_bytes[footer_start : footer_start + footer_size]).schema_names_and_rows()
-    except (UnicodeDecodeError, ValueError) as error:
+    except ValueError as error:  # UnicodeDecodeError is a ValueError
         errors.append(f"viewer projection has invalid Parquet footer metadata: {error}")
         return tuple(errors)
     if rows <= 0:
@@ -760,10 +809,41 @@ def verify_dataset(
     return CheckResult(repo, tuple(errors))
 
 
+def verify_replay_claims(
+    repo: str,
+    *,
+    timeout: float = 30.0,
+    text_fetcher: Callable[[str, float], str] = fetch_text,
+) -> CheckResult:
+    """Check that a code-repair card claims no more than its replay and run evidence."""
+
+    paths = ("README.md", card_claims.REPLAY_EVIDENCE, card_claims.RUN_EVIDENCE)
+    try:
+        card, replay_text, run_text = (
+            text_fetcher(public_url(repo, path, HUB_BASE_URL), timeout) for path in paths
+        )
+    except FETCH_ERRORS as error:
+        return CheckResult(repo, (f"public fetch failed: {error}",))
+    try:
+        errors = card_claims.card_claim_errors(
+            card,
+            card_claims.load_evidence(replay_text, card_claims.REPLAY_EVIDENCE),
+            card_claims.load_evidence(run_text, card_claims.RUN_EVIDENCE),
+        )
+    except card_claims.CardClaimError as error:
+        errors = [f"evidence cannot support a card claim: {error}"]
+    return CheckResult(repo, tuple(errors))
+
+
+def verify_repository(repo: str, *, timeout: float = 30.0) -> CheckResult:
+    verify = verify_replay_claims if repo in REPLAY_CLAIM_REPOS else verify_dataset
+    return verify(repo, timeout=timeout)
+
+
 def verify_repositories(
     repos: Iterable[str], *, timeout: float = 30.0
 ) -> tuple[CheckResult, ...]:
-    return tuple(verify_dataset(repo, timeout=timeout) for repo in repos)
+    return tuple(verify_repository(repo, timeout=timeout) for repo in repos)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -771,7 +851,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--repo",
         action="append",
-        choices=DATASET_REPOS,
+        choices=DATASET_REPOS + REPLAY_CLAIM_REPOS,
         help="verify only this public rmems dataset repository; repeatable",
     )
     parser.add_argument(
@@ -779,7 +859,8 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
-    results = verify_repositories(args.repo or DATASET_REPOS, timeout=args.timeout)
+    repos = args.repo or DEFAULT_REPOS
+    results = verify_repositories(repos, timeout=args.timeout)
     for result in results:
         if result.ok:
             print(f"OK {result.repo}")

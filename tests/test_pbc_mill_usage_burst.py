@@ -158,6 +158,7 @@ class PbcAstExtractTests(unittest.TestCase):
             cwd=REPO,
             capture_output=True,
             text=True,
+            check=False,
         )
         if probe.returncode != 0:
             fetched = subprocess.run(
@@ -165,6 +166,7 @@ class PbcAstExtractTests(unittest.TestCase):
                 cwd=REPO,
                 capture_output=True,
                 text=True,
+                check=False,
             )
             if fetched.returncode != 0:
                 self.skipTest("origin/legacy-mill-lane is not available")
@@ -183,6 +185,7 @@ class PbcAstExtractTests(unittest.TestCase):
             cwd=REPO,
             capture_output=True,
             text=True,
+            check=False,
         )
         if probe.returncode != 0:
             self.skipTest("origin/legacy-mill-lane is not available")

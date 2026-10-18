@@ -14,25 +14,36 @@ second, subtly different regex parser.
 from __future__ import annotations
 
 import re
+import sys
 from re import _parser as _re_parser
 from typing import Any
 
-from tag_constants import TagTaxonomyError
-from tag_regex_domain import (
-    REGEX_CONSUMING_ATOMS,
-    REGEX_REPEAT_OPS,
-    RegexDomain,
-    overlaps_any_domain,
-    regex_atom_domain,
-    regex_domains_are_disjoint,
-)
+if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("tag_regex")
+    from . import tag_constants as _tag_constants
+    from . import tag_regex_domain as _tag_regex_domain
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "tag_regex"
+    )
+    import tag_constants as _tag_constants
+    import tag_regex_domain as _tag_regex_domain
+
+TagTaxonomyError = _tag_constants.TagTaxonomyError
+REGEX_CONSUMING_ATOMS = _tag_regex_domain.REGEX_CONSUMING_ATOMS
+REGEX_REPEAT_OPS = _tag_regex_domain.REGEX_REPEAT_OPS
+RegexDomain = _tag_regex_domain.RegexDomain
+overlaps_any_domain = _tag_regex_domain.overlaps_any_domain
+regex_atom_domain = _tag_regex_domain.regex_atom_domain
+regex_domains_are_disjoint = _tag_regex_domain.regex_domains_are_disjoint
 
 _MAX_SAFE_REGEX_LENGTH = 8_192
 _MAX_SAFE_REGEX_REPEATS = 64
 _MAX_SAFE_REGEX_BRANCHES = 64
 _MAX_SAFE_BOUNDED_REPEAT = 10_000
 _REGEX_RESOURCE_ERRORS = (OverflowError, RecursionError, MemoryError)
-_SKIP_LEADING = object()
 
 
 class UnsafeRegexError(ValueError):
@@ -86,17 +97,17 @@ def _nullable_repeat(argument: Any) -> bool:
 
 
 def regex_leading_domain(items: Any) -> RegexDomain:
-    """Return a provable first-character domain for a repeated body."""
+    """Return a provable first-character domain for a repeated body.
+
+    Anchors consume nothing, so the first non-anchor item decides.
+    """
     for operation, argument in items:
-        domain = _leading_op_domain(operation, argument)
-        if domain is not _SKIP_LEADING:
-            return domain
+        if operation is not _re_parser.AT:
+            return _leading_op_domain(operation, argument)
     return None
 
 
-def _leading_op_domain(operation: Any, argument: Any) -> RegexDomain | object:
-    if operation is _re_parser.AT:
-        return _SKIP_LEADING
+def _leading_op_domain(operation: Any, argument: Any) -> RegexDomain:
     if operation in REGEX_CONSUMING_ATOMS:
         return regex_atom_domain((operation, argument))
     if operation is _re_parser.SUBPATTERN:
@@ -426,3 +437,9 @@ def _compile_parsed_pattern(pattern: str, label: str, source: str) -> re.Pattern
         raise TagTaxonomyError(
             f"{source}: {label} is not a valid regex: compiler resource limit exceeded"
         ) from exc
+
+
+if __package__:
+    # One module object for both import forms, so UnsafeRegexError keeps one
+    # class identity whichever form loads first.
+    _expose_package_sibling(__name__)

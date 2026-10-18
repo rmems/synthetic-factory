@@ -161,7 +161,7 @@ def _steps(plant: cat.Plant) -> list[dict[str, Any]]:
 def episode(plant: cat.Plant) -> dict[str, Any]:
     """One designed episode. Does not publish a raw round."""
 
-    rec = {
+    rec: dict[str, Any] = {
         "id": plant.record_id,
         "goal": (goal := designed_goal(plant)),
         "plan": designed_plan(plant),

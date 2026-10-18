@@ -109,8 +109,10 @@ Validation probes FPGA availability again instead of trusting the availability
 snapshot stored by the producer. It accepts only the exact recorded-capture or
 live-board adapter/runtime identity for the declared target. A live-board
 identity is accepted only when the current adapter probe reports an available
-transport; the adapter in this revision always reports unavailable because its
-board driver is not implemented. Validation also requires canonical lowercase
+transport; the adapter reports available only when the device, bitstream
+provenance, and board identity are declared and a `silicon-bridge` transport
+binary is found (on `PATH`, or via the optional `SPIKENAUT_SILICON_BRIDGE`
+override). Validation also requires canonical lowercase
 `sha256:<64-hex>` bitstream identifiers and checks every primary and repeated
 spike and membrane matrix against the catalog neuron count and stimulus window.
 Spike cells must be integer zero or one; spike events and the complete decoded
@@ -139,7 +141,7 @@ and intervention cannot be relabelled separately.
    the manifest/payload digest chain, repeat digests, measured latency, and
    quantization provenance. Validation still refuses the claim anywhere the
    fresh probe cannot corroborate it.
-2. A recorded capture can be replayed for unverified research diagnostics:
+3. A recorded capture can be replayed for unverified research diagnostics:
    `python3 pipelines/hardware_parity.py generate <out> --capture <capture.json> --scenario hp-representable-margin --steps 12`.
    Select the catalog scenario and stimulus window used by the capture. The command
    emits one `scenario-<id>-rNN.jsonl` diagnostic and explicitly reports that it is
@@ -180,7 +182,7 @@ path-guard foundations. A new parity sibling must be added to that inventory
 before generation can proceed. Ordinary refactors therefore change the source
 stamp. Historical acceptance is explicit: `parity_history.py` currently records
 the independently reviewed source/catalog/authorship tuples from commits
-`0bbeb5e6`, `b2b5366f`, and `d4f7d53a`. Those records keep their original bytes and remain
+`faad56bc`, `7e6eb343`, `17bca600`, `55cd425d`, `0bbeb5e6`, `b2b5366f`, and `d4f7d53a`. Those records keep their original bytes and remain
 research-only with training blocked. Every current scenario, measurement,
 availability, and catalog validation still runs; an old source hash alone does
 not authorize a record, and unreviewed historical stamps remain refused.

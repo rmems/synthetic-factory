@@ -12,7 +12,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from .vocabulary import (
-    ARCHIVE_B_COMMIT,
     KIND_LOOP,
     KIND_PLANTS,
     KIND_SLUGS,
@@ -118,10 +117,6 @@ PLANT_B_SOURCE = MillSource(
 
 def plant_sources() -> tuple[MillSource, ...]:
     return (PLANT_SOURCE, PLANT_B_SOURCE)
-
-
-def archive_b_ref() -> str:
-    return ARCHIVE_B_COMMIT
 
 
 def source_by_id(mill_id: str) -> MillSource:

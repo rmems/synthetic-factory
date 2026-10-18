@@ -162,16 +162,26 @@ def _corpus_stratum(rel: str, number: int, obj: Any) -> tuple[_StratumKey, dict[
     )
 
 
-def _manifest_stratum(candidate: dict[str, Any]) -> tuple[_StratumKey, dict[str, Any]]:
-    """The stratum key and sampled item for one manifest review candidate."""
+def _review_action(candidate: dict[str, Any]) -> str:
+    """The lowered review action, falling back to the declared action."""
     declared_action = str(candidate.get("action") or "unspecified").strip().lower()
-    action = str(candidate.get("review_action") or declared_action).strip().lower()
+    return str(candidate.get("review_action") or declared_action).strip().lower()
+
+
+def _exclusion_stratum_reason(candidate: dict[str, Any], action: str) -> str:
+    """The sorted reason-code signature for an exclusion or quarantine, else ``none``."""
     reasons = candidate.get("reason_codes")
     if not isinstance(reasons, list):
         reasons = []
-    exclusion_reason = "none"
     if action in EXCLUSION_ACTIONS or action in QUARANTINE_ACTIONS:
-        exclusion_reason = "+".join(sorted(str(reason) for reason in reasons)) or "UNSPECIFIED"
+        return "+".join(sorted(str(reason) for reason in reasons)) or "UNSPECIFIED"
+    return "none"
+
+
+def _manifest_stratum(candidate: dict[str, Any]) -> tuple[_StratumKey, dict[str, Any]]:
+    """The stratum key and sampled item for one manifest review candidate."""
+    action = _review_action(candidate)
+    exclusion_reason = _exclusion_stratum_reason(candidate, action)
     transform = candidate.get("transform")
     source_path = candidate.get("source_path")
     source_line = candidate.get("source_line")
@@ -319,10 +329,8 @@ class _VerdictTally(NamedTuple):
     unknown: list[str]
 
 
-def _review_header_blockers(
-    sample: dict[str, Any], review: dict[str, Any], digest: str, evidence_digest: str
-) -> list[str]:
-    """Schema, reviewer and the four digest bindings, in reporting order."""
+def _review_author_blockers(review: dict[str, Any]) -> list[str]:
+    """A supported review schema and a named reviewer."""
     blockers: list[str] = []
     schema = review.get("schema")
     if schema is not None and schema != REVIEW_SCHEMA:
@@ -331,7 +339,14 @@ def _review_header_blockers(
     reviewer = review.get("reviewer")
     if not isinstance(reviewer, str) or not reviewer.strip():
         blockers.append("REVIEW_REVIEWER_MISSING")
+    return blockers
 
+
+def _review_header_blockers(
+    sample: dict[str, Any], review: dict[str, Any], digest: str, evidence_digest: str
+) -> list[str]:
+    """Schema, reviewer and the four digest bindings, in reporting order."""
+    blockers = _review_author_blockers(review)
     if review.get("corpus_digest") != digest:
         blockers.append("REVIEW_CORPUS_MISMATCH")
     if sample.get("corpus_digest") != digest:

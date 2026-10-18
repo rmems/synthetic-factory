@@ -375,5 +375,142 @@ class Cli(unittest.TestCase):
         self.assertEqual(refused["code"], FINDING_DESTINATION_UNDER_RAW)
 
 
+
+_FFPC_HEADER = "FACTORY = 'failure-as-fuel-preference-cascade'\n"
+_FFPC_STATES = (
+    "STATE_01 = {'sim_or_real': 'hil', 'domain': 'kiln', 'environment': {'unit': 'K-1'}}\n"
+    "STATE_02 = {'sim_or_real': 'designed', 'domain': 'boiler', 'environment': {'site': 'B-2'}}\n"
+    "STATE_03 = {'sim_or_real': 'simulated', 'domain': 'pump', 'environment': {'hall': 'P-3'}}\n"
+)
+
+
+class AstExtractShapes(unittest.TestCase):
+    def test_dict_pairs_skip_unusable_entries(self):
+        source = SNIPPET.replace(
+            '"site": "Complejo Lixivia de la Cuesta SX-EW MS-4",',
+            '"site": "Complejo Lixivia de la Cuesta SX-EW MS-4", 7: "x", "goal": build(),',
+        ).replace("]\n", "    {**PAIR_01_STATE},\n]\nEXTRA = {**PAIR_01_STATE, 1: 'x', 'k': 'v'}\n")
+        plants = cat.plants_from_source(source, "snippet")
+        self.assertEqual(
+            [plant.record_id for plant in plants],
+            ["ffpc-r15-001", "ffpc-r15-002", "ffpc-r15-003"],
+        )
+        self.assertEqual(plants[0].goal, "")
+        self.assertEqual(plants[0].site, "Complejo Lixivia de la Cuesta SX-EW MS-4")
+
+    def test_rejected_pair_list_reads_the_rejected_arm(self):
+        arms = "".join(
+            f"REJ{n} = {{'id': 'ffpc-r20-00{n}', 'goal': 'g{n}',"
+            f" 'state': {{'sim_or_real': 'designed', 'domain': 'd{n}',"
+            f" 'environment': {{'asset': 'A-{n}'}}}},"
+            f" 'diagnosis': {{'root': 'r{n}'}}, 'meta': {{'failure_archetype': 'f{n}'}}}}\n"
+            for n in (1, 2, 3)
+        )
+        source = (
+            _FFPC_HEADER
+            + arms
+            + "PAIRS = [\n"
+            "    {'rejected': REJ1, 'chosen': {}},\n"
+            "    {'rejected': REJ2},\n"
+            "    {'rejected': REJ3},\n"
+            "    UNDEFINED,\n"
+            "    {'rejected': 'not-a-dict'},\n"
+            "]\n"
+        )
+        plants = cat.plants_from_source(source, "ffpc-r20-build.py")
+        self.assertEqual([plant.record_id for plant in plants], [
+            "ffpc-r20-001",
+            "ffpc-r20-002",
+            "ffpc-r20-003",
+        ])
+        self.assertEqual(plants[1].site, "A-2")
+        self.assertEqual(plants[1].root_cause, "r2")
+        self.assertEqual(plants[2].failure_mode, "f3")
+
+    def test_pair_record_calls_read_positional_identity(self):
+        source = (
+            _FFPC_HEADER
+            + _FFPC_STATES
+            + "PAIRS = [\n"
+            "    pair_record('ffpc-r21-001', 'g1', 'f1'),\n"
+            "    pair_record('ffpc-r21-002', 'g2', 'f2', extra),\n"
+            "    pair_record('ffpc-r21-003', 'g3', 'f3'),\n"
+            "    pair_record('ffpc-r21-004', 'g4'),\n"
+            "    other('ffpc-r21-005', 'g5', 'f5'),\n"
+            "]\n"
+        )
+        plants = cat.plants_from_source(source, "ffpc-r21-build.py")
+        self.assertEqual([plant.goal for plant in plants], ["g1", "g2", "g3"])
+        self.assertEqual([plant.sim_or_real for plant in plants], ["hil", "designed", "simulated"])
+        self.assertEqual([plant.site for plant in plants], ["K-1", "B-2", "P-3"])
+
+    def test_dict_calls_skip_other_calls(self):
+        source = (
+            _FFPC_HEADER
+            + _FFPC_STATES
+            + "PAIRS = [\n"
+            "    dict(index=1, id='ffpc-r23-001', archetype='a1', root={'x': 1}, state=STATE_01),\n"
+            "    dict(index=2, id='ffpc-r23-002', flaw='a2', root='r2', state=STATE_02),\n"
+            "    dict(index=3, id='ffpc-r23-003', failure_mode='a3', state=STATE_03, **more),\n"
+            "    record(index=4),\n"
+            "]\n"
+        )
+        plants = cat.plants_from_source(source, "ffpc-r23-build.py")
+        self.assertEqual([plant.failure_mode for plant in plants], ["a1", "a2", "a3"])
+        self.assertEqual(plants[1].root_cause, "r2")
+
+    def test_int_keyed_pairs_dict(self):
+        source = (
+            _FFPC_HEADER
+            + "PAIRS = {\n"
+            "    1: {'id': 'ffpc-r22-001', 'goal': 'g1', 'failure_archetype': 'f1'},\n"
+            "    2: {'id': 'ffpc-r22-002', 'goal': 'g2', 'gate_flaw_class': 'f2'},\n"
+            "    3: {'id': 'ffpc-r22-003', 'goal': 'g3'},\n"
+            "    'x': {'id': 'ffpc-r22-004'},\n"
+            "    4: 'not-a-row',\n"
+            "}\n"
+        )
+        plants = cat.plants_from_source(source, "ffpc-r22-build.py")
+        self.assertEqual([plant.index for plant in plants], [1, 2, 3])
+        self.assertEqual([plant.failure_mode for plant in plants], ["f1", "f2", ""])
+
+    def test_rec_records_fold_meta_and_diag(self):
+        source = (
+            "ROUND = 68\n"
+            + _FFPC_HEADER
+            + "REC_01 = {'id': 'ffpc-r68-001', 'state': {'domain': 'd1'},\n"
+            "          'meta': {'failure_archetype': 'from-meta'}}\n"
+            "DIAG_01 = {'root_cause': 'diag-root'}\n"
+            "REC_02 = {'id': 'ffpc-r68-002', 'state': {'domain': 'd2'}, 'meta': 'opaque'}\n"
+            "REC_03 = {'id': 'ffpc-r68-003', 'state': {'domain': 'd3'},\n"
+            "          'diagnosis': {'root': 'own'}, 'meta': meta_for(3, 'x', 'from-call')}\n"
+            "DIAG_03 = {'root_cause': 'ignored'}\n"
+            "def meta_for(index, flaw, archetype):\n"
+            "    return {}\n"
+        )
+        plants = cat.plants_from_source(source, "session.py")
+        self.assertEqual([plant.failure_mode for plant in plants], ["from-meta", "", "from-call"])
+        self.assertEqual([plant.root_cause for plant in plants], ["diag-root", "", "own"])
+        self.assertEqual(plants[0].source_round, 68)
+
+    def test_record_id_round_must_match_the_source_round(self):
+        source = SNIPPET.replace('"ffpc-r15-002"', '"ffpc-r99-002"')
+        with self.assertRaises(FfpcRefusal) as ctx:
+            cat.plants_from_source(source, "snippet")
+        self.assertEqual(ctx.exception.code, "CATALOG_AST_NOT_A_PLANT")
+        self.assertEqual(
+            ctx.exception.message, "snippet id 'ffpc-r99-002' disagrees with round r15"
+        )
+
+    def test_non_string_record_id_is_refused_by_the_plant_check(self):
+        source = SNIPPET.replace('"ffpc-r15-002"', "7")
+        with self.assertRaises(FfpcRefusal) as ctx:
+            cat.plants_from_source(source, "snippet")
+        self.assertEqual(ctx.exception.code, "CATALOG_FIELD_INVALID")
+        self.assertEqual(
+            ctx.exception.message, "snippet[1].record_id must be an ffpc-r id, got 7"
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

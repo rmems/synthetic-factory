@@ -39,7 +39,8 @@ class RightsManifestRefusal(unittest.TestCase):
     def test_identity_rights_cover_the_captured_records_not_a_later_tree(self):
         files = {path.relative_to(self.destination).as_posix(): path.read_bytes()
                  for path in self.destination.rglob("*.jsonl")}
-        relative = next(iter(files))
+        relative = next(iter(files), None)
+        self.assertIsNotNone(relative)
         record = json.loads(files[relative])
         record["id"] = "substituted-snapshot"
         files[relative] = (json.dumps(record) + "\n").encode()
@@ -63,7 +64,8 @@ class RightsManifestRefusal(unittest.TestCase):
 
     def test_boolean_identity_source_line_cannot_impersonate_a_coordinate(self):
         entries = json.loads(self.manifest.read_text())
-        retained = next(entry for entry in entries if entry.get("action") == "retained")
+        retained = next((entry for entry in entries if entry.get("action") == "retained"), None)
+        self.assertIsNotNone(retained)
         retained["source"]["line"] = True
         self.manifest.write_text(json.dumps(entries))
         blockers = training_audit_rights.collect_rights_blockers(self.destination)
@@ -107,14 +109,20 @@ class RightsAuditSnapshot(unittest.TestCase):
         self.assertTrue(self._blockers())
 
     def test_boolean_output_line_cannot_impersonate_a_coordinate(self):
-        retained = next(entry for entry in self.entries if entry["action"] == "retained")
+        retained = next(
+            (entry for entry in self.entries if entry["action"] == "retained"), None
+        )
+        self.assertIsNotNone(retained)
         retained["output_line"] = True
         self._write_entries(self.entries)
         blockers = self._blockers()
         self.assertTrue(any("tampered or stale" in item for item in blockers), blockers)
 
     def test_malformed_identity_stage_fails_closed(self):
-        retained = next(entry for entry in self.entries if entry["action"] == "retained")
+        retained = next(
+            (entry for entry in self.entries if entry["action"] == "retained"), None
+        )
+        self.assertIsNotNone(retained)
         retained["stages"] = [{"lane": "identity", "detail": ["not-an-object"]}]
         self._write_entries(self.entries)
         self.assertTrue(any("tampered or stale" in item for item in self._blockers()))

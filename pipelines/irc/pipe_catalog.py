@@ -12,11 +12,12 @@ from __future__ import annotations
 import ast
 import hashlib
 import json
+import shutil
 import subprocess
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeGuard
 
 from ._contract import (
     CATALOG_FILENAME,
@@ -111,6 +112,11 @@ def _as_str(value: Any, where: str) -> str:
     return value
 
 
+def _is_int(value: Any) -> TypeGuard[int]:
+    """An int that is not a bool; JSON decoding yields no other int type."""
+    return not isinstance(value, bool) and isinstance(value, int)
+
+
 def _sha256_text(payload: str) -> str:
     return hashlib.sha256(payload.encode()).hexdigest()
 
@@ -133,33 +139,46 @@ def _load_spec_rows(path: Path) -> tuple[SpecRow, ...]:
             continue
         item = _parse_jsonl_line(line, line_no)
         if "pipe" not in item:
-            mill_round = item.get("mill_round")
-            refuse_when(type(mill_round) is not int, FINDING_CATALOG_FIELD_INVALID, "mill header missing mill_round")
+            mill_round = _header_round(item)
             headers[mill_round] = (
                 _as_str(item.get("path"), "path"),
                 _as_str(item.get("field"), "field"),
                 _as_str(item.get("sha256"), "sha256"),
             )
             continue
-        mill_round = item.get("mill_round")
-        index = item.get("index")
-        refuse_when(type(mill_round) is not int or type(index) is not int,
-                    FINDING_CATALOG_FIELD_INVALID, f"{SPECS_FILENAME}:{line_no}: row keys")
-        header = headers.get(mill_round)
-        refuse_when(header is None, FINDING_CATALOG_FIELD_INVALID, f"missing header for mill {mill_round}")
-        path_text, field, _digest = header
-        rows.append(
-            SpecRow(
-                mill_round=mill_round,
-                index=index,
-                pipe=_as_str(item.get("pipe"), "pipe"),
-                path=path_text,
-                field=field,
-            )
-        )
+        rows.append(_spec_row(item, line_no, headers))
     refuse_when(len(rows) != COMMITTED_SPEC_ROW_COUNT, FINDING_CATALOG_FIELD_INVALID,
                 f"expected {COMMITTED_SPEC_ROW_COUNT} spec rows, got {len(rows)}")
     return tuple(rows)
+
+
+def _header_round(item: Mapping[str, Any]) -> int:
+    """A mill header's ``mill_round``; it must be an int."""
+    mill_round = item.get("mill_round")
+    if not _is_int(mill_round):
+        raise IrcRefusal(FINDING_CATALOG_FIELD_INVALID, "mill header missing mill_round")
+    return mill_round
+
+
+def _spec_row(
+    item: Mapping[str, Any], line_no: int, headers: Mapping[int, tuple[str, str, str]]
+) -> SpecRow:
+    """One pipe row, bound to the mill header read before it."""
+    mill_round = item.get("mill_round")
+    index = item.get("index")
+    if not _is_int(mill_round) or not _is_int(index):
+        raise IrcRefusal(FINDING_CATALOG_FIELD_INVALID, f"{SPECS_FILENAME}:{line_no}: row keys")
+    header = headers.get(mill_round)
+    if header is None:
+        raise IrcRefusal(FINDING_CATALOG_FIELD_INVALID, f"missing header for mill {mill_round}")
+    path_text, field, _digest = header
+    return SpecRow(
+        mill_round=mill_round,
+        index=index,
+        pipe=_as_str(item.get("pipe"), "pipe"),
+        path=path_text,
+        field=field,
+    )
 
 
 def load_family_catalog() -> FamilyCatalog:
@@ -188,11 +207,39 @@ def load_family_catalog() -> FamilyCatalog:
         (extract.get("committed_mill_catalogs") != COMMITTED_MILL_CATALOGS, FINDING_CATALOG_FIELD_INVALID, "committed_mill_catalogs"),
     ))
     sources_raw = meta.get("sources")
-    refuse_when(not isinstance(sources_raw, list) or not sources_raw,
-                FINDING_CATALOG_FIELD_INVALID, "sources must be a non-empty array")
+    if not isinstance(sources_raw, list) or not sources_raw:
+        raise IrcRefusal(FINDING_CATALOG_FIELD_INVALID, "sources must be a non-empty array")
     sources = tuple(_as_mapping(item, "sources[]") for item in sources_raw)
     spec_rows = _load_spec_rows(specs_path())
     return FamilyCatalog(catalog_id=CATALOG_ID, sources=sources, spec_rows=spec_rows)
+
+
+def _pipe_field_assign(node: ast.stmt) -> tuple[str, ast.Assign] | None:
+    if not isinstance(node, ast.Assign):
+        return None
+    targets = [t.id for t in node.targets if isinstance(t, ast.Name)]
+    if targets and targets[0] in PIPE_FIELD_NAMES:
+        return targets[0], node
+    return None
+
+
+def _first_pipe_field(tree: ast.Module) -> tuple[str, ast.Assign] | None:
+    for node in tree.body:
+        found = _pipe_field_assign(node)
+        if found is not None:
+            return found
+    return None
+
+
+def _pipe_rows_literal(node: ast.Assign) -> tuple[str, ...]:
+    try:
+        literal = ast.literal_eval(node.value)
+    except (TypeError, ValueError, SyntaxError) as exc:
+        raise IrcRefusal(FINDING_SOURCE_NOT_PARSEABLE, str(exc)) from exc
+    refuse_when(not isinstance(literal, str), FINDING_SOURCE_NOT_PARSEABLE, "field not str")
+    return tuple(
+        line for line in literal.splitlines() if line.strip() and not line.startswith("#")
+    )
 
 
 def pipe_rows_from_source(source: str) -> tuple[str, tuple[str, ...]]:
@@ -202,29 +249,68 @@ def pipe_rows_from_source(source: str) -> tuple[str, tuple[str, ...]]:
         tree = ast.parse(source)
     except SyntaxError as exc:
         raise IrcRefusal(FINDING_SOURCE_NOT_PARSEABLE, str(exc)) from exc
-    for node in tree.body:
-        if isinstance(node, ast.Assign):
-            targets = [t.id for t in node.targets if isinstance(t, ast.Name)]
-            if targets and targets[0] in PIPE_FIELD_NAMES:
-                try:
-                    literal = ast.literal_eval(node.value)
-                except (TypeError, ValueError, SyntaxError) as exc:
-                    raise IrcRefusal(FINDING_SOURCE_NOT_PARSEABLE, str(exc)) from exc
-                refuse_when(not isinstance(literal, str), FINDING_SOURCE_NOT_PARSEABLE, "field not str")
-                rows = tuple(
-                    line for line in literal.splitlines() if line.strip() and not line.startswith("#")
-                )
-                return targets[0], rows
-    refuse(FINDING_SOURCE_NOT_PARSEABLE, f"missing one of {PIPE_FIELD_NAMES}")
+    found = _first_pipe_field(tree)
+    if found is None:
+        refuse(FINDING_SOURCE_NOT_PARSEABLE, f"missing one of {PIPE_FIELD_NAMES}")
+    field, assign = found
+    return field, _pipe_rows_literal(assign)
 
 
-def _legacy_source(path: str) -> str:
-    return subprocess.check_output(
-        ["git", "show", f"{SOURCE_REF}:{path}"],
+def _git_executable() -> str:
+    """Absolute ``git`` on PATH. A bare name is a partial-path launch."""
+
+    found = shutil.which("git")
+    if found is None:
+        raise FileNotFoundError("git")
+    return found
+
+
+def _git_text(args: list[str]) -> str:
+    git = _git_executable()
+    # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit.dangerous-subprocess-use-audit
+    return subprocess.check_output(  # nosec B603 -- absolute git from PATH, no shell
+        [git, *args],
         text=True,
         cwd=repo_root(),
         stderr=subprocess.DEVNULL,
     )
+
+
+def _legacy_source(path: str) -> str:
+    return _git_text(["show", f"{SOURCE_REF}:{path}"])
+
+
+def _committed_mill_path(source: Mapping[str, Any]) -> str | None:
+    """The source path when it is a committed ``irc-mill-r*`` source with a pinned digest."""
+    path = source.get("path")
+    if not isinstance(path, str):
+        return None
+    if not isinstance(source.get("sha256"), str):
+        return None
+    if not path.startswith("experiments/irc-mill-r"):
+        return None
+    if source.get("committed") is not True:
+        return None
+    return path
+
+
+def _verify_live_source(source: Mapping[str, Any], path: str) -> None:
+    live = _legacy_source(path)
+    digest = _sha256_text(live)
+    refuse_when(digest != source.get("sha256"), FINDING_CATALOG_SHA256_MISMATCH, path)
+    field, rows = pipe_rows_from_source(live)
+    refuse_when(field != source.get("field"), FINDING_CATALOG_SHA256_MISMATCH, f"{path} field")
+    refuse_when(len(rows) != source.get("n_rows_extracted"), FINDING_CATALOG_SHA256_MISMATCH, f"{path} n_rows")
+
+
+def _verify_spec_indexes(spec_rows: tuple[SpecRow, ...]) -> None:
+    grouped: dict[int, list[SpecRow]] = {}
+    for row in spec_rows:
+        grouped.setdefault(row.mill_round, []).append(row)
+    for mill_round, rows in grouped.items():
+        rows_sorted = sorted(rows, key=lambda item: item.index)
+        for index, row in enumerate(rows_sorted):
+            refuse_when(row.index != index, FINDING_CATALOG_FIELD_INVALID, f"mill {mill_round} index gap")
 
 
 def catalog_family_check(live_legacy: bool = True) -> FamilyCatalog:
@@ -232,31 +318,14 @@ def catalog_family_check(live_legacy: bool = True) -> FamilyCatalog:
     if not live_legacy:
         return catalog
     try:
-        subprocess.check_output(["git", "rev-parse", SOURCE_REF], cwd=repo_root(), stderr=subprocess.DEVNULL)
+        _git_text(["rev-parse", SOURCE_REF])
     except (subprocess.CalledProcessError, FileNotFoundError):
         return catalog
     for source in catalog.sources:
-        path = source.get("path")
-        expected = source.get("sha256")
-        if not isinstance(path, str) or not isinstance(expected, str):
-            continue
-        if not path.startswith("experiments/irc-mill-r"):
-            continue
-        if source.get("committed") is not True:
-            continue
-        live = _legacy_source(path)
-        digest = _sha256_text(live)
-        refuse_when(digest != expected, FINDING_CATALOG_SHA256_MISMATCH, path)
-        field, rows = pipe_rows_from_source(live)
-        refuse_when(field != source.get("field"), FINDING_CATALOG_SHA256_MISMATCH, f"{path} field")
-        refuse_when(len(rows) != source.get("n_rows_extracted"), FINDING_CATALOG_SHA256_MISMATCH, f"{path} n_rows")
-    grouped: dict[int, list[SpecRow]] = {}
-    for row in catalog.spec_rows:
-        grouped.setdefault(row.mill_round, []).append(row)
-    for mill_round, rows in grouped.items():
-        rows_sorted = sorted(rows, key=lambda item: item.index)
-        for index, row in enumerate(rows_sorted):
-            refuse_when(row.index != index, FINDING_CATALOG_FIELD_INVALID, f"mill {mill_round} index gap")
+        path = _committed_mill_path(source)
+        if path is not None:
+            _verify_live_source(source, path)
+    _verify_spec_indexes(catalog.spec_rows)
     return catalog
 
 

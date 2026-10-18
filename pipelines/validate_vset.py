@@ -26,7 +26,7 @@ import argparse
 import json
 import sys
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 if __package__:  # pragma: no cover - package-child import path
     from . import _assert_direct_sibling, _expose_package_sibling
@@ -51,7 +51,11 @@ import vset_source
 ERR_ORACLE_EXECUTION_MISMATCH = vset_constants.ERR_ORACLE_EXECUTION_MISMATCH
 IDENTITY_UNRESOLVED_PROVENANCE = vset_constants.IDENTITY_UNRESOLVED_PROVENANCE
 MANIFEST_ROLES = vset_constants.MANIFEST_ROLES
-VSetValidationError = vset_constants.VSetValidationError
+if TYPE_CHECKING:
+    # The class annotated below; at run time the constants module's own is bound.
+    from .vset_constants import VSetValidationError
+else:
+    VSetValidationError = vset_constants.VSetValidationError
 iter_record_paths = vset_constants.iter_record_paths
 pack_snapshot_hash = vset_constants.pack_snapshot_hash
 registry_pin = vset_constants.registry_pin

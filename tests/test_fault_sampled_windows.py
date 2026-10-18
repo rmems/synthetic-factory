@@ -11,7 +11,7 @@ class SampledFaultWindows(unittest.TestCase):
         state = scenario()
         for kind in ("sensor_loss", "stale_sensor", "event_jitter", "temporary_saturation"):
             for duration in (0.1, 1.0):
-                params = dict(channels=["c0"], onset_ms=1.0, duration_ms=duration)
+                params = {"channels": ["c0"], "onset_ms": 1.0, "duration_ms": duration}
                 if kind == "event_jitter":
                     params["jitter_ms"] = 3.0
                 fault = disturbance(kind, **params)

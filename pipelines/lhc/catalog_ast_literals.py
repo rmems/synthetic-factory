@@ -7,13 +7,13 @@
 from __future__ import annotations
 
 import ast
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from typing import Any
 
 UNSET = object()
 
 
-def _items(nodes: list[ast.expr], env: Mapping[str, Any]) -> list[Any] | None:
+def _items(nodes: Sequence[ast.expr], env: Mapping[str, Any]) -> list[Any] | None:
     """Every element's literal, or None as soon as one is ``UNSET``."""
     resolved: list[Any] = []
     for node in nodes:

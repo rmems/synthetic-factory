@@ -9,8 +9,8 @@ from __future__ import annotations
 import ast
 import re
 import warnings
-from collections.abc import Mapping
-from typing import Any
+from collections.abc import Callable, Mapping, Sequence
+from typing import Any, TypeGuard
 
 UNSET = object()
 
@@ -39,36 +39,70 @@ def assignment_names(node: ast.stmt) -> tuple[str, ...]:
 
 
 def literal_value(node: ast.AST, env: Mapping[str, Any] | None = None) -> Any:
-    """Resolve constants, names, containers, and constant f-strings; else ``UNSET``."""
+    """Resolve constants, names, containers, and constant f-strings; else ``UNSET``.
+
+    The helpers below only classify or combine and every recursive call is made here,
+    so a ``-x`` or ``a + b`` level costs one frame and a container or f-string level two.
+    """
 
     bound = env or {}
     if isinstance(node, ast.Constant):
         return node.value
     if isinstance(node, ast.Name):
         return bound[node.id] if node.id in bound else UNSET
-    if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
-        inner = literal_value(node.operand, bound)
-        return -inner if isinstance(inner, (int, float)) else UNSET
-    if isinstance(node, ast.Tuple):
-        return _sequence(node.elts, bound, tuple)
-    if isinstance(node, ast.List):
-        return _sequence(node.elts, bound, list)
-    if isinstance(node, ast.Set):
-        values = _sequence(node.elts, bound, list)
-        return set(values) if values is not UNSET else UNSET
-    if isinstance(node, ast.Dict):
-        return _mapping(node, bound)
-    if isinstance(node, ast.JoinedStr):
-        return _joined_string(node, bound)
-    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+    if _is_negation(node):
+        return _negated(literal_value(node.operand, bound))
+    if _is_concatenation(node):
         left = literal_value(node.left, bound)
-        right = literal_value(node.right, bound)
-        if isinstance(left, str) and isinstance(right, str):
-            return left + right
+        return _concatenated(left, literal_value(node.right, bound))
+    evaluate, args = _compound_step(node)
+    return evaluate(*args, bound)
+
+
+def _is_negation(node: ast.AST) -> TypeGuard[ast.UnaryOp]:
+    return isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub)
+
+
+def _is_concatenation(node: ast.AST) -> TypeGuard[ast.BinOp]:
+    return isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add)
+
+
+def _negated(inner: Any) -> Any:
+    """``-inner`` for a resolved number; anything else stays ``UNSET``."""
+
+    return -inner if isinstance(inner, (int, float)) else UNSET
+
+
+def _concatenated(left: Any, right: Any) -> Any:
+    """``left + right`` for two resolved strings; anything else stays ``UNSET``."""
+
+    if isinstance(left, str) and isinstance(right, str):
+        return left + right
     return UNSET
 
 
-def _sequence(elts: list[ast.AST], env: Mapping[str, Any], ctor):
+def _compound_step(node: ast.AST) -> tuple[Callable[..., Any], tuple[Any, ...]]:
+    """Evaluator and leading arguments for a container or f-string node.
+
+    Any other node gets ``_unresolved``, so it stays ``UNSET``.
+    """
+
+    if isinstance(node, ast.Tuple):
+        return _sequence, (node.elts, tuple)
+    if isinstance(node, (ast.List, ast.Set)):
+        return _sequence, (node.elts, list if isinstance(node, ast.List) else set)
+    if isinstance(node, ast.Dict):
+        return _mapping, (node,)
+    if isinstance(node, ast.JoinedStr):
+        return _joined_string, (node,)
+    return _unresolved, ()
+
+
+def _unresolved(_env: Mapping[str, Any]) -> Any:
+    return UNSET
+
+
+def _sequence(elts: Sequence[ast.AST], ctor, env: Mapping[str, Any]):
     values: list[Any] = []
     for elt in elts:
         item = literal_value(elt, env)
@@ -117,15 +151,29 @@ def call_kwargs(node: ast.AST, env: Mapping[str, Any] | None = None) -> dict[str
 
     if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Name):
         return None
-    if node.args or any(keyword.arg is None for keyword in node.keywords):
+    if node.args:
+        return None
+    names = _keyword_names(node)
+    if names is None:
         return None
     out: dict[str, Any] = {}
-    for keyword in node.keywords:
+    for name, keyword in zip(names, node.keywords, strict=True):
         value = literal_value(keyword.value, env)
-        if keyword.arg is None or value is UNSET:
+        if value is UNSET:
             return None
-        out[keyword.arg] = value
+        out[name] = value
     return out
+
+
+def _keyword_names(node: ast.Call) -> list[str] | None:
+    """Keyword names in call order; ``None`` when the call unpacks ``**mapping``."""
+
+    names: list[str] = []
+    for keyword in node.keywords:
+        if keyword.arg is None:
+            return None
+        names.append(keyword.arg)
+    return names
 
 
 def call_posargs(node: ast.AST, env: Mapping[str, Any] | None = None) -> list[Any] | None:
@@ -153,15 +201,24 @@ def joined_path_constant(node: ast.AST) -> str | None:
         return joined_path_constant(node.args[0])
     if isinstance(node, ast.Name):
         return None
-    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Div):
+    if _is_division(node):
         left = joined_path_constant(node.left)
-        right = joined_path_constant(node.right)
-        if right is None:
-            return None
-        if left is None:
-            return right
-        return f"{left}/{right}"
+        return _joined_path(left, joined_path_constant(node.right))
     return None
+
+
+def _is_division(node: ast.AST) -> TypeGuard[ast.BinOp]:
+    return isinstance(node, ast.BinOp) and isinstance(node.op, ast.Div)
+
+
+def _joined_path(left: str | None, right: str | None) -> str | None:
+    """``left/right``; an unresolved left keeps ``right``, an unresolved right is ``None``."""
+
+    if right is None:
+        return None
+    if left is None:
+        return right
+    return f"{left}/{right}"
 
 
 def experiments_mill_path(name: str) -> str | None:
@@ -187,19 +244,28 @@ def extract_replace_mill_target(source: str) -> str | None:
     tree = parse_tree(source)
     found: list[str] = []
     for node in ast.walk(tree):
-        if not isinstance(node, ast.Call):
+        replacement = _replace_argument(node)
+        if replacement is None:
             continue
-        if not isinstance(node.func, ast.Attribute) or node.func.attr != "replace":
-            continue
-        if len(node.args) != 2:
-            continue
-        new = literal_value(node.args[1])
+        new = literal_value(replacement)
         if not isinstance(new, str):
             continue
         path = experiments_mill_path(new)
         if path is not None:
             found.append(path)
     return found[-1] if found else None
+
+
+def _replace_argument(node: ast.AST) -> ast.AST | None:
+    """The replacement argument of one ``x.replace(old, new)`` call, else ``None``."""
+
+    if not isinstance(node, ast.Call):
+        return None
+    if not isinstance(node.func, ast.Attribute) or node.func.attr != "replace":
+        return None
+    if len(node.args) != 2:
+        return None
+    return node.args[1]
 
 
 def extract_named_mill_path(source: str, name: str) -> str | None:
@@ -227,16 +293,22 @@ def extract_write_wave_mill(source: str) -> str | None:
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call) or not node.args:
             continue
-        func = node.func
-        is_write = (isinstance(func, ast.Name) and func.id == "write_wave") or (
-            isinstance(func, ast.Attribute) and func.attr == "write_wave"
-        )
-        if not is_write:
+        if not _is_write_wave(node.func):
             continue
         wave = literal_value(node.args[0])
         if isinstance(wave, int):
             return f"experiments/ntp-mill-unique-llll{wave}.py"
     return None
+
+
+def _is_write_wave(func: ast.AST) -> bool:
+    """``write_wave`` called bare or as an attribute (``g.write_wave``)."""
+
+    if isinstance(func, ast.Name):
+        return func.id == "write_wave"
+    if isinstance(func, ast.Attribute):
+        return func.attr == "write_wave"
+    return False
 
 
 def extract_first_wave_table_mill(source: str) -> str | None:

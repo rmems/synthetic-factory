@@ -53,7 +53,8 @@ def _unsafe_taxonomy_cases():
 
 
 class CliRegexTests(unittest.TestCase):
-    def _write_taxonomy(self, root, name, document):
+    @staticmethod
+    def _write_taxonomy(root, name, document):
         path = root / name
         path.write_text(json.dumps(document), encoding="utf-8")
         return path

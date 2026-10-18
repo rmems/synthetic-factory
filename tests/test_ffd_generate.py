@@ -60,13 +60,15 @@ class Refusals(unittest.TestCase):
     def test_run_refuses_raw_and_existing_destinations(self):
         catalog_dir = Path(REPO / "config" / "ffd")
         raw = REPO / "outputs" / "raw" / "ffd-should-refuse"
+        request = generate.GenerateRequest(catalog_dir, raw, "lll", 61)
         with self.assertRaises(FfdRefusal) as caught:
-            generate.run(generate.GenerateRequest(catalog_dir, raw, "lll", 61))
+            generate.run(request)
         self.assertTrue(str(caught.exception).startswith(FINDING_DESTINATION_UNDER_RAW + ": "))
         with tempfile.TemporaryDirectory(prefix="ffd-exists-") as tmp:
             existing = Path(tmp)
+            request = generate.GenerateRequest(catalog_dir, existing, "lll", 61)
             with self.assertRaises(FfdRefusal) as caught:
-                generate.run(generate.GenerateRequest(catalog_dir, existing, "lll", 61))
+                generate.run(request)
             self.assertTrue(str(caught.exception).startswith(FINDING_DESTINATION_EXISTS + ": "))
         self.assertEqual(FfdRefusal.CODES, FINDING_CODE_SET)
 

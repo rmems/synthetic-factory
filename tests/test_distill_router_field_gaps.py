@@ -40,8 +40,9 @@ class ThirdRoundRouterGaps(unittest.TestCase):
         # silently dropped the sample — a cleanly validating record could
         # skew the baseline by vanishing from it.
         record = next(
-            clone(r) for r in self.records if r["result"]["top1_expert"] in (0, 1)
+            (clone(r) for r in self.records if r["result"]["top1_expert"] in (0, 1)), None
         )
+        self.assertIsNotNone(record)
         flag = bool(record["result"]["top1_expert"])
         record["result"]["top1_expert"] = flag
         record["result"]["routing"]["top1_expert"] = flag
@@ -157,13 +158,18 @@ class FourthRoundRouterGaps(unittest.TestCase):
     def test_truncated_router_logits_are_rejected(self):
         # A shortened array still containing the selected ids passed the
         # ordering check while changing the entropy and logit targets.
-        record, index = next(
-            (clone(candidate), i)
-            for candidate in self.teacher_records
-            # Not the last layer: its summaries feed result.measurements.
-            for i, lay in enumerate(candidate["result"]["routing"]["layers"][:-1])
-            if max(lay["top_k_experts"]) + 1 < len(lay["router_logits"])
+        found = next(
+            (
+                (clone(candidate), i)
+                for candidate in self.teacher_records
+                # Not the last layer: its summaries feed result.measurements.
+                for i, lay in enumerate(candidate["result"]["routing"]["layers"][:-1])
+                if max(lay["top_k_experts"]) + 1 < len(lay["router_logits"])
+            ),
+            None,
         )
+        self.assertIsNotNone(found)
+        record, index = found
         layer = record["result"]["routing"]["layers"][index]
         keep = max(layer["top_k_experts"]) + 1
         layer["router_logits"] = layer["router_logits"][:keep]

@@ -13,7 +13,6 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-from .catalog_extract import sha256_bytes
 from .vocabulary import (
     ARCHIVE_B_PATH,
     LEFTOVER_PLANT_ROW_KEYS,
@@ -31,13 +30,18 @@ def _literal_str(node: ast.AST, where: str) -> str:
     raise ValueError(f"{where}: expected str literal")
 
 
-def _side_from_call(node: ast.AST, where: str) -> dict[str, str]:
+def _require_plant_call(node: ast.AST, where: str) -> ast.Call:
     if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Name):
         raise ValueError(f"{where}: expected _ok/_bad(**kwargs)")
     if node.func.id not in _PLANT_CALLS or node.args:
         raise ValueError(f"{where}: expected _ok/_bad(**kwargs)")
     if any(kw.arg is None for kw in node.keywords):
         raise ValueError(f"{where}: kwargs must be named")
+    return node
+
+
+def _side_from_call(node: ast.AST, where: str) -> dict[str, str]:
+    node = _require_plant_call(node, where)
     side: dict[str, str] = {}
     for kw in node.keywords:
         assert kw.arg is not None
@@ -59,34 +63,42 @@ def extract_leftover_plant_pairs(
 
     tree = ast.parse(source, filename=path)
     rows: list[dict[str, Any]] = []
-    index = 0
     for node in tree.body:
-        if not isinstance(node, ast.Expr) or not isinstance(node.value, ast.Call):
+        payload = _pairs_append_payload(node)
+        if payload is None:
             continue
-        call = node.value
-        if not isinstance(call.func, ast.Attribute):
-            continue
-        if call.func.attr != "append" or not isinstance(call.func.value, ast.Name):
-            continue
-        if call.func.value.id != "PAIRS" or len(call.args) != 1:
-            continue
-        payload = call.args[0]
-        if not isinstance(payload, (ast.Tuple, ast.List)) or len(payload.elts) != 2:
-            raise ValueError(f"{path}: PAIRS.append must receive (_ok, _bad)")
-        ok = _side_from_call(payload.elts[0], f"PAIRS[{index}].ok")
-        bad = _side_from_call(payload.elts[1], f"PAIRS[{index}].bad")
-        rows.append(
-            compact_leftover_plant_row(
-                index,
-                ok,
-                bad,
-                source=path,
-            )
-        )
-        index += 1
+        rows.append(_plant_pair_row(payload, len(rows), path))
     if not rows:
         raise ValueError(f"{path} has no PAIRS.append leftover plants")
     return rows
+
+
+def _pairs_append_payload(node: ast.stmt) -> ast.AST | None:
+    """The single argument of a module-level ``PAIRS.append(...)``; else ``None``."""
+
+    if not isinstance(node, ast.Expr) or not isinstance(node.value, ast.Call):
+        return None
+    call = node.value
+    if not isinstance(call.func, ast.Attribute):
+        return None
+    if call.func.attr != "append" or not isinstance(call.func.value, ast.Name):
+        return None
+    if call.func.value.id != "PAIRS" or len(call.args) != 1:
+        return None
+    return call.args[0]
+
+
+def _plant_pair_row(payload: ast.AST, index: int, path: str) -> dict[str, Any]:
+    if not isinstance(payload, (ast.Tuple, ast.List)) or len(payload.elts) != 2:
+        raise ValueError(f"{path}: PAIRS.append must receive (_ok, _bad)")
+    ok = _side_from_call(payload.elts[0], f"PAIRS[{index}].ok")
+    bad = _side_from_call(payload.elts[1], f"PAIRS[{index}].bad")
+    return compact_leftover_plant_row(
+        index,
+        ok,
+        bad,
+        source=path,
+    )
 
 
 def compact_leftover_plant_row(

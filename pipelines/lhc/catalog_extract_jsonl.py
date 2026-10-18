@@ -63,27 +63,37 @@ def dumps_pairs_jsonl(rows: list[Mapping[str, Any]]) -> str:
     return "\n".join(lines) + "\n"
 
 
-def load_pair_rows(path: Path | None = None) -> list[dict[str, Any]]:
-    destination = path if path is not None else pairs_jsonl_path()
+def _read_lf_jsonl(destination: Path) -> str:
     try:
         text = destination.read_text(encoding="utf-8")
     except OSError as exc:
         raise ValueError(f"cannot load LHC pairs {destination}: {exc}") from exc
     if "\r" in text or not text.endswith("\n"):
         raise ValueError(f"{destination.name} must be LF-framed jsonl")
-    rows: list[dict[str, Any]] = []
-    for index, line in enumerate(text.splitlines(), start=1):
-        if not line:
-            raise ValueError(f"{destination.name}:{index} is empty")
-        if line.startswith((" ", "\t")):
-            raise ValueError(f"{destination.name}:{index} is not compact")
-        try:
-            row = json.loads(line)
-        except json.JSONDecodeError as exc:
-            raise ValueError(f"{destination.name}:{index} is not JSON: {exc}") from exc
-        if not isinstance(row, dict) or set(row) != set(PAIR_ROW_KEYS):
-            raise ValueError(f"{destination.name}:{index} keys differ")
-        rows.append(row)
+    return text
+
+
+def _pair_row(name: str, index: int, line: str) -> dict[str, Any]:
+    if not line:
+        raise ValueError(f"{name}:{index} is empty")
+    if line.startswith((" ", "\t")):
+        raise ValueError(f"{name}:{index} is not compact")
+    try:
+        row = json.loads(line)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"{name}:{index} is not JSON: {exc}") from exc
+    if not isinstance(row, dict) or set(row) != set(PAIR_ROW_KEYS):
+        raise ValueError(f"{name}:{index} keys differ")
+    return row
+
+
+def load_pair_rows(path: Path | None = None) -> list[dict[str, Any]]:
+    destination = path if path is not None else pairs_jsonl_path()
+    text = _read_lf_jsonl(destination)
+    rows = [
+        _pair_row(destination.name, index, line)
+        for index, line in enumerate(text.splitlines(), start=1)
+    ]
     if not rows:
         raise ValueError(f"{destination.name} must contain deferred pair identities")
     return rows

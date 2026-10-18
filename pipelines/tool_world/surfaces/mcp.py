@@ -124,7 +124,6 @@ class McpSurface(Surface):
 
     def execute(self, name: str, args: Mapping[str, Any], fault: Any) -> str:
         server = self.servers[args["server"]]
-        method, params = args["method"], dict(args.get("params") or {})
         self.request_id += 1
         pending = [
             canonical_text({"jsonrpc": "2.0", "method": note}) for note in server.notifications
@@ -144,7 +143,7 @@ class McpSurface(Surface):
             server.initialized, server.store = False, {}
             body = self._error(_ERR_INTERNAL, "server restarted; session lost, initialize again")
         else:
-            body = self._dispatch(server, method, params, kind)
+            body = self._dispatch(server, args, kind)
         return "\n".join(pending + [canonical_text(body)])
 
     def _error(self, code: int, message: str, data: Any = None) -> dict[str, Any]:
@@ -157,8 +156,10 @@ class McpSurface(Surface):
         return {"jsonrpc": "2.0", "id": self.request_id, "result": result}
 
     def _dispatch(
-        self, server: Server, method: str, params: Mapping[str, Any], kind: str | None
+        self, server: Server, request: Mapping[str, Any], kind: str | None
     ) -> dict[str, Any]:
+        """Route one validated request to its method; only ``initialize`` opens a session."""
+        method, params = request["method"], dict(request.get("params") or {})
         if method != "initialize" and not server.initialized:
             return self._error(
                 _ERR_INVALID_REQUEST, "session not initialized: call initialize first"

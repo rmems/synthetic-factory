@@ -83,8 +83,10 @@ class Featurisation(unittest.TestCase):
                 [
                     sys.executable,
                     "-c",
-                    "import json, moe_router;"
-                    "print(json.dumps(moe_router.featurize('relay gate')))",
+                    (
+                        "import json, moe_router;"
+                        "print(json.dumps(moe_router.featurize('relay gate')))"
+                    ),
                 ],
                 capture_output=True,
                 text=True,
@@ -164,9 +166,8 @@ class ReferenceRouter(unittest.TestCase):
 
     def test_configuration_is_refused_when_top_k_cannot_define_a_margin(self):
         for kwargs in ({"top_k": 1}, {"num_experts": 2, "top_k": 2}):
-            with self.subTest(**kwargs):
-                with self.assertRaises(oc.ContractError):
-                    mr.GateShape(**kwargs)
+            with self.subTest(**kwargs), self.assertRaises(oc.ContractError):
+                mr.GateShape(**kwargs)
 
 
 class RecordedTeacher(unittest.TestCase):

@@ -12,12 +12,16 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from . import faults, predicates, schema_lite, surfaces
 from . import vocabulary as cv
 from ._contract import bind_import_twin, rng, sha256_bytes, sha256_canonical
-from .surfaces.base import ToolSpec, error_text
+from .surfaces.base import Surface, ToolSpec, error_text
+
+if TYPE_CHECKING:
+    from .pack import Pack
+    from .pack_task import Task
 
 __all__ = ["Environment", "Event", "Observation", "bound_observation"]
 
@@ -82,14 +86,14 @@ _CORE_TOOLS = (
 
 
 class Environment:
-    def __init__(self, pack: Any, task: Any, seed: int) -> None:
+    def __init__(self, pack: Pack, task: Task, seed: int) -> None:
         cv.check_seed(seed)
         self.pack = pack
         self.task = task
         self.seed = seed
         self._stream = rng.DrawStream(seed)
         self._fault_engine = faults.FaultEngine(faults.schedule_faults(task.faults, self._stream))
-        self._surfaces: dict[str, Any] = {}
+        self._surfaces: dict[str, Surface] = {}
         for name in task.surfaces:
             cv.refuse_when(
                 name not in surfaces.REGISTRY,
@@ -107,13 +111,13 @@ class Environment:
             self._surfaces[spec.surface].check_fault_kind(spec.kind)
         self._tools: dict[str, ToolSpec] = {spec.name: spec for spec in _CORE_TOOLS}
         for surface in self._surfaces.values():
-            for spec in surface.tools():
+            for tool in surface.tools():
                 cv.refuse_when(
-                    spec.name in self._tools,
+                    tool.name in self._tools,
                     cv.FINDING_TOOL_UNKNOWN,
-                    f"duplicate tool {spec.name!r}",
+                    f"duplicate tool {tool.name!r}",
                 )
-                self._tools[spec.name] = spec
+                self._tools[tool.name] = tool
         for spec in task.faults:
             self._check_fault_target(spec)
         self._events: list[Event] = []

@@ -21,6 +21,7 @@ from ._contract import (
     default_catalog_dir,
     dumps_exact_json,
     envelope,
+    finding_row,
 )
 
 __all__ = ["build_parser", "run"]
@@ -53,39 +54,48 @@ def _catalog_dir(args: argparse.Namespace) -> Path:
     return args.catalog if args.catalog is not None else default_catalog_dir()
 
 
-def _catalog_check(args: argparse.Namespace) -> int:
-    loaded = cat.load_catalog(_catalog_dir(args))
-    findings = list(cat.catalog_check(loaded))
+def _pair_build_findings(loaded: cat.Catalog, source_id: str, round_n: int,
+                         index: int) -> list[dict[str, str]]:
+    """Build one catalog pair and report what a clean build must not show."""
+
+    try:
+        records, notes = generate.build_round(loaded, source_id, round_n, index)
+    except Exception as exc:
+        return [finding_row(getattr(exc, "code", "CATALOG_FIELD_INVALID"), source_id, str(exc))]
+    findings = []
+    if "Novel coverage:" not in notes:
+        findings.append(finding_row("CATALOG_FIELD_INVALID", source_id,
+                                    f"{source_id} pair {index} notes omit Novel coverage"))
+    for record in records:
+        if not str(record["id"]).startswith("ffd-r"):
+            findings.append(finding_row("CATALOG_FIELD_INVALID", source_id,
+                                        f"id {record['id']!r} is not an ffd mill id"))
+    return findings
+
+
+def _build_findings(loaded: cat.Catalog) -> list[dict[str, str]]:
+    findings: list[dict[str, str]] = []
     for source_id in SOURCES:
         first = loaded.catalog_first(source_id)
         for index, _pair in enumerate(loaded.pairs_of(source_id)):
-            try:
-                records, notes = generate.build_round(loaded, source_id, first + index, index)
-            except Exception as exc:
-                findings.append({
-                    "code": getattr(exc, "code", "CATALOG_FIELD_INVALID"),
-                    "source": source_id,
-                    "detail": str(exc),
-                })
-                continue
-            if "Novel coverage:" not in notes:
-                findings.append({
-                    "code": "CATALOG_FIELD_INVALID",
-                    "source": source_id,
-                    "detail": f"{source_id} pair {index} notes omit Novel coverage",
-                })
-            for record in records:
-                if not str(record["id"]).startswith("ffd-r"):
-                    findings.append({
-                        "code": "CATALOG_FIELD_INVALID",
-                        "source": source_id,
-                        "detail": f"id {record['id']!r} is not an ffd mill id",
-                    })
-    status = "findings" if findings else "ok"
-    counts = {source_id: len(loaded.pairs_of(source_id)) for source_id in SOURCES}
+            findings.extend(_pair_build_findings(loaded, source_id, first + index, index))
+    return findings
+
+
+def _check_text(findings: list[dict[str, str]], counts: dict[str, int]) -> str:
     text = "\n".join(f"{item['code']} {item.get('source', '')}: {item['detail']}" for item in findings)
     if not text:
         text = f"catalog-check ok: leftover3={counts['leftover3']} lll={counts['lll']} hop={counts['hop']}"
+    return text
+
+
+def _catalog_check(args: argparse.Namespace) -> int:
+    loaded = cat.load_catalog(_catalog_dir(args))
+    findings = list(cat.catalog_check(loaded))
+    findings.extend(_build_findings(loaded))
+    status = "findings" if findings else "ok"
+    counts = {source_id: len(loaded.pairs_of(source_id)) for source_id in SOURCES}
+    text = _check_text(findings, counts)
     payload = {
         "command": "catalog-check",
         "status": status,

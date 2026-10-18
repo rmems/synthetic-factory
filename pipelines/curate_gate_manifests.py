@@ -58,6 +58,13 @@ _normalized_sha256 = _digest._normalized_sha256
 _read_regular_file_snapshot = _digest._read_regular_file_snapshot
 
 
+def _is_jsonl_manifest(path: Path, format_hint: str | None) -> bool:
+    """An explicit format hint wins; otherwise the file suffix decides."""
+    if format_hint is None:
+        return path.suffix == ".jsonl"
+    return format_hint == "jsonl"
+
+
 def _manifest_entries(
     path: Path,
     format_hint: str | None = None,
@@ -72,7 +79,7 @@ def _manifest_entries(
         text = payload.decode("utf-8")
     except UnicodeError as exc:
         raise GateError(f"cannot decode lane manifest {path}: {exc}") from exc
-    if format_hint == "jsonl" or (format_hint is None and path.suffix == ".jsonl"):
+    if _is_jsonl_manifest(path, format_hint):
         return _jsonl_manifest_entries(path, text)
     return _json_manifest_entries(path, text)
 
@@ -97,6 +104,29 @@ def _jsonl_manifest_entries(path: Path, text: str) -> list[dict[str, Any]]:
     return entries
 
 
+def _first_manifest_list(document: dict[str, Any]) -> list[Any] | None:
+    """The first ``MANIFEST_LIST_KEYS`` member that holds a list."""
+    for key in MANIFEST_LIST_KEYS:
+        value = document.get(key)
+        if isinstance(value, list):
+            return value
+    return None
+
+
+def _manifest_candidates(path: Path, document: Any) -> list[Any]:
+    """A top-level list, or the entry list an object manifest declares."""
+    if isinstance(document, list):
+        return document
+    if not isinstance(document, dict):
+        raise GateError(f"{path}: manifest must be a list or an object")
+    candidates = _first_manifest_list(document)
+    if candidates is None:
+        raise GateError(
+            f"{path}: manifest object needs one of {', '.join(MANIFEST_LIST_KEYS)} as a list"
+        )
+    return candidates
+
+
 def _json_manifest_entries(path: Path, text: str) -> list[dict[str, Any]]:
     """A top-level list, or the first ``MANIFEST_LIST_KEYS`` list in an object."""
     try:
@@ -107,21 +137,7 @@ def _json_manifest_entries(path: Path, text: str) -> list[dict[str, Any]]:
         )
     except ValueError as exc:
         raise GateError(f"{path}: invalid JSON: {exc}") from exc
-    if isinstance(document, list):
-        candidates = document
-    elif isinstance(document, dict):
-        candidates = None
-        for key in MANIFEST_LIST_KEYS:
-            value = document.get(key)
-            if isinstance(value, list):
-                candidates = value
-                break
-        if candidates is None:
-            raise GateError(
-                f"{path}: manifest object needs one of {', '.join(MANIFEST_LIST_KEYS)} as a list"
-            )
-    else:
-        raise GateError(f"{path}: manifest must be a list or an object")
+    candidates = _manifest_candidates(path, document)
     for entry in candidates:
         if not isinstance(entry, dict):
             raise GateError(f"{path}: every manifest entry must be an object")
@@ -246,27 +262,56 @@ class _NormalizedEntry(NamedTuple):
     source_key: Any
 
 
+def _retained_by(retained_source_keys: set[tuple[str, int]] | None, source_key: Any) -> bool:
+    """No retention filter, or the source survives it."""
+    return retained_source_keys is None or source_key in retained_source_keys
+
+
+def _replayable_source_digests(
+    normalized: dict[str, Any], source_key: Any, view: RetentionView
+) -> dict[tuple[str, int], str] | None:
+    """The source-digest map when this retained output can replay ``content_changed``."""
+    source_record_sha256_by_key = view.source_record_sha256_by_key
+    if source_record_sha256_by_key is None or source_key not in source_record_sha256_by_key:
+        return None
+    if normalized.get("output_hash") is None:
+        return None
+    if not _retained_by(view.retained_source_keys, source_key):
+        return None
+    return source_record_sha256_by_key
+
+
 def _entry_view(entry: dict[str, Any], source_key: Any, view: RetentionView) -> dict[str, Any]:
     """The public entry with ``content_changed`` resolved against retention."""
     retained_source_keys = view.retained_source_keys
-    source_record_sha256_by_key = view.source_record_sha256_by_key
     normalized = _public_manifest_entry(entry)
-    if retained_source_keys is not None and source_key not in retained_source_keys:
+    if not _retained_by(retained_source_keys, source_key):
         # ``content_changed`` is derived from a source record that is
         # intentionally absent after a later terminal disposition.
         # Keep the repair action/reasons, but omit this non-replayable
         # convenience field in both integration and promotion views.
         normalized.pop("content_changed", None)
-    if (
-        source_record_sha256_by_key is not None
-        and source_key in source_record_sha256_by_key
-        and normalized.get("output_hash") is not None
-        and (retained_source_keys is None or source_key in retained_source_keys)
-    ):
-        normalized["content_changed"] = (
-            normalized["output_hash"] != source_record_sha256_by_key[source_key]
-        )
+    source_digests = _replayable_source_digests(normalized, source_key, view)
+    if source_digests is not None:
+        normalized["content_changed"] = normalized["output_hash"] != source_digests[source_key]
     return normalized
+
+
+def _fold_refusal(
+    fold: _LaneManifestFold, bucket: list[dict[str, Any]], normalized: dict[str, Any]
+) -> None:
+    """An exclusion or quarantine is bucketed, reviewed, and counted by reason."""
+    bucket.append(normalized)
+    fold.review_candidates.append(normalized)
+    fold.reason_counts.update(normalized["reason_codes"] or ["UNSPECIFIED"])
+
+
+def _is_retained_change(row: _NormalizedEntry, view: RetentionView) -> bool:
+    """A retained entry whose content changed and whose source stays retained."""
+    normalized, lowered, source_key = row
+    if lowered not in RETAIN_ACTIONS or not normalized.get("content_changed"):
+        return False
+    return bool(view.retains(source_key))
 
 
 def _classify_entry(
@@ -275,25 +320,28 @@ def _classify_entry(
     view: RetentionView,
 ) -> None:
     """Route one normalized entry into the disposition and review buckets."""
-    normalized, lowered, source_key = row
+    normalized, lowered = row.normalized, row.lowered
     if lowered in EXCLUSION_ACTIONS:
-        fold.exclusions.append(normalized)
-        fold.review_candidates.append(normalized)
-        fold.reason_counts.update(normalized["reason_codes"] or ["UNSPECIFIED"])
+        _fold_refusal(fold, fold.exclusions, normalized)
     elif lowered in QUARANTINE_ACTIONS:
-        fold.quarantines.append(normalized)
-        fold.review_candidates.append(normalized)
-        fold.reason_counts.update(normalized["reason_codes"] or ["UNSPECIFIED"])
+        _fold_refusal(fold, fold.quarantines, normalized)
     elif lowered in REPAIR_ACTIONS:
         fold.repairs.append(normalized)
         fold.review_candidates.append(normalized)
-    elif lowered in RETAIN_ACTIONS and normalized.get("content_changed") and view.retains(
-        source_key
-    ):
+    elif _is_retained_change(row, view):
         derived = copy.deepcopy(normalized)
         derived["review_action"] = "changed"
         derived["review_reason_codes"] = [DERIVED_CHANGE_REASON]
         fold.review_candidates.append(derived)
+
+
+def _retains_identity_mapping(
+    lane: dict[str, Any], lowered: str, source_key: Any, view: RetentionView
+) -> bool:
+    """A retained identity-lane entry whose source survives retention carries a mapping."""
+    if lane["transform"] != "curate_identity" or lowered != "retained":
+        return False
+    return bool(view.retains(source_key))
 
 
 def _fold_lane(fold: _LaneManifestFold, lane: dict[str, Any], view: RetentionView) -> None:
@@ -306,11 +354,7 @@ def _fold_lane(fold: _LaneManifestFold, lane: dict[str, Any], view: RetentionVie
         counts[key] += 1
         lowered = key.strip().lower()
         _classify_entry(fold, _NormalizedEntry(normalized, lowered, source_key), view)
-        if (
-            lane["transform"] == "curate_identity"
-            and lowered == "retained"
-            and view.retains(source_key)
-        ):
+        if _retains_identity_mapping(lane, lowered, source_key, view):
             normalized["source_originals_sha256"] = _normalized_sha256(
                 entry.get("_source_originals_sha256"),
                 "retained identity source originals",

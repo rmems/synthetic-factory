@@ -10,11 +10,13 @@ from itertools import product
 from pathlib import Path
 from unittest.mock import patch
 
-from tests.code_repair_admission_test_support import build_generated_admission_evidence, restamp
+from tests.code_repair_admission_test_support import (
+    REAL_CATALOG, build_generated_admission_evidence, restamp,
+)
 from tests.training_audit_test_helpers import thalamic
 from tests.test_curate_identity import identity as ci
 from tests.code_repair_test_support import (
-    PINNED_AT, REPO, SEED, envelope, generate, oc, records, verify, vocabulary,
+    PINNED_AT, SEED, envelope, generate, oc, records, verify, vocabulary,
 )
 from code_repair import admission, catalog, source_policy, validation
 from check_records import check_record
@@ -27,7 +29,9 @@ from tests.code_repair_test_support import required_item
 class ProceduralIntegrationTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.root, cls.run_dir, cls.records, cls.row = build_generated_admission_evidence(cls)
+        cls.root, cls.run_dir, cls.records, cls.row = build_generated_admission_evidence()
+        # The Catalog is frozen and validation only reads it: parse the real one once.
+        cls.real_catalog = catalog.load_catalog(REAL_CATALOG)
 
     def test_shared_checks_refuse_restamped_upstream_substitutions(self):
         changes = (("repository", "unreviewed/project"), ("commit", "0" * 40),
@@ -84,7 +88,7 @@ class ProceduralIntegrationTests(unittest.TestCase):
         digest = hashlib.sha256("".join(oc.canonical_json(r) + "\n" for r in candidates).encode()).hexdigest()
         run["candidates_sha256"] = digest
         self.assertTrue(validation.validate_run(run, candidates,
-            catalog=catalog.load_catalog(REPO / "catalogs/python-repair-v1"), candidates_sha256=digest))
+            catalog=self.real_catalog, candidates_sha256=digest))
 
     def test_nested_real_claims_refuse_all_shared_boundaries(self):
         for outcome in ("accepted", "rejected"):
@@ -153,7 +157,7 @@ class ProceduralIntegrationTests(unittest.TestCase):
     def test_real_abstention_remains_valid_evidence_only_at_admission(self):
         with tempfile.TemporaryDirectory() as scratch:
             output = Path(scratch) / "run"
-            generate.run(generate.RunRequest(REPO / "catalogs/python-repair-v1", output,
+            generate.run(generate.RunRequest(REAL_CATALOG, output,
                 SEED, 1, PINNED_AT, timeout_s=0.001))
             record = oc.read_jsonl(output / "candidates.jsonl")[0][1]
             self.assertEqual(record["result"]["status"], "abstained")
@@ -189,9 +193,7 @@ class ProceduralIntegrationTests(unittest.TestCase):
                 restamp(record)
                 self.assertEqual(oc.check_digest(record, "restamped"), [])
                 self.assertEqual(
-                    validation.validate_record(record, catalog=catalog.load_catalog(
-                        REPO / "catalogs/python-repair-v1"
-                    )),
+                    validation.validate_record(record, catalog=self.real_catalog),
                     [vocabulary.EXPORT_EVIDENCE_VERDICT_MISMATCH],
                 )
 

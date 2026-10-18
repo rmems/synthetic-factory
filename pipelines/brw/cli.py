@@ -102,63 +102,70 @@ def _emit(record: dict) -> None:
     print(dumps_exact_json(record))
 
 
+def _print_catalog(args: argparse.Namespace) -> int:
+    if args.json:
+        print(dumps_exact_json(_catalog_payload(), indent=2))
+    else:
+        print(f"{SOURCE_MILL_ID} {FACTORY} {len(catalog.PAIRS)} pairs")
+        for index, pair in enumerate(catalog.PAIRS):
+            print(f"{index:2d} r{SOURCE_ROUND + index} {pair['ok_slug']} {pair['css_short']}")
+    return 0
+
+
+def _emit_sides(args: argparse.Namespace, ok: dict, bad: dict) -> None:
+    if args.fail:
+        _emit(bad)
+    elif args.success:
+        _emit(ok)
+    else:
+        _emit(ok)
+        _emit(bad)
+
+
+def _single_pair(args: argparse.Namespace) -> tuple[dict, dict]:
+    if all(value is None for value in (args.round, args.slug, args.index)):
+        raise BrwError("missing_round: pass --round, --slug/--index, or --window")
+    if args.count is not None:
+        raise BrwError("count_requires_window")
+    rnd = SOURCE_ROUND if args.round is None else args.round
+    if args.slug is None and args.index is None:
+        return generate.pair_records(rnd)
+    pair = _pair(args.slug, args.index, None)
+    ok = generate.build_success(rnd, pair)
+    bad = generate.build_fail(rnd, pair)
+    generate.validate_pair(rnd, ok, bad, pair)
+    return ok, bad
+
+
+def _window_pairs(args: argparse.Namespace) -> list[tuple[dict, dict]]:
+    start = SOURCE_ROUND if args.round is None else args.round
+    if args.slug is not None or args.index is not None:
+        raise BrwError("window_rejects_slug_index")
+    return generate.generate_window(start, args.count)
+
+
+def _generate(args: argparse.Namespace) -> int:
+    for ok, bad in _window_pairs(args) if args.window else (_single_pair(args),):
+        _emit_sides(args, ok, bad)
+    return 0
+
+
+def _notes(args: argparse.Namespace) -> int:
+    pair = _pair(args.slug, args.index, args.round)
+    print(generate.notes_for(args.round, pair), end="")
+    return 0
+
+
+_COMMANDS = {"catalog": _print_catalog, "generate": _generate, "notes": _notes}
+
+
 def run(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
-        if args.command == "catalog":
-            payload = _catalog_payload()
-            if args.json:
-                print(dumps_exact_json(payload, indent=2))
-            else:
-                print(f"{SOURCE_MILL_ID} {FACTORY} {len(catalog.PAIRS)} pairs")
-                for index, pair in enumerate(catalog.PAIRS):
-                    print(
-                        f"{index:2d} r{SOURCE_ROUND + index} "
-                        f"{pair['ok_slug']} {pair['css_short']}"
-                    )
-            return 0
-        if args.command == "generate":
-            if args.window:
-                start = SOURCE_ROUND if args.round is None else args.round
-                if args.slug is not None or args.index is not None:
-                    raise BrwError("window_rejects_slug_index")
-                for ok, bad in generate.generate_window(start, args.count):
-                    if args.fail:
-                        _emit(bad)
-                    elif args.success:
-                        _emit(ok)
-                    else:
-                        _emit(ok)
-                        _emit(bad)
-                return 0
-            if args.round is None and args.slug is None and args.index is None:
-                raise BrwError("missing_round: pass --round, --slug/--index, or --window")
-            if args.count is not None:
-                raise BrwError("count_requires_window")
-            rnd = SOURCE_ROUND if args.round is None else args.round
-            if args.slug is not None or args.index is not None:
-                pair = _pair(args.slug, args.index, None)
-                ok = generate.build_success(rnd, pair)
-                bad = generate.build_fail(rnd, pair)
-                generate.validate_pair(rnd, ok, bad, pair)
-            else:
-                ok, bad = generate.pair_records(rnd)
-            if args.fail:
-                _emit(bad)
-            elif args.success:
-                _emit(ok)
-            else:
-                _emit(ok)
-                _emit(bad)
-            return 0
-        if args.command == "notes":
-            pair = _pair(args.slug, args.index, args.round)
-            print(generate.notes_for(args.round, pair), end="")
-            return 0
+        return _COMMANDS.get(args.command, lambda _args: 2)(args)
     except BrwError as exc:
         print(str(exc), file=sys.stderr)
         return 2
-    return 2
 
 
 def main() -> None:

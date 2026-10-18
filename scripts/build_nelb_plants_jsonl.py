@@ -5,12 +5,15 @@ from __future__ import annotations
 
 import hashlib
 import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "pipelines"))
+sys.path.insert(0, str(REPO / "scripts"))
 
 from nelb import catalog as cat  # noqa: E402
 from nelb._contract import (  # noqa: E402
@@ -29,6 +32,7 @@ from nelb._contract import (  # noqa: E402
     dumps_exact_json,
     load_strict_json,
 )
+from nelb_committed_plants import read_committed_plants, round_from_record_id  # noqa: E402
 
 RECOVER = SOURCE_COMMIT
 NELB_DIR = REPO / "pipelines" / "nelb"
@@ -45,12 +49,27 @@ def _version(path: str) -> int:
     return int(match.group(2)) if match else 0
 
 
-def _paths_by_round() -> dict[int, list[str]]:
-    listing = subprocess.check_output(
-        ["git", "ls-tree", "-r", "--name-only", RECOVER],
+def _git_executable() -> str:
+    """Absolute ``git`` on PATH. A bare name is a partial-path launch."""
+
+    found = shutil.which("git")
+    if found is None:
+        raise FileNotFoundError("git")
+    return found
+
+
+def _git_text(args: list[str]) -> str:
+    git = _git_executable()
+    # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit.dangerous-subprocess-use-audit
+    return subprocess.check_output(  # nosec B603 -- absolute git from PATH, no shell
+        [git, *args],
         cwd=REPO,
         text=True,
     )
+
+
+def _paths_by_round() -> dict[int, list[str]]:
+    listing = _git_text(["ls-tree", "-r", "--name-only", RECOVER])
     paths = [
         line
         for line in listing.splitlines()
@@ -79,7 +98,7 @@ def _pick_source(want_round: int, by_round: dict[int, list[str]]) -> str | None:
         ),
     )
     for path in candidates:
-        text = subprocess.check_output(["git", "show", f"{RECOVER}:{path}"], cwd=REPO, text=True)
+        text = _git_text(["show", f"{RECOVER}:{path}"])
         try:
             _extract(text, path, want_round)
         except NelbRefusal:
@@ -92,7 +111,7 @@ def _extract(text: str, path: str, want_round: int) -> tuple[cat.Plant, ...]:
     plants = cat.plants_from_source(text, Path(path).name)
     fixed: list[cat.Plant] = []
     for plant in plants:
-        rid_round = cat._round_from_id(plant.record_id)
+        rid_round = round_from_record_id(plant.record_id)
         if rid_round != want_round:
             raise NelbRefusal(
                 cat.FINDING_FIELD_INVALID,
@@ -108,7 +127,7 @@ def _extract(text: str, path: str, want_round: int) -> tuple[cat.Plant, ...]:
 
 
 def _extract_path(path: str, want_round: int) -> tuple[cat.Plant, ...]:
-    text = subprocess.check_output(["git", "show", f"{RECOVER}:{path}"], cwd=REPO, text=True)
+    text = _git_text(["show", f"{RECOVER}:{path}"])
     return _extract(text, path, want_round)
 
 
@@ -126,7 +145,7 @@ def _load_existing() -> tuple[tuple[cat.Plant, ...], list[int]] | None:
     deferred = extract.get("deferred_rounds")
     if not isinstance(deferred, list):
         raise SystemExit(f"{CATALOG_FILENAME} missing extract.deferred_rounds")
-    plants = cat._read_plants_jsonl(plants_path)
+    plants = read_committed_plants(plants_path)
     return plants, [int(item) for item in deferred]
 
 
@@ -135,52 +154,63 @@ def _wave_deferred(rounds: list[int]) -> list[int]:
     return [number for number in range(1, WAVE_MAX + 1) if number not in present]
 
 
-def main() -> int:
-    by_round = _paths_by_round()
-    existing = _load_existing()
+def _round_plants(want: int, by_round: dict[int, list[str]]) -> tuple[cat.Plant, ...] | None:
+    """The plants of round ``want`` from its best source, or ``None`` when none extracts."""
+    path = _pick_source(want, by_round)
+    if path is None:
+        return None
+    try:
+        return _extract_path(path, want)
+    except NelbRefusal:
+        return None
+
+
+def _merge_deferred(
+    existing: tuple[tuple[cat.Plant, ...], list[int]],
+    by_round: dict[int, list[str]],
+) -> tuple[dict[str, cat.Plant], list[int]]:
+    """Committed plants plus every deferred round that now extracts; the rest stay deferred."""
     by_id: dict[str, cat.Plant] = {}
     still_deferred: list[int] = []
-    if existing is not None:
-        committed, deferred = existing
-        for plant in committed:
+    committed, deferred = existing
+    for plant in committed:
+        by_id[plant.record_id] = plant
+    for want in sorted(deferred):
+        triple = _round_plants(want, by_round)
+        if triple is None:
+            still_deferred.append(want)
+            continue
+        for plant in triple:
             by_id[plant.record_id] = plant
-        for want in sorted(deferred):
-            path = _pick_source(want, by_round)
-            if path is None:
-                still_deferred.append(want)
-                continue
-            try:
-                triple = _extract_path(path, want)
-            except NelbRefusal:
-                still_deferred.append(want)
-                continue
-            for plant in triple:
-                by_id[plant.record_id] = plant
-        if len(by_id) == len(committed):
-            raise SystemExit("no new plants extracted")
-    else:
-        for want in sorted(by_round):
-            path = _pick_source(want, by_round)
-            if path is None:
-                continue
-            try:
-                triple = _extract_path(path, want)
-            except NelbRefusal:
-                continue
-            for plant in triple:
-                by_id.setdefault(plant.record_id, plant)
-        still_deferred = _wave_deferred(sorted({plant.source_round for plant in by_id.values()}))
-    plants = sorted(by_id.values(), key=lambda item: (item.source_round, item.index))
-    if not plants:
-        raise SystemExit("no plants extracted")
+    if len(by_id) == len(committed):
+        raise SystemExit("no new plants extracted")
+    return by_id, still_deferred
+
+
+def _first_extract(by_round: dict[int, list[str]]) -> dict[str, cat.Plant]:
+    """Plants of every round with a source that extracts; the first id seen wins."""
+    by_id: dict[str, cat.Plant] = {}
+    for want in sorted(by_round):
+        triple = _round_plants(want, by_round)
+        if triple is None:
+            continue
+        for plant in triple:
+            by_id.setdefault(plant.record_id, plant)
+    return by_id
+
+
+def _plants_payload(plants: list[cat.Plant]) -> str:
     lines = [
         dumps_exact_json(plant.as_mapping(), ensure_ascii=False, sort_keys=True)
         for plant in plants
     ]
-    payload = "\n".join(lines) + "\n"
-    digest = hashlib.sha256(payload.encode()).hexdigest()
-    rounds = sorted({plant.source_round for plant in plants})
-    header = {
+    return "\n".join(lines) + "\n"
+
+
+def _catalog_header(
+    plants: list[cat.Plant], digest: str, rounds: list[int], deferred_rounds: list[int]
+) -> dict[str, Any]:
+    return {
         "catalog_id": CATALOG_ID,
         "factory": FACTORY,
         "format": CATALOG_FORMAT,
@@ -204,9 +234,12 @@ def main() -> int:
             ),
             "n_rounds_committed": len(rounds),
             "n_plants_committed": len(plants),
-            "deferred_rounds": still_deferred if existing else _wave_deferred(rounds),
+            "deferred_rounds": deferred_rounds,
         },
     }
+
+
+def _write_catalog(payload: str, header: dict[str, Any]) -> None:
     NELB_DIR.mkdir(parents=True, exist_ok=True)
     (NELB_DIR / PLANTS_FILENAME).write_text(payload, encoding="utf-8", newline="\n")
     (NELB_DIR / CATALOG_FILENAME).write_text(
@@ -214,6 +247,24 @@ def main() -> int:
         encoding="utf-8",
         newline="\n",
     )
+
+
+def main() -> int:
+    by_round = _paths_by_round()
+    existing = _load_existing()
+    if existing is not None:
+        by_id, still_deferred = _merge_deferred(existing, by_round)
+    else:
+        by_id = _first_extract(by_round)
+        still_deferred = _wave_deferred(sorted({plant.source_round for plant in by_id.values()}))
+    plants = sorted(by_id.values(), key=lambda item: (item.source_round, item.index))
+    if not plants:
+        raise SystemExit("no plants extracted")
+    payload = _plants_payload(plants)
+    digest = hashlib.sha256(payload.encode()).hexdigest()
+    rounds = sorted({plant.source_round for plant in plants})
+    deferred_rounds = still_deferred if existing else _wave_deferred(rounds)
+    _write_catalog(payload, _catalog_header(plants, digest, rounds, deferred_rounds))
     print(
         f"plants={len(plants)} rounds={len(rounds)} "
         f"landed_slice={len(rounds) - (len(existing[0]) // QUOTA_PER_ROUND if existing else 0)} "
