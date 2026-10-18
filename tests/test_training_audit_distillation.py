@@ -29,16 +29,8 @@ class DistillationRasterAudit(unittest.TestCase):
         write(root / factory / batch, records)
         return temporary, training_audit.audit_run(root)
 
-    def _assert_mutation_blocks(
-        self,
-        *,
-        record_id,
-        mutate,
-        metric_expectation,
-        blocker_text,
-    ):
-        record = gate_snn_bridge(record_id)
-        mutate(record)
+    def _assert_record_blocks(self, record, metric_expectation, blocker_text):
+        """Auditing the one mutated Bridge ``record`` blocks training as expected."""
         temporary, report = self._audit(BRIDGE_FACTORY, [record])
         temporary.cleanup()
         self.assertFalse(report["training_ready"])
@@ -112,17 +104,19 @@ class DistillationRasterAudit(unittest.TestCase):
         )
 
     def test_raster_without_routing_table_blocks_training(self):
-        self._assert_mutation_blocks(
-            record_id="no-table-1",
-            mutate=lambda record: record["raster"]["routing"].pop("table"),
+        record = gate_snn_bridge("no-table-1")
+        record["raster"]["routing"].pop("table")
+        self._assert_record_blocks(
+            record,
             metric_expectation=("raster_routing_table_missing_pairs", 1),
             blocker_text="lack a routing table",
         )
 
     def test_window_needs_a_spike_implemented_gate(self):
-        self._assert_mutation_blocks(
-            record_id="no-gate-1",
-            mutate=lambda record: record.pop("gate_snn"),
+        record = gate_snn_bridge("no-gate-1")
+        record.pop("gate_snn")
+        self._assert_record_blocks(
+            record,
             metric_expectation=("gate_snn_records", 0),
             blocker_text="carry a spike-implemented gate",
         )

@@ -191,7 +191,10 @@ class CommittedCatalog(unittest.TestCase):
         self.assertEqual(report["catalog_files"], 31)
         self.assertFalse(report["exec"])
         self.assertEqual(loaded.plants[0].slug, "wetphos-gypsum-vs-p2o5")
-        maleic = next(plant for plant in loaded.plants if plant.slug == "maleic-butane-vs-conv")
+        maleic = next(
+            (plant for plant in loaded.plants if plant.slug == "maleic-butane-vs-conv"), None
+        )
+        self.assertIsNotNone(maleic)
         self.assertEqual(maleic.process, "maleic anhydride")
         self.assertEqual(maleic.metric, "conv")
         self.assertEqual(maleic.spike, "14 K")
@@ -242,11 +245,10 @@ class Cli(unittest.TestCase):
         self.assertEqual(payload["full_row_count"], 1401)
 
     def test_extract_json_from_a_p_snippet(self):
-        handle = tempfile.NamedTemporaryFile(
+        with tempfile.NamedTemporaryFile(
             "w", encoding="utf-8", suffix="-mac-snippet.py", delete=False
-        )
-        handle.write(P_SNIPPET)
-        handle.close()
+        ) as handle:
+            handle.write(P_SNIPPET)
         snippet = Path(handle.name)
         self.addCleanup(snippet.unlink)
         code, out, err = invoke(["extract", "--source", str(snippet), "--json"])

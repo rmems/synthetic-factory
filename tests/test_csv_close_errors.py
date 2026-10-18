@@ -42,11 +42,14 @@ class PublicationCloseErrors(unittest.TestCase):
                 close(descriptor)
                 raise OSError(errno.EIO, "delayed close error")
 
-            with patch.object(os, "close", delayed_error), patch.object(
-                os, "write", side_effect=OSError(errno.ENOSPC, "no room for output")
+            with (
+                patch.object(os, "close", delayed_error),
+                patch.object(
+                    os, "write", side_effect=OSError(errno.ENOSPC, "no room for output")
+                ),
+                self.assertRaises(generate_io.CsvRefusal) as caught,
             ):
-                with self.assertRaises(generate_io.CsvRefusal) as caught:
-                    generate_io.write_run_files(destination, {"records.jsonl": "{}\n"})
+                generate_io.write_run_files(destination, {"records.jsonl": "{}\n"})
             self.assertIn("no room for output", str(caught.exception))
             self.assertFalse(destination.exists())
             self.assertEqual(list(Path(root).iterdir()), [])

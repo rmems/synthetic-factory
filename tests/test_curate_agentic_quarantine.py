@@ -108,11 +108,15 @@ class ForeignMillQuarantine(unittest.TestCase):
     def test_quarantine_decision_names_the_home_mill(self):
         run = curate_mill_run(list(STAMPEDE_CONTROLS) + [DEST_STAMPED_MILL])
         decision = next(
-            item
-            for item in run["decisions"]
-            if item["source_path"].startswith("cache-stampede-factory")
-            and item["action"] == ACTION_EXCLUDED
+            (
+                item
+                for item in run["decisions"]
+                if item["source_path"].startswith("cache-stampede-factory")
+                and item["action"] == ACTION_EXCLUDED
+            ),
+            None,
         )
+        self.assertIsNotNone(decision)
         self.assertIn(REASON_FOREIGN_MILL_ID_PREFIX, decision["reason_codes"])
         # Dest-stamped: the payload-factory axis stays silent, so a factory-mix
         # check on its own would have let this through.

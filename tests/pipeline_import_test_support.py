@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import sys
+from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 from types import ModuleType
-from typing import Iterator
 
 
 REPO = Path(__file__).resolve().parents[1]

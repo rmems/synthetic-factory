@@ -91,7 +91,7 @@ class FlakyTestQuarantineDeclarationTests(DeclarationTestCase):
         rows = card_schema.field_notes(self.declaration["features"])
         optional = [path for path, is_optional, _note in rows if is_optional]
         self.assertEqual(optional, ["steps[].reflection"])
-        self.assertIn("6586 of 38604 steps", dict((p, n) for p, _o, n in rows)[
+        self.assertIn("6586 of 38604 steps", {p: n for p, _o, n in rows}[
             "steps[].reflection"
         ])
 
@@ -125,7 +125,8 @@ class FlakyTestQuarantineDeclarationTests(DeclarationTestCase):
     def test_disclosures_keep_ownership_and_separate_the_advertised_mechanic(self):
         summaries = [d["summary"] for d in self.declaration["disclosures"]]
         joined = " ".join(summaries)
-        sir = next(d for d in self.declaration["disclosures"] if d["ids"])
+        sir = next((d for d in self.declaration["disclosures"] if d["ids"]), None)
+        self.assertIsNotNone(sir)
         self.assertEqual(list(sir["ids"]), list(self.SIR_IDS))
         self.assertEqual(sir["issues"], [64])
         # The 14 belong to neither frozen census, so #64 must own them.

@@ -67,4 +67,5 @@ def _cli(args, cwd=None):
         cwd=str(cwd or REPO),
         capture_output=True,
         text=True,
+        check=False,
     )

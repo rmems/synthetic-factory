@@ -139,10 +139,11 @@ class ModelChannelPolicyTests(unittest.TestCase):
     def test_channels_are_not_conflated_across_same_vendor(self):
         registry = identity.load_registry()
         glimmer = registry.by_path_id["muse-glimmer-30b-local-factory"]
-        spark = [
-            row for row in registry.by_path_id.values()
-            if row.generator == "muse-spark-1.2"
-        ][0]
+        spark = next(
+            (row for row in registry.by_path_id.values() if row.generator == "muse-spark-1.2"),
+            None,
+        )
+        self.assertIsNotNone(spark)
         self.assertEqual((glimmer.provider, glimmer.channel), ("meta", "local_vllm"))
         self.assertEqual((spark.provider, spark.channel), ("meta", "api"))
         self.assertNotEqual(glimmer.rights_profile_id, spark.rights_profile_id)
@@ -290,11 +291,13 @@ class ModelChannelGenerateTests(unittest.TestCase):
         self.assertTrue(generate._contains_self_certify(dirty))
 
         content = json.dumps(episode_payload(training_ready=True))
-        with _Server(content, "NVIDIA-Nemotron-3-Nano-4B-BF16") as server:
-            with self.assertRaisesRegex(generate.GenerateError, "self-certify"):
-                generate.generate_candidate(
-                    NANO, TASK, endpoint=server.endpoint, generated_at="2026-09-15T05:30:00Z"
-                )
+        with (
+            _Server(content, "NVIDIA-Nemotron-3-Nano-4B-BF16") as server,
+            self.assertRaisesRegex(generate.GenerateError, "self-certify"),
+        ):
+            generate.generate_candidate(
+                NANO, TASK, endpoint=server.endpoint, generated_at="2026-09-15T05:30:00Z"
+            )
 
     def test_local_vllm_candidate_preserves_runtime_provenance(self):
         content = json.dumps(episode_payload())
@@ -323,15 +326,17 @@ class ModelChannelGenerateTests(unittest.TestCase):
 
     def test_openrouter_refuses_fallback_and_records_distillable_evidence(self):
         content = json.dumps(episode_payload())
-        with _Server(content, "microsoft/phi-4:free") as server:
-            with self.assertRaisesRegex(openrouter.OpenRouterError, "fallback"):
-                generate.generate_candidate(
-                    PHI,
-                    TASK,
-                    endpoint=server.endpoint,
-                    openrouter_snapshot=SNAPSHOT,
-                    generated_at="2026-09-15T05:30:00Z",
-                )
+        with (
+            _Server(content, "microsoft/phi-4:free") as server,
+            self.assertRaisesRegex(openrouter.OpenRouterError, "fallback"),
+        ):
+            generate.generate_candidate(
+                PHI,
+                TASK,
+                endpoint=server.endpoint,
+                openrouter_snapshot=SNAPSHOT,
+                generated_at="2026-09-15T05:30:00Z",
+            )
         with _Server(content, "microsoft/phi-4") as server:
             record = generate.generate_candidate(
                 PHI,
