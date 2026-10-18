@@ -33,16 +33,25 @@ def _call_side(node: ast.AST) -> tuple[str, dict[str, Any]] | None:
         return None
     if node.args:
         return None
+    payload = _literal_keywords(node.keywords)
+    if payload is None:
+        return None
+    payload["success"] = name == OK_SIDE
+    return name, payload
+
+
+def _literal_keywords(keywords: list[ast.keyword]) -> dict[str, Any] | None:
+    """``key=literal`` keywords as a dict; ``None`` on ``**`` or a non-literal value."""
+
     payload: dict[str, Any] = {}
-    for keyword in node.keywords:
+    for keyword in keywords:
         if keyword.arg is None:
             return None
         value = literal_value(keyword.value)
         if value is UNSET:
             return None
         payload[keyword.arg] = value
-    payload["success"] = name == OK_SIDE
-    return name, payload
+    return payload
 
 
 def extract_plant_pairs(
@@ -54,34 +63,57 @@ def extract_plant_pairs(
     """Return one record per ``PAIRS.append`` / ``MORE.append`` ok/bad tuple."""
 
     tree = ast.parse(source, filename=path)
+    where = f"{path} {append_list}.append"
     pairs: list[dict[str, Any]] = []
     for node in tree.body:
-        if not isinstance(node, ast.Expr):
-            continue
-        call = node.value
-        if not isinstance(call, ast.Call) or not isinstance(call.func, ast.Attribute):
-            continue
-        if call.func.attr != "append" or not isinstance(call.func.value, ast.Name):
-            continue
-        if call.func.value.id != append_list or len(call.args) != 1:
-            continue
-        tup = call.args[0]
-        if not isinstance(tup, ast.Tuple) or len(tup.elts) != 2:
-            raise ValueError(f"{path} {append_list}.append is not an (_ok, _bad) tuple")
-        ok_parsed = _call_side(tup.elts[0])
-        bad_parsed = _call_side(tup.elts[1])
-        if ok_parsed is None or bad_parsed is None:
-            raise ValueError(f"{path} {append_list}.append side is not _ok/_bad")
-        ok_name, ok = ok_parsed
-        bad_name, bad = bad_parsed
-        if ok_name != OK_SIDE or bad_name != BAD_SIDE:
-            raise ValueError(f"{path} {append_list}.append order must be _ok then _bad")
-        if "slug" not in ok or "slug" not in bad:
-            raise ValueError(f"{path} {append_list}.append missing slug")
-        pairs.append({"ok": ok, "bad": bad})
+        argument = _append_argument(node, append_list)
+        if argument is not None:
+            pairs.append(_plant_pair(argument, where))
     if not pairs:
         raise ValueError(f"{path} has no {append_list}.append plant pairs")
     return pairs
+
+
+def _append_argument(node: ast.stmt, append_list: str) -> ast.expr | None:
+    """The single argument of a top-level ``<append_list>.append(arg)`` statement."""
+
+    call = node.value if isinstance(node, ast.Expr) else None
+    if not isinstance(call, ast.Call) or len(call.args) != 1:
+        return None
+    if not _is_list_append(call.func, append_list):
+        return None
+    return call.args[0]
+
+
+def _is_list_append(func: ast.expr, append_list: str) -> bool:
+    """``func`` is the bound method ``<append_list>.append``."""
+
+    if not isinstance(func, ast.Attribute) or func.attr != "append":
+        return False
+    return isinstance(func.value, ast.Name) and func.value.id == append_list
+
+
+def _pair_sides(
+    tup: ast.expr, where: str
+) -> tuple[tuple[str, dict[str, Any]], tuple[str, dict[str, Any]]]:
+    if not isinstance(tup, ast.Tuple) or len(tup.elts) != 2:
+        raise ValueError(f"{where} is not an (_ok, _bad) tuple")
+    ok_parsed = _call_side(tup.elts[0])
+    bad_parsed = _call_side(tup.elts[1])
+    if ok_parsed is None or bad_parsed is None:
+        raise ValueError(f"{where} side is not _ok/_bad")
+    return ok_parsed, bad_parsed
+
+
+def _plant_pair(tup: ast.expr, where: str) -> dict[str, Any]:
+    """One ``{"ok": ..., "bad": ...}`` pair from an ``(_ok(...), _bad(...))`` tuple."""
+
+    (ok_name, ok), (bad_name, bad) = _pair_sides(tup, where)
+    if (ok_name, bad_name) != (OK_SIDE, BAD_SIDE):
+        raise ValueError(f"{where} order must be _ok then _bad")
+    if "slug" not in ok or "slug" not in bad:
+        raise ValueError(f"{where} missing slug")
+    return {"ok": ok, "bad": bad}
 
 
 def dumps_plants_jsonl(

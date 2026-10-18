@@ -25,7 +25,8 @@ OLLAMA_DIGEST = "sha256:4bc6e34d03fbad91da54a96ccf62d6fcba9d0efdf665219c2292cd1a
 
 
 class OllamaLaneTests(unittest.TestCase):
-    def _runtime(self):
+    @staticmethod
+    def _runtime():
         return {
             "runtime": "ollama",
             "ollama_version": "0.12.6",
@@ -33,7 +34,8 @@ class OllamaLaneTests(unittest.TestCase):
             "ollama_model_digest": OLLAMA_DIGEST,
         }
 
-    def _models(self, name=OLLAMA_TAG, digest=OLLAMA_DIGEST):
+    @staticmethod
+    def _models(name=OLLAMA_TAG, digest=OLLAMA_DIGEST):
         return [{"name": name, "model": name, "digest": digest}]
 
     def test_spec_pins_pull_serve_and_manifest_digest(self):

@@ -11,9 +11,19 @@ from __future__ import annotations
 
 import json
 import re
+import sys
 from typing import cast
 
-from card_schema_core import DEFAULT_CONFIG_NAME, _require
+if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("card_schema_yaml")
+    from .card_schema_core import DEFAULT_CONFIG_NAME, _require
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "card_schema_yaml"
+    )
+    from card_schema_core import DEFAULT_CONFIG_NAME, _require
 
 PLAIN_SCALAR_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_.-]*$")
 YAML_RESERVED = frozenset(
@@ -150,3 +160,7 @@ def metadata_yaml(declaration: dict) -> str:
             )
         )
     return "\n".join(lines) + "\n"
+
+
+if __package__:
+    _expose_package_sibling(__name__)

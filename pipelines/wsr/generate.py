@@ -34,6 +34,7 @@ from ._contract import (
     contains_hidden_reasoning_key,
     dumps_exact_json,
     is_under_raw,
+    refuse,
     refuse_when,
 )
 from . import catalog as cat
@@ -157,31 +158,161 @@ def _episode_id(round_n: int, slug: str) -> str:
     return f"{FAMILY_PREFIX}-r{round_n}-{slug}"
 
 
-def build_success(round_n: int, plant: Mapping[str, Any]) -> dict[str, Any]:
-    _goal_ok(plant["goal"])
-    src, test, cfg = _paths(plant)
-    eid = _episode_id(round_n, str(plant["slug"]))
+@dataclass(frozen=True)
+class _Trace:
+    """Paths, commands and failure output one leftover3 episode repeats across steps."""
+
+    plant: Mapping[str, Any]
+    src: str
+    test: str
+    listing: str
+    pytest_args: str
+    fail_obs: str
+    still_obs: str
+
+
+def _trace(plant: Mapping[str, Any], src: str, test: str, cfg: str) -> _Trace:
     listing = f"{src} {cfg}\n{test}"
     pytest_args = f"{test} -q --tb=short"
     fail_obs = f"{test}::{plant['test_fn']} FAILED\nE   {plant['fail_msg']}"
     still_obs = f"{test}::{plant['test_fn']} FAILED\nE   {plant['still_msg']}"
-    steps = [
+    return _Trace(plant, src, test, listing, pytest_args, fail_obs, still_obs)
+
+
+def _success_reward() -> dict[str, Any]:
+    return {
+        "success": True,
+        "tests_passed": 3,
+        "retries": 2,
+        "duration_min": 610,
+        "wasted_calls": 180,
+        "cost_steps": SUCCESS_STEPS,
+        "plan_changes": 1,
+    }
+
+
+def _handoff_reward() -> dict[str, Any]:
+    return {
+        "success": False,
+        "tests_passed": 2,
+        "retries": 2,
+        "duration_min": 640,
+        "wasted_calls": 210,
+        "cost_steps": HANDOFF_STEPS,
+        "plan_changes": 1,
+    }
+
+
+def _episode_meta(round_n: int, plant: Mapping[str, Any]) -> dict[str, Any]:
+    return {
+        "factory": FACTORY,
+        "round": round_n,
+        "generator": GENERATOR,
+        "kind": "episode",
+        "seed": plant["seed"],
+        "designed": True,
+        "domain": plant["domain"],
+        "stack": plant["stack"],
+    }
+
+
+def _check_episode(episode: dict[str, Any], eid: str, expected_steps: int) -> None:
+    _assert_clean(episode)
+    refuse_when(
+        contains_hidden_reasoning_key(episode),
+        FINDING_GENERATE_HIDDEN,
+        f"{eid} hidden reasoning",
+    )
+    refuse_when(
+        len(episode["steps"]) != expected_steps,
+        FINDING_GENERATE_SHAPE,
+        f"{eid} expected {expected_steps} steps",
+    )
+
+
+def _investigation_steps(trace: _Trace) -> list[dict[str, Any]]:
+    """Steps 1-5: list, reproduce, read the test, grep, read the source."""
+
+    plant, src, test = trace.plant, trace.src, trace.test
+    listing, pytest_args, fail_obs = trace.listing, trace.pytest_args, trace.fail_obs
+    return [
         _step(1, f"Plan: list src {plant['mod']} and tests before touching conversion or config.", _bash(f"ls -la src {plant['mod']} tests | head -40"), listing, f"Tree shows {src} plus tests. Run the named failing target next."),
         _step(2, f"Observation: listing named the test files. Run `{pytest_args}` to capture the failure.", _pytest(pytest_args), fail_obs, f"Failure is at {test}::{plant['test_fn']}. Read that test before a one-line fix."),
         _step(3, f"Observation: {test}::{plant['test_fn']} is red. Read {test} around the assertion.", _read(test), str(plant["test_body"]), "Test contract is visible. Search implementation symbols next."),
         _step(4, "Observation: test file imported the production helper. Grep those symbols.", _bash(f"rg -n '{plant['grep_pat']}' src {plant['mod']} tests"), str(plant["grep_hit"]), f"Grep hit {src}. Read it before editing the first match."),
         _step(5, f"Observation: grep listed {src}. Read it before any patch.", _read(src), str(plant["src_body"]), "First read done. Fetch vendor docs next; do not patch on a hunch yet."),
+    ]
+
+
+def _success_docs_steps(plant: Mapping[str, Any]) -> list[dict[str, Any]]:
+    """Steps 6-9: 502 then 429 on the two vendor documents, each recovered."""
+
+    return [
         _step(6, "Observation: local files are in. Need the changelog/registry before editing.", _fetch(str(plant["docs_url"])), f"GET {plant['docs_url']}\nHTTP/1.1 502 Bad Gateway\nBad Gateway.", "Call failed with upstream gateway failure. Recover with backoff."),
         _step(7, "Observation: the prior call returned an upstream gateway failure. Retry once with 2s backoff.", _fetch(str(plant["docs_url"])), f"retry after 2s backoff; local vendor fixture\nHTTP/1.1 200 OK\n{plant['docs_ok']}", "Degraded path used the local fixture. Continue with that content."),
         _step(8, "Observation: local files are in. Need the second remote document before editing.", _fetch(str(plant["docs_url2"])), f"GET {plant['docs_url2']}\nHTTP/1.1 429 Too Many Requests\nRetry-After: 5\nX-RateLimit-Remaining: 0", "Call failed with rate-limit status with Retry-After. Recover with backoff."),
         _step(9, "Observation: the prior call returned rate-limit status with Retry-After. Sleep then retry.", _fetch(str(plant["docs_url2"])), f"sleep + jitter retry of the same URL\nHTTP/1.1 200 OK\n{plant['docs_ok2']}", "Retry succeeded. Resume the local debug plan with that document in hand."),
+    ]
+
+
+def _handoff_docs_steps(plant: Mapping[str, Any]) -> list[dict[str, Any]]:
+    """Steps 6-9: 429 then 502 on the two vendor documents, each recovered."""
+
+    return [
+        _step(6, "Observation: local files are in. Need the changelog/registry before editing.", _fetch(str(plant["docs_url"])), f"GET {plant['docs_url']}\nHTTP/1.1 429 Too Many Requests\nRetry-After: 6\nX-RateLimit-Remaining: 0", "Call failed with rate-limit status with Retry-After. Recover with backoff."),
+        _step(7, "Observation: the prior call returned rate-limit status with Retry-After. Sleep then retry.", _fetch(str(plant["docs_url"])), f"sleep + jitter retry of the same URL\nHTTP/1.1 200 OK\n{plant['docs_ok']}", "Retry succeeded. Continue with that document."),
+        _step(8, "Observation: local files are in. Need the second remote document before editing.", _fetch(str(plant["docs_url2"])), f"GET {plant['docs_url2']}\nHTTP/1.1 502 Bad Gateway\nBad Gateway.", "Call failed with upstream gateway failure. Recover with backoff."),
+        _step(9, "Observation: the prior call returned an upstream gateway failure. Retry once with 2s backoff.", _fetch(str(plant["docs_url2"])), f"retry after 2s backoff; local vendor fixture\nHTTP/1.1 200 OK\n{plant['docs_ok2']}", "Degraded path used the local fixture. Resume the local debug plan."),
+    ]
+
+
+def _first_patch_steps(trace: _Trace) -> list[dict[str, Any]]:
+    """Steps 10-12: first patch, still red, re-read and change plan."""
+
+    plant, src, test = trace.plant, trace.src, trace.test
+    pytest_args, still_obs = trace.pytest_args, trace.still_obs
+    return [
         _step(10, f"Observation: docs and source are in. Apply the first patch to {src}.", _edit(src, str(plant["first_old"]), str(plant["first_new"])), str(plant["first_obs"]), "Patch applied. Re-run the failing test; do not assume green."),
         _step(11, f"Observation: edit wrote {src}. Re-run the same failing node.", _pytest(pytest_args), still_obs, "Still red after the first patch. Re-read the implementation; hypothesis is wrong."),
         _step(12, f"Observation: post-edit test still failed ({test}::{plant['test_fn']}). Re-read {src}.", _read(src), str(plant["reread_obs"]), f"Plan change: {plant['plan_change']}"),
+    ]
+
+
+def _success_close_steps(trace: _Trace) -> list[dict[str, Any]]:
+    """Steps 13-16: corrective patch, green focused and broader runs, diffstat."""
+
+    plant, src, test, pytest_args = trace.plant, trace.src, trace.test, trace.pytest_args
+    return [
         _step(13, f"Reflection: {plant['plan_change']}"[:240], _edit(src, str(plant["first_new"]), str(plant["fix_new"])), str(plant["fix_obs"]), "Corrective patch applied. Run the original failing node again."),
         _step(14, "Observation: fix edit returned clean. Re-run the original failing test node.", _pytest(pytest_args), "1 passed in 0.16s", "Result recorded. Run one broader check before declaring the outcome."),
         _step(15, f"Observation: focused run finished. Run broader check `pytest {test} -q`.", _bash(f"pytest {test} -q"), "3 passed in 0.28s", "Broader check captured. Stop; residual risk belongs in the outcome text."),
         _step(16, "Observation: broader check is on disk. Show the diff of patched files for the handoff note.", _bash("git diff --stat | head -n 40"), f"diffstat for {plant['slug']}: {src} | 9 ++++++---. No other modified paths.", "Diff is the review artifact. No further edits."),
+    ]
+
+
+def _handoff_close_steps(trace: _Trace, ticket: str, ticket_path: str) -> list[dict[str, Any]]:
+    """Steps 13-17: handoff ticket, still red, broader run, diffstat, lint."""
+
+    plant, src, test, pytest_args = trace.plant, trace.src, trace.test, trace.pytest_args
+    return [
+        _step(13, f"Reflection: {plant['plan_change']}"[:240], _edit(ticket_path, "", f"# {ticket} {plant['ticket_why']}"), str(plant["fix_obs"]), "Handoff ticket written. Run the original failing node again."),
+        _step(14, "Observation: handoff edit returned clean. Re-run the original failing test node.", _pytest(pytest_args), f"{test}::{plant['test_fn']} FAILED  # handoff: {ticket}\n1 failed", "Result recorded. Run one broader check before declaring the outcome."),
+        _step(15, f"Observation: focused run finished. Run broader check `pytest {test} -q; echo {ticket}`.", _bash(f"pytest {test} -q; echo {ticket}"), f"1 failed, 2 passed\n{ticket}", "Broader check captured. Residual risk belongs in the outcome text."),
+        _step(16, "Observation: broader check is on disk. Show the diff of patched files for the handoff note.", _bash("git diff --stat | head -n 40"), f"diffstat for {plant['slug']}: {src} | 8 +++++---. {ticket_path} added.", "Diff is the review artifact. Lint next."),
+        _step(17, "Observation: diffstat listed the patched files. Run a linter on those paths only.", _bash("ruff check tests || true; echo lint-end"), "All checks passed!\nlint-end", "Lint clean. Episode complete."),
+    ]
+
+
+def build_success(round_n: int, plant: Mapping[str, Any]) -> dict[str, Any]:
+    _goal_ok(plant["goal"])
+    src, test, cfg = _paths(plant)
+    eid = _episode_id(round_n, str(plant["slug"]))
+    trace = _trace(plant, src, test, cfg)
+    steps = [
+        *_investigation_steps(trace),
+        *_success_docs_steps(plant),
+        *_first_patch_steps(trace),
+        *_success_close_steps(trace),
     ]
     episode = {
         "id": eid,
@@ -189,29 +320,10 @@ def build_success(round_n: int, plant: Mapping[str, Any]) -> dict[str, Any]:
         "plan": plant["plan"],
         "steps": steps,
         "outcome": plant["outcome"],
-        "reward": {
-            "success": True,
-            "tests_passed": 3,
-            "retries": 2,
-            "duration_min": 610,
-            "wasted_calls": 180,
-            "cost_steps": SUCCESS_STEPS,
-            "plan_changes": 1,
-        },
-        "meta": {
-            "factory": FACTORY,
-            "round": round_n,
-            "generator": GENERATOR,
-            "kind": "episode",
-            "seed": plant["seed"],
-            "designed": True,
-            "domain": plant["domain"],
-            "stack": plant["stack"],
-        },
+        "reward": _success_reward(),
+        "meta": _episode_meta(round_n, plant),
     }
-    _assert_clean(episode)
-    refuse_when(contains_hidden_reasoning_key(episode), FINDING_GENERATE_HIDDEN, f"{eid} hidden reasoning")
-    refuse_when(len(steps) != SUCCESS_STEPS, FINDING_GENERATE_SHAPE, f"{eid} expected {SUCCESS_STEPS} steps")
+    _check_episode(episode, eid, SUCCESS_STEPS)
     return episode
 
 
@@ -221,28 +333,12 @@ def build_fail(round_n: int, plant: Mapping[str, Any]) -> dict[str, Any]:
     eid = _episode_id(round_n, str(plant["slug"]))
     ticket = str(plant["ticket"])
     ticket_path = f"{plant['mod']}/handoff.md"
-    listing = f"{src} {cfg}\n{test}"
-    pytest_args = f"{test} -q --tb=short"
-    fail_obs = f"{test}::{plant['test_fn']} FAILED\nE   {plant['fail_msg']}"
-    still_obs = f"{test}::{plant['test_fn']} FAILED\nE   {plant['still_msg']}"
+    trace = _trace(plant, src, test, cfg)
     steps = [
-        _step(1, f"Plan: list src {plant['mod']} and tests before touching conversion or config.", _bash(f"ls -la src {plant['mod']} tests | head -40"), listing, f"Tree shows {src} plus tests. Run the named failing target next."),
-        _step(2, f"Observation: listing named the test files. Run `{pytest_args}` to capture the failure.", _pytest(pytest_args), fail_obs, f"Failure is at {test}::{plant['test_fn']}. Read that test before a one-line fix."),
-        _step(3, f"Observation: {test}::{plant['test_fn']} is red. Read {test} around the assertion.", _read(test), str(plant["test_body"]), "Test contract is visible. Search implementation symbols next."),
-        _step(4, "Observation: test file imported the production helper. Grep those symbols.", _bash(f"rg -n '{plant['grep_pat']}' src {plant['mod']} tests"), str(plant["grep_hit"]), f"Grep hit {src}. Read it before editing the first match."),
-        _step(5, f"Observation: grep listed {src}. Read it before any patch.", _read(src), str(plant["src_body"]), "First read done. Fetch vendor docs next; do not patch on a hunch yet."),
-        _step(6, "Observation: local files are in. Need the changelog/registry before editing.", _fetch(str(plant["docs_url"])), f"GET {plant['docs_url']}\nHTTP/1.1 429 Too Many Requests\nRetry-After: 6\nX-RateLimit-Remaining: 0", "Call failed with rate-limit status with Retry-After. Recover with backoff."),
-        _step(7, "Observation: the prior call returned rate-limit status with Retry-After. Sleep then retry.", _fetch(str(plant["docs_url"])), f"sleep + jitter retry of the same URL\nHTTP/1.1 200 OK\n{plant['docs_ok']}", "Retry succeeded. Continue with that document."),
-        _step(8, "Observation: local files are in. Need the second remote document before editing.", _fetch(str(plant["docs_url2"])), f"GET {plant['docs_url2']}\nHTTP/1.1 502 Bad Gateway\nBad Gateway.", "Call failed with upstream gateway failure. Recover with backoff."),
-        _step(9, "Observation: the prior call returned an upstream gateway failure. Retry once with 2s backoff.", _fetch(str(plant["docs_url2"])), f"retry after 2s backoff; local vendor fixture\nHTTP/1.1 200 OK\n{plant['docs_ok2']}", "Degraded path used the local fixture. Resume the local debug plan."),
-        _step(10, f"Observation: docs and source are in. Apply the first patch to {src}.", _edit(src, str(plant["first_old"]), str(plant["first_new"])), str(plant["first_obs"]), "Patch applied. Re-run the failing test; do not assume green."),
-        _step(11, f"Observation: edit wrote {src}. Re-run the same failing node.", _pytest(pytest_args), still_obs, "Still red after the first patch. Re-read the implementation; hypothesis is wrong."),
-        _step(12, f"Observation: post-edit test still failed ({test}::{plant['test_fn']}). Re-read {src}.", _read(src), str(plant["reread_obs"]), f"Plan change: {plant['plan_change']}"),
-        _step(13, f"Reflection: {plant['plan_change']}"[:240], _edit(ticket_path, "", f"# {ticket} {plant['ticket_why']}"), str(plant["fix_obs"]), "Handoff ticket written. Run the original failing node again."),
-        _step(14, "Observation: handoff edit returned clean. Re-run the original failing test node.", _pytest(pytest_args), f"{test}::{plant['test_fn']} FAILED  # handoff: {ticket}\n1 failed", "Result recorded. Run one broader check before declaring the outcome."),
-        _step(15, f"Observation: focused run finished. Run broader check `pytest {test} -q; echo {ticket}`.", _bash(f"pytest {test} -q; echo {ticket}"), f"1 failed, 2 passed\n{ticket}", "Broader check captured. Residual risk belongs in the outcome text."),
-        _step(16, "Observation: broader check is on disk. Show the diff of patched files for the handoff note.", _bash("git diff --stat | head -n 40"), f"diffstat for {plant['slug']}: {src} | 8 +++++---. {ticket_path} added.", "Diff is the review artifact. Lint next."),
-        _step(17, "Observation: diffstat listed the patched files. Run a linter on those paths only.", _bash("ruff check tests || true; echo lint-end"), "All checks passed!\nlint-end", "Lint clean. Episode complete."),
+        *_investigation_steps(trace),
+        *_handoff_docs_steps(plant),
+        *_first_patch_steps(trace),
+        *_handoff_close_steps(trace, ticket, ticket_path),
     ]
     episode = {
         "id": eid,
@@ -250,29 +346,10 @@ def build_fail(round_n: int, plant: Mapping[str, Any]) -> dict[str, Any]:
         "plan": plant["plan"],
         "steps": steps,
         "outcome": plant["outcome"],
-        "reward": {
-            "success": False,
-            "tests_passed": 2,
-            "retries": 2,
-            "duration_min": 640,
-            "wasted_calls": 210,
-            "cost_steps": HANDOFF_STEPS,
-            "plan_changes": 1,
-        },
-        "meta": {
-            "factory": FACTORY,
-            "round": round_n,
-            "generator": GENERATOR,
-            "kind": "episode",
-            "seed": plant["seed"],
-            "designed": True,
-            "domain": plant["domain"],
-            "stack": plant["stack"],
-        },
+        "reward": _handoff_reward(),
+        "meta": _episode_meta(round_n, plant),
     }
-    _assert_clean(episode)
-    refuse_when(contains_hidden_reasoning_key(episode), FINDING_GENERATE_HIDDEN, f"{eid} hidden reasoning")
-    refuse_when(len(steps) != HANDOFF_STEPS, FINDING_GENERATE_SHAPE, f"{eid} expected {HANDOFF_STEPS} steps")
+    _check_episode(episode, eid, HANDOFF_STEPS)
     refuse_when("ticket" not in plant, FINDING_GENERATE_SHAPE, f"{eid} handoff missing ticket")
     return episode
 
@@ -340,7 +417,8 @@ def build_pair(pair: cat.Pair) -> BuiltPair:
     if pair.source_format == "mapping-v1":
         from . import generate_lll as lll
 
-        refuse_when(pair.plant is None, FINDING_GENERATE_SHAPE, "mapping-v1 pair missing plant")
+        if pair.plant is None:
+            refuse(FINDING_GENERATE_SHAPE, "mapping-v1 pair missing plant")
         return lll.build_pair(pair.round_n, pair.plant)
     ok_ep = build_success(pair.round_n, pair.ok)
     bad_ep = build_fail(pair.round_n, pair.bad)

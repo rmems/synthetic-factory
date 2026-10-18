@@ -167,6 +167,13 @@ def is_genuine_int(value: object) -> TypeGuard[int]:
     return isinstance(value, int) and not isinstance(value, bool)
 
 
+def is_typed(value: object, kind: type) -> bool:
+    """``isinstance`` where a bool is never an int."""
+    if kind is int:
+        return is_genuine_int(value)
+    return isinstance(value, kind)
+
+
 def check_seed(seed: object) -> None:
     if not is_genuine_int(seed):
         raise ToolWorldRefusal(FINDING_SEED_INVALID, f"seed must be an integer, got {shown(seed)}")

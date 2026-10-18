@@ -1,7 +1,14 @@
 # Written and run by Claude Fable 5.1 subagents during the 2026-09-04 Hub publication session
 # (rmems/synthetic-factory). Kept as the harness for .claude/skills/publish-hub-research-run.
 #!/usr/bin/env python3
-"""Upload one bundle to its new Hub repo as a pull request (never to main)."""
+"""Upload one bundle to its new Hub repo as a pull request (never to main).
+
+Usage: upload_pr.py <repo-name> <sibling-owner/name>
+
+Both arguments are validated before anything is written or run: ``rmems/<repo-name>``
+must be a strict Hub dataset id with a built bundle summary and an existing bundle
+directory directly under ``bundles/``, and the sibling must be a strict Hub dataset id.
+"""
 
 from __future__ import annotations
 
@@ -13,10 +20,65 @@ from pathlib import Path
 
 HF = str(Path.home() / ".local/bin/hf")
 BASE = Path.home() / "tmp/publish-0902"
+BUNDLES = BASE / "bundles"
 SUMMARIES = {s["repo"]: s for s in json.loads((BASE / "work/bundle_summaries.json").read_text())}
 COMMIT_MESSAGE = (
     "Publish the 2026-09-02 SuperGrok Heavy research run (raw, uncurated, research-only)"
 )
+USAGE = "usage: upload_pr.py <repo-name> <sibling-owner/name>"
+# The exact owner/name pattern pipelines/rights_document.py enforces on rights.json dataset_id.
+HUB_DATASET_ID = re.compile(
+    r"^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?/"
+    r"[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$"
+)
+
+
+class UploadInputError(ValueError):
+    """A command-line value was refused before it could reach the ``hf`` argv."""
+
+
+def _require(condition: object, message: str) -> None:
+    if not condition:
+        raise UploadInputError(message)
+
+
+def _known_repo(name: str) -> str:
+    """``rmems/<name>``: a strict Hub dataset id that has a built bundle summary."""
+    repo = f"rmems/{name}"
+    _require(HUB_DATASET_ID.fullmatch(repo) is not None, f"not an owner/name Hub id: {repo!r}")
+    _require(repo in SUMMARIES, f"no bundle summary for {repo}")
+    return repo
+
+
+def _bundle_dir(root: Path, name: str) -> Path:
+    """``root/<name>``: an existing real directory (not a symlink) exactly at ``root/<name>``."""
+    bundle = root / name
+    _require(not bundle.is_symlink(), f"bundle path is a symlink: {bundle}")
+    _require(bundle.resolve() == root.resolve() / name, f"bundle path leaves {root}: {bundle}")
+    _require(bundle.is_dir(), f"no bundle directory at {bundle}")
+    return bundle
+
+
+def _validated(args: list[str]) -> tuple[str, Path, str]:
+    """Return (repo, bundle, sibling) for the CLI arguments, or refuse."""
+    _require(len(args) == 2, USAGE)
+    name, sibling = args
+    repo = _known_repo(name)
+    bundle = _bundle_dir(BUNDLES, name)
+    _require(
+        HUB_DATASET_ID.fullmatch(sibling) is not None,
+        f"sibling is not an owner/name Hub id: {sibling!r}",
+    )
+    return repo, bundle, sibling
+
+
+def _hf_upload(repo: str, bundle: Path, message: str, desc: str) -> subprocess.CompletedProcess:
+    """``hf upload --create-pr`` with a fixed argv and no shell; every value is pre-validated."""
+    argv = [
+        HF, "upload", repo, str(bundle), ".", "--repo-type", "dataset", "--create-pr",
+        "--commit-message", message, "--commit-description", desc,
+    ]
+    return subprocess.run(argv, capture_output=True, text=True, check=False)
 
 
 def description(s: dict, sibling: str) -> str:
@@ -40,19 +102,17 @@ Nothing lands on `main` without the owner: please review and merge, or request c
 """
 
 
-def main() -> int:
-    name = sys.argv[1]
-    sibling = sys.argv[2]
-    repo = f"rmems/{name}"
+def main(argv: list[str] | None = None) -> int:
+    try:
+        repo, bundle, sibling = _validated(sys.argv[1:] if argv is None else argv)
+    except UploadInputError as exc:
+        print(f"refused: {exc}", file=sys.stderr)
+        return 2
+    name = bundle.name
     s = SUMMARIES[repo]
-    bundle = BASE / "bundles" / name
     desc = description(s, sibling)
     (BASE / f"work/pr-description-{name}.md").write_text(desc)
-    cmd = [
-        HF, "upload", repo, str(bundle), ".", "--repo-type", "dataset", "--create-pr",
-        "--commit-message", COMMIT_MESSAGE, "--commit-description", desc,
-    ]
-    proc = subprocess.run(cmd, capture_output=True, text=True)
+    proc = _hf_upload(repo, bundle, COMMIT_MESSAGE, desc)
     out = proc.stdout + "\n" + proc.stderr
     urls = sorted(set(re.findall(r"https://huggingface\.co/datasets/[^\s'\"]+", out)))
     result = {"repo": repo, "exit": proc.returncode, "urls": urls, "stdout": proc.stdout[-3000:],

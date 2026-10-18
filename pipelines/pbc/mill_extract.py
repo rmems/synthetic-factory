@@ -7,8 +7,9 @@ import ast
 import json
 import subprocess
 import sys
+from collections.abc import Iterator
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeGuard
 
 if __package__:
     from . import _contract
@@ -79,41 +80,68 @@ def _legacy_text(path: str) -> str:
 
 
 def _const(node: ast.AST, where: str, *, env: dict[str, Any] | None = None) -> Any:
+    # Recursion stays here, so a `+` / list / set level costs one frame and a tuple level
+    # two (``_const_tuple`` is the frame its generator cost), as before the helpers were
+    # split out. The other helpers below never recurse.
     if isinstance(node, ast.Constant):
         return node.value
-    if isinstance(node, ast.Name):
-        if env is not None and node.id in env:
-            return env[node.id]
-        raise ValueError(f"{where}: not a constant literal")
-    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+    if _is_concatenation(node):
         left = _const(node.left, where, env=env)
-        right = _const(node.right, where, env=env)
-        if isinstance(left, str) and isinstance(right, str):
-            return left + right
-        raise ValueError(f"{where}: not a constant literal")
+        return _concatenated(left, _const(node.right, where, env=env), where)
     if isinstance(node, ast.Tuple):
-        return tuple(_const(elt, where, env=env) for elt in node.elts)
-    if isinstance(node, ast.List):
-        return [_const(elt, where, env=env) for elt in node.elts]
-    if isinstance(node, ast.Set):
-        return {_const(elt, where, env=env) for elt in node.elts}
+        return _const_tuple(node, where, env)
+    if isinstance(node, (ast.List, ast.Set)):
+        return (
+            [_const(elt, where, env=env) for elt in node.elts]
+            if isinstance(node, ast.List)
+            else {_const(elt, where, env=env) for elt in node.elts}
+        )
+    return _bound_name(node, where, env)
+
+
+def _const_tuple(node: ast.Tuple, where: str, env: dict[str, Any] | None) -> tuple[Any, ...]:
+    items: list[Any] = []
+    for elt in node.elts:
+        items.append(_const(elt, where, env=env))
+    return tuple(items)
+
+
+def _is_concatenation(node: ast.AST) -> TypeGuard[ast.BinOp]:
+    return isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add)
+
+
+def _concatenated(left: Any, right: Any, where: str) -> str:
+    if isinstance(left, str) and isinstance(right, str):
+        return left + right
     raise ValueError(f"{where}: not a constant literal")
+
+
+def _bound_name(node: ast.AST, where: str, env: dict[str, Any] | None) -> Any:
+    """A name bound in ``env``; any other node is not a constant literal."""
+
+    names = env if env is not None else {}
+    if isinstance(node, ast.Name) and node.id in names:
+        return names[node.id]
+    raise ValueError(f"{where}: not a constant literal")
+
+
+def _simple_assignment(node: ast.stmt) -> tuple[str | None, ast.AST | None]:
+    """Return the first plain-name target of a module-level assignment and its value."""
+
+    if isinstance(node, ast.Assign):
+        for target in node.targets:
+            if isinstance(target, ast.Name):
+                return target.id, node.value
+        return None, None
+    if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+        return node.target.id, node.value
+    return None, None
 
 
 def _string_constant_env(tree: ast.Module) -> dict[str, Any]:
     env: dict[str, Any] = {}
     for node in tree.body:
-        name: str | None = None
-        value: ast.AST | None = None
-        if isinstance(node, ast.Assign):
-            for target in node.targets:
-                if isinstance(target, ast.Name):
-                    name = target.id
-                    value = node.value
-                    break
-        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
-            name = node.target.id
-            value = node.value
+        name, value = _simple_assignment(node)
         if name is None or value is None:
             continue
         try:
@@ -139,18 +167,26 @@ _TY_POS = (
 )
 
 
+def _positional_kwargs(
+    func_id: str, args: list[ast.expr], where: str, env: dict[str, Any] | None
+) -> dict[str, Any]:
+    kwargs: dict[str, Any] = {}
+    if not args:
+        return kwargs
+    if func_id != "ty":
+        raise ValueError(f"{where}: plant()/ty() must use keywords only")
+    for index, arg in enumerate(args):
+        if index >= len(_TY_POS):
+            raise ValueError(f"{where}: too many positional args for ty()")
+        kwargs[_TY_POS[index]] = _const(arg, f"{where}.{_TY_POS[index]}", env=env)
+    return kwargs
+
+
 def _plant_from_call(node: ast.Call, where: str, *, env: dict[str, Any] | None = None) -> dict[str, Any]:
     func = node.func
     if not isinstance(func, ast.Name) or func.id not in {"plant", "ty"}:
         raise ValueError(f"{where}: expected plant() or ty()")
-    kwargs: dict[str, Any] = {}
-    if func.id == "ty" and node.args:
-        for index, arg in enumerate(node.args):
-            if index >= len(_TY_POS):
-                raise ValueError(f"{where}: too many positional args for ty()")
-            kwargs[_TY_POS[index]] = _const(arg, f"{where}.{_TY_POS[index]}", env=env)
-    elif node.args:
-        raise ValueError(f"{where}: plant()/ty() must use keywords only")
+    kwargs = _positional_kwargs(func.id, node.args, where, env)
     for kw in node.keywords:
         if kw.arg is None:
             raise ValueError(f"{where}: invalid **kwargs")
@@ -212,28 +248,37 @@ def _ty(
     )
 
 
-def _pairs_node(tree: ast.Module) -> ast.AST:
+def _assignment_value(node: ast.stmt, name: str) -> ast.AST | None:
+    if isinstance(node, ast.Assign):
+        names = [t.id for t in node.targets if isinstance(t, ast.Name)]
+        return node.value if name in names else None
+    if not isinstance(node, ast.AnnAssign) or not isinstance(node.target, ast.Name):
+        return None
+    return node.value if node.target.id == name else None
+
+
+def _assigned_value(tree: ast.Module, name: str) -> ast.AST | None:
+    """Value of the first module-level ``name = ...`` / ``name: T = ...`` assignment."""
+
     for node in tree.body:
-        if isinstance(node, ast.Assign):
-            names = [t.id for t in node.targets if isinstance(t, ast.Name)]
-            if "PAIRS" in names:
-                return node.value
-        if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
-            if node.target.id == "PAIRS" and node.value is not None:
-                return node.value
-    raise ValueError("no PAIRS assignment")
+        value = _assignment_value(node, name)
+        if value is not None:
+            return value
+    return None
+
+
+def _pairs_node(tree: ast.Module) -> ast.AST:
+    value = _assigned_value(tree, "PAIRS")
+    if value is None:
+        raise ValueError("no PAIRS assignment")
+    return value
 
 
 def _named_constant(tree: ast.Module, name: str) -> Any:
-    for node in tree.body:
-        if isinstance(node, ast.Assign):
-            names = [t.id for t in node.targets if isinstance(t, ast.Name)]
-            if name in names:
-                return _const(node.value, name)
-        if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
-            if node.target.id == name and node.value is not None:
-                return _const(node.value, name)
-    raise ValueError(f"no {name} assignment")
+    value = _assigned_value(tree, name)
+    if value is None:
+        raise ValueError(f"no {name} assignment")
+    return _const(value, name)
 
 
 def extract_pairs_list(source: str) -> list[tuple[dict[str, Any], dict[str, Any]]]:
@@ -252,98 +297,165 @@ def extract_pairs_list(source: str) -> list[tuple[dict[str, Any], dict[str, Any]
     return pairs
 
 
-def _extras_for_r988(slug: str, told: str, tnew: str, field: str, num: int) -> dict[str, Any]:
-    extra: dict[str, Any] = {}
-    if (
-        "Mode" in (told, tnew)
-        or slug.startswith("enum-")
-        or "-enum-" in slug
-        or slug.endswith("-enum-mode")
-        or slug.endswith("-enum-port")
-        or slug.endswith("-enum-hash")
-        or slug.endswith("-enum-crc")
-        or slug.endswith("-enum-temp")
-        or slug.endswith("-enum-peak")
-        or slug.endswith("-enum-armed")
-        or slug.endswith("-enum-delta")
-        or slug.endswith("-enum-blob")
-    ):
-        extra["extra_msgs"] = ENUM_MODE
-        extra.setdefault("grep_pat", f"{told} {field}|{tnew} {field}")
-    if slug.startswith("singular-") and "repeated" in slug:
-        extra["buf_rule"] = "FIELD_CARDINALITY / WIRE"
-    if slug.startswith("repeated-") and slug.endswith("-singular"):
-        extra["buf_rule"] = "FIELD_CARDINALITY / WIRE"
-        extra["decl_old"] = f"{told} {field} = {num};"
-        extra["decl_new"] = f"{tnew} {field} = {num};"
-    if slug.startswith("map-value-"):
-        extra["buf_rule"] = "MAP_VALUE_TYPE / WIRE"
-        extra["decl_old"] = f"map<string, {told}> {field} = {num};"
-        extra["decl_new"] = f"map<string, {tnew}> {field} = {num};"
-        extra["grep_pat"] = f"map<string, {told}>|map<string, {tnew}>|{field}"
-    if slug.startswith("oneof-"):
-        extra["decl_old"] = f"oneof body {{ {told} {field} = {num}; }}"
-        extra["decl_new"] = f"oneof body {{ {tnew} {field} = {num}; }}"
-        extra["grep_pat"] = f"oneof body|{told} {field}|{tnew} {field}"
-        if "Mode" in (told, tnew):
-            extra["extra_msgs"] = ENUM_MODE
-    if slug.startswith("rpc-"):
-        extra["buf_rule"] = "RPC_STREAMING / WIRE"
-        extra["grep_pat"] = f"{told}|{tnew}"
-        extra["goal_bit"] = f"{told} → {tnew} so freeze {slug} frames fail"
-    if slug.startswith("proto2-required-"):
-        extra["syntax"] = 'syntax = "proto2";'
-        extra["decl_old"] = f"required {told} {field} = {num};"
-        extra["decl_new"] = f"required {tnew} {field} = {num};"
-        extra["grep_pat"] = f"required {told} {field}|required {tnew} {field}"
-    if slug.startswith("proto2-optional-"):
-        extra["syntax"] = 'syntax = "proto2";'
-        extra["decl_old"] = f"optional {told} {field} = {num};"
-        extra["decl_new"] = f"optional {tnew} {field} = {num};"
-        extra["grep_pat"] = f"optional {told} {field}|optional {tnew} {field}"
+_ShapeRules = tuple[tuple[tuple[str, str, str], tuple[tuple[str, str], ...]], ...]
+
+_R988_ENUM_SUFFIXES = (
+    "-enum-mode",
+    "-enum-port",
+    "-enum-hash",
+    "-enum-crc",
+    "-enum-temp",
+    "-enum-peak",
+    "-enum-armed",
+    "-enum-delta",
+    "-enum-blob",
+)
+
+
+def _proto2_label_rule(label: str) -> tuple[tuple[str, str], ...]:
+    return (
+        ("syntax", 'syntax = "proto2";'),
+        ("decl_old", label + " {told} {field} = {num};"),
+        ("decl_new", label + " {tnew} {field} = {num};"),
+        ("grep_pat", label + " {told} {field}|" + label + " {tnew} {field}"),
+    )
+
+
+# (prefix, substring, suffix) -> ordered str.format field templates. Rules apply in
+# order, so a later matching rule overwrites an earlier one key by key, exactly as the
+# mill's sequential ifs did.
+_R988_SHAPE_RULES: _ShapeRules = (
+    (("singular-", "repeated", ""), (("buf_rule", "FIELD_CARDINALITY / WIRE"),)),
+    (
+        ("repeated-", "", "-singular"),
+        (
+            ("buf_rule", "FIELD_CARDINALITY / WIRE"),
+            ("decl_old", "{told} {field} = {num};"),
+            ("decl_new", "{tnew} {field} = {num};"),
+        ),
+    ),
+    (
+        ("map-value-", "", ""),
+        (
+            ("buf_rule", "MAP_VALUE_TYPE / WIRE"),
+            ("decl_old", "map<string, {told}> {field} = {num};"),
+            ("decl_new", "map<string, {tnew}> {field} = {num};"),
+            ("grep_pat", "map<string, {told}>|map<string, {tnew}>|{field}"),
+        ),
+    ),
+    (
+        ("oneof-", "", ""),
+        (
+            ("decl_old", "oneof body {{ {told} {field} = {num}; }}"),
+            ("decl_new", "oneof body {{ {tnew} {field} = {num}; }}"),
+            ("grep_pat", "oneof body|{told} {field}|{tnew} {field}"),
+        ),
+    ),
+    (
+        ("rpc-", "", ""),
+        (
+            ("buf_rule", "RPC_STREAMING / WIRE"),
+            ("grep_pat", "{told}|{tnew}"),
+            ("goal_bit", "{told} → {tnew} so freeze {slug} frames fail"),
+        ),
+    ),
+    (("proto2-required-", "", ""), _proto2_label_rule("required")),
+    (("proto2-optional-", "", ""), _proto2_label_rule("optional")),
+)
+
+_R988_IMPORT_NEEDLES: tuple[tuple[str, str], ...] = (
+    ("Timestamp", "google/protobuf/timestamp.proto"),
+    ("Duration", "google/protobuf/duration.proto"),
+    ("protobuf.Any", "google/protobuf/any.proto"),
+    ("google.protobuf.Any", "google/protobuf/any.proto"),
+    ("Struct", "google/protobuf/struct.proto"),
+    ("ListValue", "google/protobuf/struct.proto"),
+    ("NullValue", "google/protobuf/struct.proto"),
+    ("protobuf.Value", "google/protobuf/struct.proto"),
+    ("google.protobuf.Value", "google/protobuf/struct.proto"),
+    ("Empty", "google/protobuf/empty.proto"),
+    ("FieldMask", "google/protobuf/field_mask.proto"),
+    ("SourceContext", "google/protobuf/source_context.proto"),
+    ("HttpBody", "google/api/httpbody.proto"),
+    ("RetryInfo", "google/rpc/error_details.proto"),
+    ("TimeZone", "google/type/datetime.proto"),
+    ("DayOfWeek", "google/type/dayofweek.proto"),
+    ("type.Month", "google/type/month.proto"),
+    ("google.type.Month", "google/type/month.proto"),
+    ("Fraction", "google/type/fraction.proto"),
+    ("LocalizedText", "google/type/localized_text.proto"),
+)
+
+_WRAPPER_TYPES = (
+    "Int32Value",
+    "Int64Value",
+    "UInt32Value",
+    "UInt64Value",
+    "FloatValue",
+    "DoubleValue",
+    "BoolValue",
+    "StringValue",
+    "BytesValue",
+)
+
+
+def _is_r988_enum(slug: str, told: str, tnew: str) -> bool:
+    return any(
+        (
+            "Mode" in (told, tnew),
+            slug.startswith("enum-"),
+            "-enum-" in slug,
+            slug.endswith(_R988_ENUM_SUFFIXES),
+        )
+    )
+
+
+def _mark_enum(extra: dict[str, Any], told: str, tnew: str, field: str) -> None:
+    extra["extra_msgs"] = ENUM_MODE
+    extra.setdefault("grep_pat", f"{told} {field}|{tnew} {field}")
+
+
+def _apply_shape_rules(extra: dict[str, Any], rules: _ShapeRules, fields: dict[str, Any]) -> None:
+    slug = fields["slug"]
+    for (prefix, middle, suffix), assignments in rules:
+        if not all((slug.startswith(prefix), middle in slug, slug.endswith(suffix))):
+            continue
+        for key, template in assignments:
+            extra[key] = template.format(**fields)
+
+
+def _needle_imports(blob: str, needles: tuple[tuple[str, str], ...]) -> list[str]:
     imports: list[str] = []
-    blob = f"{told} {tnew} {slug}"
-    for needle, path in (
-        ("Timestamp", "google/protobuf/timestamp.proto"),
-        ("Duration", "google/protobuf/duration.proto"),
-        ("protobuf.Any", "google/protobuf/any.proto"),
-        ("google.protobuf.Any", "google/protobuf/any.proto"),
-        ("Struct", "google/protobuf/struct.proto"),
-        ("ListValue", "google/protobuf/struct.proto"),
-        ("NullValue", "google/protobuf/struct.proto"),
-        ("protobuf.Value", "google/protobuf/struct.proto"),
-        ("google.protobuf.Value", "google/protobuf/struct.proto"),
-        ("Empty", "google/protobuf/empty.proto"),
-        ("FieldMask", "google/protobuf/field_mask.proto"),
-        ("SourceContext", "google/protobuf/source_context.proto"),
-        ("HttpBody", "google/api/httpbody.proto"),
-        ("RetryInfo", "google/rpc/error_details.proto"),
-        ("TimeZone", "google/type/datetime.proto"),
-        ("DayOfWeek", "google/type/dayofweek.proto"),
-        ("type.Month", "google/type/month.proto"),
-        ("google.type.Month", "google/type/month.proto"),
-        ("Fraction", "google/type/fraction.proto"),
-        ("LocalizedText", "google/type/localized_text.proto"),
-    ):
+    for needle, path in needles:
         if needle in blob and path not in imports:
             imports.append(path)
-    if "Value" in blob and "wrappers" not in slug and any(
-        token in blob
-        for token in (
-            "Int32Value",
-            "Int64Value",
-            "UInt32Value",
-            "UInt64Value",
-            "FloatValue",
-            "DoubleValue",
-            "BoolValue",
-            "StringValue",
-            "BytesValue",
-        )
-    ):
-        imports.append("google/protobuf/wrappers.proto")
+    return imports
+
+
+def _needs_wrappers(blob: str, slug: str) -> bool:
+    if "Value" not in blob or "wrappers" in slug:
+        return False
+    return any(token in blob for token in _WRAPPER_TYPES)
+
+
+def _set_imports(extra: dict[str, Any], imports: list[str]) -> None:
     if imports:
         extra["imports"] = tuple(imports)
+
+
+def _extras_for_r988(slug: str, told: str, tnew: str, field: str, num: int) -> dict[str, Any]:
+    extra: dict[str, Any] = {}
+    if _is_r988_enum(slug, told, tnew):
+        _mark_enum(extra, told, tnew, field)
+    # The mill also re-sets extra_msgs = ENUM_MODE for a oneof- slug with a Mode type; the
+    # enum check above has already set that key to the same value, so it is not repeated.
+    fields = {"slug": slug, "told": told, "tnew": tnew, "field": field, "num": num}
+    _apply_shape_rules(extra, _R988_SHAPE_RULES, fields)
+    blob = f"{told} {tnew} {slug}"
+    imports = _needle_imports(blob, _R988_IMPORT_NEEDLES)
+    if _needs_wrappers(blob, slug):
+        imports.append("google/protobuf/wrappers.proto")
+    _set_imports(extra, imports)
     return extra
 
 
@@ -372,68 +484,50 @@ def extract_r988_pairs(source: str) -> list[tuple[dict[str, Any], dict[str, Any]
     return [(plants[i], plants[i + 1]) for i in range(0, len(plants), 2)]
 
 
+_R2535_SHAPE_RULES: _ShapeRules = (
+    (
+        ("proto2-required-", "", ""),
+        (*_proto2_label_rule("required"), ("buf_rule", "FIELD_TYPE / WIRE")),
+    ),
+    (
+        ("proto2-optional-", "", ""),
+        (*_proto2_label_rule("optional"), ("buf_rule", "FIELD_TYPE / WIRE")),
+    ),
+)
+
+_R2535_IMPORT_NEEDLES: tuple[tuple[str, str], ...] = (
+    ("google.protobuf.Timestamp", "google/protobuf/timestamp.proto"),
+    ("google.protobuf.Duration", "google/protobuf/duration.proto"),
+    ("google.protobuf.Any", "google/protobuf/any.proto"),
+    ("google.protobuf.Empty", "google/protobuf/empty.proto"),
+)
+
+_R2535_AVOID = (
+    "map-key ban / r787 leftover / r1334 map-value-bool-to-sint32 / "
+    "r1335 wrapper leftover"
+)
+
+
+def _is_r2535_enum(slug: str, told: str, tnew: str) -> bool:
+    return any(("Mode" in (told, tnew), slug.endswith("-enum"), "-to-enum" in slug))
+
+
 def _extras_for_r2535(slug: str, told: str, tnew: str, field: str, num: int) -> dict[str, Any]:
     extra: dict[str, Any] = {"field_num": num}
-    if "Mode" in (told, tnew) or slug.endswith("-enum") or "-to-enum" in slug:
-        extra["extra_msgs"] = ENUM_MODE
-        extra.setdefault("grep_pat", f"{told} {field}|{tnew} {field}")
-    if slug.startswith("proto2-required-"):
-        extra["syntax"] = 'syntax = "proto2";'
-        extra["decl_old"] = f"required {told} {field} = {num};"
-        extra["decl_new"] = f"required {tnew} {field} = {num};"
-        extra["grep_pat"] = f"required {told} {field}|required {tnew} {field}"
-        extra["buf_rule"] = "FIELD_TYPE / WIRE"
-    if slug.startswith("proto2-optional-"):
-        extra["syntax"] = 'syntax = "proto2";'
-        extra["decl_old"] = f"optional {told} {field} = {num};"
-        extra["decl_new"] = f"optional {tnew} {field} = {num};"
-        extra["grep_pat"] = f"optional {told} {field}|optional {tnew} {field}"
-        extra["buf_rule"] = "FIELD_TYPE / WIRE"
-    imports: list[str] = []
+    if _is_r2535_enum(slug, told, tnew):
+        _mark_enum(extra, told, tnew, field)
+    fields = {"slug": slug, "told": told, "tnew": tnew, "field": field, "num": num}
+    _apply_shape_rules(extra, _R2535_SHAPE_RULES, fields)
     blob = f"{told} {tnew} {slug}"
-    for needle, path in (
-        ("google.protobuf.Timestamp", "google/protobuf/timestamp.proto"),
-        ("google.protobuf.Duration", "google/protobuf/duration.proto"),
-        ("google.protobuf.Any", "google/protobuf/any.proto"),
-        ("google.protobuf.Empty", "google/protobuf/empty.proto"),
-    ):
-        if needle in blob and path not in imports:
-            imports.append(path)
+    imports = _needle_imports(blob, _R2535_IMPORT_NEEDLES)
     if "google.protobuf.Struct" in blob:
         imports.append("google/protobuf/struct.proto")
-    if imports:
-        extra["imports"] = tuple(imports)
+    _set_imports(extra, imports)
     return extra
 
 
-def extract_r2535_pairs(source: str) -> list[tuple[dict[str, Any], dict[str, Any]]]:
-    tree = ast.parse(source)
-    p2_types = _named_constant(tree, "P2_TYPES")
-    wkt_dests = _named_constant(tree, "WKT_DESTS")
-    langs = list(LANGC)
-    plants: list[dict[str, Any]] = []
-    seen_slug: set[str] = set()
-    n = 0
-    num = 61
-    avoid = (
-        "map-key ban / r787 leftover / r1334 map-value-bool-to-sint32 / "
-        "r1335 wrapper leftover"
-    )
-
-    def push(slug: str, told: str, tnew: str, field: str, wold: str, wnew: str, vs: str) -> None:
-        nonlocal n, num
-        if slug in seen_slug:
-            return
-        short = f"z{n:04d}"
-        lang = langs[n % len(langs)]
-        extra = _extras_for_r2535(slug, told, tnew, field, num)
-        ticket = f"{LANGC[lang]}-{short.upper()}-{num}"
-        plants.append(
-            _ty(slug, short, told, tnew, field, num, wold, wnew, lang, ticket, vs, avoid, **extra)
-        )
-        seen_slug.add(slug)
-        n += 1
-        num += 1
+def _r2535_candidates(p2_types: Any, wkt_dests: Any) -> Iterator[tuple[str, ...]]:
+    """Yield ``(slug, told, tnew, field, wold, wnew, vs)`` in the mill's push order."""
 
     for told, wold, field in p2_types:
         for dest_tag, tnew, wnew in wkt_dests:
@@ -443,8 +537,31 @@ def extract_r2535_pairs(source: str) -> list[tuple[dict[str, Any], dict[str, Any
                 f"proto2 {told}→{dest_tag} TYPE (r1335 skipped WKT dest; "
                 f"not optional/required drop)"
             )
-            push(f"proto2-required-{told}-to-{dest_tag}", told, tnew, field, wold, wnew, vs)
-            push(f"proto2-optional-{told}-to-{dest_tag}", told, tnew, field, wold, wnew, vs)
+            yield f"proto2-required-{told}-to-{dest_tag}", told, tnew, field, wold, wnew, vs
+            yield f"proto2-optional-{told}-to-{dest_tag}", told, tnew, field, wold, wnew, vs
+
+
+def extract_r2535_pairs(source: str) -> list[tuple[dict[str, Any], dict[str, Any]]]:
+    tree = ast.parse(source)
+    p2_types = _named_constant(tree, "P2_TYPES")
+    wkt_dests = _named_constant(tree, "WKT_DESTS")
+    langs = list(LANGC)
+    plants: list[dict[str, Any]] = []
+    seen_slug: set[str] = set()
+    for slug, told, tnew, field, wold, wnew, vs in _r2535_candidates(p2_types, wkt_dests):
+        if slug in seen_slug:
+            continue
+        # One plant per accepted slug, so the mill's push counter n is len(plants).
+        n = len(plants)
+        num = 61 + n
+        short = f"z{n:04d}"
+        lang = langs[n % len(langs)]
+        extra = _extras_for_r2535(slug, told, tnew, field, num)
+        ticket = f"{LANGC[lang]}-{short.upper()}-{num}"
+        plants.append(
+            _ty(slug, short, told, tnew, field, num, wold, wnew, lang, ticket, vs, _R2535_AVOID, **extra)
+        )
+        seen_slug.add(slug)
     if len(plants) % 2:
         plants.pop()
     if not plants:

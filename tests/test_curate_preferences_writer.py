@@ -20,6 +20,30 @@ import training_audit  # noqa: E402
 from pipelines import raw_tree_guard  # noqa: E402
 
 
+def _write_mixed_preference_source(source):
+    """Write a pure, a repairable and an excluded pair plus one non-preference record."""
+    pure = pair("pure")
+    repairable = pair("repair")
+    repairable["chosen"]["state"]["identity_note"] = (
+        "IDENTICAL to rejected.state — annotation"
+    )
+    excluded = pair("excluded")
+    excluded["rejected"]["proposed_action"]["action"] = "different"
+    non_preference = {"id": "ordinary", "state": {}}
+    source_path = source / "preferences.jsonl"
+    write_jsonl(source_path, [pure, repairable, excluded, non_preference])
+    return source_path
+
+
+def _training_audit_of_curated(root, output):
+    """Run the training audit over ``output`` filed as the preference-cascade factory."""
+    audit_root = root / "audit"
+    audit_factory = audit_root / "failure-as-fuel-preference-cascade"
+    audit_factory.mkdir(parents=True)
+    (audit_factory / "preferences.jsonl").write_bytes(output.read_bytes())
+    return training_audit.audit_run(audit_root)
+
+
 class CuratePreferenceSource(unittest.TestCase):
     def test_source_run_emits_manifest_and_strict_audit_pure_output(self):
         with tempfile.TemporaryDirectory() as td:
@@ -28,17 +52,7 @@ class CuratePreferenceSource(unittest.TestCase):
             destination = root / "destination"
             source.mkdir()
             destination.mkdir()
-
-            pure = pair("pure")
-            repairable = pair("repair")
-            repairable["chosen"]["state"]["identity_note"] = (
-                "IDENTICAL to rejected.state — annotation"
-            )
-            excluded = pair("excluded")
-            excluded["rejected"]["proposed_action"]["action"] = "different"
-            non_preference = {"id": "ordinary", "state": {}}
-            source_path = source / "preferences.jsonl"
-            write_jsonl(source_path, [pure, repairable, excluded, non_preference])
+            source_path = _write_mixed_preference_source(source)
 
             run = curate_preferences.curate_source(source)
             output = destination / "preferences.jsonl"
@@ -67,11 +81,7 @@ class CuratePreferenceSource(unittest.TestCase):
             )
             self.assertIsNone(entries[2]["output_sha256"])
 
-            audit_root = root / "audit"
-            audit_factory = audit_root / "failure-as-fuel-preference-cascade"
-            audit_factory.mkdir(parents=True)
-            (audit_factory / "preferences.jsonl").write_bytes(output.read_bytes())
-            audit = training_audit.audit_run(audit_root)
+            audit = _training_audit_of_curated(root, output)
             self.assertEqual(audit["preferences"]["pairs"], 2)
             self.assertEqual(audit["preferences"]["same_context"], 2)
             self.assertEqual(audit["preferences"]["context_purity_pct"], 100.0)

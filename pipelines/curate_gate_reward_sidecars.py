@@ -93,13 +93,11 @@ def _registered_source_key(
 ) -> tuple[str, int]:
     if not isinstance(source, dict):
         raise GateError(_SOURCE_NOT_AN_OBJECT)
-    source_key = (
-        _logical_source_path(source.get("path"), "sidecar source.path"),
-        source.get("line"),
-    )
-    line = source_key[1]
+    path = _logical_source_path(source.get("path"), "sidecar source.path")
+    line = source.get("line")
     if not isinstance(line, int) or isinstance(line, bool) or line < 1:
         raise GateError("sidecar source.line must be a positive integer")
+    source_key = (path, line)
     if source_key in sidecar_sources:
         raise GateError(f"sidecar source identity duplicates {sidecar_sources[source_key]}")
     return source_key

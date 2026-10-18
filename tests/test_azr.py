@@ -8,12 +8,21 @@ import json
 import subprocess
 import sys
 import tempfile
+import textwrap
 import unittest
+from collections.abc import Iterable
+from dataclasses import replace
 from pathlib import Path
+from typing import Any
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "pipelines"))
 
+from azr import (
+    catalog as azr_catalog,
+    catalog_ast as azr_ast,
+    catalog_extract as azr_extract,
+)
 from azr.catalog import CATALOG, load_catalog  # noqa: E402
 from azr.catalog_extract import (  # noqa: E402
     SHAPE_IDOR_BFLA,
@@ -30,6 +39,7 @@ from azr.catalog_extract import (  # noqa: E402
     extract_companion_path,
     extract_mill_catalog,
     extract_plant_catalog,
+    load_pair_rows,
     mill_summary,
     pair_identity,
     pairs_jsonl_path,
@@ -446,6 +456,148 @@ class AzrLegacyExtractTests(unittest.TestCase):
             dest = Path(tmp)
             refuse_vendor_paths(dest.rglob("*") if dest.exists() else ())
             self.assertEqual(list(dest.glob("azr-mill*.py")), [])
+
+
+def _tree(text: str) -> ast.Module:
+    return ast.parse(textwrap.dedent(text))
+
+
+def _expr(text: str) -> ast.expr:
+    return ast.parse(text, mode="eval").body
+
+
+def _first(items: Iterable[Any], what: str) -> Any:
+    """The first item, or an AssertionError naming what was expected."""
+
+    try:
+        return next(iter(items))
+    except StopIteration:
+        raise AssertionError(f"expected at least one {what}") from None
+
+
+class AzrRefusalBranchTests(unittest.TestCase):
+    """Each pin refusal and each reader fall-through, one branch each."""
+
+    def setUp(self):
+        self.mill_id = _first(
+            (mill for mill in CATALOG.mills if mill != av.SLICE_MILL_ID), "non-slice mill"
+        )
+        self.mill = CATALOG.mills[self.mill_id]
+        self.source = _first(
+            (s for s in catalog_sources() if s.mill_id == self.mill_id), "source pin"
+        )
+
+    def test_mill_header_refusals(self):
+        moved = replace(self.mill, path="x.py")
+        with self.assertRaisesRegex(ValueError, f"{self.mill_id} pin disagrees"):
+            azr_catalog._bind_mill_header(self.mill_id, moved, self.source)
+        with self.assertRaisesRegex(ValueError, "is not the first slice and must omit pair rows"):
+            azr_catalog._bind_mill_header(self.mill_id, self.mill, self.source)
+
+    def test_deferred_pair_refusals(self):
+        rows = [row for row in load_pair_rows() if row["mill_id"] == self.mill_id]
+        cases = (
+            ("azr-mill-r0", rows, "pairs.jsonl names unknown mill azr-mill-r0"),
+            (self.mill_id, [dict(rows[0], i=5), *rows[1:]], "pair index drifted"),
+            (self.mill_id, [dict(rows[0], path="x.py"), *rows[1:]], "path drifted from catalog"),
+        )
+        for mill_id, mill_rows, message in cases:
+            with self.subTest(message=message), self.assertRaisesRegex(ValueError, message):
+                azr_catalog._deferred_pairs(mill_id, mill_rows, CATALOG.mills)
+
+    def test_committed_pair_refusals(self):
+        cases = (
+            (replace(self.mill, n_rows=self.mill.n_rows + 1), "n_rows does not match"),
+            (replace(self.mill, first_slug="x"), "first_slug drifted"),
+            (replace(self.mill, last_slug="x"), "last_slug drifted"),
+        )
+        for mill, message in cases:
+            with self.subTest(message=message), self.assertRaisesRegex(ValueError, message):
+                azr_catalog._bind_committed_pairs(self.mill_id, mill)
+
+    def test_literal_value_names_negation_and_concatenation(self):
+        env = {"NAME": 1}
+        unset = azr_ast.UNSET
+        cases = (("NAME", 1), ("MISSING", unset), ("-2", -2), ("-'a'", unset), ("not 1", unset),
+                 ("'a' + 'b'", "ab"), ("'a' + 1", unset), ("1 - 2", unset))
+        for text, expected in cases:
+            with self.subTest(text=text):
+                value = azr_ast.literal_value(_expr(text), env)
+                if expected is unset:
+                    self.assertIs(value, unset)
+                else:
+                    self.assertEqual(value, expected)
+
+    def test_call_kwargs_and_joined_paths(self):
+        for text, expected in (("1", None), ("f(1)", None), ("f(**k)", None), ("f(a=x)", None),
+                               ("p.f(a=1)", None), ("f(a=1)", {"a": 1})):
+            with self.subTest(text=text):
+                self.assertEqual(azr_ast.call_kwargs(_expr(text)), expected)
+        for text, expected in (('p.with_suffix("x.py")', None), ("p.with_name()", None),
+                               ('p.with_name("x.py")', "x.py"), ("ROOT / name", None),
+                               ('ROOT / "x.py"', "x.py"), ('"a" / "x.py"', "a/x.py")):
+            with self.subTest(text=text):
+                self.assertEqual(azr_ast.joined_path_constant(_expr(text)), expected)
+
+    def test_tip_slug_asserts_read_only_slug_subscripts(self):
+        text = """
+        if P[0]["slug"] != "ok": pass
+        if P[1]["slug"] != "fail": pass
+        if P[2]["slug"] != "third": pass
+        if P[0]["name"] != "x": pass
+        if P["slug"] != "x": pass
+        if P != "x": pass
+        if P[0]["slug"] == "x": pass
+        if P[0]["slug"] != 1: pass
+        if P[0]["slug"] != other: pass
+        """
+        self.assertEqual(azr_ast.tip_slug_asserts(_tree(text)), {"success": "ok", "fail": "fail"})
+        empty = ast.Compare(left=ast.Constant(1), ops=[], comparators=[])
+        self.assertEqual(azr_ast.tip_slug_asserts(empty), {})
+
+    def test_keep_fail_slug_needs_exactly_one_other_set_member(self):
+        for text, expected in (("KEEP_FROM_UNUSED = ['a', 'b']", None),
+                               ("KEEP_FROM_UNUSED = {'a', 'b'}", "b"),
+                               ("KEEP_FROM_UNUSED = {'a', 'b', 'c'}", None)):
+            with self.subTest(text=text):
+                self.assertEqual(azr_extract._keep_fail_slug(_tree(text), "a"), expected)
+
+    def test_composed_idor_bfla_refuses_unequal_widths(self):
+        mill = """
+        IDOR_ROWS = [dict(slug="own-idor", plant="p")]
+        _load_extra("azr_plants_r9")
+        """
+        plant = 'EXTRA_IDOR_ROWS = [dict(slug="x1", plant="a"), dict(slug="x2", plant="b")]\n'
+        text = textwrap.dedent(mill)
+        with self.assertRaisesRegex(ValueError, "composed idor 3 != bfla 0"):
+            extract_mill_catalog(
+                text, path="experiments/azr-mill-r9.py", plants={"experiments/azr-plants-r9.py": plant}
+            )
+
+    def test_zip_mill_without_plant_text_is_pinned_by_its_tips(self):
+        unread = extract_mill_catalog(_ZIP_SNIPPET, path="experiments/azr-mill-r1365.py")
+        self.assertEqual(unread["shape"], SHAPE_PLANTS_ZIP)
+        self.assertEqual((unread["n_rows"], unread["pairs"]), (None, []))
+        self.assertEqual(unread["first_fail_slug"], "loopback-remote-skip-delete")
+        untipped = _ZIP_SNIPPET.split("if PAIRS")[0]
+        leftover3 = extract_mill_catalog(untipped, path="experiments/azr-mill-r9-leftover3.py")
+        self.assertIsNone(leftover3["first_slug"])
+        with self.assertRaisesRegex(ValueError, "no extractable AZR catalog"):
+            extract_mill_catalog(untipped, path="experiments/azr-mill-r1365.py")
+
+    def test_slice_record_falls_through_or_refuses_a_drifted_tip(self):
+        untipped = _SLICE_SNIPPET.split("if PAIRS")[0]
+        self.assertIsNone(azr_extract._slice_record(_tree(untipped), path="p", plants=None))
+        plant = 'EXTRA_IDOR_ROWS = [dict(slug="other-idor", plant="a")]\n'
+        tree = _tree(_SLICE_SNIPPET)
+        with self.assertRaisesRegex(ValueError, "slice tip drifted"):
+            azr_extract._slice_record(tree, path="p", plants={"experiments/azr-plants-r1285.py": plant})
+
+    def test_pair_rows_refuse_each_line_defect(self):
+        for line, message in (("", "w is empty"), (" {}", "w is not compact"),
+                              ("{nope", "w is not JSON"), ('{"a": 1}', "w keys differ")):
+            with self.subTest(message=message), self.assertRaisesRegex(ValueError, message):
+                azr_extract._pair_row(line, "w")
 
 
 if __name__ == "__main__":

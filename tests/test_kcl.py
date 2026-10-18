@@ -18,7 +18,16 @@ PIPELINES = REPO / "pipelines"
 KCL_DIR = PIPELINES / "kcl"
 COMMITTED = REPO / "config" / "kcl"
 FIXTURE = REPO / "tests" / "fixtures" / "kcl"
-PACKAGE_FILES = ("__init__.py", "_contract.py", "catalog.py", "cli.py", "generate.py")
+PACKAGE_FILES = (
+    "__init__.py",
+    "_contract.py",
+    "_steps.py",
+    "catalog.py",
+    "cli.py",
+    "episode.py",
+    "generate.py",
+    "notes.py",
+)
 
 sys.path.insert(0, str(PIPELINES))
 

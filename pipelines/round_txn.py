@@ -41,6 +41,7 @@ import tempfile
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import NamedTuple
 
 if __package__:
     from . import _assert_direct_sibling, _expose_package_sibling
@@ -100,6 +101,7 @@ sparse_step_progress_errors = _round_txn_coverage.sparse_step_progress_errors
 visibly_names_fault = _round_txn_coverage.visibly_names_fault
 
 MODE_FILE = ".round-marker-mode.json"
+MARKER_MODE_COMMIT_POINT = "ROUND-rNN.complete.json"
 PREFERENCE_V1_LEDGER_FILE = ".preference-v1-marker-ledger.json"
 BATCH_RE = re.compile(r"^batch-r(\d+)([a-z]*)\.jsonl$")
 COMPLETE_RE = re.compile(r"^ROUND-r(\d+)\.complete\.json$")
@@ -225,6 +227,45 @@ def _is_positive_int(value):
     return _is_int(value) and value >= 1
 
 
+def _is_sha256(value):
+    return isinstance(value, str) and SHA256_RE.fullmatch(value) is not None
+
+
+def _is_regular_file(path: Path):
+    """True for a regular file reached without following a final symlink."""
+    return path.is_file() and not path.is_symlink()
+
+
+def _is_real_dir(path: Path):
+    return path.is_dir() and not path.is_symlink()
+
+
+def _path_present(path: Path):
+    """True when anything, including a dangling symlink, occupies ``path``."""
+    return path.exists() or path.is_symlink()
+
+
+def _no_follow(flags: int) -> int:
+    """Add ``O_NOFOLLOW`` to ``os.open`` flags where the platform has it."""
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    return flags
+
+
+def _open_no_follow(path: Path, label: str) -> int:
+    try:
+        return os.open(path, _no_follow(os.O_RDONLY))
+    except OSError as exc:
+        raise TransactionError(f"cannot open {label} safely {path}: {exc}") from exc
+
+
+def _close_fds(*fds: int):
+    """Close every descriptor a ``with`` block has not yet taken over."""
+    for fd in fds:
+        if fd >= 0:
+            os.close(fd)
+
+
 # An operator waiver has to read as a written reason, not as a keystroke.
 EXECUTION_OVERRIDE_MIN_CHARS = 8
 EXECUTION_OVERRIDE_MAX_CHARS = 500
@@ -331,9 +372,7 @@ def utc_now():
 
 def write_exclusive_json(path: Path, payload: dict, *, mode: int = 0o644):
     """Create a JSON file without following or replacing an existing path."""
-    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
-    if hasattr(os, "O_NOFOLLOW"):
-        flags |= os.O_NOFOLLOW
+    flags = _no_follow(os.O_WRONLY | os.O_CREAT | os.O_EXCL)
     fd = os.open(path, flags, mode)
     try:
         with os.fdopen(fd, "w") as handle:
@@ -351,9 +390,7 @@ def write_exclusive_json(path: Path, payload: dict, *, mode: int = 0o644):
 
 def write_exclusive_text(path: Path, content: str, *, mode: int = 0o644):
     """Create a text file without following or replacing an existing path."""
-    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
-    if hasattr(os, "O_NOFOLLOW"):
-        flags |= os.O_NOFOLLOW
+    flags = _no_follow(os.O_WRONLY | os.O_CREAT | os.O_EXCL)
     fd = os.open(path, flags, mode)
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as handle:
@@ -390,13 +427,7 @@ def marker_mode_path(factory_dir: Path) -> Path | None:
 
 def regular_file_metadata(path: Path):
     """Return size and digest from one no-follow regular-file descriptor."""
-    flags = os.O_RDONLY
-    if hasattr(os, "O_NOFOLLOW"):
-        flags |= os.O_NOFOLLOW
-    try:
-        fd = os.open(path, flags)
-    except OSError as exc:
-        raise TransactionError(f"cannot open regular file safely {path}: {exc}") from exc
+    fd = _open_no_follow(path, "regular file")
     try:
         metadata = os.fstat(fd)
         if not stat.S_ISREG(metadata.st_mode):
@@ -412,43 +443,38 @@ def regular_file_metadata(path: Path):
             os.close(fd)
 
 
+def _copy_with_digest(input_handle, output_handle):
+    """Copy one open handle to another and return the copied size and digest."""
+    digest = hashlib.sha256()
+    size = 0
+    for chunk in iter(lambda: input_handle.read(1024 * 1024), b""):
+        output_handle.write(chunk)
+        digest.update(chunk)
+        size += len(chunk)
+    return size, digest.hexdigest()
+
+
 def capture_regular_file(source: Path, destination: Path):
     """Copy one no-follow regular-file descriptor and return captured metadata."""
-    source_flags = os.O_RDONLY
-    if hasattr(os, "O_NOFOLLOW"):
-        source_flags |= os.O_NOFOLLOW
-    try:
-        source_fd = os.open(source, source_flags)
-    except OSError as exc:
-        raise TransactionError(f"cannot open regular file safely {source}: {exc}") from exc
-    destination_flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
-    if hasattr(os, "O_NOFOLLOW"):
-        destination_flags |= os.O_NOFOLLOW
+    source_fd = _open_no_follow(source, "regular file")
+    destination_flags = _no_follow(os.O_WRONLY | os.O_CREAT | os.O_EXCL)
     destination_fd = -1
     try:
         if not stat.S_ISREG(os.fstat(source_fd).st_mode):
             raise TransactionError(f"unsafe non-regular file: {source}")
         destination_fd = os.open(destination, destination_flags, 0o600)
-        digest = hashlib.sha256()
-        size = 0
         with (
             os.fdopen(source_fd, "rb") as input_handle,
             os.fdopen(destination_fd, "wb") as output_handle,
         ):
             source_fd = -1
             destination_fd = -1
-            for chunk in iter(lambda: input_handle.read(1024 * 1024), b""):
-                output_handle.write(chunk)
-                digest.update(chunk)
-                size += len(chunk)
-        return size, digest.hexdigest()
+            captured = _copy_with_digest(input_handle, output_handle)
+        return captured
     except OSError as exc:
         raise TransactionError(f"cannot capture staged file {source}: {exc}") from exc
     finally:
-        if source_fd >= 0:
-            os.close(source_fd)
-        if destination_fd >= 0:
-            os.close(destination_fd)
+        _close_fds(source_fd, destination_fd)
 
 
 def file_sha256(path: Path):
@@ -456,22 +482,23 @@ def file_sha256(path: Path):
     return digest
 
 
+def _link_verified_copy(temporary: Path, destination: Path, expected_sha256: str):
+    """Link the verified temporary copy, accepting only an identical racer."""
+    try:
+        os.link(temporary, destination, follow_symlinks=False)
+    except FileExistsError as exc:
+        if not _existing_published_file_is_reusable(destination, expected_sha256):
+            raise TransactionError(f"publication race at {destination}") from exc
+
+
 def copy_verified_exclusive(source: Path, destination: Path, expected_sha256: str):
     """Atomically publish a verified copy without sharing the staged inode."""
-    source_flags = os.O_RDONLY
-    if hasattr(os, "O_NOFOLLOW"):
-        source_flags |= os.O_NOFOLLOW
-    try:
-        source_fd = os.open(source, source_flags)
-    except OSError as exc:
-        raise TransactionError(f"cannot open staged file safely {source}: {exc}") from exc
+    source_fd = _open_no_follow(source, "staged file")
     if not stat.S_ISREG(os.fstat(source_fd).st_mode):
         os.close(source_fd)
         raise TransactionError(f"staged source is not a regular file: {source}")
     temporary = destination.parent / f".{destination.name}.{uuid.uuid4().hex}.publishing"
-    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
-    if hasattr(os, "O_NOFOLLOW"):
-        flags |= os.O_NOFOLLOW
+    flags = _no_follow(os.O_WRONLY | os.O_CREAT | os.O_EXCL)
     fd = -1
     try:
         fd = os.open(temporary, flags, 0o644)
@@ -483,20 +510,9 @@ def copy_verified_exclusive(source: Path, destination: Path, expected_sha256: st
             os.fsync(output_handle.fileno())
         if file_sha256(temporary) != expected_sha256:
             raise TransactionError(f"staged file changed while publishing: {source}")
-        try:
-            os.link(temporary, destination, follow_symlinks=False)
-        except FileExistsError as exc:
-            if (
-                not destination.is_file()
-                or destination.is_symlink()
-                or file_sha256(destination) != expected_sha256
-            ):
-                raise TransactionError(f"publication race at {destination}") from exc
+        _link_verified_copy(temporary, destination, expected_sha256)
     finally:
-        if source_fd >= 0:
-            os.close(source_fd)
-        if fd >= 0:
-            os.close(fd)
+        _close_fds(source_fd, fd)
         temporary.unlink(missing_ok=True)
 
 
@@ -518,6 +534,18 @@ def valid_legacy_file(path: Path):
         return 0
     errors, _warnings, _kinds, records = check_jsonl(path, path.name)
     return 0 if errors else records
+
+
+def _kinds_without_quarantined(kinds: dict, quarantined_kinds: dict[int, str]) -> dict:
+    """Return kind counts after removing one record per quarantined line."""
+    eligible_kinds = dict(kinds)
+    for kind in quarantined_kinds.values():
+        remaining = eligible_kinds.get(kind, 0) - 1
+        if remaining > 0:
+            eligible_kinds[kind] = remaining
+        else:
+            eligible_kinds.pop(kind, None)
+    return eligible_kinds
 
 
 def validate_legacy_payload(
@@ -546,13 +574,7 @@ def validate_legacy_payload(
     if factory_staging:
         problems.extend(warnings)
         expected_kind = AGENTIC_FACTORY_KINDS[factory_dir.name]
-        eligible_kinds = dict(kinds)
-        for kind in quarantined_kinds.values():
-            remaining = eligible_kinds.get(kind, 0) - 1
-            if remaining > 0:
-                eligible_kinds[kind] = remaining
-            else:
-                eligible_kinds.pop(kind, None)
+        eligible_kinds = _kinds_without_quarantined(kinds, quarantined_kinds)
         unexpected = set(eligible_kinds) - {expected_kind}
         if unexpected:
             problems.append(
@@ -587,8 +609,20 @@ def discover_legacy_frontier(factory_dir: Path):
         else:
             continue
         by_round[round_number] = by_round.get(round_number, 0) + valid_legacy_file(path)
+    return _highest_round_meeting_quota(by_round, quota)
+
+
+def _highest_round_meeting_quota(by_round: dict[int, int], quota: int) -> int:
     eligible = [round_number for round_number, count in by_round.items() if count >= quota]
     return max(eligible, default=0)
+
+
+def _round_has_transaction_marker(factory_dir: Path, round_number: int) -> bool:
+    """True when a regular publishing or completion marker owns the round."""
+    markers = marker_paths(factory_dir, round_number)
+    return any(
+        _is_regular_file(marker) for marker in (markers["publishing"], markers["complete"])
+    )
 
 
 def discover_unmarked_legacy_frontier(factory_dir: Path):
@@ -597,60 +631,49 @@ def discover_unmarked_legacy_frontier(factory_dir: Path):
     quota = FACTORY_QUOTAS.get(factory_dir.name, 1)
     by_round: dict[int, int] = {}
     for path in sorted(factory_dir.glob("batch-r*.jsonl")):
-        if not path.is_file() or path.is_symlink():
+        if not _is_regular_file(path):
             continue
         match = BATCH_RE.fullmatch(path.name)
         if match is None:
             continue
         round_number = int(match.group(1))
-        markers = marker_paths(factory_dir, round_number)
-        if any(
-            marker.is_file() and not marker.is_symlink()
-            for marker in (markers["publishing"], markers["complete"])
-        ):
+        if _round_has_transaction_marker(factory_dir, round_number):
             continue
         records, problems = validate_legacy_payload(path, factory_dir, round_number)
         if not problems:
             by_round[round_number] = by_round.get(round_number, 0) + records
-    eligible = [round_number for round_number, count in by_round.items() if count >= quota]
-    return max(eligible, default=0)
+    return _highest_round_meeting_quota(by_round, quota)
 
 
 def unowned_canonical_batch_collision(factory_dir: Path, round_number: int):
     """Return a next-round canonical path that no transaction marker owns."""
     path = factory_dir / f"batch-r{round_number:02d}.jsonl"
-    if not path.exists() and not path.is_symlink():
+    if not _path_present(path):
         return None
-    markers = marker_paths(factory_dir, round_number)
-    if any(
-        marker.is_file() and not marker.is_symlink()
-        for marker in (markers["publishing"], markers["complete"])
-    ):
+    if _round_has_transaction_marker(factory_dir, round_number):
         return None
     return path
+
+
+def _is_legacy_r01_payload_name(name: str, has_transactional_r01: bool) -> bool:
+    """True for a pre-marker r01 name, or an unsuffixed r01 batch no marker owns."""
+    if name in LEGACY_R1_NAMES:
+        return True
+    if has_transactional_r01:
+        return False
+    match = BATCH_RE.fullmatch(name)
+    return match is not None and int(match.group(1)) == 1 and not match.group(2)
 
 
 def discover_legacy_named_baseline(factory_dir: Path):
     """Return the validated r01 floor contributed by pre-marker payload names."""
     factory_dir = Path(factory_dir)
     quota = FACTORY_QUOTAS.get(factory_dir.name, 1)
-    has_transactional_r01 = any(
-        path.is_file() and not path.is_symlink()
-        for path in (
-            factory_dir / "ROUND-r01.publishing.json",
-            factory_dir / "ROUND-r01.complete.json",
-        )
-    )
+    has_transactional_r01 = _round_has_transaction_marker(factory_dir, 1)
     records = sum(
         valid_legacy_file(path)
         for path in factory_dir.glob("*.jsonl")
-        if path.name in LEGACY_R1_NAMES
-        or (
-            not has_transactional_r01
-            and (match := BATCH_RE.fullmatch(path.name)) is not None
-            and int(match.group(1)) == 1
-            and not match.group(2)
-        )
+        if _is_legacy_r01_payload_name(path.name, has_transactional_r01)
     )
     return 1 if records >= quota else 0
 
@@ -663,6 +686,61 @@ def discover_legacy_named_baseline(factory_dir: Path):
 _SIBLING_ID_CACHE: dict[tuple[Path, str], dict] = {}
 
 
+def _check_run_root_jsonl_ids(run_dir: Path, seen_ids: dict):
+    """Add IDs from regular JSONL kept at the run root to ``seen_ids``."""
+    for path in sorted(run_dir.glob("*.jsonl")):
+        # Dated runs may retain pre-factory legacy JSONL at their root. It
+        # remains part of the run-wide namespace even though it has no
+        # factory marker directory of its own.
+        if _is_regular_file(path):
+            check_jsonl(path, path.relative_to(run_dir), seen_ids=seen_ids)
+
+
+def _sibling_marker_baseline(mode_path: Path) -> int:
+    """Return a sibling's declared legacy baseline, read without re-validation."""
+    mode = read_json(mode_path)
+    baseline = mode.get("legacy_baseline")
+    declared = (mode.get("version"), mode.get("commit_point"))
+    if declared != (1, MARKER_MODE_COMMIT_POINT) or not _is_nonneg_int(baseline):
+        raise TransactionError(f"invalid sibling marker mode: {mode_path}")
+    return baseline
+
+
+def _sibling_completed_batches(sibling: Path):
+    """Yield regular batches whose completion marker names this sibling and round."""
+    for marker in sorted(sibling.glob("ROUND-r*.complete.json")):
+        match = COMPLETE_RE.fullmatch(marker.name)
+        if match is None or not _is_regular_file(marker):
+            continue
+        round_number = int(match.group(1))
+        payload = read_json(marker)
+        claimed = (payload.get("factory"), payload.get("round"), payload.get("commit_point"))
+        if claimed != (sibling.name, round_number, marker.name):
+            continue
+        batch = sibling / f"batch-r{round_number:02d}.jsonl"
+        if _is_regular_file(batch):
+            yield batch
+
+
+def _sibling_id_paths(sibling: Path):
+    """Return the committed and in-flight JSONL a sibling factory owns."""
+    mode_path = marker_mode_path(sibling)
+    if mode_path is None:
+        return committed_jsonl_paths(sibling)
+    baseline = _sibling_marker_baseline(mode_path)
+    paths = legacy_baseline_jsonl_paths(sibling, baseline)
+    paths.extend(_sibling_completed_batches(sibling))
+    paths.extend(in_flight_batch_paths(sibling))
+    return paths
+
+
+def _sibling_id_label(path: Path, run_dir: Path, sibling: Path) -> Path:
+    try:
+        return path.relative_to(run_dir)
+    except ValueError:
+        return Path(sibling.name) / ".inflight" / path.name
+
+
 def sibling_committed_and_inflight_ids(factory_dir: Path):
     """Seed a legacy handoff with IDs already owned by sibling factories."""
     factory_dir = Path(factory_dir)
@@ -672,48 +750,12 @@ def sibling_committed_and_inflight_ids(factory_dir: Path):
     if cached is not None:
         return dict(cached)
     seen_ids: dict = {}
-    for path in sorted(run_dir.glob("*.jsonl")):
-        if path.is_file() and not path.is_symlink():
-            check_jsonl(path, path.relative_to(run_dir), seen_ids=seen_ids)
+    _check_run_root_jsonl_ids(run_dir, seen_ids)
     for sibling in sorted(run_dir.iterdir()):
-        if sibling == factory_dir or not sibling.is_dir() or sibling.is_symlink():
+        if sibling == factory_dir or not _is_real_dir(sibling):
             continue
-        mode_path = marker_mode_path(sibling)
-        if mode_path is None:
-            paths = committed_jsonl_paths(sibling)
-        else:
-            mode = read_json(mode_path)
-            baseline = mode.get("legacy_baseline")
-            if (
-                mode.get("version") != 1
-                or mode.get("commit_point") != "ROUND-rNN.complete.json"
-                or not isinstance(baseline, int)
-                or isinstance(baseline, bool)
-                or baseline < 0
-            ):
-                raise TransactionError(f"invalid sibling marker mode: {mode_path}")
-            paths = legacy_baseline_jsonl_paths(sibling, baseline)
-            for marker in sorted(sibling.glob("ROUND-r*.complete.json")):
-                match = COMPLETE_RE.fullmatch(marker.name)
-                if match is None or not marker.is_file() or marker.is_symlink():
-                    continue
-                round_number = int(match.group(1))
-                payload = read_json(marker)
-                if (
-                    payload.get("factory") == sibling.name
-                    and payload.get("round") == round_number
-                    and payload.get("commit_point") == marker.name
-                ):
-                    batch = sibling / f"batch-r{round_number:02d}.jsonl"
-                    if batch.is_file() and not batch.is_symlink():
-                        paths.append(batch)
-            paths.extend(in_flight_batch_paths(sibling))
-        for path in sorted(set(paths)):
-            try:
-                label = path.relative_to(run_dir)
-            except ValueError:
-                label = Path(sibling.name) / ".inflight" / path.name
-            check_jsonl(path, label, seen_ids=seen_ids)
+        for path in sorted(set(_sibling_id_paths(sibling))):
+            check_jsonl(path, _sibling_id_label(path, run_dir, sibling), seen_ids=seen_ids)
     _SIBLING_ID_CACHE[cache_key] = seen_ids
     return dict(seen_ids)
 
@@ -729,16 +771,10 @@ def validate_legacy_baseline_payloads(
     records_by_round: dict[int, int] = {}
     seen_ids = sibling_committed_and_inflight_ids(factory_dir)
     for path in sorted(factory_dir.glob("*.jsonl")):
-        if not path.is_file() or path.is_symlink():
+        if not _is_regular_file(path):
             continue
-        match = BATCH_RE.fullmatch(path.name)
-        if match is not None:
-            round_number = int(match.group(1))
-            if round_number > baseline:
-                continue
-        elif path.name in LEGACY_R1_NAMES and baseline >= 1:
-            round_number = 1
-        else:
+        round_number = _legacy_baseline_round(path.name, baseline)
+        if round_number is None:
             continue
         records, problems = validate_legacy_payload(
             path,
@@ -747,48 +783,68 @@ def validate_legacy_baseline_payloads(
             seen_ids=seen_ids,
             quarantined_kinds=quarantined_kinds.get(path.name),
         )
-        if records < 1 or problems:
-            details = "\n".join(f"ERROR: {problem}" for problem in problems)
-            raise TransactionError(
-                f"invalid legacy payload covered by marker baseline: {path}"
-                + (f"\n{details}" if details else "")
-            )
+        _require_valid_baseline_payload(path, records, problems)
         _enforce_parity_batch(path, factory_dir, round_number)
         records_by_round[round_number] = records_by_round.get(round_number, 0) + records
     quota = FACTORY_QUOTAS.get(factory_dir.name, 1)
     for round_number, records in records_by_round.items():
-        if factory_dir.name in AGENTIC_FACTORY_KINDS and records != quota:
-            raise TransactionError(
-                f"legacy payloads for r{round_number:02d} require exactly {quota} "
-                f"records for {factory_dir.name}; found {records}"
-            )
-        if records < quota:
-            raise TransactionError(
-                f"legacy payloads for r{round_number:02d} do not meet quota {quota}: {factory_dir}"
-            )
-        if factory_dir.name in AGENTIC_FACTORY_KINDS:
-            notes = factory_dir / f"NOTES-r{round_number:02d}.md"
-            if not notes.is_file() or notes.is_symlink():
-                raise TransactionError(
-                    f"legacy baseline notes missing or unsafe for r{round_number:02d}: {notes}"
-                )
-            coverage_error = validate_novel_coverage(notes, factory_dir)
-            if coverage_error:
-                raise TransactionError(coverage_error)
+        _validate_legacy_baseline_round(factory_dir, round_number, records, quota)
+
+
+def _legacy_baseline_round(name: str, baseline: int) -> int | None:
+    """Return the round a top-level JSONL name holds when the baseline covers it."""
+    match = BATCH_RE.fullmatch(name)
+    if match is not None:
+        round_number = int(match.group(1))
+        return round_number if round_number <= baseline else None
+    if name in LEGACY_R1_NAMES and baseline >= 1:
+        return 1
+    return None
+
+
+def _require_valid_baseline_payload(path: Path, records: int, problems: list):
+    if records < 1 or problems:
+        details = "\n".join(f"ERROR: {problem}" for problem in problems)
+        raise TransactionError(
+            f"invalid legacy payload covered by marker baseline: {path}"
+            + (f"\n{details}" if details else "")
+        )
+
+
+def _validate_legacy_baseline_round(factory_dir: Path, round_number: int, records: int, quota):
+    """Enforce one baseline round's quota, and the NOTES contract for agentic lanes."""
+    agentic = factory_dir.name in AGENTIC_FACTORY_KINDS
+    if agentic and records != quota:
+        raise TransactionError(
+            f"legacy payloads for r{round_number:02d} require exactly {quota} "
+            f"records for {factory_dir.name}; found {records}"
+        )
+    if records < quota:
+        raise TransactionError(
+            f"legacy payloads for r{round_number:02d} do not meet quota {quota}: {factory_dir}"
+        )
+    if agentic:
+        _require_legacy_baseline_notes(factory_dir, round_number)
+
+
+def _require_legacy_baseline_notes(factory_dir: Path, round_number: int):
+    notes = factory_dir / f"NOTES-r{round_number:02d}.md"
+    if not _is_regular_file(notes):
+        raise TransactionError(
+            f"legacy baseline notes missing or unsafe for r{round_number:02d}: {notes}"
+        )
+    coverage_error = validate_novel_coverage(notes, factory_dir)
+    if coverage_error:
+        raise TransactionError(coverage_error)
 
 
 def legacy_baseline_jsonl_paths(factory_dir: Path, baseline: int):
     """Return regular top-level JSONL made visible by a legacy baseline."""
-    visible = []
-    for path in sorted(factory_dir.glob("*.jsonl")):
-        if not path.is_file() or path.is_symlink():
-            continue
-        match = BATCH_RE.fullmatch(path.name)
-        if match is not None and int(match.group(1)) <= baseline:
-            visible.append(path)
-        elif baseline >= 1 and path.name in LEGACY_R1_NAMES:
-            visible.append(path)
-    return visible
+    return [
+        path
+        for path in sorted(factory_dir.glob("*.jsonl"))
+        if _is_regular_file(path) and _legacy_baseline_round(path.name, baseline) is not None
+    ]
 
 
 def marker_paths(factory_dir: Path, round_number: int):
@@ -852,7 +908,7 @@ def _completion_file_entry_is_safe(entry, names):
         return False
     if Path(name).name != name or name in names:
         return False
-    return isinstance(digest, str) and SHA256_RE.fullmatch(digest) is not None
+    return _is_sha256(digest)
 
 
 def _validated_completion_file_names(payload, round_number, path, factory_dir):
@@ -875,29 +931,37 @@ def _validated_completion_file_names(payload, round_number, path, factory_dir):
     return names, batch_name, notes_name
 
 
-def _bind_completion_execution_verdict(
-    factory_dir,
-    round_number,
-    payload,
-    path,
-    batch_name,
-    cutover,
-    bound_verified_rounds,
-):
+class _CompletionMarker(NamedTuple):
+    """A completion marker path and the identity-checked payload read from it."""
+
+    path: Path
+    payload: dict
+
+
+def _round_requires_execution_verdict(round_number, gate_policy) -> bool:
+    """True when the cutover or an explicit binding gates this round."""
+    cutover, bound_verified_rounds = gate_policy
+    if _is_positive_int(cutover) and round_number >= cutover:
+        return True
+    return round_number in bound_verified_rounds
+
+
+def _bind_completion_execution_verdict(factory_dir, round_number, marker, gate_policy):
+    """Validate one marker's execution verdict under ``execution_gate_policy``."""
+    payload, path = marker.payload, marker.path
     marker_version = completion_marker_version(payload, path)
     publication = _code_repair_publication()
-    if publication.inspect_completed_if_required(factory_dir / batch_name, payload):
+    batch = factory_dir / f"batch-r{round_number:02d}.jsonl"
+    if publication.inspect_completed_if_required(batch, payload):
         return True
-    gated_round = (
-        _is_positive_int(cutover) and round_number >= cutover
-    ) or round_number in bound_verified_rounds
+    gated_round = _round_requires_execution_verdict(round_number, gate_policy)
     if marker_version == LEGACY_COMPLETION_MARKER_VERSION:
         if gated_round:
             raise TransactionError(
                 f"completion marker version downgrade cannot skip execution verification: {path}"
             )
         return False
-    validate_completed_execution_verification(factory_dir / batch_name, payload)
+    validate_completed_execution_verification(batch, payload)
     return True
 
 
@@ -955,28 +1019,14 @@ def completed_manifests(
     """
     seen_ids = sibling_committed_and_inflight_ids(factory_dir)
     _validate_legacy_baseline_ids(factory_dir, seen_ids, quarantined_kinds=quarantined_kinds)
-    cutover, bound_verified_rounds = execution_gate_policy(factory_dir)
+    gate_policy = execution_gate_policy(factory_dir)
     manifests = {}
-    loaded_markers = []
-    for path in factory_dir.glob("ROUND-r*.complete.json"):
-        loaded = _load_completion_marker_payload(path, factory_dir)
-        if loaded is None:
-            continue
-        loaded_markers.append((loaded[0], path, loaded[1]))
-    for round_number, path, payload in sorted(loaded_markers, key=lambda item: item[0]):
-        names, batch_name, notes_name = _validated_completion_file_names(
-            payload, round_number, path, factory_dir
-        )
-        _completed_preference_marker_is_sealed(
-            PreferenceMarkerReview(factory_dir, round_number, path, payload, names)
-        )
-        coverage_error = validate_novel_coverage(factory_dir / notes_name, factory_dir)
-        if coverage_error:
-            raise TransactionError(coverage_error)
+    for round_number, marker in _loaded_completion_markers(factory_dir):
+        names = _validated_completion_marker_files(factory_dir, round_number, marker)
         validate_completed_batch(
             factory_dir,
             round_number,
-            payload,
+            marker.payload,
             seen_ids=seen_ids,
             allow_unmigrated_preference_v1=_allow_unmigrated_preference_v1,
         )
@@ -984,26 +1034,42 @@ def completed_manifests(
         # every manifest-bound byte afterwards so content swapped during
         # validation cannot advance the visible frontier.
         for name in names:
-            completion_manifest_file_matches(factory_dir / name, payload)
-        _bind_completion_execution_verdict(
-            factory_dir,
-            round_number,
-            payload,
-            path,
-            batch_name,
-            cutover,
-            bound_verified_rounds,
-        )
+            completion_manifest_file_matches(factory_dir / name, marker.payload)
+        _bind_completion_execution_verdict(factory_dir, round_number, marker, gate_policy)
         if round_number in manifests:
             raise TransactionError(f"duplicate completion markers for r{round_number:02d}")
-        manifests[round_number] = payload
+        manifests[round_number] = marker.payload
     return manifests
 
 
-def completion_manifest_file_matches(path: Path, manifest: dict) -> bool:
-    """Validate one regular committed artifact against its manifest entry."""
-    if not path.is_file() or path.is_symlink():
-        raise TransactionError(f"unsafe committed artifact: {path}")
+def _loaded_completion_markers(factory_dir: Path):
+    """Return identity-checked completion markers in ascending round order."""
+    loaded_markers = []
+    for path in factory_dir.glob("ROUND-r*.complete.json"):
+        loaded = _load_completion_marker_payload(path, factory_dir)
+        if loaded is None:
+            continue
+        loaded_markers.append((loaded[0], _CompletionMarker(path, loaded[1])))
+    return sorted(loaded_markers, key=lambda item: item[0])
+
+
+def _validated_completion_marker_files(factory_dir, round_number, marker):
+    """Check one marker's file entries, preference seal, and NOTES coverage."""
+    payload, path = marker.payload, marker.path
+    names, _batch_name, notes_name = _validated_completion_file_names(
+        payload, round_number, path, factory_dir
+    )
+    _completed_preference_marker_is_sealed(
+        PreferenceMarkerReview(factory_dir, round_number, path, payload, names)
+    )
+    coverage_error = validate_novel_coverage(factory_dir / notes_name, factory_dir)
+    if coverage_error:
+        raise TransactionError(coverage_error)
+    return names
+
+
+def _unique_completion_entry_digest(path: Path, manifest: dict):
+    """Return the well-formed digest of the one manifest entry naming ``path``."""
     entries = [
         entry
         for entry in manifest["files"]
@@ -1012,8 +1078,16 @@ def completion_manifest_file_matches(path: Path, manifest: dict) -> bool:
     if len(entries) != 1:
         raise TransactionError(f"completion marker has no unique file entry for {path}")
     digest = entries[0].get("sha256")
-    if not isinstance(digest, str) or SHA256_RE.fullmatch(digest) is None:
+    if not _is_sha256(digest):
         raise TransactionError(f"completion marker has invalid file hash for {path}")
+    return digest
+
+
+def completion_manifest_file_matches(path: Path, manifest: dict) -> bool:
+    """Validate one regular committed artifact against its manifest entry."""
+    if not _is_regular_file(path):
+        raise TransactionError(f"unsafe committed artifact: {path}")
+    digest = _unique_completion_entry_digest(path, manifest)
     if file_sha256(path) != digest:
         raise TransactionError(f"completed file hash mismatch: {path}")
     return True
@@ -1076,7 +1150,7 @@ def ensure_marker_mode(factory_dir: Path):
         "version": 1,
         "created_at": utc_now(),
         "legacy_baseline": baseline,
-        "commit_point": "ROUND-rNN.complete.json",
+        "commit_point": MARKER_MODE_COMMIT_POINT,
     }
     try:
         write_exclusive_json(mode_path, payload)
@@ -1101,14 +1175,31 @@ def validated_marker_mode(
         mode_path = marker_mode_path(factory_dir)
     if mode_path is None:
         raise TransactionError(f"marker mode is not enabled for {factory_dir}")
+    mode = _read_marker_mode_declaration(mode_path)
+    baseline = mode["legacy_baseline"]
+    _require_baseline_covers_legacy_frontiers(factory_dir, mode_path, baseline)
+    validate_legacy_baseline_payloads(
+        factory_dir,
+        baseline,
+        quarantined_kinds=quarantined_kinds,
+    )
+    return mode
+
+
+def _read_marker_mode_declaration(mode_path: Path) -> dict:
+    """Read a marker-mode file and check its version, commit point, and baseline type."""
     mode = read_json(mode_path)
     if mode.get("version") != 1:
         raise TransactionError(f"unsupported marker mode version in {mode_path}")
-    if mode.get("commit_point") != "ROUND-rNN.complete.json":
+    if mode.get("commit_point") != MARKER_MODE_COMMIT_POINT:
         raise TransactionError(f"invalid marker mode commit point in {mode_path}")
-    baseline = mode.get("legacy_baseline")
-    if not isinstance(baseline, int) or isinstance(baseline, bool) or baseline < 0:
+    if not _is_nonneg_int(mode.get("legacy_baseline")):
         raise TransactionError(f"invalid legacy_baseline in {mode_path}")
+    return mode
+
+
+def _require_baseline_covers_legacy_frontiers(factory_dir: Path, mode_path: Path, baseline: int):
+    """A declared baseline may neither exceed nor hide a validated legacy frontier."""
     legacy_frontier = discover_legacy_frontier(factory_dir)
     if baseline > legacy_frontier:
         raise TransactionError(
@@ -1126,22 +1217,21 @@ def validated_marker_mode(
             f"legacy_baseline in {mode_path} excludes validated unmarked legacy "
             f"frontier r{unmarked_frontier:02d}"
         )
-    validate_legacy_baseline_payloads(
-        factory_dir,
-        baseline,
-        quarantined_kinds=quarantined_kinds,
-    )
-    return mode
+
+
+def _is_strictly_ascending_round_list(rounds) -> bool:
+    if not isinstance(rounds, list):
+        return False
+    if any(not _is_positive_int(round_number) for round_number in rounds):
+        return False
+    return len(rounds) == len(set(rounds)) and rounds == sorted(rounds)
 
 
 def _validated_execution_verified_rounds(mode, mode_path, cutover):
     rounds = mode.get(EXECUTION_VERIFIED_ROUNDS_FIELD, [])
-    if not isinstance(rounds, list):
+    if not _is_strictly_ascending_round_list(rounds):
         raise TransactionError(f"invalid {EXECUTION_VERIFIED_ROUNDS_FIELD} in {mode_path}")
-    if any(not _is_positive_int(round_number) for round_number in rounds):
-        raise TransactionError(f"invalid {EXECUTION_VERIFIED_ROUNDS_FIELD} in {mode_path}")
-    if len(rounds) != len(set(rounds)) or rounds != sorted(rounds):
-        raise TransactionError(f"invalid {EXECUTION_VERIFIED_ROUNDS_FIELD} in {mode_path}")
+    # Gap-filled rounds exist only below a recorded cutover.
     if cutover is None and rounds:
         raise TransactionError(f"invalid {EXECUTION_VERIFIED_ROUNDS_FIELD} in {mode_path}")
     if cutover is not None and any(round_number >= cutover for round_number in rounds):
@@ -1169,6 +1259,30 @@ def execution_gate_cutover_round(factory_dir: Path):
     return cutover
 
 
+def _legacy_completion_rounds(factory_dir: Path) -> list[int]:
+    """Rounds whose identity-checked completion marker is still version 1."""
+    legacy_rounds = []
+    for path in factory_dir.glob("ROUND-r*.complete.json"):
+        loaded = _load_completion_marker_payload(path, factory_dir)
+        if loaded is None:
+            continue
+        marker_round, payload = loaded
+        if completion_marker_version(payload, path) == LEGACY_COMPLETION_MARKER_VERSION:
+            legacy_rounds.append(marker_round)
+    return legacy_rounds
+
+
+def _record_first_execution_cutover(factory_dir, mode_path, mode, round_number):
+    """Place the first cutover after every legacy marker, binding a gap-filled round."""
+    legacy_rounds = _legacy_completion_rounds(factory_dir)
+    cutover = max([round_number, *(legacy_round + 1 for legacy_round in legacy_rounds)])
+    updated = dict(mode)
+    updated[EXECUTION_CUTOVER_FIELD] = cutover
+    if round_number < cutover:
+        updated[EXECUTION_VERIFIED_ROUNDS_FIELD] = [round_number]
+    replace_json_atomically(mode_path, updated)
+
+
 def remember_execution_gate_cutover(factory_dir: Path, round_number: int):
     """Bind the cutover after every pre-existing legacy completion marker."""
     mode_path = marker_mode_path(factory_dir)
@@ -1177,20 +1291,7 @@ def remember_execution_gate_cutover(factory_dir: Path, round_number: int):
     mode = read_json(mode_path)
     existing = mode.get(EXECUTION_CUTOVER_FIELD)
     if existing is None:
-        legacy_rounds = []
-        for path in factory_dir.glob("ROUND-r*.complete.json"):
-            loaded = _load_completion_marker_payload(path, factory_dir)
-            if loaded is None:
-                continue
-            marker_round, payload = loaded
-            if completion_marker_version(payload, path) == LEGACY_COMPLETION_MARKER_VERSION:
-                legacy_rounds.append(marker_round)
-        cutover = max([round_number, *(legacy_round + 1 for legacy_round in legacy_rounds)])
-        updated = dict(mode)
-        updated[EXECUTION_CUTOVER_FIELD] = cutover
-        if round_number < cutover:
-            updated[EXECUTION_VERIFIED_ROUNDS_FIELD] = [round_number]
-        replace_json_atomically(mode_path, updated)
+        _record_first_execution_cutover(factory_dir, mode_path, mode, round_number)
         return
     if not _is_positive_int(existing):
         raise TransactionError(f"invalid {EXECUTION_CUTOVER_FIELD} in {mode_path}")
@@ -1238,13 +1339,26 @@ def validated_reservation_stage(factory_dir: Path, round_number: int, token: str
     return expected
 
 
+def _make_stage_component(parent_fd: int, part: str, current: Path, *, is_stage: bool):
+    """Create one stage path component; only the final stage must be new."""
+    try:
+        os.mkdir(part, dir_fd=parent_fd)
+    except FileExistsError:
+        if is_stage:
+            raise TransactionError(
+                f"reservation staging directory already exists: {current}"
+            ) from None
+    except OSError as exc:
+        raise TransactionError(
+            f"cannot create reservation staging directory {current}: {exc}"
+        ) from exc
+
+
 def create_reservation_stage(factory_dir: Path, round_number: int, token: str):
     """Create a reserved stage through no-follow directory descriptors."""
     expected = staging_dir(factory_dir, round_number, token)
     outputs_dir = expected.parents[3]
-    flags = os.O_RDONLY | os.O_DIRECTORY
-    if hasattr(os, "O_NOFOLLOW"):
-        flags |= os.O_NOFOLLOW
+    flags = _no_follow(os.O_RDONLY | os.O_DIRECTORY)
     try:
         parent_fd = os.open(outputs_dir, flags)
     except OSError as exc:
@@ -1254,18 +1368,7 @@ def create_reservation_stage(factory_dir: Path, round_number: int, token: str):
         parts = expected.relative_to(outputs_dir).parts
         for index, part in enumerate(parts):
             current /= part
-            is_stage = index == len(parts) - 1
-            try:
-                os.mkdir(part, dir_fd=parent_fd)
-            except FileExistsError:
-                if is_stage:
-                    raise TransactionError(
-                        f"reservation staging directory already exists: {current}"
-                    ) from None
-            except OSError as exc:
-                raise TransactionError(
-                    f"cannot create reservation staging directory {current}: {exc}"
-                ) from exc
+            _make_stage_component(parent_fd, part, current, is_stage=index == len(parts) - 1)
             try:
                 child_fd = os.open(part, flags, dir_fd=parent_fd)
             except OSError as exc:
@@ -1277,6 +1380,21 @@ def create_reservation_stage(factory_dir: Path, round_number: int, token: str):
     return expected
 
 
+def _require_locked_quota(factory: str, expected: int):
+    configured_quota = FACTORY_QUOTAS.get(factory)
+    if quota_is_locked(factory) and expected != configured_quota:
+        raise TransactionError(
+            f"{factory} requires exactly {configured_quota} records; "
+            f"got --expected {expected}"
+        )
+
+
+def _require_unclaimed_marker_paths(paths: dict):
+    for role, path in paths.items():
+        if _path_present(path):
+            raise TransactionError(f"{role} path already exists: {path}")
+
+
 def reserve(
     factory_dir: Path,
     round_number: int,
@@ -1284,17 +1402,12 @@ def reserve(
     preference_isolation: str | None = None,
 ):
     factory_dir = Path(factory_dir).resolve()
-    if not isinstance(round_number, int) or isinstance(round_number, bool) or round_number < 1:
+    if not _is_positive_int(round_number):
         raise TransactionError("round number must be at least 1")
-    if not isinstance(expected, int) or isinstance(expected, bool) or expected < 1:
+    if not _is_positive_int(expected):
         raise TransactionError("expected record count must be at least 1")
     require_preference_isolation(factory_dir.name, preference_isolation)
-    configured_quota = FACTORY_QUOTAS.get(factory_dir.name)
-    if quota_is_locked(factory_dir.name) and expected != configured_quota:
-        raise TransactionError(
-            f"{factory_dir.name} requires exactly {configured_quota} records; "
-            f"got --expected {expected}"
-        )
+    _require_locked_quota(factory_dir.name, expected)
     ensure_marker_mode(factory_dir)
     status = frontier_status(factory_dir)
     if round_number != status["next_round"]:
@@ -1302,9 +1415,7 @@ def reserve(
             f"round r{round_number:02d} is not the frontier; expected r{status['next_round']:02d}"
         )
     paths = marker_paths(factory_dir, round_number)
-    for role, path in paths.items():
-        if path.exists() or path.is_symlink():
-            raise TransactionError(f"{role} path already exists: {path}")
+    _require_unclaimed_marker_paths(paths)
 
     token = uuid.uuid4().hex
     stage = create_reservation_stage(factory_dir, round_number, token)
@@ -1339,40 +1450,61 @@ def committed_jsonl_paths(factory_dir: Path):
     """
     mode_path = marker_mode_path(factory_dir)
     if mode_path is None:
-        files = sorted(
-            path
-            for path in factory_dir.rglob("*.jsonl")
-            if path.is_file() and not path.is_symlink()
-        )
+        files = sorted(path for path in factory_dir.rglob("*.jsonl") if _is_regular_file(path))
         publication = _code_repair_publication()
         publication.require_legacy_only(factory_dir, files)
         return files
 
-    files = sorted(
-        path for path in factory_dir.glob("*.jsonl") if path.is_file() and not path.is_symlink()
-    )
+    files = sorted(path for path in factory_dir.glob("*.jsonl") if _is_regular_file(path))
 
     mode = validated_marker_mode(factory_dir, mode_path)
     baseline = mode["legacy_baseline"]
     manifests = completed_manifests(factory_dir)
-    visible = []
-    for path in files:
-        match = BATCH_RE.fullmatch(path.name)
-        if match is not None:
-            round_number = int(match.group(1))
-            suffix = match.group(2)
-            if round_number <= baseline:
-                visible.append(path)
-            elif (
-                not suffix
-                and round_number in manifests
-                and batch_matches_completion_manifest(path, manifests[round_number])
-            ):
-                visible.append(path)
-            continue
-        if baseline >= 1 and path.name in LEGACY_R1_NAMES:
-            visible.append(path)
-    return visible
+    return [path for path in files if _is_marker_mode_visible(path, baseline, manifests)]
+
+
+def _is_marker_mode_visible(path: Path, baseline: int, manifests: dict[int, dict]) -> bool:
+    """True for baseline-covered JSONL or an unsuffixed batch its manifest verifies."""
+    match = BATCH_RE.fullmatch(path.name)
+    if match is None:
+        return baseline >= 1 and path.name in LEGACY_R1_NAMES
+    round_number = int(match.group(1))
+    if round_number <= baseline:
+        return True
+    if match.group(2) or round_number not in manifests:
+        return False
+    return batch_matches_completion_manifest(path, manifests[round_number])
+
+
+def _publishing_marker_stage(factory_dir: Path, marker: Path, round_number: int) -> Path:
+    """Return the reserved stage an identity- and token-checked publishing marker owns."""
+    manifest = read_json(marker)
+    if manifest.get("factory") != factory_dir.name or manifest.get("round") != round_number:
+        raise TransactionError(f"publishing marker identity mismatch: {marker}")
+    reservation_path = marker_paths(factory_dir, round_number)["reservation"]
+    if not reservation_path.is_file():
+        raise TransactionError(f"publishing marker has no reservation: {marker}")
+    reservation = read_json(reservation_path)
+    token = reservation.get("token")
+    if not isinstance(token, str) or token != manifest.get("token"):
+        raise TransactionError(f"publishing marker token mismatch: {marker}")
+    try:
+        return validated_reservation_stage(
+            factory_dir, round_number, token, reservation.get("staging_dir")
+        )
+    except TransactionError as exc:
+        raise TransactionError(
+            f"publishing marker staging path is unsafe: {marker}: {exc}"
+        ) from exc
+
+
+def _publishing_marker_batch(factory_dir: Path, marker: Path, stage: Path, round_number: int):
+    """Prefer the staged batch, then the already linked one; one must be readable."""
+    batch_name = f"batch-r{round_number:02d}.jsonl"
+    for candidate in (stage / batch_name, factory_dir / batch_name):
+        if _is_regular_file(candidate):
+            return candidate
+    raise TransactionError(f"publishing marker has no readable batch: {marker}")
 
 
 def in_flight_batch_paths(factory_dir: Path):
@@ -1389,61 +1521,34 @@ def in_flight_batch_paths(factory_dir: Path):
         if match is None:
             continue
         round_number = int(match.group(1))
-        manifest = read_json(marker)
-        if manifest.get("factory") != factory_dir.name or manifest.get("round") != round_number:
-            raise TransactionError(f"publishing marker identity mismatch: {marker}")
-        reservation_path = marker_paths(factory_dir, round_number)["reservation"]
-        if not reservation_path.is_file():
-            raise TransactionError(f"publishing marker has no reservation: {marker}")
-        reservation = read_json(reservation_path)
-        token = reservation.get("token")
-        if not isinstance(token, str) or token != manifest.get("token"):
-            raise TransactionError(f"publishing marker token mismatch: {marker}")
-        try:
-            stage = validated_reservation_stage(
-                factory_dir, round_number, token, reservation.get("staging_dir")
-            )
-        except TransactionError as exc:
-            raise TransactionError(
-                f"publishing marker staging path is unsafe: {marker}: {exc}"
-            ) from exc
-        batch_name = f"batch-r{round_number:02d}.jsonl"
-        staged_batch = stage / batch_name
-        if staged_batch.is_file() and not staged_batch.is_symlink():
-            yield staged_batch
-            continue
-        linked_batch = factory_dir / batch_name
-        if linked_batch.is_file() and not linked_batch.is_symlink():
-            yield linked_batch
-            continue
-        raise TransactionError(f"publishing marker has no readable batch: {marker}")
+        stage = _publishing_marker_stage(factory_dir, marker, round_number)
+        yield _publishing_marker_batch(factory_dir, marker, stage, round_number)
 
 
 def committed_ids(factory_dir: Path):
     """Seed the run-wide ID namespace from committed/legacy raw JSONL."""
     seen_ids: dict = {}
     run_dir = factory_dir.parent
-    for path in sorted(run_dir.glob("*.jsonl")):
-        # Dated runs may retain pre-factory legacy JSONL at their root. It
-        # remains part of the run-wide namespace even though it has no
-        # factory marker directory of its own.
-        if path.is_file() and not path.is_symlink():
-            check_jsonl(path, path.relative_to(run_dir), seen_ids=seen_ids)
+    _check_run_root_jsonl_ids(run_dir, seen_ids)
     for candidate in sorted(run_dir.iterdir()):
-        if not candidate.is_dir() or candidate.is_symlink():
+        if not _is_real_dir(candidate):
             continue
         for path in committed_jsonl_paths(candidate):
             # Existing defects are reported by run audits. Here we only need
             # their identity namespace so a new round cannot reuse it.
             check_jsonl(path, path.relative_to(run_dir), seen_ids=seen_ids)
         if candidate != factory_dir:
-            for path in in_flight_batch_paths(candidate):
-                # Staging sits alongside ``raw``, so this path is not always
-                # relative to the run directory.  Its label is diagnostic
-                # only; the path itself remains the source for ID checking.
-                label = Path(candidate.name) / ".inflight" / path.name
-                check_jsonl(path, label, seen_ids=seen_ids)
+            _check_in_flight_ids(candidate, seen_ids)
     return seen_ids
+
+
+def _check_in_flight_ids(candidate: Path, seen_ids: dict):
+    for path in in_flight_batch_paths(candidate):
+        # Staging sits alongside ``raw``, so this path is not always
+        # relative to the run directory.  Its label is diagnostic
+        # only; the path itself remains the source for ID checking.
+        label = Path(candidate.name) / ".inflight" / path.name
+        check_jsonl(path, label, seen_ids=seen_ids)
 
 
 @contextlib.contextmanager
@@ -1530,6 +1635,16 @@ def validate_preference_arm_gate(
         raise TransactionError(f"preference arm gate failed: {exc}") from exc
 
     summary = {key: value for key, value in scan.summary.items() if key != "source"}
+    _require_full_preference_scan(summary, records)
+    if scan.blocked:
+        raise TransactionError(
+            "preference arm gate blocked publication:\n" + "\n".join(_blocked_decisions(scan))
+        )
+    return summary
+
+
+def _require_full_preference_scan(summary: dict, records: int):
+    """The FFPC gate must have inspected every staged record as a preference pair."""
     if summary["preference_pairs"] != records:
         raise TransactionError(
             "preference arm gate did not inspect every staged record: "
@@ -1539,15 +1654,15 @@ def validate_preference_arm_gate(
         raise TransactionError(
             "preference arm gate skipped non-preference records in the FFPC batch"
         )
-    if scan.blocked:
-        blocked = [
-            f"{decision.source_path}:{decision.source_line} "
-            f"{decision.record_id or '<no-id>'}: " + ", ".join(decision.reason_codes)
-            for decision in scan.decisions
-            if decision.blocked
-        ]
-        raise TransactionError("preference arm gate blocked publication:\n" + "\n".join(blocked))
-    return summary
+
+
+def _blocked_decisions(scan) -> list[str]:
+    return [
+        f"{decision.source_path}:{decision.source_line} "
+        f"{decision.record_id or '<no-id>'}: " + ", ".join(decision.reason_codes)
+        for decision in scan.decisions
+        if decision.blocked
+    ]
 
 
 def _completed_batch_is_training_ready(batch, seen_ids, factory_staging):
@@ -1585,7 +1700,8 @@ def _completed_counts_match_manifest(manifest, records, kinds, batch):
         raise TransactionError(f"completion marker kinds do not match batch: {batch}")
 
 
-def _completed_agentic_envelope_matches(factory_dir, round_number, batch, kinds, records):
+def _completed_agentic_envelope_matches(factory_dir, round_number, kinds, records):
+    batch = factory_dir / f"batch-r{round_number:02d}.jsonl"
     expected_kind = AGENTIC_FACTORY_KINDS[factory_dir.name]
     if set(kinds) != {expected_kind}:
         raise TransactionError(
@@ -1634,7 +1750,7 @@ def validate_completed_batch(
         )
     )
     if factory_staging:
-        _completed_agentic_envelope_matches(factory_dir, round_number, batch, kinds, records)
+        _completed_agentic_envelope_matches(factory_dir, round_number, kinds, records)
 
 
 def validate_novel_coverage(
@@ -1665,25 +1781,37 @@ def validate_novel_coverage(
         except (OSError, UnicodeError) as exc:
             return f"cannot read notes as UTF-8: {notes}: {exc}"
     if strict_new_publish:
-        labeled_lines = [
-            line
-            for line in re.split(r"\r\n|\n|\r", notes_text)
-            if NOVEL_COVERAGE_LABEL_RE.search(line)
-        ]
-        if not labeled_lines:
-            return f"notes need a 'Novel coverage: <N>%' line: {notes}"
-        if len(labeled_lines) != 1:
-            return f"notes need exactly one unambiguous Novel coverage line: {notes}"
-        match = NOVEL_COVERAGE_RE.fullmatch(labeled_lines[0])
-    else:
-        # Historical NOTES were accepted by this multiline prefix search.
-        # Preserve its first-match behavior, including split claims, suffixes,
-        # and duplicate labels that new publication rejects.
-        match = LEGACY_NOVEL_COVERAGE_RE.search(notes_text)
-    if match is None:
-        if strict_new_publish:
-            return f"notes need exactly one unambiguous Novel coverage line: {notes}"
+        return _strict_novel_coverage_error(notes, notes_text)
+    # Historical NOTES were accepted by this multiline prefix search.
+    # Preserve its first-match behavior, including split claims, suffixes,
+    # and duplicate labels that new publication rejects.
+    return _novel_coverage_value_error(
+        notes,
+        LEGACY_NOVEL_COVERAGE_RE.search(notes_text),
+        f"notes need a 'Novel coverage: <N>%' line: {notes}",
+    )
+
+
+def _strict_novel_coverage_error(notes: Path, notes_text: str) -> str | None:
+    """New publication needs exactly one labeled line, and it must parse whole."""
+    labeled_lines = [
+        line
+        for line in re.split(r"\r\n|\n|\r", notes_text)
+        if NOVEL_COVERAGE_LABEL_RE.search(line)
+    ]
+    if not labeled_lines:
         return f"notes need a 'Novel coverage: <N>%' line: {notes}"
+    ambiguous = f"notes need exactly one unambiguous Novel coverage line: {notes}"
+    if len(labeled_lines) != 1:
+        return ambiguous
+    return _novel_coverage_value_error(
+        notes, NOVEL_COVERAGE_RE.fullmatch(labeled_lines[0]), ambiguous
+    )
+
+
+def _novel_coverage_value_error(notes: Path, match, missing_error: str) -> str | None:
+    if match is None:
+        return missing_error
     value = float(match.group(1))
     if not 0 <= value <= 100:
         return f"Novel coverage must be between 0% and 100%: {notes}"
@@ -1748,35 +1876,20 @@ def validate_stage(
     preference_diagnosis_handoff = None
     with tempfile.TemporaryDirectory(prefix="round-validate-") as temporary:
         captured_dir = Path(temporary)
-        captured_files = {
-            path.name: capture_regular_file(path, captured_dir / path.name)
-            for path in initial_paths
-        }
-        try:
-            final_paths = sorted(stage.iterdir())
-        except OSError as exc:
-            raise TransactionError(f"cannot inspect staging directory {stage}: {exc}") from exc
-        if {path.name for path in final_paths} != initial_names:
-            raise TransactionError("staging file set changed during validation")
-        if any(not path.is_file() or path.is_symlink() for path in final_paths):
-            raise TransactionError("staging file set changed during validation")
+        captured_files = _capture_stage_files(stage, initial_paths, initial_names, captured_dir)
 
         batch = captured_dir / batch_name
         publication = _code_repair_publication()
         procedural = publication.require_route(factory_dir, batch, override=execution_override)
-        _stage_checks.validate_notes(
-            _stage_checks.NotesPaths(captured_dir, notes_name, stage, factory_dir),
-            _stage_checks.NotesPolicy(
-                TransactionError, validate_novel_coverage, factory_dir.name in FACTORY_QUOTAS,
-            ),
-        )
+        _validate_stage_notes(captured_dir, notes_name, stage, factory_dir)
         kinds, records = _validate_staged_batch(
             batch, factory_dir, expected, round_number,
         )
         if factory_dir.name == PREFERENCE_ISOLATION_FACTORY:
-            preference_arm_gate = validate_preference_arm_gate(batch, records, preference_isolation)
-            preference_diagnosis_handoff = validate_preference_diagnosis_handoff(
+            preference_arm_gate, preference_diagnosis_handoff = _preference_stage_evidence(
                 captured_dir,
+                records,
+                preference_isolation,
                 PreferenceHandoffExpectation(
                     factory_dir=factory_dir,
                     round_number=round_number,
@@ -1793,7 +1906,47 @@ def validate_stage(
             else execution_gate(batch, stage / batch_name, override=execution_override)
         )
 
-    files = [
+    files = _stage_file_entries(initial_paths, captured_files)
+    return files, kinds, records, verification, preference_arm_gate, preference_diagnosis_handoff
+
+
+def _validate_stage_notes(captured_dir: Path, notes_name: str, stage: Path, factory_dir: Path):
+    _stage_checks.validate_notes(
+        _stage_checks.NotesPaths(captured_dir, notes_name, stage, factory_dir),
+        _stage_checks.NotesPolicy(
+            TransactionError, validate_novel_coverage, factory_dir.name in FACTORY_QUOTAS,
+        ),
+    )
+
+
+def _capture_stage_files(stage: Path, initial_paths, initial_names, captured_dir: Path):
+    """Capture every staged file, then refuse a stage whose file set moved meanwhile."""
+    captured_files = {
+        path.name: capture_regular_file(path, captured_dir / path.name)
+        for path in initial_paths
+    }
+    try:
+        final_paths = sorted(stage.iterdir())
+    except OSError as exc:
+        raise TransactionError(f"cannot inspect staging directory {stage}: {exc}") from exc
+    if {path.name for path in final_paths} != initial_names:
+        raise TransactionError("staging file set changed during validation")
+    if any(not _is_regular_file(path) for path in final_paths):
+        raise TransactionError("staging file set changed during validation")
+    return captured_files
+
+
+def _preference_stage_evidence(captured_dir: Path, records: int, isolation, expectation):
+    """Run the FFPC arm gate, then bind the diagnosis handoff to the captured batch."""
+    preference_arm_gate = validate_preference_arm_gate(expectation.batch, records, isolation)
+    preference_diagnosis_handoff = validate_preference_diagnosis_handoff(
+        captured_dir, expectation
+    )
+    return preference_arm_gate, preference_diagnosis_handoff
+
+
+def _stage_file_entries(initial_paths, captured_files: dict) -> list[dict]:
+    return [
         {
             "name": path.name,
             "bytes": captured_files[path.name][0],
@@ -1801,7 +1954,6 @@ def validate_stage(
         }
         for path in initial_paths
     ]
-    return files, kinds, records, verification, preference_arm_gate, preference_diagnosis_handoff
 
 
 def publish(factory_dir: Path, round_number: int, token: str, execution_override=None):
@@ -1819,58 +1971,83 @@ def finish_completed_publish(factory_dir: Path, round_number: int, token: str, p
     if manifest.get("token") != token:
         raise TransactionError("completed round token does not match publish request")
 
-    publishing_exists = paths["publishing"].exists() or paths["publishing"].is_symlink()
-    if publishing_exists:
-        if not paths["publishing"].is_file() or paths["publishing"].is_symlink():
-            raise TransactionError(
-                f"unsafe publishing marker for completed round: {paths['publishing']}"
-            )
-        persisted_plan = (
-            read_readonly_json(paths["publishing"], label="publishing plan")
-            if factory_dir.name == PREFERENCE_ISOLATION_FACTORY
-            else read_json(paths["publishing"])
-        )
-        if persisted_plan != manifest:
-            raise TransactionError(
-                f"publishing marker conflicts with completed round: {paths['publishing']}"
-            )
+    _require_publishing_plan_matches_completion(factory_dir, paths["publishing"], manifest)
 
-    reservation_exists = paths["reservation"].exists() or paths["reservation"].is_symlink()
-    if reservation_exists:
-        if not paths["reservation"].is_file() or paths["reservation"].is_symlink():
-            raise TransactionError(
-                f"unsafe reservation for completed round: {paths['reservation']}"
-            )
-        reservation = read_json(paths["reservation"])
-        if not reservation_matches_completed_round(
-            reservation, factory_dir.name, round_number, token
-        ):
-            raise TransactionError(
-                f"reservation conflicts with completed round: {paths['reservation']}"
-            )
-        if manifest.get("version") == 2 and reservation.get("preference_isolation") != manifest.get(
-            "preference_isolation"
-        ):
-            raise TransactionError(
-                f"reservation isolation conflicts with completed round: {paths['reservation']}"
-            )
+    reservation_path = paths["reservation"]
+    if _path_present(reservation_path):
+        reservation = _completed_round_reservation(
+            factory_dir, round_number, token, reservation_path
+        )
+        _require_completed_reservation_isolation(reservation, manifest, reservation_path)
         stage_text = reservation.get("staging_dir")
     else:
         stage_text = str(staging_dir(factory_dir, round_number, token))
     stage = validated_reservation_stage(factory_dir, round_number, token, stage_text)
-    if stage.is_symlink() or (stage.exists() and not stage.is_dir()):
+    if _stage_is_unsafe(stage):
         raise TransactionError(f"staging directory is unsafe: {stage}")
 
     paths["publishing"].unlink(missing_ok=True)
     paths["reservation"].unlink(missing_ok=True)
-    if stage.exists():
-        try:
-            shutil.rmtree(stage)
-        except OSError as exc:
-            raise TransactionError(
-                f"cannot finish completed round staging cleanup: {stage}: {exc}"
-            ) from exc
+    _remove_completed_round_stage(stage)
     return manifest
+
+
+def _stage_is_unsafe(stage: Path) -> bool:
+    """True for a symlinked stage or a non-directory occupying its path."""
+    if stage.is_symlink():
+        return True
+    return stage.exists() and not stage.is_dir()
+
+
+def _read_publishing_plan(factory_dir: Path, path: Path) -> dict:
+    """Read a publishing plan; the FFPC lane's plan must also be read-only."""
+    if factory_dir.name == PREFERENCE_ISOLATION_FACTORY:
+        return read_readonly_json(path, label="publishing plan")
+    return read_json(path)
+
+
+def _require_publishing_plan_matches_completion(factory_dir, publishing: Path, manifest):
+    """A leftover publishing marker must be a safe, byte-equal plan of the completion."""
+    if not _path_present(publishing):
+        return
+    if not _is_regular_file(publishing):
+        raise TransactionError(f"unsafe publishing marker for completed round: {publishing}")
+    if _read_publishing_plan(factory_dir, publishing) != manifest:
+        raise TransactionError(f"publishing marker conflicts with completed round: {publishing}")
+
+
+def _completed_round_reservation(factory_dir, round_number, token, reservation_path: Path):
+    """Read a leftover reservation that must belong to the completed round."""
+    if not _is_regular_file(reservation_path):
+        raise TransactionError(f"unsafe reservation for completed round: {reservation_path}")
+    reservation = read_json(reservation_path)
+    if not reservation_matches_completed_round(
+        reservation, factory_dir.name, round_number, token
+    ):
+        raise TransactionError(
+            f"reservation conflicts with completed round: {reservation_path}"
+        )
+    return reservation
+
+
+def _require_completed_reservation_isolation(reservation, manifest, reservation_path: Path):
+    if manifest.get("version") != 2:
+        return
+    if reservation.get("preference_isolation") != manifest.get("preference_isolation"):
+        raise TransactionError(
+            f"reservation isolation conflicts with completed round: {reservation_path}"
+        )
+
+
+def _remove_completed_round_stage(stage: Path):
+    if not stage.exists():
+        return
+    try:
+        shutil.rmtree(stage)
+    except OSError as exc:
+        raise TransactionError(
+            f"cannot finish completed round staging cleanup: {stage}: {exc}"
+        ) from exc
 
 
 def _reservation_expected_records(factory_dir, reservation):
@@ -1932,29 +2109,21 @@ def _resume_execution_override(existing, execution_override, path):
     return execution_override, legacy_marker
 
 
-def _load_resumed_publishing_state(paths, factory_dir, round_number, token, execution_override):
-    publishing_exists = paths["publishing"].exists() or paths["publishing"].is_symlink()
-    if not publishing_exists:
+def _load_resumed_publishing_state(factory_dir, round_number, token, execution_override):
+    publishing = marker_paths(factory_dir, round_number)["publishing"]
+    if not _path_present(publishing):
         return None, execution_override, False
-    unsafe_marker = not paths["publishing"].is_file()
-    unsafe_marker |= paths["publishing"].is_symlink()
-    if unsafe_marker:
-        raise TransactionError(f"unsafe publishing marker: {paths['publishing']}")
-    existing = (
-        read_readonly_json(paths["publishing"], label="publishing plan")
-        if factory_dir.name == PREFERENCE_ISOLATION_FACTORY
-        else read_json(paths["publishing"])
-    )
+    if not _is_regular_file(publishing):
+        raise TransactionError(f"unsafe publishing marker: {publishing}")
+    existing = _read_publishing_plan(factory_dir, publishing)
     existing_identity = (
         existing.get("factory"),
         existing.get("round"),
         existing.get("token"),
     )
     if existing_identity != (factory_dir.name, round_number, token):
-        raise TransactionError(f"publishing marker identity mismatch: {paths['publishing']}")
-    override, migrate = _resume_execution_override(
-        existing, execution_override, paths["publishing"]
-    )
+        raise TransactionError(f"publishing marker identity mismatch: {publishing}")
+    override, migrate = _resume_execution_override(existing, execution_override, publishing)
     return existing, override, migrate
 
 
@@ -2069,7 +2238,7 @@ def _publish_locked(factory_dir: Path, round_number: int, token: str, execution_
         factory_dir, round_number, token, reservation
     )
     existing, execution_override, migrate_marker = _load_resumed_publishing_state(
-        paths, factory_dir, round_number, token, execution_override
+        factory_dir, round_number, token, execution_override
     )
 
     validated_stage = validate_stage(
@@ -2097,6 +2266,12 @@ def _publish_locked(factory_dir: Path, round_number: int, token: str, execution_
 
     remember_execution_gate_cutover(factory_dir, round_number)
     _copy_published_files(stage, factory_dir, manifest, resumed)
+    _commit_completion_marker(factory_dir, paths, manifest, stage)
+    return manifest
+
+
+def _commit_completion_marker(factory_dir: Path, paths: dict, manifest: dict, stage: Path):
+    """Link the completion marker, then remove the round's recovery state."""
     # Linking this exact, revalidated inode is the atomic visibility point for
     # the whole round. Recovery state is removed only after the linked marker
     # is proven to carry the in-memory plan bytes.
@@ -2110,7 +2285,6 @@ def _publish_locked(factory_dir: Path, round_number: int, token: str, execution_
     paths["publishing"].unlink(missing_ok=True)
     paths["reservation"].unlink(missing_ok=True)
     shutil.rmtree(stage, ignore_errors=True)
-    return manifest
 
 
 def abort(factory_dir: Path, round_number: int, token: str):
@@ -2144,7 +2318,7 @@ def _abort_locked(factory_dir: Path, round_number: int, token: str):
     stage = validated_reservation_stage(
         factory_dir, round_number, token, reservation.get("staging_dir")
     )
-    if stage.is_symlink() or (stage.exists() and not stage.is_dir()):
+    if _stage_is_unsafe(stage):
         raise TransactionError(f"reservation staging directory is unsafe: {stage}")
     if stage.exists():
         shutil.rmtree(stage)

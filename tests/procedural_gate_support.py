@@ -1,6 +1,8 @@
 """Six-lane fixture backed by reviewed, executed procedural source bytes."""
 
+import atexit
 import copy
+import functools
 import hashlib
 import json
 import shutil
@@ -11,40 +13,50 @@ from tests.gate_fixture import GateFixture, _INTEGRATION_PLAN, _lane_manifest_en
 from tests.test_curate_identity import identity
 from tests.gate_fixture import _thalamic
 import curate_rewards
-from code_repair import publication
 
 
 class ProceduralGateFixture(GateFixture):
-    """Pass-through lanes around the real identity transform and completed batch."""
+    """Pass-through lanes around the real identity transform and completed batch.
 
-    def __init__(self, root, generated):
-        self.root = Path(root)
-        self.source_run = self.root / "evidence/outputs/raw/2099-01-01"
-        factory = self.source_run / "python-function-repair-factory"
-        factory.mkdir(parents=True)
-        publication.publish_run(publication.PublishRequest(generated, factory, 1))
-        excluded = self.source_run / "thalamic-trajectory-factory/excluded.jsonl"
+    The base constructor lays out the synthetic six-lane scenario, which this
+    fixture replaces: instances come from :meth:`build` or :meth:`copy_template`.
+    """
+
+    @classmethod
+    def _unconstructed(cls):
+        """An instance that skips the base scenario constructor (neither class defines __new__)."""
+        return object.__new__(cls)
+
+    @classmethod
+    def build(cls, root, published_factory):
+        """Lay the six lanes over a private copy of the published procedural round."""
+        fixture = cls._unconstructed()
+        fixture.root = Path(root)
+        fixture.source_run = fixture.root / "evidence/outputs/raw/2099-01-01"
+        published_factory(fixture.source_run)
+        excluded = fixture.source_run / "thalamic-trajectory-factory/excluded.jsonl"
         excluded.parent.mkdir()
-        self.excluded_record = _thalamic("excluded-unreviewed")
-        self.excluded_record["factory"] = "unreviewed-source"
-        excluded.write_text(json.dumps(self.excluded_record) + "\n")
-        self.excluded_path = excluded.relative_to(self.source_run).as_posix()
-        self.cleaned = self.root / "cleaned-v1"
-        self.curated = self.root / "curated-v1"
+        fixture.excluded_record = _thalamic("excluded-unreviewed")
+        fixture.excluded_record["factory"] = "unreviewed-source"
+        excluded.write_text(json.dumps(fixture.excluded_record) + "\n")
+        fixture.excluded_path = excluded.relative_to(fixture.source_run).as_posix()
+        fixture.cleaned = fixture.root / "cleaned-v1"
+        fixture.curated = fixture.root / "curated-v1"
         plan = copy.deepcopy(_INTEGRATION_PLAN)
-        plan["source_run"] = self.source_run.relative_to(self.root).as_posix()
-        self.manifest_paths = []
+        plan["source_run"] = fixture.source_run.relative_to(fixture.root).as_posix()
+        fixture.manifest_paths = []
         for lane in plan["lanes"]:
-            self._write_lane(lane)
-        self.plan_path = self.root / "plan.json"
-        self.plan_path.write_text(json.dumps(plan))
+            fixture._write_lane(lane)
+        fixture.plan_path = fixture.root / "plan.json"
+        fixture.plan_path.write_text(json.dumps(plan))
+        return fixture
 
     @classmethod
     def copy_template(cls, template, root):
         """Copy actual sealed publication evidence without re-running the oracle."""
         root = Path(root)
         shutil.copytree(template.root, root, dirs_exist_ok=True)
-        fixture = cls.__new__(cls)
+        fixture = cls._unconstructed()
         fixture.root = root
         for name in ("source_run", "cleaned", "curated", "plan_path"):
             setattr(fixture, name, root / getattr(template, name).relative_to(template.root))
@@ -88,11 +100,44 @@ class ProceduralGateFixture(GateFixture):
                 )
 
 
+class IntegratedGateTemplate:
+    """One real integration per class; each test restores a private copy of it.
+
+    The integration manifest binds the absolute cleaned and source-run paths,
+    so an integrated tree is only valid where it was integrated. Each test gets
+    a byte-identical private copy back at that path instead of re-integrating.
+    """
+
+    def __init__(self, template, scratch):
+        self.workspace = Path(scratch) / "fixture"
+        fixture = ProceduralGateFixture.copy_template(template, self.workspace)
+        self.integrate_status = fixture.integrate()
+        self.pristine = ProceduralGateFixture.copy_template(fixture, Path(scratch) / "integrated")
+        shutil.rmtree(self.workspace)
+
+    def restore(self, test_case):
+        """The integrated fixture at its integration path, removed after the test."""
+        test_case.addCleanup(shutil.rmtree, self.workspace, True)
+        return ProceduralGateFixture.copy_template(self.pristine, self.workspace)
+
+
+@functools.cache
+def _sealed_gate_template():
+    """One real immutable fixture per process, over the shared published round."""
+    from tests.code_repair_admission_test_support import copy_published_factory
+    scratch = Path(tempfile.mkdtemp(prefix="procedural-gate-template-"))
+    atexit.register(shutil.rmtree, scratch, True)
+    return ProceduralGateFixture.build(scratch, copy_published_factory)
+
+
 def prepare_gate_template(test_case):
-    """Create one real immutable fixture per test class, then copy it per test."""
-    from tests.code_repair_admission_test_support import build_generated_admission_evidence
-    _, generated, _, _ = build_generated_admission_evidence(test_case)
-    scratch = tempfile.TemporaryDirectory(prefix="procedural-gate-template-")
+    """Attach the shared gate template; each test copies it before any write."""
+    test_case.template = _sealed_gate_template()
+
+
+def prepare_integrated_template(test_case):
+    """Attach the shared gate template and one integration of it for the class."""
+    prepare_gate_template(test_case)
+    scratch = tempfile.TemporaryDirectory(prefix="curate-gate-")
     test_case.addClassCleanup(scratch.cleanup)
-    test_case.generated = generated
-    test_case.template = ProceduralGateFixture(scratch.name, generated)
+    test_case.integrated = IntegratedGateTemplate(test_case.template, scratch.name)

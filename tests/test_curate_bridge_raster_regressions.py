@@ -1,33 +1,50 @@
 #!/usr/bin/env python3
-"""Focused raster-contract regression tests for Bridge curation."""
+"""Raster spike-arithmetic regression tests for Bridge curation."""
 
 from __future__ import annotations
 
-import copy
 import json
-import tempfile
 import unittest
-from pathlib import Path
 
 try:
-    from tests.test_curate_bridge import (
-        bridge,
+    from tests.curate_bridge_raster_test_support import (
         curate_bridge,
         decide,
-        event,
         gate_snn_fixture,
+        zero_spike_record,
     )
 except ModuleNotFoundError:
-    from test_curate_bridge import (  # type: ignore[no-redef]
-        bridge,
+    from curate_bridge_raster_test_support import (  # type: ignore[no-redef]
         curate_bridge,
         decide,
-        event,
         gate_snn_fixture,
+        zero_spike_record,
     )
 
-import spike_probe  # noqa: E402
-from exact_json import dumps_exact_json, exact_fraction, parse_finite_json_float  # noqa: E402
+from exact_json import dumps_exact_json, exact_fraction, parse_finite_json_float
+
+_OTHER_ENERGY_UNIT = {"energy_pJ": "energy_uJ", "energy_uJ": "energy_pJ"}
+
+
+def _scaled_raster_record(spikes, energy_key, energy):
+    """The reference record scaled to ``spikes`` at 25 Hz over a 40 ms window.
+
+    The raster declares its energy only under ``energy_key``; the other unit's
+    total is removed so that it cannot decide the comparison.
+    """
+    record = gate_snn_fixture()
+    record["raster"].update(
+        {
+            "neurons": spikes,
+            "mean_rate_hz": 25,
+            "window_ms": 40,
+            "window_s": 0.04,
+            "spikes": spikes,
+            energy_key: energy,
+        }
+    )
+    record["raster"].pop(_OTHER_ENERGY_UNIT[energy_key], None)
+    return record
 
 
 class RasterArithmeticReviewFollowUps(unittest.TestCase):
@@ -232,19 +249,9 @@ class RasterArithmeticReviewFollowUps(unittest.TestCase):
         self.assertIn(curate_bridge.REASON_RASTER_ENERGY, mismatch["reason_codes"])
 
     def test_decimal_pj_token_does_not_hide_one_pj_mismatch(self):
-        record = gate_snn_fixture()
-        spikes = 10**16
-        record["raster"].update(
-            {
-                "neurons": spikes,
-                "mean_rate_hz": 25,
-                "window_ms": 40,
-                "window_s": 0.04,
-                "spikes": spikes,
-                "energy_pJ": parse_finite_json_float("230000000000000001.0"),
-            }
+        record = _scaled_raster_record(
+            10**16, "energy_pJ", parse_finite_json_float("230000000000000001.0")
         )
-        record["raster"].pop("energy_uJ", None)
 
         status = curate_bridge.raster_status(record)
 
@@ -252,19 +259,9 @@ class RasterArithmeticReviewFollowUps(unittest.TestCase):
         self.assertIn(curate_bridge.REASON_RASTER_ENERGY, status["reason_codes"])
 
     def test_large_exact_uj_token_matches_integer_spike_energy(self):
-        record = gate_snn_fixture()
-        spikes = 2**52
-        record["raster"].update(
-            {
-                "neurons": spikes,
-                "mean_rate_hz": 25,
-                "window_ms": 40,
-                "window_s": 0.04,
-                "spikes": spikes,
-                "energy_uJ": parse_finite_json_float("103582791429.521408"),
-            }
+        record = _scaled_raster_record(
+            2**52, "energy_uJ", parse_finite_json_float("103582791429.521408")
         )
-        record["raster"].pop("energy_pJ", None)
 
         status = curate_bridge.raster_status(record)
 
@@ -321,317 +318,6 @@ class RasterArithmeticReviewFollowUps(unittest.TestCase):
 
         self.assertTrue(status["raster_valid"], status["reason_codes"])
         self.assertEqual(status["evidence"]["raster_third_factor_tau_e_s"], 2.0)
-
-
-class MaterializedLaneRequiresRasters(unittest.TestCase):
-    """``--out-dir`` publishes a *gate-compatible* tree, so it must gate.
-
-    The publication, audit and probe contracts all reject a Bridge record with
-    no raster sidecar; materializing one into the tree this module advertises
-    as gate-compatible would hand a downstream distillation run a record every
-    other layer refuses.
-    """
-
-    def source_tree(self, root, records):
-        source_root = Path(root) / "raw"
-        batch = source_root / "neuromorphic-event-language-bridge" / "batch-r02.jsonl"
-        batch.parent.mkdir(parents=True)
-        batch.write_text(
-            "".join(json.dumps(record, ensure_ascii=False) + "\n" for record in records),
-            encoding="utf-8",
-        )
-        return source_root, batch
-
-    def test_materialized_tree_quarantines_a_raster_less_record(self):
-        with tempfile.TemporaryDirectory() as td:
-            records = [bridge([event(1.0, "a"), event(2.0, "b")], "no-raster")]
-            source_root, batch = self.source_tree(td, records)
-            out_dir = Path(td) / "lane"
-
-            decisions = curate_bridge.materialize_paths(
-                [batch], source_root=source_root, output_dir=out_dir
-            )
-
-            self.assertEqual([d.action for d in decisions], ["quarantine"])
-            self.assertIn(
-                curate_bridge.REASON_RASTER_MISSING, decisions[0].manifest["reason_codes"]
-            )
-            self.assertFalse(
-                (out_dir / "neuromorphic-event-language-bridge" / "batch-r02.jsonl").exists()
-            )
-
-    def test_materialized_tree_keeps_a_raster_backed_record(self):
-        with tempfile.TemporaryDirectory() as td:
-            source_root, batch = self.source_tree(td, [gate_snn_fixture()])
-            out_dir = Path(td) / "lane"
-
-            decisions = curate_bridge.materialize_paths(
-                [batch], source_root=source_root, output_dir=out_dir
-            )
-
-            self.assertEqual([d.action for d in decisions], ["retain"])
-            self.assertTrue(
-                (out_dir / "neuromorphic-event-language-bridge" / "batch-r02.jsonl").exists()
-            )
-
-    def test_the_pure_decision_api_still_defaults_to_lenient(self):
-        with tempfile.TemporaryDirectory() as td:
-            records = [bridge([event(1.0, "a"), event(2.0, "b")], "no-raster")]
-            _source_root, batch = self.source_tree(td, records)
-
-            self.assertEqual([d.action for d in curate_bridge.curate_jsonl(batch)], ["retain"])
-            self.assertEqual(
-                [d.action for d in curate_bridge.curate_jsonl(batch, require_raster=True)],
-                ["quarantine"],
-            )
-
-
-def zero_spike_record():
-    """The reference record retuned to a legitimately zero-spike raster.
-
-    ``round(1 * 1.0 * 0.02)`` is 0, so the budget, the 23 pJ/spike energy and
-    both declared totals are all exactly zero -- the case where an
-    absolute-tolerance comparison alone would accept a negative energy.
-    """
-
-    record = gate_snn_fixture()
-    record["raster"].update(
-        {
-            "neurons": 1,
-            "mean_rate_hz": 1.0,
-            "window_ms": 20,
-            "window_s": 0.02,
-            "spikes": 0,
-            "energy_pJ": 0,
-            "energy_uJ": 0,
-            "excerpt": [{"t_us": 5000, "neuron_id": 0}],
-        }
-    )
-    return record
-
-
-def declared_null_case(carrier):
-    record = gate_snn_fixture()
-    if carrier == "raster":
-        record["meta"] = {"raster": copy.deepcopy(record["raster"])}
-        record["raster"] = None
-        return record, curate_bridge.raster_sidecar, curate_bridge.REASON_RASTER_EXCERPT
-    if carrier == "gate_snn":
-        record["meta"] = {"gate_snn": copy.deepcopy(record["gate_snn"])}
-        record["gate_snn"] = None
-        return record, curate_bridge.gate_snn_sidecar, curate_bridge.REASON_GATE_SNN_INVALID
-    record["gate_compute"] = None
-    record["language_view"]["trajectory"]["gate_compute"] = {
-        "per_check": [{"neurons": 2, "mean_rate_hz": 10.0, "window_s": 0.05, "spikes": 1}]
-    }
-    return record, curate_bridge._gate_compute_sidecar, curate_bridge.REASON_RASTER_SPIKE_BUDGET
-
-
-class DeclaredNullCarriersAndEnergyBounds(unittest.TestCase):
-    """PR #94 review follow-ups on the shared sidecar/energy contract.
-
-    Two holes the earlier carrier-precedence and overflow fixes left open:
-    an explicit ``null`` sidecar was read as an absence rather than as a
-    declaration, and the energy tolerance accepted small negative values
-    whenever the expected energy was zero.
-    """
-
-    def test_a_declared_null_carrier_never_falls_through(self):
-        for carrier in ("raster", "gate_snn", "gate_compute"):
-            with self.subTest(carrier=carrier):
-                record, resolver, reason = declared_null_case(carrier)
-                location, value = resolver(record)
-
-                self.assertEqual(location, carrier)
-                self.assertIsNone(value)
-                status = curate_bridge.raster_status(record)
-                self.assertFalse(status["raster_valid"])
-                self.assertIn(reason, status["reason_codes"])
-
-    def test_a_declared_non_array_per_check_container_fails_validation(self):
-        for per_check in ("bad", 7, {"neurons": 2}, None):
-            with self.subTest(per_check=per_check):
-                record = gate_snn_fixture()
-                record["gate_compute"] = {"per_check": per_check}
-
-                status = curate_bridge.raster_status(record)
-
-                self.assertFalse(status["raster_valid"])
-                self.assertIn(
-                    curate_bridge.REASON_RASTER_SPIKE_BUDGET,
-                    status["reason_codes"],
-                )
-
-    def test_malformed_lower_raster_carrier_is_not_masked(self):
-        record = gate_snn_fixture()
-        record["meta"] = {"raster": "bad"}
-
-        status = curate_bridge.raster_status(record)
-
-        self.assertFalse(status["raster_valid"])
-        self.assertEqual(status["raster_location"], "raster")
-        self.assertIn(curate_bridge.REASON_RASTER_EXCERPT, status["reason_codes"])
-        self.assertEqual(
-            status["evidence"]["raster_invalid_carrier_locations"],
-            ["meta.raster"],
-        )
-
-    def test_malformed_lower_gate_snn_carriers_are_not_masked(self):
-        locations = (
-            "meta.gate_snn",
-            "language_view.trajectory.gate_snn",
-            "language_view.trajectory.safety_decision.gate_snn",
-        )
-        for location in locations:
-            with self.subTest(location=location):
-                record = gate_snn_fixture()
-                target = record
-                for key in location.split(".")[:-1]:
-                    target = target.setdefault(key, {})
-                target["gate_snn"] = "bad"
-
-                status = curate_bridge.raster_status(record)
-
-                self.assertFalse(status["raster_valid"])
-                self.assertFalse(status["gate_snn_valid"])
-                self.assertIn(curate_bridge.REASON_GATE_SNN_INVALID, status["reason_codes"])
-                self.assertEqual(
-                    status["evidence"]["gate_snn_invalid_carrier_locations"],
-                    [location],
-                )
-
-    def test_malformed_lower_gate_compute_carriers_are_not_masked(self):
-        locations = (
-            "language_view.trajectory.gate_compute",
-            "language_view.trajectory.safety_decision.gate_compute",
-        )
-        for location in locations:
-            with self.subTest(location=location):
-                record = gate_snn_fixture()
-                record["gate_compute"] = {
-                    "per_check": [
-                        {"neurons": 2, "mean_rate_hz": 10.0, "window_s": 0.05, "spikes": 1}
-                    ]
-                }
-                target = record
-                for key in location.split(".")[:-1]:
-                    target = target.setdefault(key, {})
-                target["gate_compute"] = "bad"
-
-                status = curate_bridge.raster_status(record)
-
-                self.assertFalse(status["raster_valid"])
-                self.assertIn(
-                    curate_bridge.REASON_RASTER_SPIKE_BUDGET,
-                    status["reason_codes"],
-                )
-                self.assertEqual(
-                    status["evidence"]["gate_compute_invalid_carrier_locations"],
-                    [location],
-                )
-
-    def test_valid_redundant_sidecars_remain_supported(self):
-        record = gate_snn_fixture()
-        record["meta"] = {
-            "raster": copy.deepcopy(record["raster"]),
-            "gate_snn": copy.deepcopy(record["gate_snn"]),
-        }
-        record["gate_compute"] = {
-            "per_check": [{"neurons": 2, "mean_rate_hz": 10.0, "window_s": 0.05, "spikes": 1}]
-        }
-        record["language_view"]["trajectory"]["gate_compute"] = copy.deepcopy(
-            record["gate_compute"]
-        )
-
-        self.assertTrue(curate_bridge.raster_status(record)["raster_valid"])
-
-    def test_an_absent_per_check_block_stays_optional(self):
-        record = gate_snn_fixture()
-        record["gate_compute"] = {}
-
-        status = curate_bridge.raster_status(record)
-
-        self.assertTrue(status["raster_valid"])
-
-    def test_negative_declared_raster_energy_is_rejected_inside_tolerance(self):
-        for key, value in (("energy_pJ", -5e-7), ("energy_uJ", -5e-10)):
-            with self.subTest(key=key):
-                record = zero_spike_record()
-                record["raster"][key] = value
-
-                status = curate_bridge.raster_status(record)
-
-                self.assertFalse(status["raster_valid"])
-                self.assertIn(curate_bridge.REASON_RASTER_ENERGY, status["reason_codes"])
-
-    def test_negative_declared_gate_compute_totals_are_rejected(self):
-        for key, value in (("total_energy_pJ", -5e-7), ("total_energy_uJ", -5e-10)):
-            with self.subTest(key=key):
-                record = gate_snn_fixture()
-                record["gate_compute"] = {
-                    "per_check": [
-                        {
-                            "neurons": 1,
-                            "mean_rate_hz": 1.0,
-                            "window_s": 0.02,
-                            "spikes": 0,
-                        }
-                    ],
-                    key: value,
-                }
-
-                status = curate_bridge.raster_status(record)
-
-                self.assertFalse(status["raster_valid"])
-                self.assertIn(curate_bridge.REASON_RASTER_ENERGY, status["reason_codes"])
-
-    def test_zero_energy_on_a_zero_spike_raster_still_validates(self):
-        record = zero_spike_record()
-
-        status = curate_bridge.raster_status(record)
-
-        self.assertTrue(status["raster_valid"])
-
-
-class SpikeProbeInputExpansion(unittest.TestCase):
-    """One input reached twice must be read once."""
-
-    def test_duplicate_probe_inputs_do_not_double_the_totals(self):
-        """Naming a file twice -- or once directly and once through a
-        containing directory -- appended it per target, so every raster was
-        emitted twice and the spike and energy totals silently doubled,
-        changing the weighting of a distillation dataset."""
-        record = gate_snn_fixture()
-        with tempfile.TemporaryDirectory() as td:
-            root = Path(td)
-            batch = root / "batch-r02.jsonl"
-            batch.write_text(json.dumps(record, ensure_ascii=False) + "\n", encoding="utf-8")
-
-            once = spike_probe.jsonl_paths([batch])
-            twice = spike_probe.jsonl_paths([batch, batch])
-            via_dir = spike_probe.jsonl_paths([root, batch])
-            relative = spike_probe.jsonl_paths([batch, Path(str(batch))])
-
-            self.assertEqual(len(once), 1)
-            self.assertEqual(twice, once)
-            self.assertEqual(via_dir, once)
-            self.assertEqual(relative, once)
-
-            single, _problems = spike_probe.load_rasters([batch])
-            doubled, _again = spike_probe.load_rasters([batch, batch])
-            through_dir, _more = spike_probe.load_rasters([root, batch])
-
-        self.assertEqual(len(single), 1)
-        self.assertEqual(len(doubled), 1)
-        self.assertEqual(len(through_dir), 1)
-        self.assertEqual(
-            sum(entry["spikes"] for entry in doubled),
-            sum(entry["spikes"] for entry in single),
-        )
-        self.assertEqual(
-            sum(entry["energy_pJ"] for entry in through_dir),
-            sum(entry["energy_pJ"] for entry in single),
-        )
 
 
 if __name__ == "__main__":

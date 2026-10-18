@@ -15,7 +15,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from types import MappingProxyType
-from typing import Any
+from typing import Any, TypeGuard
 
 from ._contract import (
     BANNED_SLUGS,
@@ -58,6 +58,9 @@ from ._contract import (
 )
 
 PLANT_CALLS = frozenset(("_p",))
+DICT_CALLS = frozenset(("dict",))
+BUILD_PAIR_CALLS = frozenset(("build_pair",))
+MILL_LITERAL_CONSTANTS = frozenset(("FACTORY", "PREFIX", "GENERATOR"))
 MAPPING_PLANT_KEYS = frozenset(
     {
         "slug",
@@ -124,6 +127,11 @@ SHARED_PLANT_FIELDS = (
 OK_REQUIRED = SHARED_PLANT_FIELDS + ("coverage",)
 BAD_REQUIRED = SHARED_PLANT_FIELDS + ("ticket", "ticket_why", "coverage")
 
+# (failed, finding code, message) rows for ``refuse_first``; every row is
+# evaluated before the first failing one refuses.
+_Check = tuple[bool, str, str]
+_PlantPairs = tuple[tuple[dict[str, str | int], dict[str, str | int]], ...]
+
 __all__ = [
     "Catalog",
     "Pair",
@@ -159,20 +167,29 @@ def _const_set(node: ast.AST, where: str) -> frozenset[str]:
     values: list[str] = []
     for index, item in enumerate(node.elts):
         value = _literal(item, f"{where}[{index}]")
-        refuse_when(not isinstance(value, str), FINDING_CATALOG_PLANT, f"{where}[{index}]")
+        if not isinstance(value, str):
+            refuse(FINDING_CATALOG_PLANT, f"{where}[{index}]")
         values.append(value)
     return frozenset(values)
 
 
-def _call_kwargs(node: ast.AST, where: str) -> dict[str, str | int]:
+def _is_named_call(node: ast.AST, callees: frozenset[str]) -> TypeGuard[ast.Call]:
+    return isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id in callees
+
+
+def _keywords_only(node: ast.Call) -> bool:
+    return not node.args and all(kw.arg is not None for kw in node.keywords)
+
+
+def _keyword_literals(
+    node: ast.AST, where: str, callees: frozenset[str], expected: str
+) -> dict[str, str | int]:
+    """Return the literal kwargs of ``<callee>(**kwargs)``; refuse any other shape."""
+
     refuse_when(
-        not isinstance(node, ast.Call)
-        or not isinstance(node.func, ast.Name)
-        or node.func.id not in PLANT_CALLS
-        or node.args
-        or any(kw.arg is None for kw in node.keywords),
+        not _is_named_call(node, callees) or not _keywords_only(node),
         FINDING_CATALOG_PLANT,
-        f"{where}: expected _p(**kwargs)",
+        f"{where}: expected {expected}(**kwargs)",
     )
     assert isinstance(node, ast.Call)
     plant: dict[str, str | int] = {}
@@ -180,6 +197,10 @@ def _call_kwargs(node: ast.AST, where: str) -> dict[str, str | int]:
         assert kw.arg is not None
         plant[kw.arg] = _literal(kw.value, f"{where}.{kw.arg}#{index}")
     return plant
+
+
+def _call_kwargs(node: ast.AST, where: str) -> dict[str, str | int]:
+    return _keyword_literals(node, where, PLANT_CALLS, "_p")
 
 
 def _pairs_node(tree: ast.Module) -> ast.AST:
@@ -217,21 +238,7 @@ def ast_extract_pairs(source: str) -> tuple[tuple[dict[str, str | int], dict[str
 
 
 def _call_dict(node: ast.AST, where: str) -> dict[str, str | int]:
-    refuse_when(
-        not isinstance(node, ast.Call)
-        or not isinstance(node.func, ast.Name)
-        or node.func.id != "dict"
-        or node.args
-        or any(kw.arg is None for kw in node.keywords),
-        FINDING_CATALOG_PLANT,
-        f"{where}: expected dict(**kwargs)",
-    )
-    assert isinstance(node, ast.Call)
-    plant: dict[str, str | int] = {}
-    for index, kw in enumerate(node.keywords):
-        assert kw.arg is not None
-        plant[kw.arg] = _literal(kw.value, f"{where}.{kw.arg}#{index}")
-    return plant
+    return _keyword_literals(node, where, DICT_CALLS, "dict")
 
 
 def ast_extract_mapping_pairs(source: str) -> tuple[dict[str, str | int], ...]:
@@ -259,27 +266,57 @@ def ast_extract_mapping_pairs(source: str) -> tuple[dict[str, str | int], ...]:
     return tuple(plants)
 
 
+def _int_literal(node: ast.AST) -> int | None:
+    if not isinstance(node, ast.Constant):
+        return None
+    value = node.value
+    if isinstance(value, int) and not isinstance(value, bool):
+        return value
+    return None
+
+
+def _is_addition(node: ast.AST) -> TypeGuard[ast.BinOp]:
+    return isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add)
+
+
+def _build_pair_start(node: ast.AST) -> int | None:
+    """START of a ``build_pair(START + i, ...)`` call with an int literal START, else None."""
+
+    if not _is_named_call(node, BUILD_PAIR_CALLS) or not node.args:
+        return None
+    first = node.args[0]
+    if not _is_addition(first):
+        return None
+    return _int_literal(first.left)
+
+
+def _self_check_functions(tree: ast.Module) -> list[ast.FunctionDef]:
+    return [
+        node
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef) and node.name == "self_check"
+    ]
+
+
 def ast_extract_start_round(source: str) -> int:
     """Read ``build_pair(41 + i, ...)`` from ``self_check`` without executing it."""
 
     tree = ast.parse(source)
-    for node in tree.body:
-        if not isinstance(node, ast.FunctionDef) or node.name != "self_check":
-            continue
+    for node in _self_check_functions(tree):
         for child in ast.walk(node):
-            if (
-                isinstance(child, ast.Call)
-                and isinstance(child.func, ast.Name)
-                and child.func.id == "build_pair"
-                and child.args
-                and isinstance(child.args[0], ast.BinOp)
-                and isinstance(child.args[0].op, ast.Add)
-                and isinstance(child.args[0].left, ast.Constant)
-                and isinstance(child.args[0].left.value, int)
-                and not isinstance(child.args[0].left.value, bool)
-            ):
-                return child.args[0].left.value
+            start = _build_pair_start(child)
+            if start is not None:
+                return start
     refuse(FINDING_CATALOG_PLANT, "self_check has no build_pair(START + i) call")
+
+
+def _collect_mill_assign(node: ast.Assign, found: dict[str, object]) -> None:
+    names = [t.id for t in node.targets if isinstance(t, ast.Name)]
+    for name in names:
+        if name in MILL_LITERAL_CONSTANTS:
+            found[name] = _literal(node.value, name)
+        elif name == "BANNED_SLUGS":
+            found[name] = _const_set(node.value, name)
 
 
 def ast_extract_mill_constants(source: str) -> dict[str, object]:
@@ -288,14 +325,8 @@ def ast_extract_mill_constants(source: str) -> dict[str, object]:
     tree = ast.parse(source)
     found: dict[str, object] = {}
     for node in tree.body:
-        if not isinstance(node, ast.Assign):
-            continue
-        names = [t.id for t in node.targets if isinstance(t, ast.Name)]
-        for name in names:
-            if name in {"FACTORY", "PREFIX", "GENERATOR"}:
-                found[name] = _literal(node.value, name)
-            elif name == "BANNED_SLUGS":
-                found[name] = _const_set(node.value, name)
+        if isinstance(node, ast.Assign):
+            _collect_mill_assign(node, found)
     found["START"] = ast_extract_start_round(source)
     needed = ("FACTORY", "PREFIX", "GENERATOR", "BANNED_SLUGS")
     missing = [name for name in needed if name not in found]
@@ -315,41 +346,63 @@ def ast_extract_catalog(
 
     constants = ast_extract_mill_constants(mill_source)
     pairs = ast_extract_pairs(plants_source)
-    refuse_first(
+    refuse_first(_leftover3_mill_checks(constants, pairs))
+    source = {
+        "lane": "legacy-mill-lane",
+        "commit": commit,
+        "plants": LEGACY_PLANTS,
+        "mill": LEGACY_MILL,
+        "plants_sha256": plants_sha256 or sha256_text(plants_source),
+        "mill_sha256": mill_sha256 or sha256_text(mill_source),
+    }
+    document = _leftover3_document(source, pairs)
+    _validate_leftover3_document(document)
+    return document
+
+
+def _leftover3_mill_checks(
+    constants: dict[str, object],
+    pairs: _PlantPairs,
+) -> tuple[_Check, ...]:
+    return (
         (
-            (
-                constants["FACTORY"] != FACTORY,
-                FINDING_CATALOG_SCHEMA,
-                f"mill FACTORY must be {FACTORY!r}",
-            ),
-            (
-                constants["PREFIX"] != FAMILY_PREFIX,
-                FINDING_CATALOG_SCHEMA,
-                f"mill PREFIX must be {FAMILY_PREFIX!r}",
-            ),
-            (
-                constants["GENERATOR"] != GENERATOR,
-                FINDING_CATALOG_SCHEMA,
-                f"mill GENERATOR must be {GENERATOR!r}",
-            ),
-            (
-                constants["START"] != LEFTOVER3_START_ROUND,
-                FINDING_CATALOG_SCHEMA,
-                f"mill START must be {LEFTOVER3_START_ROUND}",
-            ),
-            (
-                constants["BANNED_SLUGS"] != BANNED_SLUGS,
-                FINDING_CATALOG_SCHEMA,
-                "mill BANNED_SLUGS drifted from the reviewed set",
-            ),
-            (
-                len(pairs) != LEFTOVER3_N_ROUNDS,
-                FINDING_CATALOG_PAIR_COUNT,
-                f"need {LEFTOVER3_N_ROUNDS} pairs, got {len(pairs)}",
-            ),
-        )
+            constants["FACTORY"] != FACTORY,
+            FINDING_CATALOG_SCHEMA,
+            f"mill FACTORY must be {FACTORY!r}",
+        ),
+        (
+            constants["PREFIX"] != FAMILY_PREFIX,
+            FINDING_CATALOG_SCHEMA,
+            f"mill PREFIX must be {FAMILY_PREFIX!r}",
+        ),
+        (
+            constants["GENERATOR"] != GENERATOR,
+            FINDING_CATALOG_SCHEMA,
+            f"mill GENERATOR must be {GENERATOR!r}",
+        ),
+        (
+            constants["START"] != LEFTOVER3_START_ROUND,
+            FINDING_CATALOG_SCHEMA,
+            f"mill START must be {LEFTOVER3_START_ROUND}",
+        ),
+        (
+            constants["BANNED_SLUGS"] != BANNED_SLUGS,
+            FINDING_CATALOG_SCHEMA,
+            "mill BANNED_SLUGS drifted from the reviewed set",
+        ),
+        (
+            len(pairs) != LEFTOVER3_N_ROUNDS,
+            FINDING_CATALOG_PAIR_COUNT,
+            f"need {LEFTOVER3_N_ROUNDS} pairs, got {len(pairs)}",
+        ),
     )
-    document = {
+
+
+def _leftover3_document(
+    source: dict[str, Any],
+    pairs: _PlantPairs,
+) -> dict[str, Any]:
+    return {
         "schema_id": SCHEMA_ID,
         "family_prefix": FAMILY_PREFIX,
         "factory": FACTORY,
@@ -357,21 +410,12 @@ def ast_extract_catalog(
         "start_round": LEFTOVER3_START_ROUND,
         "n_rounds": LEFTOVER3_N_ROUNDS,
         "quota_per_round": QUOTA_PER_ROUND,
-        "source": {
-            "lane": "legacy-mill-lane",
-            "commit": commit,
-            "plants": LEGACY_PLANTS,
-            "mill": LEGACY_MILL,
-            "plants_sha256": plants_sha256 or sha256_text(plants_source),
-            "mill_sha256": mill_sha256 or sha256_text(mill_source),
-        },
+        "source": source,
         "pairs": [
             {"round": START_ROUND + index, "ok": ok, "bad": bad}
             for index, (ok, bad) in enumerate(pairs)
         ],
     }
-    _validate_leftover3_document(document)
-    return document
 
 
 def _validate_leftover3_document(raw: object) -> dict[str, Any]:
@@ -496,30 +540,38 @@ def _reject_banned(slug: str, where: str) -> None:
 
 def _validate_header(raw: object) -> dict[str, Any]:
     document = _require_object(raw, "catalog")
-    refuse_first(
+    refuse_first(_header_identity_checks(document))
+    _validate_header_pins(document)
+    _validate_header_mills(document)
+    return document
+
+
+def _header_identity_checks(document: dict[str, Any]) -> tuple[_Check, ...]:
+    return (
         (
-            (
-                document.get("schema_id") != SCHEMA_ID,
-                FINDING_CATALOG_SCHEMA,
-                f"schema_id must be {SCHEMA_ID!r}",
-            ),
-            (
-                document.get("family_prefix") != FAMILY_PREFIX,
-                FINDING_CATALOG_SCHEMA,
-                f"family_prefix must be {FAMILY_PREFIX!r}",
-            ),
-            (
-                document.get("factory") != FACTORY,
-                FINDING_CATALOG_SCHEMA,
-                f"factory must be {FACTORY!r}",
-            ),
-            (
-                document.get("generator") != GENERATOR,
-                FINDING_CATALOG_SCHEMA,
-                f"generator must be {GENERATOR!r}",
-            ),
-        )
+            document.get("schema_id") != SCHEMA_ID,
+            FINDING_CATALOG_SCHEMA,
+            f"schema_id must be {SCHEMA_ID!r}",
+        ),
+        (
+            document.get("family_prefix") != FAMILY_PREFIX,
+            FINDING_CATALOG_SCHEMA,
+            f"family_prefix must be {FAMILY_PREFIX!r}",
+        ),
+        (
+            document.get("factory") != FACTORY,
+            FINDING_CATALOG_SCHEMA,
+            f"factory must be {FACTORY!r}",
+        ),
+        (
+            document.get("generator") != GENERATOR,
+            FINDING_CATALOG_SCHEMA,
+            f"generator must be {GENERATOR!r}",
+        ),
     )
+
+
+def _validate_header_pins(document: dict[str, Any]) -> None:
     quota = _require_int(_require_field(document, "quota_per_round", "catalog"), "quota_per_round")
     refuse_when(
         quota != QUOTA_PER_ROUND,
@@ -538,17 +590,17 @@ def _validate_header(raw: object) -> dict[str, Any]:
         FINDING_CATALOG_SCHEMA,
         "pairs_sha256 drifted from the committed pairs.jsonl bytes",
     )
+
+
+def _validate_header_mills(document: dict[str, Any]) -> None:
     mills_raw = _require_field(document, "mills", "catalog")
     refuse_when(not isinstance(mills_raw, list), FINDING_CATALOG_FIELD_INVALID, "mills must be a list")
     assert isinstance(mills_raw, list)
     refuse_when(len(mills_raw) != 2, FINDING_CATALOG_PAIR_COUNT, "expected two committed mills")
-    mills: list[dict[str, Any]] = []
     for index, entry in enumerate(mills_raw):
         mill = _require_object(entry, f"mills[{index}]")
         for key in MILL_KEYS:
             _require_field(mill, key, f"mills[{index}]")
-        mills.append(mill)
-    return document
 
 
 def _mill_lookup(mills: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
@@ -557,6 +609,19 @@ def _mill_lookup(mills: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
 
 def _pair_from_row(row: dict[str, Any], *, mills: dict[str, dict[str, Any]], index: int) -> Pair:
     where = f"pairs.jsonl:{index + 1}"
+    mill_id, source_format, round_n = _row_identity(row, mills, where)
+    if source_format == "leftover3-v1":
+        return _leftover3_pair(row, where, mill_id, round_n)
+    if source_format == "mapping-v1":
+        return _mapping_pair(row, where, mill_id, round_n)
+    refuse(FINDING_CATALOG_SCHEMA, f"{where} unsupported source_format {source_format!r}")
+
+
+def _row_identity(
+    row: dict[str, Any], mills: dict[str, dict[str, Any]], where: str
+) -> tuple[str, str, int]:
+    """Return ``(mill_id, source_format, round)`` once the row is bound to its mill span."""
+
     for key in ROW_KEYS:
         _require_field(row, key, where)
     mill_id = _require_str(row["mill_id"], f"{where}.mill_id")
@@ -580,35 +645,39 @@ def _pair_from_row(row: dict[str, Any], *, mills: dict[str, dict[str, Any]], ind
         FINDING_CATALOG_FIELD_INVALID,
         f"{where} round {round_n} outside {mill_id} span",
     )
-    if source_format == "leftover3-v1":
-        ok = _plant(row.get("ok"), OK_REQUIRED, f"{where}.ok")
-        bad = _plant(row.get("bad"), BAD_REQUIRED, f"{where}.bad")
-        for plant, label in ((ok, "ok"), (bad, "bad")):
-            _reject_banned(str(plant["slug"]), f"{where}.{label}")
-        return Pair(
-            round_n=round_n,
-            mill_id=mill_id,
-            source_format=source_format,
-            ok=ok,
-            bad=bad,
-            plant=None,
-        )
-    if source_format == "mapping-v1":
-        plant_raw = _require_object(row.get("plant"), f"{where}.plant")
-        for key in MAPPING_PLANT_KEYS:
-            _require_field(plant_raw, key, f"{where}.plant")
-            _require_str(plant_raw[key], f"{where}.plant.{key}")
-        _reject_banned(str(plant_raw["slug"]), f"{where}.plant")
-        _reject_banned(str(plant_raw["fail"]), f"{where}.plant.fail")
-        return Pair(
-            round_n=round_n,
-            mill_id=mill_id,
-            source_format=source_format,
-            ok=MappingProxyType({}),
-            bad=MappingProxyType({}),
-            plant=MappingProxyType(dict(plant_raw)),
-        )
-    refuse(FINDING_CATALOG_SCHEMA, f"{where} unsupported source_format {source_format!r}")
+    return mill_id, source_format, round_n
+
+
+def _leftover3_pair(row: dict[str, Any], where: str, mill_id: str, round_n: int) -> Pair:
+    ok = _plant(row.get("ok"), OK_REQUIRED, f"{where}.ok")
+    bad = _plant(row.get("bad"), BAD_REQUIRED, f"{where}.bad")
+    for plant, label in ((ok, "ok"), (bad, "bad")):
+        _reject_banned(str(plant["slug"]), f"{where}.{label}")
+    return Pair(
+        round_n=round_n,
+        mill_id=mill_id,
+        source_format="leftover3-v1",
+        ok=ok,
+        bad=bad,
+        plant=None,
+    )
+
+
+def _mapping_pair(row: dict[str, Any], where: str, mill_id: str, round_n: int) -> Pair:
+    plant_raw = _require_object(row.get("plant"), f"{where}.plant")
+    for key in MAPPING_PLANT_KEYS:
+        _require_field(plant_raw, key, f"{where}.plant")
+        _require_str(plant_raw[key], f"{where}.plant.{key}")
+    _reject_banned(str(plant_raw["slug"]), f"{where}.plant")
+    _reject_banned(str(plant_raw["fail"]), f"{where}.plant.fail")
+    return Pair(
+        round_n=round_n,
+        mill_id=mill_id,
+        source_format="mapping-v1",
+        ok=MappingProxyType({}),
+        bad=MappingProxyType({}),
+        plant=MappingProxyType(dict(plant_raw)),
+    )
 
 
 def _load_pairs_jsonl(path: Path, *, mills: list[dict[str, Any]]) -> tuple[Pair, ...]:
@@ -681,66 +750,73 @@ def catalog_check(path: Path | None = None, *, root: Path | None = None) -> Cata
     mills = _mill_lookup(list(catalog.source["mills"]))
     r41 = mills["wsr_r41_leftover3"]
     r89 = mills["wsr_r89_lll"]
-    refuse_first(
-        (
-            (
-                r41.get("source_path") != LEGACY_MILL,
-                FINDING_CATALOG_SCHEMA,
-                "wsr_r41_leftover3 source_path drifted",
-            ),
-            (
-                r41.get("source_commit") != LEGACY_COMMIT,
-                FINDING_CATALOG_SCHEMA,
-                "wsr_r41_leftover3 source_commit drifted",
-            ),
-            (
-                r41.get("source_sha256") != LEGACY_MILL_SHA256,
-                FINDING_CATALOG_SCHEMA,
-                "wsr_r41_leftover3 source_sha256 drifted",
-            ),
-            (
-                int(r41["start_round"]) != LEFTOVER3_START_ROUND,
-                FINDING_CATALOG_SCHEMA,
-                "wsr_r41_leftover3 start_round drifted",
-            ),
-            (
-                int(r41["n_rounds"]) != LEFTOVER3_N_ROUNDS,
-                FINDING_CATALOG_SCHEMA,
-                "wsr_r41_leftover3 n_rounds drifted",
-            ),
-            (
-                r89.get("source_path") != LLL_MILL,
-                FINDING_CATALOG_SCHEMA,
-                "wsr_r89_lll source_path drifted",
-            ),
-            (
-                r89.get("source_path") == REFUSED_MILL,
-                FINDING_CATALOG_BANNED,
-                f"refusing hopper mill {REFUSED_MILL!r}",
-            ),
-            (
-                r89.get("source_commit") != LLL_COMMIT,
-                FINDING_CATALOG_SCHEMA,
-                "wsr_r89_lll source_commit drifted",
-            ),
-            (
-                r89.get("source_sha256") != LLL_MILL_SHA256,
-                FINDING_CATALOG_SCHEMA,
-                "wsr_r89_lll source_sha256 drifted",
-            ),
-            (
-                int(r89["start_round"]) != LLL_START_ROUND,
-                FINDING_CATALOG_SCHEMA,
-                "wsr_r89_lll start_round drifted",
-            ),
-            (
-                int(r89["n_rounds"]) != LLL_N_ROUNDS,
-                FINDING_CATALOG_SCHEMA,
-                "wsr_r89_lll n_rounds drifted",
-            ),
-        )
-    )
+    refuse_first(_leftover3_mill_pins(r41) + _lll_mill_pins(r89))
     return catalog
+
+
+def _leftover3_mill_pins(r41: dict[str, Any]) -> tuple[_Check, ...]:
+    return (
+        (
+            r41.get("source_path") != LEGACY_MILL,
+            FINDING_CATALOG_SCHEMA,
+            "wsr_r41_leftover3 source_path drifted",
+        ),
+        (
+            r41.get("source_commit") != LEGACY_COMMIT,
+            FINDING_CATALOG_SCHEMA,
+            "wsr_r41_leftover3 source_commit drifted",
+        ),
+        (
+            r41.get("source_sha256") != LEGACY_MILL_SHA256,
+            FINDING_CATALOG_SCHEMA,
+            "wsr_r41_leftover3 source_sha256 drifted",
+        ),
+        (
+            int(r41["start_round"]) != LEFTOVER3_START_ROUND,
+            FINDING_CATALOG_SCHEMA,
+            "wsr_r41_leftover3 start_round drifted",
+        ),
+        (
+            int(r41["n_rounds"]) != LEFTOVER3_N_ROUNDS,
+            FINDING_CATALOG_SCHEMA,
+            "wsr_r41_leftover3 n_rounds drifted",
+        ),
+    )
+
+
+def _lll_mill_pins(r89: dict[str, Any]) -> tuple[_Check, ...]:
+    return (
+        (
+            r89.get("source_path") != LLL_MILL,
+            FINDING_CATALOG_SCHEMA,
+            "wsr_r89_lll source_path drifted",
+        ),
+        (
+            r89.get("source_path") == REFUSED_MILL,
+            FINDING_CATALOG_BANNED,
+            f"refusing hopper mill {REFUSED_MILL!r}",
+        ),
+        (
+            r89.get("source_commit") != LLL_COMMIT,
+            FINDING_CATALOG_SCHEMA,
+            "wsr_r89_lll source_commit drifted",
+        ),
+        (
+            r89.get("source_sha256") != LLL_MILL_SHA256,
+            FINDING_CATALOG_SCHEMA,
+            "wsr_r89_lll source_sha256 drifted",
+        ),
+        (
+            int(r89["start_round"]) != LLL_START_ROUND,
+            FINDING_CATALOG_SCHEMA,
+            "wsr_r89_lll start_round drifted",
+        ),
+        (
+            int(r89["n_rounds"]) != LLL_N_ROUNDS,
+            FINDING_CATALOG_SCHEMA,
+            "wsr_r89_lll n_rounds drifted",
+        ),
+    )
 
 
 bind_import_twin(__name__)

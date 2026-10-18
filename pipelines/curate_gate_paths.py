@@ -19,7 +19,7 @@ import errno
 import os
 import sys
 from pathlib import Path
-from typing import Any, NamedTuple, Sequence
+from typing import Any, NamedTuple, Sequence, TypeGuard
 
 if __package__:
     from . import _assert_direct_sibling, _expose_package_sibling
@@ -73,14 +73,8 @@ class RepoRoots(NamedTuple):
     raw_output_root: Path
 
 
-def _resolve_source_run_path(
-    plan_dir: Path,
-    value: str,
-    label: str,
-    roots: RepoRoots,
-) -> Path:
-    """Resolve a source tree without making the documented raw path ambiguous."""
-    repo_root, raw_output_root = roots
+def _source_run_parts(value: str, label: str) -> tuple[str, ...]:
+    """A relative source-run path's parts, without ``.`` or empty components."""
     declared = Path(value)
     if declared.is_absolute() or ".." in declared.parts:
         raise GateError(
@@ -90,14 +84,33 @@ def _resolve_source_run_path(
     parts = tuple(part for part in declared.parts if part not in {"", "."})
     if not parts:
         raise GateError(f"{label} must name a directory")
+    return parts
 
-    repository_raw = len(parts) >= 2 and parts[:2] == ("outputs", "raw")
-    root = repo_root if repository_raw else plan_dir
+
+def _names_repository_raw(parts: tuple[str, ...]) -> bool:
+    return len(parts) >= 2 and parts[:2] == ("outputs", "raw")
+
+
+def _reject_symlinked_components(root: Path, parts: tuple[str, ...], label: str) -> None:
     walked = root
     for part in parts:
         walked = walked / part
         if walked.is_symlink():
             raise GateError(f"{label} contains a symlinked path component: {walked}")
+
+
+def _resolve_source_run_path(
+    plan_dir: Path,
+    value: str,
+    label: str,
+    roots: RepoRoots,
+) -> Path:
+    """Resolve a source tree without making the documented raw path ambiguous."""
+    repo_root, raw_output_root = roots
+    parts = _source_run_parts(value, label)
+    repository_raw = _names_repository_raw(parts)
+    root = repo_root if repository_raw else plan_dir
+    _reject_symlinked_components(root, parts, label)
 
     resolved = (root / Path(*parts)).resolve()
     allowed_root = raw_output_root if repository_raw else plan_dir
@@ -145,6 +158,13 @@ def _assert_new_destination(destination: Path, label: str, raw_output_root: Path
     return resolved
 
 
+def _trees_overlap(source: Path, destination: Path) -> bool:
+    """Whether two resolved trees are the same tree or one contains the other."""
+    if source == destination:
+        return True
+    return source in destination.parents or destination in source.parents
+
+
 def _assert_disjoint_trees(
     source: Path,
     destination: Path,
@@ -154,7 +174,7 @@ def _assert_disjoint_trees(
 ) -> None:
     source = source.resolve(strict=False)
     destination = destination.resolve(strict=False)
-    if source == destination or source in destination.parents or destination in source.parents:
+    if _trees_overlap(source, destination):
         raise GateError(
             f"{source_label} and {destination_label} must be disjoint after symlink "
             f"resolution: {source_label}={source}, {destination_label}={destination}"
@@ -210,25 +230,42 @@ def _rename_noreplace(
     raise GateError(f"cannot atomically publish {label} {destination}: {os.strerror(error)}")
 
 
-def _logical_source_path(value: Any, label: str) -> str:
-    if not isinstance(value, str) or not value.strip():
-        raise GateError(f"{label} must be a non-empty source path")
-    path = Path(value)
-    parts = path.parts
+def _last_raw_index(parts: tuple[str, ...]) -> int | None:
+    """The index of ``raw`` in the last ``outputs/raw`` pair of ``parts``, if any."""
     raw_roots = [
         index for index in range(len(parts) - 1) if parts[index : index + 2] == ("outputs", "raw")
     ]
-    if raw_roots:
-        raw_index = raw_roots[-1] + 1
+    return raw_roots[-1] + 1 if raw_roots else None
+
+
+def _run_relative_parts(path: Path, label: str) -> tuple[str, ...]:
+    """Strip ``outputs/raw/<run>/`` from a raw path; refuse any other absolute path."""
+    parts = path.parts
+    raw_index = _last_raw_index(parts)
+    if raw_index is not None:
         if len(parts) <= raw_index + 2:
             raise GateError(f"{label} does not identify a record below outputs/raw")
-        parts = parts[raw_index + 2 :]
-    elif path.is_absolute():
+        return parts[raw_index + 2 :]
+    if path.is_absolute():
         raise GateError(f"{label} must be relative or identify a path below outputs/raw")
+    return parts
+
+
+def _logical_source_path(value: Any, label: str) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise GateError(f"{label} must be a non-empty source path")
+    parts = _run_relative_parts(Path(value), label)
     parts = tuple(part for part in parts if part not in {"", "."})
     if not parts or ".." in parts:
         raise GateError(f"{label} is not a safe logical source path: {value!r}")
     return Path(*parts).as_posix()
+
+
+def is_positive_line_number(value: Any) -> TypeGuard[int]:
+    """A 1-based source line: an ``int`` that is not a ``bool`` and is at least 1."""
+    if not isinstance(value, int) or isinstance(value, bool):
+        return False
+    return value >= 1
 
 
 def _assert_no_symlink(root: Path, path: Path, label: str) -> None:

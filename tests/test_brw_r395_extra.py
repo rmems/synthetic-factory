@@ -39,7 +39,19 @@ def _legacy_extra_pairs(path: str) -> list[dict]:
         cwd=REPO,
         stderr=subprocess.DEVNULL,
     )
-    tree = ast.parse(src)
+    rows, keys = _rows_and_keys(ast.parse(src))
+    if rows is None or keys is None:
+        raise AssertionError(f"ROWS/KEYS missing from {path}")
+    out: list[dict] = []
+    for row in rows:
+        spec = dict(zip(keys, row, strict=True))
+        spec["not"] = row[-3]
+        out.append(spec)
+    return out
+
+
+def _rows_and_keys(tree):
+    """The last top-level ROWS and KEYS literals of a legacy mill (None when absent)."""
     rows: list[tuple] | None = None
     keys: tuple[str, ...] | None = None
     for node in tree.body:
@@ -52,14 +64,7 @@ def _legacy_extra_pairs(path: str) -> list[dict]:
                 rows = ast.literal_eval(node.value)
             elif target.id == "KEYS":
                 keys = ast.literal_eval(node.value)
-    if rows is None or keys is None:
-        raise AssertionError(f"ROWS/KEYS missing from {path}")
-    out: list[dict] = []
-    for row in rows:
-        spec = dict(zip(keys, row, strict=True))
-        spec["not"] = row[-3]
-        out.append(spec)
-    return out
+    return rows, keys
 
 
 class BrwR395ExtraLayout(unittest.TestCase):

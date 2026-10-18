@@ -24,7 +24,8 @@ from distill_gap_test_support import clone, rehash  # noqa: E402
 class FaultRecoveryGaps(unittest.TestCase):
     """fault_recovery.py"""
 
-    def record(self, seed: int = 3, count: int = 9) -> list[dict]:
+    @staticmethod
+    def record(seed: int = 3, count: int = 9) -> list[dict]:
         return fr.build_records(seed, count)
 
     def test_a_flipped_deterministic_outcome_is_re_derived(self):

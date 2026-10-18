@@ -11,7 +11,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 from . import catalog as cat
 from ._contract import (
@@ -184,79 +184,80 @@ def _debug_steps(
     ]
 
 
+_NEED_FIRST_DOC = "Observation: local files are in. Need the changelog/registry before editing."
+_NEED_SECOND_DOC = "Observation: local files are in. Need the second remote document before editing."
+
+
+class _Outage(NamedTuple):
+    """One remote-document outage: the failing fetch, its retry, and how each read."""
+
+    failed: str
+    reflection: str
+    retry_basis: str
+    recovered: str
+    resolved: str
+
+
+def _gateway_outage(url: str, body: str, resolved: str) -> _Outage:
+    return _Outage(
+        failed=f"GET {url}\nHTTP/1.1 502 Bad Gateway\nBad Gateway.",
+        reflection="Call failed with upstream gateway failure. Recover with backoff.",
+        retry_basis=(
+            "Observation: the prior call returned an upstream gateway "
+            "failure. Retry once with 2s backoff."
+        ),
+        recovered=(
+            "retry after 2s backoff; local vendor fixture\n"
+            f"HTTP/1.1 200 OK\n{body}"
+        ),
+        resolved=resolved,
+    )
+
+
+def _rate_limit_outage(url: str, body: str, retry_after: int, resolved: str) -> _Outage:
+    return _Outage(
+        failed=(
+            f"GET {url}\nHTTP/1.1 429 Too Many Requests\n"
+            f"Retry-After: {retry_after}\nX-RateLimit-Remaining: 0"
+        ),
+        reflection="Call failed with rate-limit status with Retry-After. Recover with backoff.",
+        retry_basis=(
+            "Observation: the prior call returned rate-limit status "
+            "with Retry-After. Sleep then retry."
+        ),
+        recovered=f"sleep + jitter retry of the same URL\nHTTP/1.1 200 OK\n{body}",
+        resolved=resolved,
+    )
+
+
+def _recovery_steps(n: int, need: str, url: str, outage: _Outage) -> list[dict[str, Any]]:
+    return [
+        _step(n, need, _fetch(url), outage.failed, outage.reflection),
+        _step(n + 1, outage.retry_basis, _fetch(url), outage.recovered, outage.resolved),
+    ]
+
+
 def _docs_steps(plant: Mapping[str, Any], *, success: bool) -> list[dict[str, Any]]:
     url, url2 = str(plant["docs_url"]), str(plant["docs_url2"])
     body, body2 = str(plant["docs_ok"]), str(plant["docs_ok2"])
-    gateway_fail = f"GET {url if success else url2}\nHTTP/1.1 502 Bad Gateway\nBad Gateway."
-    gateway_ok = (
-        (
-            "retry after 2s backoff; local vendor fixture\n"
-            f"HTTP/1.1 200 OK\n{body if success else body2}"
-        )
-    )
-    retry_after = 5 if success else 6
-    limited_url = url2 if success else url
-    limited_body = body2 if success else body
-    rate_fail = (
-        f"GET {limited_url}\nHTTP/1.1 429 Too Many Requests\n"
-        f"Retry-After: {retry_after}\nX-RateLimit-Remaining: 0"
-    )
-    rate_ok = f"sleep + jitter retry of the same URL\nHTTP/1.1 200 OK\n{limited_body}"
     if success:
-        first = (
-            "Observation: local files are in. Need the changelog/registry before editing.",
-            _fetch(url),
-            gateway_fail,
-            "Call failed with upstream gateway failure. Recover with backoff.",
-            (
-                "Observation: the prior call returned an upstream gateway "
-                "failure. Retry once with 2s backoff."
-            ),
-            _fetch(url),
-            gateway_ok,
-            "Degraded path used the local fixture. Continue with that content.",
-            "Observation: local files are in. Need the second remote document before editing.",
-            _fetch(url2),
-            rate_fail,
-            "Call failed with rate-limit status with Retry-After. Recover with backoff.",
-            (
-                "Observation: the prior call returned rate-limit status "
-                "with Retry-After. Sleep then retry."
-            ),
-            _fetch(url2),
-            rate_ok,
+        first = _gateway_outage(
+            url, body, "Degraded path used the local fixture. Continue with that content."
+        )
+        second = _rate_limit_outage(
+            url2,
+            body2,
+            5,
             "Retry succeeded. Resume the local debug plan with that document in hand.",
         )
     else:
-        first = (
-            "Observation: local files are in. Need the changelog/registry before editing.",
-            _fetch(url),
-            rate_fail,
-            "Call failed with rate-limit status with Retry-After. Recover with backoff.",
-            (
-                "Observation: the prior call returned rate-limit status "
-                "with Retry-After. Sleep then retry."
-            ),
-            _fetch(url),
-            rate_ok,
-            "Retry succeeded. Continue with that document.",
-            "Observation: local files are in. Need the second remote document before editing.",
-            _fetch(url2),
-            gateway_fail,
-            "Call failed with upstream gateway failure. Recover with backoff.",
-            (
-                "Observation: the prior call returned an upstream gateway "
-                "failure. Retry once with 2s backoff."
-            ),
-            _fetch(url2),
-            gateway_ok,
-            "Degraded path used the local fixture. Resume the local debug plan.",
+        first = _rate_limit_outage(url, body, 6, "Retry succeeded. Continue with that document.")
+        second = _gateway_outage(
+            url2, body2, "Degraded path used the local fixture. Resume the local debug plan."
         )
     return [
-        _step(6, first[0], first[1], first[2], first[3]),
-        _step(7, first[4], first[5], first[6], first[7]),
-        _step(8, first[8], first[9], first[10], first[11]),
-        _step(9, first[12], first[13], first[14], first[15]),
+        *_recovery_steps(6, _NEED_FIRST_DOC, url, first),
+        *_recovery_steps(8, _NEED_SECOND_DOC, url2, second),
     ]
 
 
@@ -328,6 +329,44 @@ def _episode(
     return episode
 
 
+def _success_closing_steps(
+    plant: Mapping[str, Any], src: str, test: str
+) -> list[dict[str, Any]]:
+    return [
+        _step(
+            13,
+            f"Reflection: {plant['plan_change']}"[:MAX_DECISION_BASIS],
+            _edit(src, str(plant["first_new"]), str(plant["fix_new"])),
+            str(plant["fix_obs"]),
+            "Corrective patch applied. Run the original failing node again.",
+        ),
+        _step(
+            14,
+            "Observation: fix edit returned clean. Re-run the original failing test node.",
+            _pytest(f"{test} -q --tb=short"),
+            "1 passed in 0.16s",
+            "Result recorded. Run one broader check before declaring the outcome.",
+        ),
+        _step(
+            15,
+            f"Observation: focused run finished. Run broader check `pytest {test} -q`.",
+            _bash(f"pytest {test} -q"),
+            "3 passed in 0.28s",
+            "Broader check captured. Stop; residual risk belongs in the outcome text.",
+        ),
+        _step(
+            16,
+            (
+                "Observation: broader check is on disk. Show the diff "
+                "of patched files for the handoff note."
+            ),
+            _bash("git diff --stat | head -n 40"),
+            f"diffstat for {plant['slug']}: {src} | 9 ++++++---. No other modified paths.",
+            "Diff is the review artifact. No further edits.",
+        ),
+    ]
+
+
 def build_success(
     plant: Mapping[str, Any], *, factory: str, prefix: str, round_n: int
 ) -> dict[str, Any]:
@@ -337,39 +376,7 @@ def build_success(
         _debug_steps(plant, src, test, listing)
         + _docs_steps(plant, success=True)
         + _reread_steps(plant, src, test)
-        + [
-            _step(
-                13,
-                f"Reflection: {plant['plan_change']}"[:MAX_DECISION_BASIS],
-                _edit(src, str(plant["first_new"]), str(plant["fix_new"])),
-                str(plant["fix_obs"]),
-                "Corrective patch applied. Run the original failing node again.",
-            ),
-            _step(
-                14,
-                "Observation: fix edit returned clean. Re-run the original failing test node.",
-                _pytest(f"{test} -q --tb=short"),
-                "1 passed in 0.16s",
-                "Result recorded. Run one broader check before declaring the outcome.",
-            ),
-            _step(
-                15,
-                f"Observation: focused run finished. Run broader check `pytest {test} -q`.",
-                _bash(f"pytest {test} -q"),
-                "3 passed in 0.28s",
-                "Broader check captured. Stop; residual risk belongs in the outcome text.",
-            ),
-            _step(
-                16,
-                (
-                    "Observation: broader check is on disk. Show the diff "
-                    "of patched files for the handoff note."
-                ),
-                _bash("git diff --stat | head -n 40"),
-                f"diffstat for {plant['slug']}: {src} | 9 ++++++---. No other modified paths.",
-                "Diff is the review artifact. No further edits.",
-            ),
-        ]
+        + _success_closing_steps(plant, src, test)
     )
     refuse_when(
         len(steps) != SUCCESS_STEPS,
@@ -394,60 +401,66 @@ def build_success(
     )
 
 
+def _handoff_closing_steps(
+    plant: Mapping[str, Any], src: str, test: str, ticket: str
+) -> list[dict[str, Any]]:
+    ticket_path = f"{plant['mod']}/handoff.md"
+    return [
+        _step(
+            13,
+            f"Reflection: {plant['plan_change']}"[:MAX_DECISION_BASIS],
+            _edit(ticket_path, "", f"# {ticket} {plant['ticket_why']}"),
+            str(plant["fix_obs"]),
+            "Handoff ticket written. Run the original failing node again.",
+        ),
+        _step(
+            14,
+            "Observation: handoff edit returned clean. Re-run the original failing test node.",
+            _pytest(f"{test} -q --tb=short"),
+            f"{test}::{plant['test_fn']} FAILED  # handoff: {ticket}\n1 failed",
+            "Result recorded. Run one broader check before declaring the outcome.",
+        ),
+        _step(
+            15,
+            (
+                "Observation: focused run finished. Run broader check "
+                f"`pytest {test} -q; echo {ticket}`."
+            ),
+            _bash(f"pytest {test} -q; echo {ticket}"),
+            f"1 failed, 2 passed\n{ticket}",
+            "Broader check captured. Residual risk belongs in the outcome text.",
+        ),
+        _step(
+            16,
+            (
+                "Observation: broader check is on disk. Show the diff "
+                "of patched files for the handoff note."
+            ),
+            _bash("git diff --stat | head -n 40"),
+            f"diffstat for {plant['slug']}: {src} | 8 +++++---. {ticket_path} added.",
+            "Diff is the review artifact. Lint next.",
+        ),
+        _step(
+            17,
+            "Observation: diffstat listed the patched files. Run a linter on those paths only.",
+            _bash("ruff check tests || true; echo lint-end"),
+            "All checks passed!\nlint-end",
+            "Lint clean. Episode complete.",
+        ),
+    ]
+
+
 def build_handoff(
     plant: Mapping[str, Any], *, factory: str, prefix: str, round_n: int
 ) -> dict[str, Any]:
     src, test, cfg = _paths(plant)
     listing = f"{src} {cfg}\n{test}"
     ticket = str(plant["ticket"])
-    ticket_path = f"{plant['mod']}/handoff.md"
     steps = (
         _debug_steps(plant, src, test, listing)
         + _docs_steps(plant, success=False)
         + _reread_steps(plant, src, test)
-        + [
-            _step(
-                13,
-                f"Reflection: {plant['plan_change']}"[:MAX_DECISION_BASIS],
-                _edit(ticket_path, "", f"# {ticket} {plant['ticket_why']}"),
-                str(plant["fix_obs"]),
-                "Handoff ticket written. Run the original failing node again.",
-            ),
-            _step(
-                14,
-                "Observation: handoff edit returned clean. Re-run the original failing test node.",
-                _pytest(f"{test} -q --tb=short"),
-                f"{test}::{plant['test_fn']} FAILED  # handoff: {ticket}\n1 failed",
-                "Result recorded. Run one broader check before declaring the outcome.",
-            ),
-            _step(
-                15,
-                (
-                    "Observation: focused run finished. Run broader check "
-                    f"`pytest {test} -q; echo {ticket}`."
-                ),
-                _bash(f"pytest {test} -q; echo {ticket}"),
-                f"1 failed, 2 passed\n{ticket}",
-                "Broader check captured. Residual risk belongs in the outcome text.",
-            ),
-            _step(
-                16,
-                (
-                    "Observation: broader check is on disk. Show the diff "
-                    "of patched files for the handoff note."
-                ),
-                _bash("git diff --stat | head -n 40"),
-                f"diffstat for {plant['slug']}: {src} | 8 +++++---. {ticket_path} added.",
-                "Diff is the review artifact. Lint next.",
-            ),
-            _step(
-                17,
-                "Observation: diffstat listed the patched files. Run a linter on those paths only.",
-                _bash("ruff check tests || true; echo lint-end"),
-                "All checks passed!\nlint-end",
-                "Lint clean. Episode complete.",
-            ),
-        ]
+        + _handoff_closing_steps(plant, src, test, ticket)
     )
     refuse_when(
         len(steps) != HANDOFF_STEPS,

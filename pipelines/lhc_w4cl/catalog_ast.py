@@ -7,7 +7,7 @@ Nothing here executes source. ``ast.parse`` is the only interpreter step.
 from __future__ import annotations
 
 import ast
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 UNSET = object()
@@ -25,6 +25,22 @@ def assignment_of(node: ast.stmt) -> tuple[str | None, ast.AST | None]:
     return None, None
 
 
+def _bound_name(node: ast.Name, env: Mapping[str, Any]) -> Any:
+    return env.get(node.id, UNSET)
+
+
+def _negated(inner: Any) -> Any:
+    return -inner if isinstance(inner, (int, float)) else UNSET
+
+
+def _sequence_parts(node: ast.AST) -> tuple[list[ast.expr], type] | None:
+    """A tuple or list literal's elements and its container type, else None."""
+
+    if isinstance(node, ast.Tuple):
+        return node.elts, tuple
+    return (node.elts, list) if isinstance(node, ast.List) else None
+
+
 def literal_value(node: ast.AST, env: Mapping[str, Any] | None = None) -> Any:
     """Resolve constants, names, and literal containers; else ``UNSET``."""
 
@@ -32,20 +48,16 @@ def literal_value(node: ast.AST, env: Mapping[str, Any] | None = None) -> Any:
     if isinstance(node, ast.Constant):
         return node.value
     if isinstance(node, ast.Name):
-        return bound[node.id] if node.id in bound else UNSET
+        return _bound_name(node, bound)
     if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
-        inner = literal_value(node.operand, bound)
-        return -inner if isinstance(inner, (int, float)) else UNSET
-    if isinstance(node, ast.Tuple):
-        return _sequence(node.elts, bound, tuple)
-    if isinstance(node, ast.List):
-        return _sequence(node.elts, bound, list)
-    if isinstance(node, ast.Dict):
-        return _mapping(node, bound)
-    return UNSET
+        return _negated(literal_value(node.operand, bound))
+    parts = _sequence_parts(node)
+    if parts is not None:
+        return _sequence(parts[0], bound, parts[1])
+    return _mapping(node, bound) if isinstance(node, ast.Dict) else UNSET
 
 
-def _sequence(elts: list[ast.AST], env: Mapping[str, Any], ctor):
+def _sequence(elts: Sequence[ast.AST], env: Mapping[str, Any], ctor):
     values: list[Any] = []
     for elt in elts:
         item = literal_value(elt, env)

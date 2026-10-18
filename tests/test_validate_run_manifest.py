@@ -22,11 +22,13 @@ class ManifestPublicationTests(unittest.TestCase):
             manifest_path = run_dir / "manifest.json"
             previous = '{"previous": true}\n'
             manifest_path.write_text(previous)
-            with mock.patch.object(Path, "write_text", interrupted_write):
-                with self.assertRaisesRegex(OSError, "injected write interruption"):
-                    validate_run_cli.main(
-                        ["--write", raw], check_line=lambda obj, where: ([], "unknown")
-                    )
+            with (
+                mock.patch.object(Path, "write_text", interrupted_write),
+                self.assertRaisesRegex(OSError, "injected write interruption"),
+            ):
+                validate_run_cli.main(
+                    ["--write", raw], check_line=lambda obj, where: ([], "unknown")
+                )
             self.assertEqual(manifest_path.read_text(), previous)
             self.assertEqual(list(run_dir.iterdir()), [manifest_path])
 

@@ -167,7 +167,7 @@ def _refused(args: argparse.Namespace | None, refusal: IrcRefusal) -> int:
         print(
             dumps_exact_json(
                 {
-                    "command": getattr(args, "command", None) if args is not None else None,
+                    "command": getattr(args, "command", None),
                     "status": "refused",
                     "code": refusal.code,
                     "message": str(refusal),

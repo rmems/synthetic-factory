@@ -28,6 +28,7 @@ __all__ = [
     "FaultEngine",
     "FaultSpec",
     "ScheduledFault",
+    "ShowsSymptom",
     "action_from_row",
     "fault_spec_from_row",
     "schedule_faults",
@@ -78,7 +79,7 @@ class ScheduledFault:
 def _require(row: Mapping[str, Any], key: str, kind: type, where: str) -> Any:
     value = row.get(key)
     cv.refuse_when(
-        not isinstance(value, kind) or (kind is int and isinstance(value, bool)),
+        not cv.is_typed(value, kind),
         cv.FINDING_TASK_FIELD_INVALID,
         f"{where}: fault field {key!r} must be {kind.__name__}",
     )
@@ -148,11 +149,10 @@ def action_from_row(row: Any, where: str) -> Action:
 def _flag(row: Mapping[str, Any], key: str, default: bool, where: str) -> bool:
     """A declared boolean, never a coerced truthy value such as the string "false"."""
     value = row.get(key, default)
-    cv.refuse_when(
-        not isinstance(value, bool),
-        cv.FINDING_TASK_FIELD_INVALID,
-        f"{where}: {key} must be a boolean",
-    )
+    if not isinstance(value, bool):
+        raise cv.ToolWorldRefusal(
+            cv.FINDING_TASK_FIELD_INVALID, f"{where}: {key} must be a boolean"
+        )
     return value
 
 
@@ -264,6 +264,10 @@ def _targets(spec: FaultSpec, tool: str, args: Mapping[str, Any]) -> bool:
     return spec.tool == tool and _selector_matches(spec.selector, args)
 
 
+# The owning surface's word on whether the current call could show a fault's symptom.
+ShowsSymptom = Callable[[FaultSpec], bool]
+
+
 def always_shows(_spec: FaultSpec) -> bool:
     """The default word on whether a call could show a fault's symptom: it could."""
     return True
@@ -293,10 +297,7 @@ class FaultEngine:
         return entry.armed and self._counts[entry.fault_id] == entry.occurrence
 
     def check(
-        self,
-        tool: str,
-        args: Mapping[str, Any],
-        shows: Callable[[FaultSpec], bool] = always_shows,
+        self, tool: str, args: Mapping[str, Any], shows: ShowsSymptom = always_shows
     ) -> ScheduledFault | None:
         """Advance every matching counter; return the first armed fault reaching its occurrence.
 

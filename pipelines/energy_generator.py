@@ -143,7 +143,7 @@ def propose_scenarios(seed: int, count: int) -> list[dict[str, Any]]:
 
 def _policy_workloads(
     problem: ProblemSpec, protocol: MeterProtocol
-) -> dict[str, Callable[[], list[float]]]:
+) -> dict[str, Callable[[], list[float] | None]]:
     demand, weights, caps = problem.demand, problem.weights, problem.caps
     return {
         "exhaustive_grid": lambda: grid_allocation(

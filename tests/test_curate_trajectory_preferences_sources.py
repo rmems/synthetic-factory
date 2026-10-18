@@ -246,10 +246,14 @@ class WriteDestinations(unittest.TestCase):
                     ]
                 )
             entry = next(
-                json.loads(line)
-                for line in manifest.read_text().splitlines()
-                if json.loads(line)["output_sha256"]
+                (
+                    json.loads(line)
+                    for line in manifest.read_text().splitlines()
+                    if json.loads(line)["output_sha256"]
+                ),
+                None,
             )
+            self.assertIsNotNone(entry)
 
             self.assertEqual(
                 ctp.sha256_hex(output.read_text().splitlines()[0].encode("utf-8")),
@@ -327,6 +331,7 @@ class CommandLine(unittest.TestCase):
             ],
             capture_output=True,
             text=True,
+            check=False,
         )
 
         self.assertEqual(proc.returncode, 1)

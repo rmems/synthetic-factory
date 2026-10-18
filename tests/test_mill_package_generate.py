@@ -15,11 +15,14 @@ from mill_package_test_support import (  # noqa: E402
     FIXTURE_CATALOG,
     PINNED_AT,
     SEED,
+    catalog_load,
     cli,
     generate,
     load_strict_json,
     publication,
+    records,
     refusal,
+    validation,
     vocabulary as cv,
 )
 
@@ -97,6 +100,18 @@ class GenerateRun(unittest.TestCase):
         self.assertEqual(summary["records"], 120)
         lines = [line for line in (out / generate.PAIRS_FILENAME).read_text().splitlines() if line]
         self.assertEqual(len(lines), 120)
+
+
+class RecordChecks(unittest.TestCase):
+    def test_a_record_without_object_meta_is_malformed(self):
+        loaded = catalog_load.load_catalog(FIXTURE_CATALOG)
+        plant = loaded.plants[0]
+        record = records.success_episode(3, plant)
+        validation.check_record(record, plant, success=True)
+        for meta in (None, [], "meta"):
+            broken = dict(record, meta=meta)
+            with self.subTest(meta=meta), refusal(self, cv.FINDING_RECORD_MALFORMED, "meta must be an object"):
+                validation.check_record(broken, plant, success=True)
 
 
 class Publish(unittest.TestCase):

@@ -52,17 +52,18 @@ class StrictContractFixtures(unittest.TestCase):
             (run_dir / name).write_text((STRICT_FIXTURES / name).read_text())
             return _invoke_inprocess(str(run_dir))
 
-    def _assert_invalid_line_continues(
-        self, filename, invalid_line, valid_record, marker_groups
-    ):
+    @staticmethod
+    def _validate_invalid_then_valid(filename, invalid_line, valid_record):
+        """Validate one file: ``invalid_line`` first, then one valid record."""
         with tempfile.TemporaryDirectory() as raw:
             run_dir = Path(raw) / "run"
             run_dir.mkdir()
             (run_dir / filename).write_text(
                 invalid_line + "\n" + json.dumps(valid_record, ensure_ascii=False) + "\n"
             )
-            result = _invoke_inprocess(str(run_dir))
+            return _invoke_inprocess(str(run_dir))
 
+    def _assert_invalid_line_continues(self, filename, result, marker_groups):
         self.assertEqual(result.returncode, 1, result.stderr)
         self.assertNotIn("Traceback", result.stderr)
         self.assertIn(f"{filename}:1:", result.stderr)
@@ -171,10 +172,10 @@ class StrictContractFixtures(unittest.TestCase):
         valid = copy.deepcopy(TINY_THALAMIC)
         valid["state"]["episode_id"] = "tiny-valid-😀"
 
+        result = self._validate_invalid_then_valid("nested.jsonl", json.dumps(nested), valid)
         self._assert_invalid_line_continues(
             "nested.jsonl",
-            json.dumps(nested),
-            valid,
+            result,
             (("exact JSON contract error",), ("JSON nesting",)),
         )
 
@@ -204,10 +205,10 @@ class StrictContractFixtures(unittest.TestCase):
         valid = copy.deepcopy(TINY_THALAMIC)
         valid["state"]["episode_id"] = "after-deep-input"
 
+        result = self._validate_invalid_then_valid("deep-input.jsonl", too_deep, valid)
         self._assert_invalid_line_continues(
             "deep-input.jsonl",
-            too_deep,
-            valid,
+            result,
             (("JSON parse error", "exact JSON contract error"),),
         )
 
@@ -216,10 +217,10 @@ class StrictContractFixtures(unittest.TestCase):
         valid = copy.deepcopy(TINY_THALAMIC)
         valid["state"]["episode_id"] = "after-oversized-integer"
 
+        result = self._validate_invalid_then_valid("oversized-integer.jsonl", oversized, valid)
         self._assert_invalid_line_continues(
             "oversized-integer.jsonl",
-            oversized,
-            valid,
+            result,
             (("JSON parse error: JSON integer precision",),),
         )
 

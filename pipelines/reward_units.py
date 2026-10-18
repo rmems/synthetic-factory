@@ -189,6 +189,23 @@ def assess_arithmetic(reward, pointer):
     }
 
 
+def _calibration_evidence_ref(calibration):
+    evidence_ref = calibration.get("evidence_ref")
+    if not isinstance(evidence_ref, str) or not evidence_ref.strip():
+        raise RewardOntologyError("calibration evidence_ref must be nonempty")
+    return evidence_ref
+
+
+def _require_consistent_canonical_factor(calibration, unit):
+    """An optional ``canonical_factor`` must equal the unit over the canonical USD unit."""
+    factor = calibration.get("canonical_factor")
+    if factor is None:
+        return
+    factor = _decimal(factor)
+    if factor is None or factor <= 0 or factor != unit / CANONICAL_UNIT_USD:
+        raise RewardOntologyError("calibration canonical_factor is inconsistent")
+
+
 def _normalize_calibration(calibration):
     if calibration is None:
         return None
@@ -198,14 +215,8 @@ def _normalize_calibration(calibration):
         calibration.get("source_unit_usd"),
         "calibration source_unit_usd must be positive",
     )
-    evidence_ref = calibration.get("evidence_ref")
-    if not isinstance(evidence_ref, str) or not evidence_ref.strip():
-        raise RewardOntologyError("calibration evidence_ref must be nonempty")
-    factor = calibration.get("canonical_factor")
-    if factor is not None:
-        factor = _decimal(factor)
-        if factor is None or factor <= 0 or factor != unit / CANONICAL_UNIT_USD:
-            raise RewardOntologyError("calibration canonical_factor is inconsistent")
+    evidence_ref = _calibration_evidence_ref(calibration)
+    _require_consistent_canonical_factor(calibration, unit)
     return {
         "source_unit_usd": unit,
         "evidence_ref": evidence_ref.strip(),
@@ -234,6 +245,25 @@ def _structured_unit_usd(reward):
     return structured, None
 
 
+def _unit_declaration_error(structured, parsed):
+    """The reason the text and structured unit declarations are unusable, or None."""
+    if parsed is None:
+        return None
+    if parsed <= 0:
+        return "invalid_text_unit_usd"
+    if structured is not None and structured != parsed:
+        return "conflicting_unit_declarations"
+    return None
+
+
+def _in_record_unit(reward, unit):
+    """The unit, when the text field also states the required risk-adjusted semantics."""
+    units_text = reward.get(TEXT_UNIT_FIELD)
+    if unit is None or not isinstance(units_text, str):
+        return None
+    return unit if REQUIRED_SEMANTICS in units_text.lower() else None
+
+
 def _declared_unit_usd(reward):
     if not isinstance(reward, dict):
         return None, None, "unsupported_reward_object"
@@ -241,20 +271,11 @@ def _declared_unit_usd(reward):
     structured, structured_error = _structured_unit_usd(reward)
     if structured_error:
         return None, None, structured_error
-    if parsed is not None and parsed <= 0:
-        return None, None, "invalid_text_unit_usd"
-    if structured is not None and parsed is not None and structured != parsed:
-        return None, None, "conflicting_unit_declarations"
+    declaration_error = _unit_declaration_error(structured, parsed)
+    if declaration_error:
+        return None, None, declaration_error
     unit = structured if structured is not None else parsed
-    in_record_unit = None
-    units_text = reward.get(TEXT_UNIT_FIELD)
-    if (
-        unit is not None
-        and isinstance(units_text, str)
-        and REQUIRED_SEMANTICS in units_text.lower()
-    ):
-        in_record_unit = unit
-    return unit, in_record_unit, None
+    return unit, _in_record_unit(reward, unit), None
 
 
 def _calibrated_unit_usd(unit, in_record_unit, calibration):

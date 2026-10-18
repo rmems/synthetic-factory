@@ -44,6 +44,24 @@ def preference(chosen_reward, rejected_reward):
     }
 
 
+def usd_2000_preference():
+    """A preference whose sides declare 1.0 = $2,000 units in free text only."""
+    return preference(
+        {
+            "task_progress": 3.0,
+            "safety": 0.6,
+            "total": 3.6,
+            "units": "1.0 = $2,000; audited_true_reward basis",
+        },
+        {
+            "task_progress": 0.2,
+            "safety": -0.8,
+            "total": -0.6,
+            "units": "1.0 = $2,000; risk-adjusted terms",
+        },
+    )
+
+
 def write_jsonl(path, records):
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(

@@ -13,6 +13,7 @@ from __future__ import annotations
 import collections
 import copy
 import hashlib
+import io
 import json
 import re
 import shutil
@@ -225,13 +226,23 @@ ADJUSTMENT_NOTE = (
 )
 
 
+class BundleCheckError(Exception):
+    """A bundle check failed. Raised explicitly so the build refuses under ``python -O``."""
+
+
+def _require(condition: object, message: object) -> None:
+    """Refuse with ``message`` unless ``condition`` holds (never stripped by ``-O``)."""
+    if not condition:
+        raise BundleCheckError(message)
+
+
 def sha256(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
 def round_key(name: str) -> tuple[int, str]:
     m = re.fullmatch(r"(?:batch|NOTES)-r(\d+)([a-z]?)\.(?:jsonl|md)", name)
-    assert m, name
+    _require(m, name)
     return int(m.group(1)), m.group(2)
 
 
@@ -240,9 +251,9 @@ def round_label(name: str) -> str:
     return f"r{n:02d}{suffix}"
 
 
-def build_rights(repo: str) -> tuple[dict, str]:
-    """Return (accepted document, rejection message of the owner's literal values)."""
-    literal = {
+def _owner_rights_literal(repo: str) -> dict:
+    """The rights record exactly as the owner asked for it on 2026-09-04."""
+    return {
         "schema_version": "0.1.0",
         "dataset_id": repo,
         "policy_source": POLICY_ISSUE,
@@ -273,25 +284,28 @@ def build_rights(repo: str) -> tuple[dict, str]:
         "legacy_public_release": False,
         "notes": OWNER_NOTES,
     }
-    rejections = []
+
+
+def _validation_trail(document: dict, accepted_label: str) -> str:
+    """Return ``accepted_label`` if the validator accepts ``document``, else its rejection."""
     try:
         rights_document.load_rights_document_bytes(
-            json.dumps(literal, ensure_ascii=False, indent=2).encode("utf-8")
+            json.dumps(document, ensure_ascii=False, indent=2).encode("utf-8")
         )
-        rejections.append("accepted as written")
     except rights_document.RightsPolicyError as exc:
-        rejections.append(str(exc))
+        return str(exc)
+    return accepted_label
+
+
+def build_rights(repo: str) -> tuple[dict, str]:
+    """Return (accepted document, rejection message of the owner's literal values)."""
+    literal = _owner_rights_literal(repo)
+    rejections = [_validation_trail(literal, "accepted as written")]
     step2 = copy.deepcopy(literal)
     for field in ("research_retention_status", "research_evaluation_status",
                   "redistribution_status"):
         step2[field] = "unresolved"
-    try:
-        rights_document.load_rights_document_bytes(
-            json.dumps(step2, ensure_ascii=False, indent=2).encode("utf-8")
-        )
-        rejections.append("accepted after status adjustment")
-    except rights_document.RightsPolicyError as exc:
-        rejections.append(str(exc))
+    rejections.append(_validation_trail(step2, "accepted after status adjustment"))
     accepted = copy.deepcopy(step2)
     accepted["original_release_license"] = None
     accepted["original_release_commit"] = None
@@ -301,35 +315,44 @@ def build_rights(repo: str) -> tuple[dict, str]:
     return accepted, " | ".join(rejections)
 
 
-def render_readme(cfg: dict, facts: dict) -> str:
+def _rounds_md(rounds: list[str]) -> str:
+    return ", ".join(
+        f"`{r}`" + (" (corrected re-emission, supersedes the base round)" if r.endswith("c") else "")
+        for r in rounds
+    )
+
+
+def _superseded_md(superseded: list[str]) -> str:
+    return ", ".join(f"`{s}`" for s in superseded) if superseded else "none"
+
+
+def _decisions_md(decisions: dict) -> str:
+    if not decisions:
+        return ""
+    return " Gate outcomes: " + " / ".join(
+        f"{k} {v}" for k, v in sorted(decisions.items())
+    ) + "."
+
+
+def _optional_md(optional_keys: list[str]) -> str:
+    if not optional_keys:
+        return ""
+    return " Some rows add " + ", ".join(f"`{k}`" for k in optional_keys) + "."
+
+
+def _surface_md(surface: dict) -> str:
+    return "; ".join(f"`{k}`: {v}" for k, v in sorted(surface.items(), key=lambda kv: -kv[1]))
+
+
+def _files_md(files: list[dict]) -> str:
+    return "\n".join(
+        f"| `{f['path']}` | {f['records']} | `{f['sha256'][:12]}…` |" for f in files
+    )
+
+
+def _card_front_matter(cfg: dict, facts: dict) -> str:
     tags = COMMON_TAGS_HEAD + cfg["family_tags"] + COMMON_TAGS_TAIL
     tag_lines = "\n".join(f"- {t}" for t in tags)
-    sibling_url = f"https://huggingface.co/datasets/{cfg['sibling']}"
-    repo_url = f"https://huggingface.co/datasets/{cfg['repo']}"
-    rounds_md = ", ".join(
-        f"`{r}`" + (" (corrected re-emission, supersedes the base round)" if r.endswith("c") else "")
-        for r in facts["rounds"]
-    )
-    superseded_md = (
-        ", ".join(f"`{s}`" for s in facts["superseded"]) if facts["superseded"] else "none"
-    )
-    decisions = facts["decisions"]
-    decisions_md = ""
-    if decisions:
-        decisions_md = " Gate outcomes: " + " / ".join(
-            f"{k} {v}" for k, v in sorted(decisions.items())
-        ) + "."
-    optional_md = ""
-    if facts["optional_keys"]:
-        optional_md = (
-            " Some rows add " + ", ".join(f"`{k}`" for k in facts["optional_keys"]) + "."
-        )
-    surface = facts["generation_surface"]
-    surface_md = "; ".join(f"`{k}`: {v}" for k, v in sorted(surface.items(), key=lambda kv: -kv[1]))
-    raw_mb = facts["raw_bytes"] / 1_000_000
-    files_md = "\n".join(
-        f"| `{f['path']}` | {f['records']} | `{f['sha256'][:12]}…` |" for f in facts["files"]
-    )
     return f"""---
 pretty_name: {cfg['pretty']} (Grok 4.6)
 license: cc-by-nc-4.0
@@ -357,7 +380,11 @@ dataset_info:
     num_bytes: {facts['parquet_bytes']}
 ---
 
-# {cfg['pretty']} (Grok 4.6)
+"""
+
+
+def _card_banner(cfg: dict) -> str:
+    return f"""# {cfg['pretty']} (Grok 4.6)
 
 > **Rights & intended use:** public **research corpus**, not training data.
 > Hosted frontier-model outputs are research-only inputs under project policy
@@ -375,7 +402,11 @@ dataset_info:
 
 > **Visibility:** public raw-data repository.
 
-## Rights and intended use
+"""
+
+
+def _card_rights_section() -> str:
+    return f"""## Rights and intended use
 
 **This is a public research corpus, not training data.**
 
@@ -410,7 +441,15 @@ This public raw release is licensed under
 permissions; it does not make the records training-ready, and it does not
 lift the project's training block.
 
-## What this dataset is
+"""
+
+
+def _card_dataset_section(cfg: dict, facts: dict) -> str:
+    sibling_url = f"https://huggingface.co/datasets/{cfg['sibling']}"
+    decisions_md = _decisions_md(facts["decisions"])
+    optional_md = _optional_md(facts["optional_keys"])
+    raw_mb = facts["raw_bytes"] / 1_000_000
+    return f"""## What this dataset is
 
 {cfg['what']}
 
@@ -427,7 +466,15 @@ from the same factory prompts and round protocol but from different generators
 and different runs; they live in separate repositories and separate
 collections and are never merged.
 
-## Provenance
+"""
+
+
+def _card_provenance_section(cfg: dict, facts: dict) -> str:
+    surface_md = _surface_md(facts["generation_surface"])
+    rounds_md = _rounds_md(facts["rounds"])
+    superseded_md = _superseded_md(facts["superseded"])
+    files_md = _files_md(facts["files"])
+    return f"""## Provenance
 
 - **Generator:** xAI Grok 4.6, run in the SuperGrok Heavy consumer chat
   surface (`meta.rights.subscription_plan: SuperGrok Heavy`), final run
@@ -464,7 +511,11 @@ collections and are never merged.
 
 Full digests are in [`provenance.json`](./provenance.json) `raw_snapshot`.
 
-## How to read
+"""
+
+
+def _card_reading_section(facts: dict) -> str:
+    return f"""## How to read
 
 - `data/raw/batch-r*.jsonl` is the **source of truth**: each file is a
   byte-for-byte copy of the selected factory file, one JSON record per line.
@@ -492,7 +543,12 @@ print(record["id"], record["meta"]["generator"], record["meta"]["round"])
 Do not train on any field of this raw Hub copy; it is evidence for research,
 evaluation, and cross-generator comparison only.
 
-## Relationship to the Fable dataset
+"""
+
+
+def _card_relations_section(cfg: dict) -> str:
+    sibling_url = f"https://huggingface.co/datasets/{cfg['sibling']}"
+    return f"""## Relationship to the Fable dataset
 
 [`{cfg['sibling']}`]({sibling_url}) holds the Claude Fable 5 rounds of the
 same factory; this repository holds the Grok 4.6 rounds of the 2026-09-02
@@ -519,31 +575,49 @@ and project policy blocks training use regardless of license.
 """
 
 
-def build_one(cfg: dict) -> dict:
-    factory = cfg["factory"]
-    repo = cfg["repo"]
-    name = repo.split("/")[1]
-    src = RUN / factory
-    bundle = BUNDLES / name
+def render_readme(cfg: dict, facts: dict) -> str:
+    """The Hub card: one builder per section, concatenated in card order."""
+    return "".join((
+        _card_front_matter(cfg, facts),
+        _card_banner(cfg),
+        _card_rights_section(),
+        _card_dataset_section(cfg, facts),
+        _card_provenance_section(cfg, facts),
+        _card_reading_section(facts),
+        _card_relations_section(cfg),
+    ))
+
+
+def _reset_bundle_dirs(bundle: Path) -> None:
     if bundle.exists():
         shutil.rmtree(bundle)
     (bundle / "data/raw").mkdir(parents=True)
     (bundle / "data/viewer").mkdir(parents=True)
     (bundle / "notes").mkdir(parents=True)
 
+
+def _round_files(src: Path) -> tuple[list[str], list[str]]:
+    """The selected batch and notes basenames of one factory, in round order."""
     batches = sorted((p.name for p in src.iterdir() if p.name.startswith("batch-")), key=round_key)
     notes = sorted((p.name for p in src.iterdir() if p.name.startswith("NOTES-")), key=round_key)
-    assert all(re.fullmatch(r"batch-r\d+c?\.jsonl", b) for b in batches), batches
+    _require(all(re.fullmatch(r"batch-r\d+c?\.jsonl", b) for b in batches), batches)
+    return batches, notes
 
+
+def _copy_batches(factory: str, src: Path, bundle: Path, batches: list[str]):
+    """Copy each batch verbatim and project it; return (rows, files_meta, records, raw_bytes)."""
     rows: list[ViewerRow] = []
     files_meta = []
     records = []
     raw_bytes = 0
     for b in batches:
         payload = (src / b).read_bytes()
-        assert payload == (SOURCE / factory / b).read_bytes(), f"drift vs immutable source: {b}"
+        _require(payload == (SOURCE / factory / b).read_bytes(), f"drift vs immutable source: {b}")
         (bundle / "data/raw" / b).write_bytes(payload)
-        assert (bundle / "data/raw" / b).read_bytes() == payload
+        _require(
+            (bundle / "data/raw" / b).read_bytes() == payload,
+            f"raw copy does not read back byte-identical: {b}",
+        )
         raw_bytes += len(payload)
         lines = strict_jsonl.strict_lf_jsonl_lines(payload, f"{factory}/{b}")
         source_file = f"data/raw/{b}"
@@ -552,86 +626,128 @@ def build_one(cfg: dict) -> dict:
             rows.append(ViewerRow(source_file=source_file, source_line=line_number, record_json=line))
             records.append(json.loads(line))
         # lossless reconstruction check for this file
-        assert "\n".join(lines).encode("utf-8") + b"\n" == payload, b
+        _require("\n".join(lines).encode("utf-8") + b"\n" == payload, b)
         files_meta.append({"path": source_file, "sha256": sha256(payload), "records": len(lines)})
+    return rows, files_meta, records, raw_bytes
+
+
+def _copy_notes(factory: str, src: Path, bundle: Path, notes: list[str]) -> list[dict]:
     notes_meta = []
     for n in notes:
         payload = (src / n).read_bytes()
-        assert payload == (SOURCE / factory / n).read_bytes(), f"drift vs immutable source: {n}"
+        _require(payload == (SOURCE / factory / n).read_bytes(), f"drift vs immutable source: {n}")
         (bundle / "notes" / n).write_bytes(payload)
         notes_meta.append({"path": f"notes/{n}", "sha256": sha256(payload), "bytes": len(payload)})
+    return notes_meta
 
-    # viewer projection with the repo's own writer, proven lossless twice
-    parquet = export_viewer.write_viewer_parquet(rows)
-    assert export_viewer.read_viewer_parquet(parquet) == rows
+
+def _verify_viewer_parquet(parquet: bytes, rows: list) -> None:
+    """Prove the viewer projection lossless twice: the repo reader, then pyarrow."""
+    _require(
+        export_viewer.read_viewer_parquet(parquet) == rows,
+        "viewer parquet does not read back to the source rows",
+    )
     import pyarrow.parquet as pq  # local import: pyarrow is a check, not the writer
-    import io
-    table = pq.read_table(io.BytesIO(parquet))
-    assert table.num_rows == len(rows)
-    assert table.column("source_file").to_pylist() == [r.source_file for r in rows]
-    assert table.column("source_line").to_pylist() == [r.source_line for r in rows]
-    assert table.column("record_json").to_pylist() == [r.record_json for r in rows]
-    assert [f.name for f in table.schema] == ["source_file", "source_line", "record_json"]
-    assert str(table.schema.field("source_line").type) == "int64"
-    (bundle / "data/viewer/records.parquet").write_bytes(parquet)
 
-    # census facts for the card
-    ids = [r.get("id") for r in records]
-    assert len(ids) == len(set(ids)) and all(isinstance(i, str) for i in ids), "ids not unique"
-    key_sets = [set(r.keys()) for r in records]
-    common = sorted(set.intersection(*key_sets))
-    optional = sorted(set.union(*key_sets) - set(common))
+    table = pq.read_table(io.BytesIO(parquet))
+    _require(table.num_rows == len(rows), "viewer parquet row count differs from the source rows")
+    for column in ("source_file", "source_line", "record_json"):
+        _require(
+            table.column(column).to_pylist() == [getattr(r, column) for r in rows],
+            f"viewer parquet column {column} differs from the source rows",
+        )
+    _require(
+        [f.name for f in table.schema] == ["source_file", "source_line", "record_json"],
+        "viewer parquet columns are not source_file, source_line, record_json",
+    )
+    _require(
+        str(table.schema.field("source_line").type) == "int64",
+        "viewer parquet source_line is not int64",
+    )
+
+
+def _decision_counts(records: list[dict]) -> collections.Counter[str]:
     decisions: collections.Counter[str] = collections.Counter()
     for r in records:
         sd = r.get("safety_decision")
         if isinstance(sd, dict) and isinstance(sd.get("decision"), str):
             decisions[sd["decision"]] += 1
-    surface = collections.Counter(
+    return decisions
+
+
+def _surface_counts(records: list[dict]) -> collections.Counter[str]:
+    return collections.Counter(
         str(r.get("meta", {}).get("rights", {}).get("generation_surface")) for r in records
     )
-    rights_status_rows = sum(
+
+
+def _rights_status_rows(records: list[dict]) -> int:
+    return sum(
         1 for r in records
         if "research_retention_status" in r.get("meta", {}).get("rights", {})
     )
-    assert all(r.get("meta", {}).get("generator") == "grok-4.6" for r in records)
-    assert all(r.get("meta", {}).get("factory") == factory for r in records)
-    assert all(r.get("meta", {}).get("run_label") == RUN_LABEL for r in records)
-    rounds = [round_label(b) for b in batches]
+
+
+def _record_census(records: list[dict]) -> dict:
+    """Card facts derived from the record payloads (ids must be unique strings)."""
+    ids = [r.get("id") for r in records]
+    _require(len(ids) == len(set(ids)) and all(isinstance(i, str) for i in ids), "ids not unique")
+    key_sets = [set(r.keys()) for r in records]
+    common = sorted(set.intersection(*key_sets))
+    optional = sorted(set.union(*key_sets) - set(common))
+    decisions = _decision_counts(records)
+    surface = _surface_counts(records)
+    rights_status_rows = _rights_status_rows(records)
+    return {
+        "first_id": ids[0],
+        "last_id": ids[-1],
+        "common_keys_md": ", ".join(f"`{k}`" for k in common),
+        "optional_keys": optional,
+        "decisions": dict(decisions),
+        "generation_surface": dict(surface),
+        "rights_status_rows": rights_status_rows,
+    }
+
+
+def _check_record_stamps(records: list[dict], factory: str) -> None:
+    _require(
+        all(r.get("meta", {}).get("generator") == "grok-4.6" for r in records),
+        "a record is not stamped meta.generator grok-4.6",
+    )
+    _require(
+        all(r.get("meta", {}).get("factory") == factory for r in records),
+        f"a record is not stamped meta.factory {factory}",
+    )
+    _require(
+        all(r.get("meta", {}).get("run_label") == RUN_LABEL for r in records),
+        f"a record is not stamped meta.run_label {RUN_LABEL}",
+    )
+
+
+def _superseded_bases(factory: str, batches: list[str]) -> list[str]:
+    """Base files that a selected c file stands in for; each must exist in the source tree."""
     superseded = [
         f"batch-r{round_key(b)[0]:02d}.jsonl" for b in batches if round_key(b)[1] == "c"
     ]
     for s in superseded:
-        assert (SOURCE / factory / s).exists(), s
-    facts = {
-        "records": len(records),
-        "file_count": len(batches),
-        "raw_bytes": raw_bytes,
-        "rows": len(rows),
-        "parquet_bytes": len(parquet),
-        "parquet_sha256": sha256(parquet),
-        "rounds": rounds,
-        "superseded": superseded,
-        "first_id": ids[0],
-        "last_id": ids[-1],
-        "decisions": dict(decisions),
-        "common_keys_md": ", ".join(f"`{k}`" for k in common),
-        "optional_keys": optional,
-        "generation_surface": dict(surface),
-        "rights_status_rows": rights_status_rows,
-        "files": files_meta,
-        "notes": notes_meta,
-    }
+        _require((SOURCE / factory / s).exists(), s)
+    return superseded
 
-    # rights.json
+
+def _write_rights(bundle: Path, repo: str) -> str:
+    """Write rights.json, re-validate the written bytes, return the validation trail."""
     rights, rights_report = build_rights(repo)
     (bundle / "rights.json").write_text(json.dumps(rights, ensure_ascii=False, indent=2) + "\n")
     rights_document.load_rights_document_bytes((bundle / "rights.json").read_bytes())
+    return rights_report
 
-    # release-status.json (sibling 1.0.0 shape)
+
+def _write_release_status(bundle: Path, cfg: dict) -> None:
+    """release-status.json in the sibling's 1.0.0 shape (same keys, same order)."""
     sibling_status = json.loads((SIBLINGS / cfg["sibling"].split("/")[1] / "release-status.json").read_text())
     status = {
         "schema_version": "1.0.0",
-        "dataset_id": repo,
+        "dataset_id": cfg["repo"],
         "release_stage": "raw_uncurated_public",
         "visibility": "public",
         "payload_published": True,
@@ -644,10 +760,14 @@ def build_one(cfg: dict) -> dict:
         "project_training_policy": "blocked",
         "rights_record": "rights.json",
     }
-    assert list(status) == list(sibling_status), (list(status), list(sibling_status))
+    _require(list(status) == list(sibling_status), (list(status), list(sibling_status)))
     (bundle / "release-status.json").write_text(json.dumps(status, indent=2) + "\n")
 
-    # provenance.json (sibling 1.0.0 shape, adapted)
+
+def _write_provenance(bundle: Path, cfg: dict, facts: dict) -> None:
+    """provenance.json in the sibling's 1.0.0 shape, adapted to this run."""
+    factory = cfg["factory"]
+    repo = cfg["repo"]
     sibling_prov = json.loads((SIBLINGS / cfg["sibling"].split("/")[1] / "provenance.json").read_text())
     provenance = {
         "schema_version": "1.0.0",
@@ -679,49 +799,94 @@ def build_one(cfg: dict) -> dict:
         "training_ready": False,
         "raw_evidence_policy": sibling_prov["raw_evidence_policy"],
         "hub_initial_commit": REPOS[repo]["sha"],
-        "raw_snapshot": {
-            "run": RUN_LABEL,
-            "generator": "grok-4.6",
-            "selection_rule": (
-                "batch-rNNc.jsonl (corrected re-emission) supersedes batch-rNN.jsonl; the "
-                "corrected file is published under its own name and the base file for "
-                "that round is omitted; every NOTES-*.md is published verbatim"
-            ),
-            "superseded_not_published": superseded,
-            "records": len(records),
-            "files": files_meta,
-            "notes": notes_meta,
-            "viewer": {
-                "path": "data/viewer/records.parquet",
-                "rows": len(rows),
-                "bytes": len(parquet),
-                "sha256": sha256(parquet),
-                "writer": export_contract.CREATED_BY,
-            },
-        },
+        "raw_snapshot": _raw_snapshot(facts),
     }
     (bundle / "provenance.json").write_text(json.dumps(provenance, ensure_ascii=False, indent=2) + "\n")
 
-    (bundle / "LICENSE").write_bytes(LICENSE_TEXT)
-    (bundle / "README.md").write_text(render_readme(cfg, facts))
 
-    summary = {
-        "repo": repo,
-        "factory": factory,
-        "bundle": str(bundle),
-        "rounds": rounds,
-        "superseded": superseded,
+def _raw_snapshot(facts: dict) -> dict:
+    return {
+        "run": RUN_LABEL,
+        "generator": "grok-4.6",
+        "selection_rule": (
+            "batch-rNNc.jsonl (corrected re-emission) supersedes batch-rNN.jsonl; the "
+            "corrected file is published under its own name and the base file for "
+            "that round is omitted; every NOTES-*.md is published verbatim"
+        ),
+        "superseded_not_published": facts["superseded"],
+        "records": facts["records"],
+        "files": facts["files"],
+        "notes": facts["notes"],
+        "viewer": {
+            "path": "data/viewer/records.parquet",
+            "rows": facts["rows"],
+            "bytes": facts["parquet_bytes"],
+            "sha256": facts["parquet_sha256"],
+            "writer": export_contract.CREATED_BY,
+        },
+    }
+
+
+def build_one(cfg: dict) -> dict:
+    factory = cfg["factory"]
+    repo = cfg["repo"]
+    name = repo.split("/")[1]
+    src = RUN / factory
+    bundle = BUNDLES / name
+    _reset_bundle_dirs(bundle)
+    batches, notes = _round_files(src)
+    rows, files_meta, records, raw_bytes = _copy_batches(factory, src, bundle, batches)
+    notes_meta = _copy_notes(factory, src, bundle, notes)
+
+    # viewer projection with the repo's own writer, proven lossless twice
+    parquet = export_viewer.write_viewer_parquet(rows)
+    _verify_viewer_parquet(parquet, rows)
+    (bundle / "data/viewer/records.parquet").write_bytes(parquet)
+
+    # census facts for the card
+    census = _record_census(records)
+    _check_record_stamps(records, factory)
+    rounds = [round_label(b) for b in batches]
+    superseded = _superseded_bases(factory, batches)
+    facts = {
         "records": len(records),
-        "files": len(batches),
-        "notes": len(notes),
+        "file_count": len(batches),
+        "raw_bytes": raw_bytes,
         "rows": len(rows),
         "parquet_bytes": len(parquet),
-        "decisions": dict(decisions),
-        "optional_keys": optional,
-        "generation_surface": dict(surface),
+        "parquet_sha256": sha256(parquet),
+        "rounds": rounds,
+        "superseded": superseded,
+        **census,
+        "files": files_meta,
+        "notes": notes_meta,
+    }
+
+    rights_report = _write_rights(bundle, repo)
+    _write_release_status(bundle, cfg)
+    _write_provenance(bundle, cfg, facts)
+    (bundle / "LICENSE").write_bytes(LICENSE_TEXT)
+    (bundle / "README.md").write_text(render_readme(cfg, facts))
+    return _bundle_summary(cfg, bundle, facts, rights_report)
+
+
+def _bundle_summary(cfg: dict, bundle: Path, facts: dict, rights_report: str) -> dict:
+    return {
+        "repo": cfg["repo"],
+        "factory": cfg["factory"],
+        "bundle": str(bundle),
+        "rounds": facts["rounds"],
+        "superseded": facts["superseded"],
+        "records": facts["records"],
+        "files": facts["file_count"],
+        "notes": len(facts["notes"]),
+        "rows": facts["rows"],
+        "parquet_bytes": facts["parquet_bytes"],
+        "decisions": facts["decisions"],
+        "optional_keys": facts["optional_keys"],
+        "generation_surface": facts["generation_surface"],
         "rights_validation_trail": rights_report,
     }
-    return summary
 
 
 def main() -> None:

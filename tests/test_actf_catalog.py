@@ -124,7 +124,8 @@ class CatalogRefusals(unittest.TestCase):
         (root / "lineages.jsonl").write_bytes(payload)
         return root
 
-    def _row(self, **overrides):
+    @staticmethod
+    def _row(**overrides):
         row = cat.load_catalog().lineages[0].as_mapping()
         row.update(overrides)
         return row
@@ -132,32 +133,37 @@ class CatalogRefusals(unittest.TestCase):
     def test_row_missing_a_field_is_refused(self):
         row = self._row()
         del row["path_key"]
+        root = self._tmp_catalog([row])
         with self.assertRaises(cv.ActfRefusal) as caught:
-            cat.load_catalog(self._tmp_catalog([row]))
+            cat.load_catalog(root)
         self.assertEqual(caught.exception.code, cv.FINDING_CATALOG_FIELD_MISSING)
 
     def test_non_string_list_episode_functions_is_refused(self):
         row = self._row(episode_functions="ep1")
+        root = self._tmp_catalog([row])
         with self.assertRaises(cv.ActfRefusal) as caught:
-            cat.load_catalog(self._tmp_catalog([row]))
+            cat.load_catalog(root)
         self.assertEqual(caught.exception.code, cv.FINDING_CATALOG_FIELD_INVALID)
 
     def test_non_string_list_factory_literals_is_refused(self):
         row = self._row(factory_literals=[1])
+        root = self._tmp_catalog([row])
         with self.assertRaises(cv.ActfRefusal) as caught:
-            cat.load_catalog(self._tmp_catalog([row]))
+            cat.load_catalog(root)
         self.assertEqual(caught.exception.code, cv.FINDING_CATALOG_FIELD_INVALID)
 
     def test_non_int_operation_count_is_refused(self):
         row = self._row(operation_counts={"calls": "7"})
+        root = self._tmp_catalog([row])
         with self.assertRaises(cv.ActfRefusal) as caught:
-            cat.load_catalog(self._tmp_catalog([row]))
+            cat.load_catalog(root)
         self.assertEqual(caught.exception.code, cv.FINDING_CATALOG_FIELD_INVALID)
 
     def test_string_excluded_is_refused_not_coerced(self):
         row = self._row(excluded="false")
+        root = self._tmp_catalog([row])
         with self.assertRaises(cv.ActfRefusal) as caught:
-            cat.load_catalog(self._tmp_catalog([row]))
+            cat.load_catalog(root)
         self.assertEqual(caught.exception.code, cv.FINDING_CATALOG_FIELD_INVALID)
 
     def test_drifted_provenance_meta_is_refused(self):

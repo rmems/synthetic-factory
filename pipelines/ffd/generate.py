@@ -118,20 +118,46 @@ def _paths(plant: Mapping[str, Any]) -> tuple[str, str, str]:
     return src, test, cfg
 
 
-def leftover3_success(round_n: int, plant: Mapping[str, Any]) -> dict[str, Any]:
-    goal_ok(str(plant["goal"]))
-    src, test, cfg = _paths(plant)
-    eid = f"{PREFIX}-r{round_n}-{plant['slug']}"
-    listing = f"{src} {cfg}\n{test}"
-    pytest_args = f"{test} -q --tb=short"
-    fail_obs = f"{test}::{plant['test_fn']} FAILED\nE   {plant['fail_msg']}"
-    still_obs = f"{test}::{plant['test_fn']} FAILED\nE   {plant['still_msg']}"
-    steps = [
+_LEFTOVER3_RESULT_RECORDED = "Result recorded. Run one broader check before declaring the outcome."
+_LEFTOVER3_DIFF_BASIS = "Observation: broader check is on disk. Show the diff of patched files for the handoff note."
+_LEFTOVER3_DIFF_COMMAND = "git diff --stat | head -n 40"
+
+
+@dataclass(frozen=True)
+class _Leftover3Workspace:
+    """One leftover3 plant's paths and the test texts both episode sides replay."""
+
+    plant: Mapping[str, Any]
+    src: str
+    test: str
+    listing: str
+    pytest_args: str
+    fail_obs: str
+    still_obs: str
+
+
+def _leftover3_workspace(plant: Mapping[str, Any], src: str, test: str, cfg: str) -> _Leftover3Workspace:
+    return _Leftover3Workspace(
+        plant=plant,
+        src=src,
+        test=test,
+        listing=f"{src} {cfg}\n{test}",
+        pytest_args=f"{test} -q --tb=short",
+        fail_obs=f"{test}::{plant['test_fn']} FAILED\nE   {plant['fail_msg']}",
+        still_obs=f"{test}::{plant['test_fn']} FAILED\nE   {plant['still_msg']}",
+    )
+
+
+def _leftover3_survey(ws: _Leftover3Workspace) -> list[dict[str, Any]]:
+    """Steps 1-5: list, reproduce, read the test, grep, read the implementation."""
+
+    plant, src, test = ws.plant, ws.src, ws.test
+    return [
         leftover3_step(1, f"Plan: list src {plant['mod']} and tests before touching conversion or config.",
-                       _bash(f"ls -la src {plant['mod']} tests | head -40"), listing,
+                       _bash(f"ls -la src {plant['mod']} tests | head -40"), ws.listing,
                        f"Tree shows {src} plus tests. Run the named failing target next."),
-        leftover3_step(2, f"Observation: listing named the test files. Run `{pytest_args}` to capture the failure.",
-                       _pytest(pytest_args), fail_obs,
+        leftover3_step(2, f"Observation: listing named the test files. Run `{ws.pytest_args}` to capture the failure.",
+                       _pytest(ws.pytest_args), ws.fail_obs,
                        f"Failure is at {test}::{plant['test_fn']}. Read that test before a one-line fix."),
         leftover3_step(3, f"Observation: {test}::{plant['test_fn']} is red. Read {test} around the assertion.",
                        _read(test), plant["test_body"],
@@ -142,62 +168,150 @@ def leftover3_success(round_n: int, plant: Mapping[str, Any]) -> dict[str, Any]:
         leftover3_step(5, f"Observation: grep listed {src}. Read it before any patch.",
                        _read(src), plant["src_body"],
                        "First read done. Fetch vendor docs next; do not patch on a hunch yet."),
-        leftover3_step(6, "Observation: local files are in. Need the changelog/registry before editing.",
-                       _fetch(plant["docs_url"]),
-                       f"GET {plant['docs_url']}\nHTTP/1.1 502 Bad Gateway\nBad Gateway.",
+    ]
+
+
+def _leftover3_doc(plant: Mapping[str, Any], second: bool) -> tuple[str, str, str]:
+    """``(decision_basis, url, recovered body)`` for the first or second remote document."""
+
+    if second:
+        return (
+            "Observation: local files are in. Need the second remote document before editing.",
+            plant["docs_url2"], plant["docs_ok2"],
+        )
+    return (
+        "Observation: local files are in. Need the changelog/registry before editing.",
+        plant["docs_url"], plant["docs_ok"],
+    )
+
+
+def _leftover3_gateway(n: int, doc: tuple[str, str, str], resume: str) -> list[dict[str, Any]]:
+    """A 502 on ``doc`` and its fixture-backed retry, as steps ``n`` and ``n + 1``."""
+
+    basis, url, body = doc
+    return [
+        leftover3_step(n, basis, _fetch(url), f"GET {url}\nHTTP/1.1 502 Bad Gateway\nBad Gateway.",
                        "Call failed with upstream gateway failure. Recover with backoff."),
-        leftover3_step(7, "Observation: the prior call returned an upstream gateway failure. Retry once with 2s backoff.",
-                       _fetch(plant["docs_url"]),
-                       f"retry after 2s backoff; local vendor fixture\nHTTP/1.1 200 OK\n{plant['docs_ok']}",
-                       "Degraded path used the local fixture. Continue with that content."),
-        leftover3_step(8, "Observation: local files are in. Need the second remote document before editing.",
-                       _fetch(plant["docs_url2"]),
-                       f"GET {plant['docs_url2']}\nHTTP/1.1 429 Too Many Requests\nRetry-After: 5\nX-RateLimit-Remaining: 0",
+        leftover3_step(n + 1, "Observation: the prior call returned an upstream gateway failure. Retry once with 2s backoff.",
+                       _fetch(url), f"retry after 2s backoff; local vendor fixture\nHTTP/1.1 200 OK\n{body}",
+                       f"Degraded path used the local fixture. {resume}"),
+    ]
+
+
+def _leftover3_rate_limited(n: int, doc: tuple[str, str, str], retry_after: int,
+                            resume: str) -> list[dict[str, Any]]:
+    """A 429 on ``doc`` and its sleep-then-retry, as steps ``n`` and ``n + 1``."""
+
+    basis, url, body = doc
+    return [
+        leftover3_step(n, basis, _fetch(url),
+                       f"GET {url}\nHTTP/1.1 429 Too Many Requests\nRetry-After: {retry_after}\nX-RateLimit-Remaining: 0",
                        "Call failed with rate-limit status with Retry-After. Recover with backoff."),
-        leftover3_step(9, "Observation: the prior call returned rate-limit status with Retry-After. Sleep then retry.",
-                       _fetch(plant["docs_url2"]),
-                       f"sleep + jitter retry of the same URL\nHTTP/1.1 200 OK\n{plant['docs_ok2']}",
-                       "Retry succeeded. Resume the local debug plan with that document in hand."),
+        leftover3_step(n + 1, "Observation: the prior call returned rate-limit status with Retry-After. Sleep then retry.",
+                       _fetch(url), f"sleep + jitter retry of the same URL\nHTTP/1.1 200 OK\n{body}",
+                       f"Retry succeeded. {resume}"),
+    ]
+
+
+def _leftover3_first_patch(ws: _Leftover3Workspace) -> list[dict[str, Any]]:
+    """Steps 10-12: the first patch, the still-red re-run, and the re-read that changes plan."""
+
+    plant, src = ws.plant, ws.src
+    return [
         leftover3_step(10, f"Observation: docs and source are in. Apply the first patch to {src}.",
                        _edit(src, plant["first_old"], plant["first_new"]), plant["first_obs"],
                        "Patch applied. Re-run the failing test; do not assume green."),
         leftover3_step(11, f"Observation: edit wrote {src}. Re-run the same failing node.",
-                       _pytest(pytest_args), still_obs,
+                       _pytest(ws.pytest_args), ws.still_obs,
                        "Still red after the first patch. Re-read the implementation; hypothesis is wrong."),
-        leftover3_step(12, f"Observation: post-edit test still failed ({test}::{plant['test_fn']}). Re-read {src}.",
+        leftover3_step(12, f"Observation: post-edit test still failed ({ws.test}::{plant['test_fn']}). Re-read {src}.",
                        _read(src), plant["reread_obs"], f"Plan change: {plant['plan_change']}"),
+    ]
+
+
+def _leftover3_fix(ws: _Leftover3Workspace) -> list[dict[str, Any]]:
+    """Steps 13-16 of the success side: corrective patch, green run, broader check, diff."""
+
+    plant, src, test = ws.plant, ws.src, ws.test
+    return [
         leftover3_step(13, f"Reflection: {plant['plan_change']}"[:MAX_DECISION_BASIS],
                        _edit(src, plant["first_new"], plant["fix_new"]), plant["fix_obs"],
                        "Corrective patch applied. Run the original failing node again."),
         leftover3_step(14, "Observation: fix edit returned clean. Re-run the original failing test node.",
-                       _pytest(pytest_args), "1 passed in 0.16s",
-                       "Result recorded. Run one broader check before declaring the outcome."),
+                       _pytest(ws.pytest_args), "1 passed in 0.16s", _LEFTOVER3_RESULT_RECORDED),
         leftover3_step(15, f"Observation: focused run finished. Run broader check `pytest {test} -q`.",
                        _bash(f"pytest {test} -q"), "3 passed in 0.28s",
                        "Broader check captured. Stop; residual risk belongs in the outcome text."),
-        leftover3_step(16, "Observation: broader check is on disk. Show the diff of patched files for the handoff note.",
-                       _bash("git diff --stat | head -n 40"),
+        leftover3_step(16, _LEFTOVER3_DIFF_BASIS, _bash(_LEFTOVER3_DIFF_COMMAND),
                        f"diffstat for {plant['slug']}: {src} | 9 ++++++---. No other modified paths.",
                        "Diff is the review artifact. No further edits."),
     ]
+
+
+def _leftover3_handoff(ws: _Leftover3Workspace, ticket: Any, ticket_path: str) -> list[dict[str, Any]]:
+    """Steps 13-17 of the failure side: handoff ticket, red re-run, broader check, diff, lint."""
+
+    plant, src, test = ws.plant, ws.src, ws.test
+    return [
+        leftover3_step(13, f"Reflection: {plant['plan_change']}"[:MAX_DECISION_BASIS],
+                       _edit(ticket_path, "", f"# {ticket} {plant['ticket_why']}"), plant["fix_obs"],
+                       "Handoff ticket written. Run the original failing node again."),
+        leftover3_step(14, "Observation: handoff edit returned clean. Re-run the original failing test node.",
+                       _pytest(ws.pytest_args), f"{test}::{plant['test_fn']} FAILED  # handoff: {ticket}\n1 failed",
+                       _LEFTOVER3_RESULT_RECORDED),
+        leftover3_step(15, f"Observation: focused run finished. Run broader check `pytest {test} -q; echo {ticket}`.",
+                       _bash(f"pytest {test} -q; echo {ticket}"), f"1 failed, 2 passed\n{ticket}",
+                       "Broader check captured. Residual risk belongs in the outcome text."),
+        leftover3_step(16, _LEFTOVER3_DIFF_BASIS, _bash(_LEFTOVER3_DIFF_COMMAND),
+                       f"diffstat for {plant['slug']}: {src} | 8 +++++---. {ticket_path} added.",
+                       "Diff is the review artifact. Lint next."),
+        leftover3_step(17, "Observation: diffstat listed the patched files. Run a linter on those paths only.",
+                       _bash("ruff check tests || true; echo lint-end"), "All checks passed!\nlint-end",
+                       "Lint clean. Episode complete."),
+    ]
+
+
+def _leftover3_story(plant: Mapping[str, Any], steps: list[dict[str, Any]]) -> dict[str, Any]:
+    return {"goal": plant["goal"], "plan": plant["plan"], "steps": steps, "outcome": plant["outcome"]}
+
+
+def _leftover3_meta(round_n: int, plant: Mapping[str, Any]) -> dict[str, Any]:
+    return {
+        "factory": FACTORY, "round": round_n, "generator": GENERATOR, "kind": "episode",
+        "seed": plant["seed"], "designed": True, "domain": plant["domain"], "stack": plant["stack"],
+    }
+
+
+def _leftover3_checked(episode: dict[str, Any], expected_steps: int) -> dict[str, Any]:
+    assert_clean(episode)
+    refuse_when(len(episode["steps"]) != expected_steps, FINDING_PAIR_SHAPE,
+                f"{episode['id']} expected {expected_steps} steps")
+    return episode
+
+
+def leftover3_success(round_n: int, plant: Mapping[str, Any]) -> dict[str, Any]:
+    goal_ok(str(plant["goal"]))
+    src, test, cfg = _paths(plant)
+    eid = f"{PREFIX}-r{round_n}-{plant['slug']}"
+    ws = _leftover3_workspace(plant, src, test, cfg)
+    steps = [
+        *_leftover3_survey(ws),
+        *_leftover3_gateway(6, _leftover3_doc(plant, second=False), "Continue with that content."),
+        *_leftover3_rate_limited(8, _leftover3_doc(plant, second=True), 5,
+                                 "Resume the local debug plan with that document in hand."),
+        *_leftover3_first_patch(ws),
+        *_leftover3_fix(ws),
+    ]
     episode = {
         "id": eid,
-        "goal": plant["goal"],
-        "plan": plant["plan"],
-        "steps": steps,
-        "outcome": plant["outcome"],
+        **_leftover3_story(plant, steps),
         "reward": {
             "success": True, "tests_passed": 3, "retries": 2, "duration_min": 610,
             "wasted_calls": 180, "cost_steps": 16, "plan_changes": 1,
         },
-        "meta": {
-            "factory": FACTORY, "round": round_n, "generator": GENERATOR, "kind": "episode",
-            "seed": plant["seed"], "designed": True, "domain": plant["domain"], "stack": plant["stack"],
-        },
+        "meta": _leftover3_meta(round_n, plant),
     }
-    assert_clean(episode)
-    refuse_when(len(steps) != 16, FINDING_PAIR_SHAPE, f"{eid} expected 16 steps")
-    return episode
+    return _leftover3_checked(episode, 16)
 
 
 def leftover3_fail(round_n: int, plant: Mapping[str, Any]) -> dict[str, Any]:
@@ -206,85 +320,24 @@ def leftover3_fail(round_n: int, plant: Mapping[str, Any]) -> dict[str, Any]:
     eid = f"{PREFIX}-r{round_n}-{plant['slug']}"
     ticket = plant["ticket"]
     ticket_path = f"{plant['mod']}/handoff.md"
-    listing = f"{src} {cfg}\n{test}"
-    pytest_args = f"{test} -q --tb=short"
-    fail_obs = f"{test}::{plant['test_fn']} FAILED\nE   {plant['fail_msg']}"
-    still_obs = f"{test}::{plant['test_fn']} FAILED\nE   {plant['still_msg']}"
+    ws = _leftover3_workspace(plant, src, test, cfg)
     steps = [
-        leftover3_step(1, f"Plan: list src {plant['mod']} and tests before touching conversion or config.",
-                       _bash(f"ls -la src {plant['mod']} tests | head -40"), listing,
-                       f"Tree shows {src} plus tests. Run the named failing target next."),
-        leftover3_step(2, f"Observation: listing named the test files. Run `{pytest_args}` to capture the failure.",
-                       _pytest(pytest_args), fail_obs,
-                       f"Failure is at {test}::{plant['test_fn']}. Read that test before a one-line fix."),
-        leftover3_step(3, f"Observation: {test}::{plant['test_fn']} is red. Read {test} around the assertion.",
-                       _read(test), plant["test_body"],
-                       "Test contract is visible. Search implementation symbols next."),
-        leftover3_step(4, "Observation: test file imported the production helper. Grep those symbols.",
-                       _bash(f"rg -n '{plant['grep_pat']}' src {plant['mod']} tests"), plant["grep_hit"],
-                       f"Grep hit {src}. Read it before editing the first match."),
-        leftover3_step(5, f"Observation: grep listed {src}. Read it before any patch.",
-                       _read(src), plant["src_body"],
-                       "First read done. Fetch vendor docs next; do not patch on a hunch yet."),
-        leftover3_step(6, "Observation: local files are in. Need the changelog/registry before editing.",
-                       _fetch(plant["docs_url"]),
-                       f"GET {plant['docs_url']}\nHTTP/1.1 429 Too Many Requests\nRetry-After: 6\nX-RateLimit-Remaining: 0",
-                       "Call failed with rate-limit status with Retry-After. Recover with backoff."),
-        leftover3_step(7, "Observation: the prior call returned rate-limit status with Retry-After. Sleep then retry.",
-                       _fetch(plant["docs_url"]),
-                       f"sleep + jitter retry of the same URL\nHTTP/1.1 200 OK\n{plant['docs_ok']}",
-                       "Retry succeeded. Continue with that document."),
-        leftover3_step(8, "Observation: local files are in. Need the second remote document before editing.",
-                       _fetch(plant["docs_url2"]),
-                       f"GET {plant['docs_url2']}\nHTTP/1.1 502 Bad Gateway\nBad Gateway.",
-                       "Call failed with upstream gateway failure. Recover with backoff."),
-        leftover3_step(9, "Observation: the prior call returned an upstream gateway failure. Retry once with 2s backoff.",
-                       _fetch(plant["docs_url2"]),
-                       f"retry after 2s backoff; local vendor fixture\nHTTP/1.1 200 OK\n{plant['docs_ok2']}",
-                       "Degraded path used the local fixture. Resume the local debug plan."),
-        leftover3_step(10, f"Observation: docs and source are in. Apply the first patch to {src}.",
-                       _edit(src, plant["first_old"], plant["first_new"]), plant["first_obs"],
-                       "Patch applied. Re-run the failing test; do not assume green."),
-        leftover3_step(11, f"Observation: edit wrote {src}. Re-run the same failing node.",
-                       _pytest(pytest_args), still_obs,
-                       "Still red after the first patch. Re-read the implementation; hypothesis is wrong."),
-        leftover3_step(12, f"Observation: post-edit test still failed ({test}::{plant['test_fn']}). Re-read {src}.",
-                       _read(src), plant["reread_obs"], f"Plan change: {plant['plan_change']}"),
-        leftover3_step(13, f"Reflection: {plant['plan_change']}"[:MAX_DECISION_BASIS],
-                       _edit(ticket_path, "", f"# {ticket} {plant['ticket_why']}"), plant["fix_obs"],
-                       "Handoff ticket written. Run the original failing node again."),
-        leftover3_step(14, "Observation: handoff edit returned clean. Re-run the original failing test node.",
-                       _pytest(pytest_args), f"{test}::{plant['test_fn']} FAILED  # handoff: {ticket}\n1 failed",
-                       "Result recorded. Run one broader check before declaring the outcome."),
-        leftover3_step(15, f"Observation: focused run finished. Run broader check `pytest {test} -q; echo {ticket}`.",
-                       _bash(f"pytest {test} -q; echo {ticket}"), f"1 failed, 2 passed\n{ticket}",
-                       "Broader check captured. Residual risk belongs in the outcome text."),
-        leftover3_step(16, "Observation: broader check is on disk. Show the diff of patched files for the handoff note.",
-                       _bash("git diff --stat | head -n 40"),
-                       f"diffstat for {plant['slug']}: {src} | 8 +++++---. {ticket_path} added.",
-                       "Diff is the review artifact. Lint next."),
-        leftover3_step(17, "Observation: diffstat listed the patched files. Run a linter on those paths only.",
-                       _bash("ruff check tests || true; echo lint-end"), "All checks passed!\nlint-end",
-                       "Lint clean. Episode complete."),
+        *_leftover3_survey(ws),
+        *_leftover3_rate_limited(6, _leftover3_doc(plant, second=False), 6, "Continue with that document."),
+        *_leftover3_gateway(8, _leftover3_doc(plant, second=True), "Resume the local debug plan."),
+        *_leftover3_first_patch(ws),
+        *_leftover3_handoff(ws, ticket, ticket_path),
     ]
     episode = {
         "id": eid,
-        "goal": plant["goal"],
-        "plan": plant["plan"],
-        "steps": steps,
-        "outcome": plant["outcome"],
+        **_leftover3_story(plant, steps),
         "reward": {
             "success": False, "tests_passed": 2, "retries": 2, "duration_min": 640,
             "wasted_calls": 210, "cost_steps": 17, "plan_changes": 1,
         },
-        "meta": {
-            "factory": FACTORY, "round": round_n, "generator": GENERATOR, "kind": "episode",
-            "seed": plant["seed"], "designed": True, "domain": plant["domain"], "stack": plant["stack"],
-        },
+        "meta": _leftover3_meta(round_n, plant),
     }
-    assert_clean(episode)
-    refuse_when(len(steps) != 17, FINDING_PAIR_SHAPE, f"{eid} expected 17 steps")
-    return episode
+    return _leftover3_checked(episode, 17)
 
 
 def leftover3_notes(round_n: int, ok: Mapping[str, Any], bad: Mapping[str, Any],
@@ -342,61 +395,181 @@ def lll_step(n: int, basis: str, cmd: str, obs: str) -> dict[str, Any]:
     }
 
 
-def lll_success(round_n: int, plant: Mapping[str, Any]) -> dict[str, Any]:
+@dataclass(frozen=True)
+class _LllWorkspace:
+    """One leftover-leftover-leftover plant's files and the strings both episode sides reuse."""
+
+    plant: Mapping[str, Any]
+    token: Any
+    root: Any
+    f1: Any
+    f2: Any
+    leftover: Any
+    test: str
+
+    @property
+    def pytest_cmd(self) -> str:
+        return f"pytest {self.test} -q --tb=short"
+
+
+def _lll_workspace(plant: Mapping[str, Any]) -> _LllWorkspace:
     token = plant["token"]
     root = plant["root"]
     f1, f2 = plant["f1"], plant["f2"]
     leftover = plant["leftover"]
     test = f"tests/test_{str(plant['slug']).replace('-', '_')}.py"
+    return _LllWorkspace(plant, token, root, f1, f2, leftover, test)
+
+
+def _lll_numbered(first_n: int, rows: list[tuple[str, str, str]]) -> list[dict[str, Any]]:
+    """Turn ``(decision_basis, command, observation)`` rows into steps numbered from ``first_n``."""
+
+    return [lll_step(n, basis, cmd, obs) for n, (basis, cmd, obs) in enumerate(rows, first_n)]
+
+
+def _lll_remote(ws: _LllWorkspace, statuses: tuple[str, str], runbook_obs: str,
+                metrics_recovery: tuple[str, str, str]) -> list[dict[str, Any]]:
+    """Steps 6-9: runbook fetch and fixture recovery, then metrics fetch and recovery."""
+
+    runbook_status, metrics_status = statuses
+    slug = ws.plant["slug"]
+    return _lll_numbered(6, [
+        (f"Plan: fetch runbook for {slug}.",
+         f"curl -fsS https://runbooks.flag.example.invalid/{ws.root}/{slug}",
+         f"HTTP {runbook_status} leftover leftover leftover"),
+        (f"Observation: {runbook_status} recovered via local fixture cache.",
+         f"cat fixtures/runbooks/{slug}.md", runbook_obs),
+        ("Plan: metrics API next.",
+         f"curl -fsS https://metrics.flag.example.invalid/api/v1/{ws.root}/{slug}",
+         f"HTTP {metrics_status} leftover leftover leftover"),
+        metrics_recovery,
+    ])
+
+
+def _lll_success_probe(ws: _LllWorkspace) -> list[dict[str, Any]]:
+    """Success steps 1-5: list and grep, reproduce, read evaluator and flags, side metrics."""
+
+    root, f1, f2, leftover, token = ws.root, ws.f1, ws.f2, ws.leftover, ws.token
+    return _lll_numbered(1, [
+        (f"Plan: list leftover leftover leftover {root} and grep {leftover}.",
+         f"ls -la {root}/ && rg -n '{leftover}|percentage' {root} | head -40",
+         f"{f1}: leftover leftover leftover {leftover} ignored\n{f2}: percentage=50 salt leftover leftover leftover\n{token}"),
+        ("Plan: run failing tests.", ws.pytest_cmd,
+         f"FAILED leftover leftover leftover {leftover} lost to salt {token}"),
+        ("Plan: read evaluator.", f"sed -n '1,80p' {f1}",
+         f"{f1}: hash(salt+user) leftover leftover leftover skips {leftover}"),
+        ("Plan: read flag yaml.", f"sed -n '1,80p' {f2}",
+         f"{f2}: leftover leftover leftover {leftover} present; percentage overlay"),
+        ("Plan: side metrics for leftover leftover leftover miss.",
+         f"rg -n '{leftover}' metrics {root} | head",
+         f"leftover leftover leftover {leftover}_miss=9/min"),
+    ])
+
+
+def _lll_success_fix(ws: _LllWorkspace) -> list[dict[str, Any]]:
+    """Success steps 10-16: the salt overwrite fails, the leftover return lands, tests go green."""
+
+    plant, f1, f2, leftover, token = ws.plant, ws.f1, ws.f2, ws.leftover, ws.token
+    return _lll_numbered(10, [
+        (f"Plan: first closed patch: {plant['wrong']}.",
+         (f"python3 - <<'PY'\nfrom pathlib import Path\np=Path({f2!r})\n"
+          f"p.parent.mkdir(parents=True, exist_ok=True)\n"
+          f"t=p.read_text() if p.exists() else ''\n"
+          f"p.write_text(t + '\\n# leftover leftover leftover salt-overwrite\\n')\n"
+          f"print('patched')\nPY"), "patched"),
+        ("Observation: tests still fail; salt does not replace leftover leftover leftover targeting.",
+         ws.pytest_cmd,
+         f"FAILED leftover leftover leftover {leftover} still lost {token}"),
+        (f"Reflection: Plan change: {plant['right']}", f"sed -n '1,40p' {f1}",
+         f"{f1} still hashes salt leftover leftover leftover"),
+        (f"Plan: return leftover leftover leftover {leftover} before percentage.",
+         (f"python3 - <<'PY'\nfrom pathlib import Path\np=Path({f1!r})\n"
+          f"p.parent.mkdir(parents=True, exist_ok=True)\n"
+          f"p.write_text('if leftover_{leftover}: return leftover_{leftover}  # leftover leftover leftover\\n')\n"
+          f"print('1 replacement; config restored')\nPY"),
+         "1 replacement; config restored"),
+        ("Observation: tests pass after leftover leftover leftover targeting.",
+         ws.pytest_cmd, ".\n.\n.\n3 passed in 0.12s"),
+        ("Plan: diff evaluator and flags.", f"git diff --stat {f1} {f2}",
+         f"{f1} | 6 +++---\n{f2} | 2 +-"),
+        (f"Observation: close {plant['ticket']}. leftover leftover leftover {leftover} beats percentage.",
+         f"echo '{plant['ticket']} {plant['right']}'",
+         f"{plant['ticket']} tests green leftover leftover leftover"),
+    ])
+
+
+def _lll_fail_probe(ws: _LllWorkspace, plat: Any) -> list[dict[str, Any]]:
+    """Failure steps 1-5: list and grep, reproduce, read evaluator and fleet yaml, CODEOWNERS."""
+
+    root, f1, f2, leftover, token = ws.root, ws.f1, ws.f2, ws.leftover, ws.token
+    return _lll_numbered(1, [
+        (f"Plan: list leftover leftover leftover {root} and grep {leftover}.",
+         f"ls -la {root}/ && rg -n '{leftover}' {root} | head -40",
+         f"{f1}: fleet drops leftover leftover leftover {leftover}\n{token}"),
+        ("Plan: run failing tests.", ws.pytest_cmd,
+         f"FAILED leftover leftover leftover drop {leftover} {token}"),
+        ("Plan: read evaluator.", f"sed -n '1,80p' {f1}",
+         f"{f1}: platform-owned leftover leftover leftover"),
+        ("Plan: read fleet yaml.", f"sed -n '1,80p' {f2}",
+         f"{f2}: CODEOWNERS {plat} leftover leftover leftover"),
+        ("Observation: CODEOWNERS leftover leftover leftover flag-plat.",
+         f"rg -n '{root}|{plat}' .github {root} | head",
+         f".github/CODEOWNERS: {f2} @{plat}"),
+    ])
+
+
+def _lll_fail_handoff(ws: _LllWorkspace, plat: Any) -> list[dict[str, Any]]:
+    """Failure steps 10-17: the drop patch fails, the unsigned restore is reverted, HANDOFF."""
+
+    plant, root, f1, f2, leftover, token = ws.plant, ws.root, ws.f1, ws.f2, ws.leftover, ws.token
+    return _lll_numbered(10, [
+        (f"Plan: first closed patch: {plant['wrong']}.",
+         (f"python3 - <<'PY'\nfrom pathlib import Path\np=Path({f2!r})\n"
+          f"p.parent.mkdir(parents=True, exist_ok=True)\n"
+          f"p.write_text((p.read_text() if p.exists() else '') + '\\n# leftover leftover leftover drop\\n')\n"
+          f"print('patched')\nPY"), "patched"),
+        ("Observation: tests still fail; do not drop leftover leftover leftover targeting.",
+         ws.pytest_cmd,
+         f"FAILED leftover leftover leftover {leftover} still dropped {token}"),
+        (f"Reflection: Plan change: Dropped leftover leftover leftover {leftover} is {plat}. Handoff {plant['ticket']}.",
+         f"sed -n '1,40p' {f1}", f"{f1} unsigned leftover leftover leftover"),
+        ("Plan: local leftover leftover leftover restore still unsigned.",
+         (f"python3 - <<'PY'\nfrom pathlib import Path\n"
+          f"Path({f1!r}).write_text('if leftover: return leftover  # leftover leftover leftover\\n')\n"
+          f"print('1 replacement — cluster apply still unsigned')\nPY"),
+         "1 replacement — cluster apply still unsigned"),
+        ("Observation: SLO still fails without leftover leftover leftover platform apply.",
+         ws.pytest_cmd,
+         f"FAILED fleet still drops leftover leftover leftover {leftover}"),
+        ("Plan: revert so we do not ship a pretend fix.",
+         f"git checkout -- {f1} {f2} ; git diff --stat", "clean"),
+        ("Observation: working tree clean.", f"git status --porcelain {root}", "clean"),
+        (f"Plan: HANDOFF leftover leftover leftover to @{plat}.",
+         f"echo '{plant['ticket']} handoff @{plat}: do not drop leftover leftover leftover {leftover}'",
+         f"{plant['ticket']} handed off leftover leftover leftover @{plat}"),
+    ])
+
+
+def _lll_meta(round_n: int, plant: Mapping[str, Any]) -> dict[str, Any]:
+    return {
+        "factory": FACTORY, "round": round_n, "generator": GENERATOR, "plant": "designed",
+        "domain": plant["domain"], "seed": plant["seed"],
+    }
+
+
+def lll_success(round_n: int, plant: Mapping[str, Any]) -> dict[str, Any]:
+    ws = _lll_workspace(plant)
+    leftover = ws.leftover
     steps = [
-        lll_step(1, f"Plan: list leftover leftover leftover {root} and grep {leftover}.",
-                 f"ls -la {root}/ && rg -n '{leftover}|percentage' {root} | head -40",
-                 f"{f1}: leftover leftover leftover {leftover} ignored\n{f2}: percentage=50 salt leftover leftover leftover\n{token}"),
-        lll_step(2, "Plan: run failing tests.", f"pytest {test} -q --tb=short",
-                 f"FAILED leftover leftover leftover {leftover} lost to salt {token}"),
-        lll_step(3, "Plan: read evaluator.", f"sed -n '1,80p' {f1}",
-                 f"{f1}: hash(salt+user) leftover leftover leftover skips {leftover}"),
-        lll_step(4, "Plan: read flag yaml.", f"sed -n '1,80p' {f2}",
-                 f"{f2}: leftover leftover leftover {leftover} present; percentage overlay"),
-        lll_step(5, "Plan: side metrics for leftover leftover leftover miss.",
-                 f"rg -n '{leftover}' metrics {root} | head",
-                 f"leftover leftover leftover {leftover}_miss=9/min"),
-        lll_step(6, f"Plan: fetch runbook for {plant['slug']}.",
-                 f"curl -fsS https://runbooks.flag.example.invalid/{root}/{plant['slug']}",
-                 "HTTP 502 leftover leftover leftover"),
-        lll_step(7, "Observation: 502 recovered via local fixture cache.",
-                 f"cat fixtures/runbooks/{plant['slug']}.md",
-                 f"Leftover leftover leftover {leftover} beats percentage. Salt does not replace {leftover}s."),
-        lll_step(8, "Plan: metrics API next.",
-                 f"curl -fsS https://metrics.flag.example.invalid/api/v1/{root}/{plant['slug']}",
-                 "HTTP 429 leftover leftover leftover"),
-        lll_step(9, "Observation: 429 recovered with backoff.",
-                 f"sleep 1; cat fixtures/metrics/{plant['slug']}.json",
-                 '{"miss":1} leftover leftover leftover'),
-        lll_step(10, f"Plan: first closed patch: {plant['wrong']}.",
-                 f"python3 - <<'PY'\nfrom pathlib import Path\np=Path({f2!r})\n"
-                 f"p.parent.mkdir(parents=True, exist_ok=True)\n"
-                 f"t=p.read_text() if p.exists() else ''\n"
-                 f"p.write_text(t + '\\n# leftover leftover leftover salt-overwrite\\n')\n"
-                 f"print('patched')\nPY", "patched"),
-        lll_step(11, "Observation: tests still fail; salt does not replace leftover leftover leftover targeting.",
-                 f"pytest {test} -q --tb=short",
-                 f"FAILED leftover leftover leftover {leftover} still lost {token}"),
-        lll_step(12, f"Reflection: Plan change: {plant['right']}", f"sed -n '1,40p' {f1}",
-                 f"{f1} still hashes salt leftover leftover leftover"),
-        lll_step(13, f"Plan: return leftover leftover leftover {leftover} before percentage.",
-                 f"python3 - <<'PY'\nfrom pathlib import Path\np=Path({f1!r})\n"
-                 f"p.parent.mkdir(parents=True, exist_ok=True)\n"
-                 f"p.write_text('if leftover_{leftover}: return leftover_{leftover}  # leftover leftover leftover\\n')\n"
-                 f"print('1 replacement; config restored')\nPY",
-                 "1 replacement; config restored"),
-        lll_step(14, "Observation: tests pass after leftover leftover leftover targeting.",
-                 f"pytest {test} -q --tb=short", ".\n.\n.\n3 passed in 0.12s"),
-        lll_step(15, "Plan: diff evaluator and flags.", f"git diff --stat {f1} {f2}",
-                 f"{f1} | 6 +++---\n{f2} | 2 +-"),
-        lll_step(16, f"Observation: close {plant['ticket']}. leftover leftover leftover {leftover} beats percentage.",
-                 f"echo '{plant['ticket']} {plant['right']}'",
-                 f"{plant['ticket']} tests green leftover leftover leftover"),
+        *_lll_success_probe(ws),
+        *_lll_remote(
+            ws, ("502", "429"),
+            f"Leftover leftover leftover {leftover} beats percentage. Salt does not replace {leftover}s.",
+            ("Observation: 429 recovered with backoff.",
+             f"sleep 1; cat fixtures/metrics/{plant['slug']}.json",
+             '{"miss":1} leftover leftover leftover'),
+        ),
+        *_lll_success_fix(ws),
     ]
     return {
         "id": f"{PREFIX}-r{round_n}-{plant['slug']}",
@@ -407,69 +580,24 @@ def lll_success(round_n: int, plant: Mapping[str, Any]) -> dict[str, Any]:
         "outcome": (f"{plant['ticket']} green. leftover leftover leftover {leftover} before percentage. "
                     "3 tests passed."),
         "reward": {"success": True, "tests_passed": 3, "retries": 2, "cost_steps": 16},
-        "meta": {
-            "factory": FACTORY, "round": round_n, "generator": GENERATOR, "plant": "designed",
-            "domain": plant["domain"], "seed": plant["seed"],
-        },
+        "meta": _lll_meta(round_n, plant),
     }
 
 
 def lll_fail(round_n: int, plant: Mapping[str, Any]) -> dict[str, Any]:
-    token = plant["token"]
-    root = plant["root"]
-    f1, f2 = plant["f1"], plant["f2"]
-    leftover = plant["leftover"]
+    ws = _lll_workspace(plant)
+    leftover = ws.leftover
     plat = plant.get("platform", "flag-plat")
-    test = f"tests/test_{str(plant['slug']).replace('-', '_')}.py"
     steps = [
-        lll_step(1, f"Plan: list leftover leftover leftover {root} and grep {leftover}.",
-                 f"ls -la {root}/ && rg -n '{leftover}' {root} | head -40",
-                 f"{f1}: fleet drops leftover leftover leftover {leftover}\n{token}"),
-        lll_step(2, "Plan: run failing tests.", f"pytest {test} -q --tb=short",
-                 f"FAILED leftover leftover leftover drop {leftover} {token}"),
-        lll_step(3, "Plan: read evaluator.", f"sed -n '1,80p' {f1}",
-                 f"{f1}: platform-owned leftover leftover leftover"),
-        lll_step(4, "Plan: read fleet yaml.", f"sed -n '1,80p' {f2}",
-                 f"{f2}: CODEOWNERS {plat} leftover leftover leftover"),
-        lll_step(5, "Observation: CODEOWNERS leftover leftover leftover flag-plat.",
-                 f"rg -n '{root}|{plat}' .github {root} | head",
-                 f".github/CODEOWNERS: {f2} @{plat}"),
-        lll_step(6, f"Plan: fetch runbook for {plant['slug']}.",
-                 f"curl -fsS https://runbooks.flag.example.invalid/{root}/{plant['slug']}",
-                 "HTTP 429 leftover leftover leftover"),
-        lll_step(7, "Observation: 429 recovered via local fixture cache.",
-                 f"cat fixtures/runbooks/{plant['slug']}.md",
-                 f"Do not drop leftover leftover leftover {leftover}. flag-plat apply required."),
-        lll_step(8, "Plan: metrics API next.",
-                 f"curl -fsS https://metrics.flag.example.invalid/api/v1/{root}/{plant['slug']}",
-                 "HTTP 502 leftover leftover leftover"),
-        lll_step(9, "Observation: 502 recovered with backoff fixture.",
-                 f"cat fixtures/metrics/{plant['slug']}.json",
-                 '{"dropped":1} leftover leftover leftover'),
-        lll_step(10, f"Plan: first closed patch: {plant['wrong']}.",
-                 f"python3 - <<'PY'\nfrom pathlib import Path\np=Path({f2!r})\n"
-                 f"p.parent.mkdir(parents=True, exist_ok=True)\n"
-                 f"p.write_text((p.read_text() if p.exists() else '') + '\\n# leftover leftover leftover drop\\n')\n"
-                 f"print('patched')\nPY", "patched"),
-        lll_step(11, "Observation: tests still fail; do not drop leftover leftover leftover targeting.",
-                 f"pytest {test} -q --tb=short",
-                 f"FAILED leftover leftover leftover {leftover} still dropped {token}"),
-        lll_step(12, f"Reflection: Plan change: Dropped leftover leftover leftover {leftover} is {plat}. Handoff {plant['ticket']}.",
-                 f"sed -n '1,40p' {f1}", f"{f1} unsigned leftover leftover leftover"),
-        lll_step(13, "Plan: local leftover leftover leftover restore still unsigned.",
-                 f"python3 - <<'PY'\nfrom pathlib import Path\n"
-                 f"Path({f1!r}).write_text('if leftover: return leftover  # leftover leftover leftover\\n')\n"
-                 f"print('1 replacement — cluster apply still unsigned')\nPY",
-                 "1 replacement — cluster apply still unsigned"),
-        lll_step(14, "Observation: SLO still fails without leftover leftover leftover platform apply.",
-                 f"pytest {test} -q --tb=short",
-                 f"FAILED fleet still drops leftover leftover leftover {leftover}"),
-        lll_step(15, "Plan: revert so we do not ship a pretend fix.",
-                 f"git checkout -- {f1} {f2} ; git diff --stat", "clean"),
-        lll_step(16, "Observation: working tree clean.", f"git status --porcelain {root}", "clean"),
-        lll_step(17, f"Plan: HANDOFF leftover leftover leftover to @{plat}.",
-                 f"echo '{plant['ticket']} handoff @{plat}: do not drop leftover leftover leftover {leftover}'",
-                 f"{plant['ticket']} handed off leftover leftover leftover @{plat}"),
+        *_lll_fail_probe(ws, plat),
+        *_lll_remote(
+            ws, ("429", "502"),
+            f"Do not drop leftover leftover leftover {leftover}. flag-plat apply required.",
+            ("Observation: 502 recovered with backoff fixture.",
+             f"cat fixtures/metrics/{plant['slug']}.json",
+             '{"dropped":1} leftover leftover leftover'),
+        ),
+        *_lll_fail_handoff(ws, plat),
     ]
     return {
         "id": f"{PREFIX}-r{round_n}-{plant['slug']}",
@@ -480,10 +608,7 @@ def lll_fail(round_n: int, plant: Mapping[str, Any]) -> dict[str, Any]:
         "outcome": (f"{plant['ticket']} BLOCKED leftover leftover leftover @{plat}. HEAD revert clean. "
                     f"remaining drop {leftover}. HANDOFF."),
         "reward": {"success": False, "tests_passed": 1, "retries": 2, "handoff": 1, "cost_steps": 17},
-        "meta": {
-            "factory": FACTORY, "round": round_n, "generator": GENERATOR, "plant": "designed",
-            "domain": plant["domain"], "seed": plant["seed"],
-        },
+        "meta": _lll_meta(round_n, plant),
     }
 
 
@@ -551,8 +676,10 @@ def hop_steps(rows: list[tuple]) -> list[dict[str, Any]]:
     return out
 
 
-def hop_episode(rnd: int, plant: Mapping[str, Any], expanded: Mapping[str, Any]) -> dict[str, Any]:
-    rows = [
+def _hop_diagnose_rows(expanded: Mapping[str, Any]) -> list[tuple]:
+    """Rows 1-8: locate, read, grep, reproduce, read the test, wrong patch, re-run, re-read."""
+
+    return [
         (f"Plan: locate {expanded['what']} before hypothesizing.", "glob",
          {"pattern": expanded["glob"]}, expanded["ls"]),
         (f"Observation: {expanded['impl']} is listed; read it first.", "read_file",
@@ -569,6 +696,13 @@ def hop_episode(rnd: int, plant: Mapping[str, Any], expanded: Mapping[str, Any])
          {"cmd": expanded["test_one"]}, expanded["fail2"]),
         (f"Observation: {expanded['wrong_name']} did not hold; reread {expanded['impl']}.",
          "read_file", {"path": expanded["impl"]}, expanded["reread"]),
+    ]
+
+
+def _hop_fix_rows(expanded: Mapping[str, Any]) -> list[tuple]:
+    """Rows 9-15: probe, first fix, retest, leftover file, second edit, retest, leftover grep."""
+
+    return [
         (f"Reflection: {expanded['insight']}", "run_terminal_command",
          {"cmd": expanded["probe"]}, expanded["probe_obs"]),
         (f"Plan: apply {expanded['fix_name']}.", "apply_patch",
@@ -583,6 +717,13 @@ def hop_episode(rnd: int, plant: Mapping[str, Any], expanded: Mapping[str, Any])
          {"cmd": expanded["test"]}, expanded["pass_mid"]),
         (f"Plan: grep leftover {expanded['bad_pat']}.", "grep",
          {"pattern": expanded["bad_pat"], "glob": expanded["glob"]}, expanded["grep2"]),
+    ]
+
+
+def _hop_wrap_rows(expanded: Mapping[str, Any]) -> list[tuple]:
+    """Rows 16-20: document, regression test, full suite, PR summary read, stop."""
+
+    return [
         (f"Plan: document {expanded['doc_point']}.", "apply_patch",
          {"path": expanded["doc"], "diff": expanded["doc_diff"]}, "updated."),
         (f"Plan: add regression {expanded['reg_name']}.", "apply_patch",
@@ -594,6 +735,10 @@ def hop_episode(rnd: int, plant: Mapping[str, Any], expanded: Mapping[str, Any])
         (f"Plan: stop after {expanded['wrap']}.", "run_terminal_command",
          {"cmd": expanded["full_test"]}, expanded["wrap_obs"]),
     ]
+
+
+def hop_episode(rnd: int, plant: Mapping[str, Any], expanded: Mapping[str, Any]) -> dict[str, Any]:
+    rows = [*_hop_diagnose_rows(expanded), *_hop_fix_rows(expanded), *_hop_wrap_rows(expanded)]
     success = bool(plant["ok"])
     tests = 6 if success else 5
     residual = 0 if success else 1
@@ -612,9 +757,9 @@ def hop_episode(rnd: int, plant: Mapping[str, Any], expanded: Mapping[str, Any])
     return record
 
 
-def hop_expand(plant: Mapping[str, Any]) -> dict[str, Any]:
-    leftover = plant["leftover"]
-    success = bool(plant["ok"])
+def _hop_expand_diagnosis(plant: Mapping[str, Any], success: bool) -> dict[str, Any]:
+    """Expanded keys ``slug`` .. ``fix_obs``: identity and the first debug loop."""
+
     return {
         "slug": plant["slug"],
         "success": success,
@@ -646,6 +791,13 @@ def hop_expand(plant: Mapping[str, Any]) -> dict[str, Any]:
         "fix_name": plant["fix"],
         "fix_diff": plant["fix_diff"],
         "fix_obs": "patched " + plant["fix"] + ".",
+    }
+
+
+def _hop_expand_leftover(plant: Mapping[str, Any], success: bool, leftover: Any) -> dict[str, Any]:
+    """Expanded keys ``fail3`` .. ``grep2``: the leftover file and the side-dependent second edit."""
+
+    return {
         "fail3": "PASS test_assign\nFAIL pack leftover: " + plant["rel"] + " dump still " + leftover,
         "rel": plant["rel"],
         "rel_src": plant["rel_src"],
@@ -655,6 +807,13 @@ def hop_expand(plant: Mapping[str, Any]) -> dict[str, Any]:
         "pass_mid": "PASS 6." if success else "PASS 5. FAIL dump residual. Handoff.",
         "bad_pat": plant["bad_pat"],
         "grep2": "none." if success else "none as the fix. leftover dump.",
+    }
+
+
+def _hop_expand_wrap(plant: Mapping[str, Any], success: bool) -> dict[str, Any]:
+    """Expanded keys ``doc`` .. ``outcome``: documentation, regression, and the side's ending."""
+
+    return {
         "doc": plant["doc"],
         "doc_point": plant["doc_point"],
         "doc_diff": plant["doc_diff"],
@@ -668,6 +827,16 @@ def hop_expand(plant: Mapping[str, Any]) -> dict[str, Any]:
         "goal": plant["goal"],
         "plan": plant["plan"],
         "outcome": plant["out_ok"] if success else plant["out_part"],
+    }
+
+
+def hop_expand(plant: Mapping[str, Any]) -> dict[str, Any]:
+    leftover = plant["leftover"]
+    success = bool(plant["ok"])
+    return {
+        **_hop_expand_diagnosis(plant, success),
+        **_hop_expand_leftover(plant, success, leftover),
+        **_hop_expand_wrap(plant, success),
     }
 
 
@@ -690,17 +859,24 @@ Pair: {pair['title']}.
 """
 
 
+def _int_within(value: Any, low: int, high: int) -> bool:
+    """True for a non-bool ``int`` with ``low <= value <= high``."""
+
+    if not isinstance(value, int) or isinstance(value, bool):
+        return False
+    return low <= value <= high
+
+
 def _pair_index(source_id: str, round_n: int, pair_count: int, first: int,
                 pair_index: int | None) -> int:
     refuse_when(
-        not isinstance(round_n, int) or isinstance(round_n, bool) or not 1 <= round_n <= MAX_ROUND,
+        not _int_within(round_n, 1, MAX_ROUND),
         FINDING_ROUND_OUT_OF_DOMAIN,
         f"round must be an integer in [1, {MAX_ROUND}], got {shown(round_n)}",
     )
     if pair_index is not None:
         refuse_when(
-            not isinstance(pair_index, int) or isinstance(pair_index, bool)
-            or not 0 <= pair_index < pair_count,
+            not _int_within(pair_index, 0, pair_count - 1),
             FINDING_PAIR_OUT_OF_DOMAIN,
             f"pair index {shown(pair_index)} is outside 0..{pair_count - 1}",
         )

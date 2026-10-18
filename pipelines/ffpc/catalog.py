@@ -15,7 +15,7 @@ import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeGuard
 
 from ._contract import (
     CATALOG_ID,
@@ -147,6 +147,36 @@ def _text(value: Any) -> str:
     return value if isinstance(value, str) and value.strip() else ""
 
 
+def _sub_dict(mapping: Mapping[str, Any], key: str) -> Mapping[str, Any]:
+    """``mapping[key]`` when it is a dict, else an empty dict."""
+
+    value = mapping.get(key)
+    return value if isinstance(value, dict) else {}
+
+
+def _row_index(row: Mapping[str, Any], offset: int) -> int:
+    index = row.get("index")
+    return index if isinstance(index, int) and not isinstance(index, bool) else offset
+
+
+def _diagnosis_root(diagnosis: Mapping[str, Any]) -> Any:
+    return diagnosis.get("root_cause") or diagnosis.get("root")
+
+
+def _state_fields(state: Mapping[str, Any]) -> dict[str, Any]:
+    """The draft fields a designed ``state`` dict carries."""
+
+    return {
+        "site": _site_from_env(_sub_dict(state, "environment")),
+        "domain": state.get("domain"),
+        "sim_or_real": state.get("sim_or_real"),
+    }
+
+
+def _is_named_call(node: ast.AST, name: str) -> TypeGuard[ast.Call]:
+    return isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == name
+
+
 def _assigned(node: ast.AST) -> tuple[str, ast.AST] | None:
     if isinstance(node, ast.Assign) and len(node.targets) == 1:
         target = node.targets[0]
@@ -155,38 +185,54 @@ def _assigned(node: ast.AST) -> tuple[str, ast.AST] | None:
     return None
 
 
-def _optional_const(value: ast.AST, consts: Mapping[str, Any]) -> Any:
-    if isinstance(value, ast.Name) and value.id in consts:
-        return consts[value.id]
-    try:
-        return _literal(value)
-    except FfpcRefusal:
-        return None
-
-
-def _resolve_expr(node: ast.AST, consts: Mapping[str, Any]) -> Any:
-    if isinstance(node, ast.Constant):
-        return node.value
-    if isinstance(node, ast.Name):
-        return consts.get(node.id)
-    if isinstance(node, ast.Dict):
-        out: dict[str, Any] = {}
-        for key_node, value_node in zip(node.keys, node.values):
-            if key_node is None or value_node is None:
-                continue
-            key = _resolve_expr(key_node, consts)
-            if not isinstance(key, str):
-                continue
-            out[key] = _resolve_expr(value_node, consts)
-        return out
-    if isinstance(node, ast.List):
-        return [_resolve_expr(elt, consts) for elt in node.elts]
-    if isinstance(node, ast.Tuple):
-        return tuple(_resolve_expr(elt, consts) for elt in node.elts)
+def _literal_or_none(node: ast.AST) -> Any:
     try:
         return _literal(node)
     except FfpcRefusal:
         return None
+
+
+def _optional_const(value: ast.AST, consts: Mapping[str, Any]) -> Any:
+    if isinstance(value, ast.Name) and value.id in consts:
+        return consts[value.id]
+    return _literal_or_none(value)
+
+
+def _resolve_expr(node: ast.AST, consts: Mapping[str, Any]) -> Any:
+    # Every recursive call is made here and the helpers below never recurse, so a
+    # list or dict level costs one frame (a tuple level two, with its generator).
+    if isinstance(node, ast.List):
+        return [_resolve_expr(elt, consts) for elt in node.elts]
+    if isinstance(node, ast.Tuple):
+        return tuple(_resolve_expr(elt, consts) for elt in node.elts)
+    if not isinstance(node, ast.Dict):
+        return _leaf_value(node, consts)
+    out: dict[str, Any] = {}
+    for key_node, value_node in _present_entries(node):
+        key = _resolve_expr(key_node, consts)
+        if isinstance(key, str):
+            out[key] = _resolve_expr(value_node, consts)
+    return out
+
+
+def _leaf_value(node: ast.AST, consts: Mapping[str, Any]) -> Any:
+    """A constant, a bound name (``None`` when unbound), or a literal; else ``None``."""
+
+    if isinstance(node, ast.Constant):
+        return node.value
+    if isinstance(node, ast.Name):
+        return consts.get(node.id)
+    return _literal_or_none(node)
+
+
+def _present_entries(node: ast.Dict) -> list[tuple[ast.expr, ast.expr]]:
+    """Key/value pairs in order, without ``**mapping`` entries (they have no key)."""
+
+    return [
+        (key, value)
+        for key, value in zip(node.keys, node.values)
+        if key is not None and value is not None
+    ]
 
 
 def _collect_consts(tree: ast.Module) -> tuple[dict[str, Any], dict[str, ast.AST]]:
@@ -217,11 +263,11 @@ def _infer_round(consts: Mapping[str, Any], source_name: str) -> int:
     if match is not None:
         return int(match.group(1))
     rnd = consts.get("ROUND")
-    refuse_when(
-        type(rnd) is not int,
-        FINDING_AST_NOT_A_PLANT,
-        f"{source_name} has no ffpc-r slug and ROUND is {shown(rnd)}",
-    )
+    if not isinstance(rnd, int) or isinstance(rnd, bool):
+        refuse(
+            FINDING_AST_NOT_A_PLANT,
+            f"{source_name} has no ffpc-r slug and ROUND is {shown(rnd)}",
+        )
     return rnd
 
 
@@ -231,11 +277,11 @@ def _plant_from_arm(
     index: int,
     source_name: str,
 ) -> dict[str, Any]:
-    state = arm.get("state") if isinstance(arm.get("state"), dict) else {}
-    env = state.get("environment") if isinstance(state.get("environment"), dict) else {}
-    diagnosis = arm.get("diagnosis") if isinstance(arm.get("diagnosis"), dict) else {}
-    meta = arm.get("meta") if isinstance(arm.get("meta"), dict) else {}
-    proposed = arm.get("proposed_action") if isinstance(arm.get("proposed_action"), dict) else {}
+    state = _sub_dict(arm, "state")
+    env = _sub_dict(state, "environment")
+    diagnosis = _sub_dict(arm, "diagnosis")
+    meta = _sub_dict(arm, "meta")
+    proposed = _sub_dict(arm, "proposed_action")
     return _plant_draft(
         round_n,
         index,
@@ -247,7 +293,7 @@ def _plant_from_arm(
         failure_mode=arm.get("failure_archetype")
         or meta.get("failure_archetype")
         or arm.get("gate_flaw_class"),
-        root_cause=diagnosis.get("root_cause") or diagnosis.get("root"),
+        root_cause=_diagnosis_root(diagnosis),
         goal=arm.get("goal") or proposed.get("summary") or proposed.get("type"),
     )
 
@@ -279,6 +325,48 @@ def _plant_draft(
     }
 
 
+def _is_plain_dict_ast(node: ast.AST) -> TypeGuard[ast.Dict]:
+    return isinstance(node, ast.Dict) and all(key is not None for key in node.keys)
+
+
+def _row_from_dict_ast(node: ast.Dict, consts: Mapping[str, Any]) -> dict[str, Any]:
+    """String-keyed entries of a dict display whose values resolve to constants."""
+
+    row: dict[str, Any] = {}
+    for key_node, value_node in zip(node.keys, node.values):
+        if not isinstance(key_node, ast.Constant) or not isinstance(key_node.value, str):
+            continue
+        resolved = _optional_const(value_node, consts)
+        if resolved is not None:
+            row[key_node.value] = resolved
+    return row
+
+
+def _pairs_dict_draft(
+    row: Mapping[str, Any],
+    offset: int,
+    round_n: int,
+    source_name: str,
+) -> dict[str, Any]:
+    env_host = _sub_dict(row, "state") or _sub_dict(row, "shared") or _sub_dict(row, "ctx")
+    diagnosis = _sub_dict(row, "diagnosis")
+    env = _sub_dict(env_host, "environment")
+    return _plant_draft(
+        round_n,
+        _row_index(row, offset),
+        source_name,
+        record_id=row.get("id"),
+        site=row.get("site") or _site_from_env(env),
+        domain=env_host.get("domain") or row.get("domain"),
+        sim_or_real=env_host.get("sim_or_real"),
+        failure_mode=row.get("failure_archetype")
+        or row.get("failure_mode")
+        or row.get("gate_flaw_class"),
+        root_cause=_diagnosis_root(diagnosis) or row.get("root"),
+        goal=row.get("goal"),
+    )
+
+
 def _from_pairs_dicts(
     pairs: ast.List,
     consts: dict[str, Any],
@@ -287,38 +375,10 @@ def _from_pairs_dicts(
 ) -> list[dict[str, Any]]:
     plants: list[dict[str, Any]] = []
     for offset, elt in enumerate(pairs.elts, start=1):
-        if not isinstance(elt, ast.Dict) or any(key is None for key in elt.keys):
+        if not _is_plain_dict_ast(elt):
             continue
-        row: dict[str, Any] = {}
-        for key_node, value_node in zip(elt.keys, elt.values):
-            if not isinstance(key_node, ast.Constant) or not isinstance(key_node.value, str):
-                continue
-            resolved = _optional_const(value_node, consts)
-            if resolved is not None:
-                row[key_node.value] = resolved
-        state = row.get("state") if isinstance(row.get("state"), dict) else {}
-        shared = row.get("shared") if isinstance(row.get("shared"), dict) else {}
-        ctx = row.get("ctx") if isinstance(row.get("ctx"), dict) else {}
-        diagnosis = row.get("diagnosis") if isinstance(row.get("diagnosis"), dict) else {}
-        env_host = state or shared or ctx
-        env = env_host.get("environment") if isinstance(env_host.get("environment"), dict) else {}
-        index = row.get("index") if type(row.get("index")) is int else offset
-        plants.append(
-            _plant_draft(
-                round_n,
-                index,
-                source_name,
-                record_id=row.get("id"),
-                site=row.get("site") or _site_from_env(env),
-                domain=env_host.get("domain") or row.get("domain"),
-                sim_or_real=env_host.get("sim_or_real"),
-                failure_mode=row.get("failure_archetype")
-                or row.get("failure_mode")
-                or row.get("gate_flaw_class"),
-                root_cause=diagnosis.get("root_cause") or diagnosis.get("root") or row.get("root"),
-                goal=row.get("goal"),
-            )
-        )
+        row = _row_from_dict_ast(elt, consts)
+        plants.append(_pairs_dict_draft(row, offset, round_n, source_name))
     return plants
 
 
@@ -330,32 +390,36 @@ def _from_pair_record_calls(
 ) -> list[dict[str, Any]]:
     plants: list[dict[str, Any]] = []
     for offset, elt in enumerate(pairs.elts, start=1):
-        if not isinstance(elt, ast.Call):
-            continue
-        if not isinstance(elt.func, ast.Name) or elt.func.id != "pair_record":
-            continue
-        if len(elt.args) < 3:
+        if not _is_named_call(elt, "pair_record") or len(elt.args) < 3:
             continue
         record_id = _optional_const(elt.args[0], consts)
         goal = _optional_const(elt.args[1], consts)
         failure_mode = _optional_const(elt.args[2], consts)
         state = consts.get(f"STATE_0{offset}")
         state = state if isinstance(state, dict) else {}
-        env = state.get("environment") if isinstance(state.get("environment"), dict) else {}
         plants.append(
             _plant_draft(
                 round_n,
                 offset,
                 source_name,
                 record_id=record_id,
-                site=_site_from_env(env),
-                domain=state.get("domain"),
-                sim_or_real=state.get("sim_or_real"),
+                **_state_fields(state),
                 failure_mode=failure_mode,
                 goal=goal,
             )
         )
     return plants
+
+
+def _state_slot_fields(consts: Mapping[str, Any], index: int) -> dict[str, Any]:
+    """Failure mode, root cause, and goal stored beside ``STATE_0<index>``."""
+
+    diag = consts.get(f"DIAG_0{index}") or consts.get(f"PAIR_0{index}_DIAGNOSIS") or {}
+    return {
+        "failure_mode": consts.get(f"FAIL_0{index}") or consts.get(f"P{index}_FM") or "",
+        "root_cause": _diagnosis_root(diag) if isinstance(diag, dict) else "",
+        "goal": consts.get(f"GOAL_0{index}") or consts.get(f"P{index}_GOAL") or "",
+    }
 
 
 def _from_state_slots(
@@ -368,19 +432,13 @@ def _from_state_slots(
         state = consts.get(f"STATE_0{index}") or consts.get(f"PAIR_0{index}_STATE")
         if not isinstance(state, dict):
             continue
-        diag = consts.get(f"DIAG_0{index}") or consts.get(f"PAIR_0{index}_DIAGNOSIS") or {}
-        env = state.get("environment") if isinstance(state.get("environment"), dict) else {}
         plants.append(
             _plant_draft(
                 round_n,
                 index,
                 source_name,
-                site=_site_from_env(env),
-                domain=state.get("domain"),
-                sim_or_real=state.get("sim_or_real"),
-                failure_mode=consts.get(f"FAIL_0{index}") or consts.get(f"P{index}_FM") or "",
-                root_cause=diag.get("root_cause") or diag.get("root") if isinstance(diag, dict) else "",
-                goal=consts.get(f"GOAL_0{index}") or consts.get(f"P{index}_GOAL") or "",
+                **_state_fields(state),
+                **_state_slot_fields(consts, index),
             )
         )
     return plants
@@ -394,7 +452,8 @@ def _from_pairs_int_dict(
 ) -> list[dict[str, Any]]:
     plants: list[dict[str, Any]] = []
     for key_node, value_node in zip(pairs.keys, pairs.values):
-        index = _resolve_expr(key_node, consts)
+        # A ``**mapping`` entry has no key node; it resolves to None like any non-literal.
+        index = None if key_node is None else _resolve_expr(key_node, consts)
         row = _resolve_expr(value_node, consts)
         if type(index) is not int or not isinstance(row, dict):
             continue
@@ -478,23 +537,18 @@ def _from_pairs_dict_calls(
 ) -> list[dict[str, Any]]:
     plants: list[dict[str, Any]] = []
     for offset, elt in enumerate(pairs.elts, start=1):
-        if not isinstance(elt, ast.Call) or not isinstance(elt.func, ast.Name) or elt.func.id != "dict":
+        if not _is_named_call(elt, "dict"):
             continue
         row = _kwargs_from_dict_call(elt, consts)
-        state = row.get("state") if isinstance(row.get("state"), dict) else {}
-        env = state.get("environment") if isinstance(state.get("environment"), dict) else {}
-        index = row.get("index") if type(row.get("index")) is int else offset
         root = row.get("root")
         root_cause = root if isinstance(root, str) else _text(root)
         plants.append(
             _plant_draft(
                 round_n,
-                index,
+                _row_index(row, offset),
                 source_name,
                 record_id=row.get("pair_id") or row.get("id"),
-                site=_site_from_env(env),
-                domain=state.get("domain"),
-                sim_or_real=state.get("sim_or_real"),
+                **_state_fields(_sub_dict(row, "state")),
                 failure_mode=row.get("failure_mode") or row.get("archetype") or row.get("flaw"),
                 root_cause=root_cause,
                 goal=row.get("goal"),
@@ -503,36 +557,48 @@ def _from_pairs_dict_calls(
     return plants
 
 
+def _rec_keys(consts: Mapping[str, Any]) -> list[str]:
+    return sorted(
+        (name for name in consts if re.fullmatch(r"REC_\d+", name)),
+        key=lambda name: int(name.split("_", 1)[1]),
+    )
+
+
+def _rec_failure_mode(meta: Mapping[str, Any], record_ast: ast.AST) -> Any:
+    failure_mode = meta.get("failure_archetype") or meta.get("gate_flaw_class")
+    if not failure_mode:
+        failure_mode = _failure_archetype_from_record_ast(record_ast)
+    return failure_mode
+
+
+def _rec_arm(record: Mapping[str, Any], record_ast: ast.AST, diag: Any) -> dict[str, Any]:
+    """A ``REC_<n>`` record with its failure mode and ``DIAG_<n>`` folded in."""
+
+    meta = _sub_dict(record, "meta")
+    failure_mode = _rec_failure_mode(meta, record_ast)
+    arm = dict(record)
+    if failure_mode:
+        # A non-dict meta contributes nothing, so this also covers that case.
+        arm["meta"] = {**meta, "failure_archetype": failure_mode}
+    if isinstance(diag, dict) and not arm.get("diagnosis"):
+        arm["diagnosis"] = diag
+    return arm
+
+
 def _from_rec_records(
     consts: Mapping[str, Any],
     raw: Mapping[str, ast.AST],
     round_n: int,
     source_name: str,
 ) -> list[dict[str, Any]]:
-    rec_keys = sorted(
-        (name for name in consts if re.fullmatch(r"REC_\d+", name)),
-        key=lambda name: int(name.split("_", 1)[1]),
-    )
     plants: list[dict[str, Any]] = []
-    for offset, name in enumerate(rec_keys, start=1):
+    for offset, name in enumerate(_rec_keys(consts), start=1):
         record = consts.get(name)
         if not isinstance(record, dict) or not record.get("id"):
             continue
-        meta = record.get("meta") if isinstance(record.get("meta"), dict) else {}
-        failure_mode = meta.get("failure_archetype") or meta.get("gate_flaw_class")
-        if not failure_mode:
-            failure_mode = _failure_archetype_from_record_ast(raw.get(name, ast.Constant(None)))
-        arm = dict(record)
-        if failure_mode and not isinstance(arm.get("meta"), dict):
-            arm["meta"] = {"failure_archetype": failure_mode}
-        elif failure_mode and isinstance(arm.get("meta"), dict):
-            arm = dict(record)
-            arm["meta"] = {**meta, "failure_archetype": failure_mode}
-        diag_key = f"DIAG_{name.split('_', 1)[1]}"
-        diag = consts.get(diag_key)
-        if isinstance(diag, dict) and not arm.get("diagnosis"):
-            arm = dict(arm)
-            arm["diagnosis"] = diag
+        record_ast = raw.get(name, ast.Constant(None))
+        diag = consts.get(f"DIAG_{name.split('_', 1)[1]}")
+        arm = _rec_arm(record, record_ast, diag)
         plants.append(_plant_from_arm(arm, round_n, offset, source_name))
     return plants
 
@@ -555,14 +621,84 @@ def _from_rejected_pair_list(
     return plants
 
 
+def _parse_mill(text: str) -> ast.Module:
+    try:
+        return ast.parse(text)
+    except SyntaxError as exc:
+        refuse(FINDING_AST_NOT_A_PLANT, f"mill source is not parseable: {exc}")
+
+
+def _from_pairs_list(
+    pairs: ast.List,
+    consts: dict[str, Any],
+    round_n: int,
+    source_name: str,
+) -> list[dict[str, Any]]:
+    """Dispatch a non-empty ``PAIRS`` list on the shape of its first element."""
+
+    first = pairs.elts[0]
+    if isinstance(first, ast.Dict):
+        first_row = _resolve_expr(first, consts)
+        if isinstance(first_row, dict) and "rejected" in first_row:
+            return _from_rejected_pair_list(pairs, consts, round_n, source_name)
+        return _from_pairs_dicts(pairs, consts, round_n, source_name)
+    if _is_named_call(first, "dict"):
+        return _from_pairs_dict_calls(pairs, consts, round_n, source_name)
+    if isinstance(first, ast.Call):
+        return _from_pair_record_calls(pairs, consts, round_n, source_name)
+    return _from_rejected_pair_list(pairs, consts, round_n, source_name)
+
+
+def _from_pairs(
+    pairs: ast.AST | None,
+    consts: dict[str, Any],
+    round_n: int,
+    source_name: str,
+) -> list[dict[str, Any]]:
+    if isinstance(pairs, ast.List) and pairs.elts:
+        return _from_pairs_list(pairs, consts, round_n, source_name)
+    if isinstance(pairs, ast.Dict):
+        return _from_pairs_int_dict(pairs, consts, round_n, source_name)
+    return []
+
+
+def _extract_rows(
+    consts: dict[str, Any],
+    raw: dict[str, ast.AST],
+    round_n: int,
+    source_name: str,
+) -> list[dict[str, Any]]:
+    """``PAIRS`` first, then each constant-slot layout until one yields a triple."""
+
+    plants = _from_pairs(raw.get("PAIRS"), consts, round_n, source_name)
+    if len(plants) != 3:
+        plants = _from_arm_or_rej(consts, round_n, source_name)
+    if len(plants) != 3:
+        plants = _from_state_slots(consts, round_n, source_name)
+    if len(plants) != 3:
+        plants = _from_rec_records(consts, raw, round_n, source_name)
+    return plants
+
+
+def _refuse_id_round_mismatch(
+    plants: list[dict[str, Any]], round_n: int, source_name: str
+) -> None:
+    for row in plants:
+        record_id = row.get("record_id")
+        if not isinstance(record_id, str):
+            continue
+        id_round = re.search(r"ffpc-r(\d+)", record_id)
+        if id_round is not None and int(id_round.group(1)) != round_n:
+            refuse(
+                FINDING_AST_NOT_A_PLANT,
+                f"{source_name} id {shown(record_id)} disagrees with round r{round_n}",
+            )
+
+
 def plants_from_source(text: str, source_name: str = "snippet") -> tuple[Plant, ...]:
     """AST-extract one 3-pair FFPC identity catalog. Never exec."""
 
-    try:
-        tree = ast.parse(text)
-    except SyntaxError as exc:
-        refuse(FINDING_AST_NOT_A_PLANT, f"mill source is not parseable: {exc}")
-    consts, raw = _collect_consts(tree)
+    consts, raw = _collect_consts(_parse_mill(text))
     factory = consts.get("FACTORY")
     refuse_when(
         factory not in (None, FACTORY),
@@ -570,54 +706,17 @@ def plants_from_source(text: str, source_name: str = "snippet") -> tuple[Plant, 
         f"{source_name} FACTORY is {shown(factory)}",
     )
     round_n = _infer_round(consts, source_name)
-    pairs = raw.get("PAIRS")
-    plants: list[dict[str, Any]] = []
-    if isinstance(pairs, ast.List) and pairs.elts and isinstance(pairs.elts[0], ast.Dict):
-        first_row = _resolve_expr(pairs.elts[0], consts)
-        if isinstance(first_row, dict) and "rejected" in first_row:
-            plants = _from_rejected_pair_list(pairs, consts, round_n, source_name)
-        else:
-            plants = _from_pairs_dicts(pairs, consts, round_n, source_name)
-    elif (
-        isinstance(pairs, ast.List)
-        and pairs.elts
-        and isinstance(pairs.elts[0], ast.Call)
-        and isinstance(pairs.elts[0].func, ast.Name)
-        and pairs.elts[0].func.id == "dict"
-    ):
-        plants = _from_pairs_dict_calls(pairs, consts, round_n, source_name)
-    elif isinstance(pairs, ast.List) and pairs.elts and isinstance(pairs.elts[0], ast.Call):
-        plants = _from_pair_record_calls(pairs, consts, round_n, source_name)
-    elif isinstance(pairs, ast.List) and pairs.elts:
-        plants = _from_rejected_pair_list(pairs, consts, round_n, source_name)
-    elif isinstance(pairs, ast.Dict):
-        plants = _from_pairs_int_dict(pairs, consts, round_n, source_name)
-    if len(plants) != 3:
-        plants = _from_arm_or_rej(consts, round_n, source_name)
-    if len(plants) != 3:
-        plants = _from_state_slots(consts, round_n, source_name)
-    if len(plants) != 3:
-        plants = _from_rec_records(consts, raw, round_n, source_name)
+    plants = _extract_rows(consts, raw, round_n, source_name)
     refuse_when(
         len(plants) != 3,
         FINDING_CATALOG_TRIPLE_STRIDE,
         f"{source_name} did not yield a 3-pair catalog",
     )
-    for row in plants:
-        record_id = row.get("record_id")
-        if isinstance(record_id, str):
-            id_round = re.search(r"ffpc-r(\d+)", record_id)
-            if id_round is not None and int(id_round.group(1)) != round_n:
-                refuse(
-                    FINDING_AST_NOT_A_PLANT,
-                    f"{source_name} id {shown(record_id)} disagrees with round r{round_n}",
-                )
+    _refuse_id_round_mismatch(plants, round_n, source_name)
     return tuple(plant_from_mapping(row, f"{source_name}[{index}]") for index, row in enumerate(plants))
 
 
-def _require_plant_fields(values: Mapping[str, Any], where: str) -> dict[str, Any]:
-    missing = [field for field in PLANT_FIELDS if field not in values]
-    refuse_when(bool(missing), FINDING_FIELD_MISSING, f"{where} missing {missing}")
+def _require_identity_fields(values: Mapping[str, Any], where: str) -> None:
     record_id = values["record_id"]
     refuse_when(
         not isinstance(record_id, str) or not record_id.startswith("ffpc-r"),
@@ -642,6 +741,9 @@ def _require_plant_fields(values: Mapping[str, Any], where: str) -> dict[str, An
         FINDING_FIELD_INVALID,
         f"{where}.sim_or_real must be designed/hil/simulated, got {shown(sim)}",
     )
+
+
+def _require_string_fields(values: Mapping[str, Any], where: str) -> dict[str, Any]:
     checked = {}
     for field in PLANT_FIELDS:
         value = values[field]
@@ -654,8 +756,16 @@ def _require_plant_fields(values: Mapping[str, Any], where: str) -> dict[str, An
             f"{where}.{field} must be a string, got {shown(value)}",
         )
         checked[field] = value
+    return checked
+
+
+def _require_plant_fields(values: Mapping[str, Any], where: str) -> dict[str, Any]:
+    missing = [field for field in PLANT_FIELDS if field not in values]
+    refuse_when(bool(missing), FINDING_FIELD_MISSING, f"{where} missing {missing}")
+    _require_identity_fields(values, where)
+    checked = _require_string_fields(values, where)
     refuse_when(
-        not checked["domain"] and not checked["failure_mode"] and not checked["goal"],
+        not any(checked[field] for field in ("domain", "failure_mode", "goal")),
         FINDING_FIELD_MISSING,
         f"{where} needs domain, failure_mode, or goal",
     )
@@ -748,31 +858,28 @@ def _plant_from_row(row: Mapping[str, Any], where: str) -> Plant:
 
 _CATALOG: Catalog | None = None
 WAVE_ROUNDS: tuple[int, ...] = ()
+_CATALOG_IDENTITY = (
+    ("catalog_id", CATALOG_ID),
+    ("family", "ffpc"),
+    ("schema", "ffpc-plants-v1"),
+    ("factory", FACTORY),
+)
 
 
-def load_catalog(directory: Path | None = None) -> Catalog:
-    global _CATALOG, WAVE_ROUNDS
-    if directory is None and _CATALOG is not None:
-        return _CATALOG
-    catalog_dir = Path(directory) if directory is not None else DEFAULT_CATALOG_DIR
-    catalog_path = catalog_dir / CATALOG_FILENAME
-    plants_path = catalog_dir / PLANTS_FILENAME
-    refuse_first((
-        (not catalog_path.is_file(), FINDING_CATALOG_FILE_MISSING, f"missing {catalog_path}"),
-        (not plants_path.is_file(), FINDING_CATALOG_FILE_MISSING, f"missing {plants_path}"),
-    ))
+def _load_catalog_meta(catalog_path: Path) -> dict[str, Any]:
     meta = load_strict_json(catalog_path.read_text(encoding="utf-8"))
     refuse_when(not isinstance(meta, dict), FINDING_FIELD_INVALID, "CATALOG.json must be an object")
     missing = [key for key in REQUIRED_META_FIELDS if key not in meta]
     refuse_when(bool(missing), FINDING_FIELD_MISSING, f"CATALOG.json missing {missing}")
     refuse_when(
-        meta.get("catalog_id") != CATALOG_ID
-        or meta.get("family") != "ffpc"
-        or meta.get("schema") != "ffpc-plants-v1"
-        or meta.get("factory") != FACTORY,
+        any(meta.get(key) != expected for key, expected in _CATALOG_IDENTITY),
         FINDING_FIELD_INVALID,
         "unexpected catalog identity",
     )
+    return meta
+
+
+def _load_plant_rows(plants_path: Path, meta: Mapping[str, Any]) -> list[Plant]:
     plants_bytes = plants_path.read_bytes()
     digest = _sha256_bytes(plants_bytes)
     refuse_when(
@@ -791,6 +898,22 @@ def load_catalog(directory: Path | None = None) -> Catalog:
         FINDING_FIELD_INVALID,
         f"plants.jsonl has {len(rows)} rows; CATALOG.json says {meta['plants']}",
     )
+    return rows
+
+
+def load_catalog(directory: Path | None = None) -> Catalog:
+    global _CATALOG, WAVE_ROUNDS
+    if directory is None and _CATALOG is not None:
+        return _CATALOG
+    catalog_dir = Path(directory) if directory is not None else DEFAULT_CATALOG_DIR
+    catalog_path = catalog_dir / CATALOG_FILENAME
+    plants_path = catalog_dir / PLANTS_FILENAME
+    refuse_first((
+        (not catalog_path.is_file(), FINDING_CATALOG_FILE_MISSING, f"missing {catalog_path}"),
+        (not plants_path.is_file(), FINDING_CATALOG_FILE_MISSING, f"missing {plants_path}"),
+    ))
+    meta = _load_catalog_meta(catalog_path)
+    rows = _load_plant_rows(plants_path, meta)
     _check_unique(tuple(rows))
     catalog = Catalog(CATALOG_ID, tuple(rows))
     if directory is None:

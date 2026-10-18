@@ -32,23 +32,27 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def run(argv: list[str] | None = None) -> None:
+def run(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     payload = generate.extract_tree(args.source)
     if args.write is None:
         print(catalog.dumps_catalog(payload), end="")
-        return
+        return 0
     dest = args.write.resolve()
+    refuse_vendor_paths((dest,))
+    if dest.exists():
+        print(f"acm.write.dest_exists: destination exists: {dest}", file=sys.stderr)
+        return 2
     dest.mkdir(parents=True, exist_ok=False)
     refuse_vendor_paths(dest.rglob("*"))
     catalog.write_catalog(dest, payload)
     refuse_vendor_paths(dest.rglob("*"))
     print(catalog.dumps_catalog({"row_count": payload["row_count"], "path": str(dest)}))
+    return 0
 
 
 def main() -> None:
-    run()
-    raise SystemExit(0)
+    raise SystemExit(run())
 
 
 if __name__ == "__main__":

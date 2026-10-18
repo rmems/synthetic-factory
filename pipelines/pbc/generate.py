@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import ast
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeGuard
 
 from . import _contract
 from ._contract import FACTORY, GENERATOR, VENDOR_PREFIX
@@ -73,14 +73,16 @@ def write_tool(n: int, basis: str, path: str, contents: str, obs: str) -> dict:
     return step(n, basis, "write", {"path": path, "contents": contents}, obs)
 
 
+def _newline_terminated(text: str) -> str:
+    if text and not text.endswith("\n"):
+        text += "\n"
+    return text
+
+
 def proto_text(p: dict, decl: str) -> str:
     imports = "".join(f'import "{imp}";\n' for imp in p.get("imports") or ())
-    file_opts = p.get("file_opts") or ""
-    extra = p.get("extra_msgs") or ""
-    if file_opts and not file_opts.endswith("\n"):
-        file_opts += "\n"
-    if extra and not extra.endswith("\n"):
-        extra += "\n"
+    file_opts = _newline_terminated(p.get("file_opts") or "")
+    extra = _newline_terminated(p.get("extra_msgs") or "")
     return (
         f"{p['syntax']}\npackage {p['short']}.v1;\n{imports}{file_opts}{extra}"
         f"message Heat {{ string id = 1; {decl} }}\n"
@@ -271,30 +273,55 @@ def _call_slug(node: ast.Call) -> str | None:
     return None
 
 
-def first_slugs_from_source(text: str) -> tuple[str, ...]:
-    """Return plant()/ty() slugs in source order. Parse only; never exec."""
-
-    tree = ast.parse(text)
+def _call_slugs(tree: ast.Module) -> list[str]:
     slugs: list[str] = []
     for node in ast.walk(tree):
         if isinstance(node, ast.Call):
             slug = _call_slug(node)
             if slug is not None:
                 slugs.append(slug)
-    if slugs:
-        return tuple(slugs)
-    for node in tree.body:
-        if not isinstance(node, ast.Assign):
+    return slugs
+
+
+def _is_raw_assign(node: ast.stmt) -> TypeGuard[ast.Assign]:
+    if not isinstance(node, ast.Assign):
+        return False
+    return any(isinstance(t, ast.Name) and t.id == "RAW" for t in node.targets)
+
+
+def _first_raw_row_slug(raw: str) -> str | None:
+    for line in raw.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
             continue
-        if not any(isinstance(t, ast.Name) and t.id == "RAW" for t in node.targets):
+        if "|" in line:
+            return line.split("|", 1)[0]
+    return None
+
+
+def _raw_first_slug(tree: ast.Module) -> str | None:
+    for node in tree.body:
+        if not _is_raw_assign(node):
             continue
         raw = _const(node.value)
         if not isinstance(raw, str):
             continue
-        for line in raw.splitlines():
-            line = line.strip()
-            if line and not line.startswith("#") and "|" in line:
-                return (line.split("|", 1)[0],)
+        slug = _first_raw_row_slug(raw)
+        if slug is not None:
+            return slug
+    return None
+
+
+def first_slugs_from_source(text: str) -> tuple[str, ...]:
+    """Return plant()/ty() slugs in source order. Parse only; never exec."""
+
+    tree = ast.parse(text)
+    slugs = _call_slugs(tree)
+    if slugs:
+        return tuple(slugs)
+    slug = _raw_first_slug(tree)
+    if slug is not None:
+        return (slug,)
     raise ValueError("no plant()/ty()/RAW slugs in source")
 
 

@@ -28,6 +28,44 @@ def _txn(*args: str) -> dict:
     return json.loads(out)
 
 
+def _staging_for(factory: Path, rnd: int, run_label: str, token: str | None) -> tuple[str, Path]:
+    """Reserve ``rnd`` unless a caller-held token names an existing staging dir."""
+
+    if token is None:
+        rsv = _txn("reserve", str(factory), "--round", str(rnd), "--expected", str(cv.QUOTA_PER_ROUND))
+        return rsv["token"], Path(rsv["staging_dir"])
+    staging = _repo_root() / (
+        f"outputs/staging/{run_label}/{cv.FACTORY}/r{rnd}-{token}"
+    )
+    if not staging.is_dir():
+        raise FileNotFoundError(staging)
+    return token, staging
+
+
+def _stage_pair(staging: Path, rnd: int, okp: dict, badp: dict) -> tuple[dict, dict]:
+    """Write the round's batch and NOTES into ``staging``."""
+
+    rec_a = rb.episode(rnd, okp)
+    rec_b = rb.episode(rnd, badp)
+    batch = (
+        json.dumps(rec_a, separators=(",", ":"))
+        + "\n"
+        + json.dumps(rec_b, separators=(",", ":"))
+        + "\n"
+    )
+    (staging / f"batch-r{rnd}.jsonl").write_text(batch)
+    (staging / f"NOTES-r{rnd}.md").write_text(
+        rb.notes_markdown(
+            rnd,
+            rec_a,
+            rec_b,
+            ok_slug=okp["slug"],
+            fail_slug=badp["slug"],
+        )
+    )
+    return rec_a, rec_b
+
+
 def publish_burst_mill(
     mill_id: str,
     *,
@@ -53,35 +91,9 @@ def publish_burst_mill(
             time.sleep(0.25)
             continue
         token = first_token if pair_i == 0 and first_token else None
-        if token is None:
-            rsv = _txn("reserve", str(factory), "--round", str(rnd), "--expected", str(cv.QUOTA_PER_ROUND))
-            token = rsv["token"]
-            staging = Path(rsv["staging_dir"])
-        else:
-            staging = _repo_root() / (
-                f"outputs/staging/{run_label}/{cv.FACTORY}/r{rnd}-{token}"
-            )
-            if not staging.is_dir():
-                raise FileNotFoundError(staging)
+        token, staging = _staging_for(factory, rnd, run_label, token)
         okp, badp = plants.PAIRS[pair_i]
-        rec_a = rb.episode(rnd, okp)
-        rec_b = rb.episode(rnd, badp)
-        batch = (
-            json.dumps(rec_a, separators=(",", ":"))
-            + "\n"
-            + json.dumps(rec_b, separators=(",", ":"))
-            + "\n"
-        )
-        (staging / f"batch-r{rnd}.jsonl").write_text(batch)
-        (staging / f"NOTES-r{rnd}.md").write_text(
-            rb.notes_markdown(
-                rnd,
-                rec_a,
-                rec_b,
-                ok_slug=okp["slug"],
-                fail_slug=badp["slug"],
-            )
-        )
+        rec_a, rec_b = _stage_pair(staging, rnd, okp, badp)
         pub = _txn("publish", str(factory), "--round", str(rnd), "--token", token)
         published.append({"round": rnd, "ids": [rec_a["id"], rec_b["id"]], "publish": pub})
         pair_i += 1

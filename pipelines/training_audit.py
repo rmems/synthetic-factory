@@ -334,7 +334,9 @@ def audit_run(
         _captured_run_files(run_dir) if snapshot is None else _validated_snapshot_files(snapshot)
     )
     mill_findings, mill_mix = index_mill_quarantine(run_dir, files)
-    rights_audit = _rights_audit.capture_rights_audit(run_dir, dict(files))
+    rights_audit = _rights_audit.capture_rights_audit(
+        run_dir, {relative.as_posix(): payload for relative, payload in files}
+    )
     audit = _CorpusAudit(run_dir, mill_findings, mill_mix)
     audit.rights_audit = rights_audit
     audit.completion_source = completion_source or rights_audit.source_run

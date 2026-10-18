@@ -274,6 +274,7 @@ class GenerateReplayTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.scratch = tempfile.TemporaryDirectory()
+        cls.addClassCleanup(cls.scratch.cleanup)
         root = Path(cls.scratch.name)
         cls.catalog_dir = private_catalog(root / "catalog", (PACK,))
         cls.run_dir = root / "run"
@@ -289,10 +290,6 @@ class GenerateReplayTests(unittest.TestCase):
         cls.catalog = catalog_mod.load_catalog(cls.catalog_dir)
         lines = (cls.run_dir / "candidates.jsonl").read_text().splitlines()
         cls.records = [load_strict_json(line) for line in lines]
-
-    @classmethod
-    def tearDownClass(cls):
-        cls.scratch.cleanup()
 
     def record(self, task_id: str, variant: str) -> dict:
         """A deep copy of the generated record for ``task_id`` under ``variant``."""

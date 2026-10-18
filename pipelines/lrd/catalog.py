@@ -16,7 +16,7 @@ import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeGuard
 
 from ._contract import (
     CATALOG_FILENAME,
@@ -36,7 +36,6 @@ from ._contract import (
     FINDING_CATALOG_SHA256_MISMATCH,
     FINDING_FACTORY_NOT_REGISTERED,
     FINDING_HOPPER_REFUSED,
-    FINDING_LOOP_REFUSED,
     FINDING_MILL_NOT_FOUND,
     FINDING_PLANT_DUPLICATE_ID,
     FINDING_PLANT_FIELD_INVALID,
@@ -44,8 +43,6 @@ from ._contract import (
     FINDING_PLANT_NOT_FOUND,
     FINDING_SOURCE_NOT_PARSEABLE,
     HOPPER_DEF_NAMES,
-    HOPPER_NAME_MARKERS,
-    LOOP_NAME_MARKERS,
     PAIR_KEYS,
     PLANTS_FILENAME,
     PREFIX,
@@ -81,6 +78,8 @@ __all__ = [
 ]
 
 ast_extract_plants = _extract.ast_extract_plants
+refuse_hopper_source = _extract.refuse_hopper_source
+_refuse_loop_source = _extract.refuse_loop_source
 
 
 @dataclass(frozen=True)
@@ -145,67 +144,57 @@ def sha256_bytes(payload: bytes) -> str:
     return hashlib.sha256(payload).hexdigest()
 
 
-def _source_filename(source: str) -> str:
-    return Path(source).name.lower()
-
-
-def refuse_hopper_source(source: str) -> None:
-    """Refuse dpr-lrd hoppers. They stay with dpr; this package never execs them."""
-
-    name = _source_filename(source)
-    hopper = any(marker in name for marker in HOPPER_NAME_MARKERS)
-    refuse_when(
-        hopper,
-        FINDING_HOPPER_REFUSED,
-        f"{source} is a dpr hopper; hopper exec stays with dpr",
-    )
-
-
-def _refuse_loop_source(source: str) -> None:
-    name = _source_filename(source)
-    loop = any(marker in name for marker in LOOP_NAME_MARKERS)
-    refuse_when(
-        loop,
-        FINDING_LOOP_REFUSED,
-        f"{source} is an lrd loop, not a mill catalog",
-    )
-
-
 def _const_eval(node: ast.AST) -> Any:
     """Literal values and keyword-only ``dict(...)`` calls. Never exec."""
 
+    # Every recursive call is made here and the helpers below never recurse, so a
+    # list, dict, ``dict(...)`` or unary-minus level costs one frame (a tuple level
+    # two, with its generator), as it did before the helpers were split out.
     if isinstance(node, ast.Constant):
         return node.value
     if isinstance(node, ast.List):
         return [_const_eval(item) for item in node.elts]
     if isinstance(node, ast.Tuple):
         return tuple(_const_eval(item) for item in node.elts)
-    if isinstance(node, ast.Dict):
-        refuse_when(
-            any(key is None for key in node.keys),
-            FINDING_SOURCE_NOT_PARSEABLE,
-            "pair source uses dict unpacking",
-        )
-        return {_const_eval(key): _const_eval(value) for key, value in zip(node.keys, node.values)}
-    if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
+    if _is_negation(node):
         return -_const_eval(node.operand)
-    if isinstance(node, ast.Call):
-        func = node.func
-        if (
-            isinstance(func, ast.Name)
-            and func.id == "dict"
-            and not node.args
-            and all(keyword.arg is not None for keyword in node.keywords)
-        ):
-            return {keyword.arg: _const_eval(keyword.value) for keyword in node.keywords}
+    return {_const_eval(key): _const_eval(value) for key, value in _mapping_entries(node)}
+
+
+def _is_negation(node: ast.AST) -> TypeGuard[ast.UnaryOp]:
+    return isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub)
+
+
+def _mapping_entries(node: ast.AST) -> list[tuple[ast.expr, ast.expr]]:
+    """Key/value nodes of a dict display or a keyword-only ``dict(...)`` call.
+
+    ``**`` unpacking is refused before any value is evaluated, and anything else is
+    refused as a non-literal call or a non-constant. A keyword name becomes a constant
+    key node, so both spellings share ``_const_eval``'s one comprehension.
+    """
+
+    if isinstance(node, ast.Dict):
+        if None in node.keys:
+            refuse(FINDING_SOURCE_NOT_PARSEABLE, "pair source uses dict unpacking")
+        return [(key, value) for key, value in zip(node.keys, node.values) if key is not None]
+    if not isinstance(node, ast.Call):
+        refuse(
+            FINDING_SOURCE_NOT_PARSEABLE,
+            f"pair source is not a constant ({type(node).__name__})",
+        )
+    if not _is_keyword_dict_call(node):
         refuse(
             FINDING_SOURCE_NOT_PARSEABLE,
             f"pair source uses a non-literal call ({type(node).__name__})",
         )
-    refuse(
-        FINDING_SOURCE_NOT_PARSEABLE,
-        f"pair source is not a constant ({type(node).__name__})",
-    )
+    return [(ast.Constant(keyword.arg), keyword.value) for keyword in node.keywords]
+
+
+def _is_keyword_dict_call(node: ast.Call) -> bool:
+    func = node.func
+    if not isinstance(func, ast.Name) or func.id != "dict":
+        return False
+    return not node.args and None not in [keyword.arg for keyword in node.keywords]
 
 
 def _assigned_name(node: ast.AST) -> tuple[str, ast.AST] | None:
@@ -213,9 +202,12 @@ def _assigned_name(node: ast.AST) -> tuple[str, ast.AST] | None:
         target = node.targets[0]
         if isinstance(target, ast.Name):
             return target.id, node.value
-    if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
-        if node.value is not None:
-            return node.target.id, node.value
+    if (
+        isinstance(node, ast.AnnAssign)
+        and isinstance(node.target, ast.Name)
+        and node.value is not None
+    ):
+        return node.target.id, node.value
     return None
 
 
@@ -248,17 +240,11 @@ def plants_from_source(
     except SyntaxError as exc:
         refuse(FINDING_SOURCE_NOT_PARSEABLE, f"{source} does not parse: {exc}")
     _refuse_hopper_defs(source, tree)
-    raw_pairs: Any = None
-    inferred_base: Any = None
-    for node in tree.body:
-        assigned = _assigned_name(node)
-        if assigned is None:
-            continue
-        name, value = assigned
-        if name == "PAIRS":
-            raw_pairs = _const_eval(value)
-        elif name == "BASE":
-            inferred_base = _const_eval(value)
+    # Evaluated here, in source order (last assignment wins), so a deep literal
+    # costs the same frames below plants_from_source as before the split.
+    constants = {name: _const_eval(value) for name, value in _pairs_and_base_assignments(tree)}
+    raw_pairs: Any = constants.get("PAIRS")
+    inferred_base: Any = constants.get("BASE")
     refuse_when(
         not isinstance(raw_pairs, list) or not raw_pairs,
         FINDING_SOURCE_NOT_PARSEABLE,
@@ -269,27 +255,45 @@ def plants_from_source(
         FINDING_PLANT_FIELD_INVALID,
         f"mill_id {mill_id!r} is not lrd_rNNN",
     )
+    base = _resolve_base(inferred_base, base_round, mill_id, source)
+    return _source_pair_rows(raw_pairs, mill_id, source, base)
+
+
+def _is_positive_int(value: Any) -> bool:
+    if isinstance(value, bool) or not isinstance(value, int):
+        return False
+    return value >= 1
+
+
+def _pairs_and_base_assignments(tree: ast.Module) -> list[tuple[str, ast.AST]]:
+    """Module-level ``PAIRS`` / ``BASE`` assignments as ``(name, value)``, in source order."""
+
+    assignments = []
+    for node in tree.body:
+        assigned = _assigned_name(node)
+        if assigned is not None and assigned[0] in ("PAIRS", "BASE"):
+            assignments.append(assigned)
+    return assignments
+
+
+def _resolve_base(inferred_base: Any, base_round: int | None, mill_id: str, source: str) -> int:
     base = inferred_base if base_round is None else base_round
     if base is None:
         base = int(mill_id[len("lrd_r") :])
     refuse_when(
-        not isinstance(base, int) or isinstance(base, bool) or base < 1,
+        not _is_positive_int(base),
         FINDING_PLANT_FIELD_INVALID,
         f"{source} BASE must be a positive int",
     )
+    return base
+
+
+def _source_pair_rows(
+    raw_pairs: list[Any], mill_id: str, source: str, base: int
+) -> tuple[dict[str, Any], ...]:
     rows = []
     for index, raw in enumerate(raw_pairs):
-        refuse_when(
-            not isinstance(raw, dict),
-            FINDING_SOURCE_NOT_PARSEABLE,
-            f"{source} PAIRS[{index}] is not an object",
-        )
-        missing = [key for key in PAIR_KEYS if key not in raw]
-        refuse_when(
-            bool(missing),
-            FINDING_PLANT_FIELD_MISSING,
-            f"{source} PAIRS[{index}] missing {missing[0] if missing else ''}",
-        )
+        _require_source_pair(raw, f"{source} PAIRS[{index}]")
         row = {
             "plant_id": f"{mill_id}:{raw['slug']}",
             "mill_id": mill_id,
@@ -299,6 +303,20 @@ def plants_from_source(
         row.update({key: raw[key] for key in PAIR_KEYS})
         rows.append(row)
     return tuple(rows)
+
+
+def _require_source_pair(raw: Any, where: str) -> None:
+    refuse_when(
+        not isinstance(raw, dict),
+        FINDING_SOURCE_NOT_PARSEABLE,
+        f"{where} is not an object",
+    )
+    missing = [key for key in PAIR_KEYS if key not in raw]
+    refuse_when(
+        bool(missing),
+        FINDING_PLANT_FIELD_MISSING,
+        f"{where} missing {missing[0] if missing else ''}",
+    )
 
 
 def _field(mapping: Any, key: str, kinds: type | tuple[type, ...], where: str) -> Any:
@@ -319,13 +337,32 @@ def _field(mapping: Any, key: str, kinds: type | tuple[type, ...], where: str) -
     return value
 
 
+def _is_stripped_text(value: Any) -> bool:
+    if not isinstance(value, str):
+        return False
+    return bool(value.strip()) and value == value.strip()
+
+
 def _require_text(value: Any, where: str, code: str) -> str:
     refuse_when(
-        not isinstance(value, str) or not value.strip() or value != value.strip(),
+        not _is_stripped_text(value),
         code,
         f"{where} must be a non-empty stripped string",
     )
     return value
+
+
+_PLANT_SHAPES = frozenset(
+    {
+        SHAPE_LEGACY,
+        SHAPE_LEFTOVER3,
+        SHAPE_P_IDTOKEN,
+        SHAPE_P_COOKIE,
+        SHAPE_LLL,
+    }
+)
+# The legacy text fields a Plant carries besides its identity (``slug`` is identity).
+_PLANT_TEXT_KEYS = tuple(key for key in PAIR_KEYS if key != "slug")
 
 
 def _plant_from_row(row: Any, where: str) -> Plant:
@@ -334,6 +371,34 @@ def _plant_from_row(row: Any, where: str) -> Plant:
         FINDING_PLANT_FIELD_INVALID,
         f"{where} must be an object",
     )
+    mill_id, slug, plant_id = _plant_identity(row, where)
+    base_round = row.get("base_round")
+    refuse_when(
+        not _is_positive_int(base_round),
+        FINDING_PLANT_FIELD_INVALID,
+        f"{where}.base_round must be a positive int",
+    )
+    shape = row.get("shape", SHAPE_LEGACY)
+    refuse_when(
+        not isinstance(shape, str) or shape not in _PLANT_SHAPES,
+        FINDING_PLANT_FIELD_INVALID,
+        f"{where}.shape is not a supported extract shape",
+    )
+    source = _require_text(row.get("source"), f"{where}.source", FINDING_PLANT_FIELD_MISSING)
+    common = {
+        "plant_id": plant_id,
+        "mill_id": mill_id,
+        "source": source,
+        "base_round": base_round,
+        "shape": shape,
+        "slug": slug,
+    }
+    if shape == SHAPE_LEGACY:
+        return _legacy_plant(row, where, common)
+    return _payload_plant(row, where, common)
+
+
+def _plant_identity(row: dict[str, Any], where: str) -> tuple[str, str, str]:
     mill_id = _require_text(row.get("mill_id"), f"{where}.mill_id", FINDING_PLANT_FIELD_INVALID)
     slug = _require_text(row.get("slug"), f"{where}.slug", FINDING_PLANT_FIELD_INVALID)
     refuse_when(
@@ -353,84 +418,48 @@ def _plant_from_row(row: Any, where: str) -> Plant:
         FINDING_PLANT_FIELD_INVALID,
         f"{where}.plant_id must be {expected!r}",
     )
-    base_round = row.get("base_round")
-    refuse_when(
-        not isinstance(base_round, int) or isinstance(base_round, bool) or base_round < 1,
-        FINDING_PLANT_FIELD_INVALID,
-        f"{where}.base_round must be a positive int",
-    )
-    shape = row.get("shape", SHAPE_LEGACY)
-    refuse_when(
-        not isinstance(shape, str) or shape
-        not in {
-            SHAPE_LEGACY,
-            SHAPE_LEFTOVER3,
-            SHAPE_P_IDTOKEN,
-            SHAPE_P_COOKIE,
-            SHAPE_LLL,
-        },
-        FINDING_PLANT_FIELD_INVALID,
-        f"{where}.shape is not a supported extract shape",
-    )
-    source = _require_text(row.get("source"), f"{where}.source", FINDING_PLANT_FIELD_MISSING)
-    if shape == SHAPE_LEGACY:
-        fields = {
-            key: _require_text(row.get(key), f"{where}.{key}", FINDING_PLANT_FIELD_MISSING)
-            for key in PAIR_KEYS
-        }
-        return Plant(
-            plant_id=plant_id,
-            mill_id=mill_id,
-            source=source,
-            base_round=base_round,
-            shape=shape,
-            slug=slug,
-            payload=None,
-            mod=fields["mod"],
-            drop=fields["drop"],
-            stack=fields["stack"],
-            field=fields["field"],
-            naive=fields["naive"],
-            conf=fields["conf"],
-            conf2=fields["conf2"],
-            oldc=fields["oldc"],
-            newc=fields["newc"],
-            old2=fields["old2"],
-            new2=fields["new2"],
-            test=fields["test"],
-            ticket=fields["ticket"],
-            fail=fields["fail"],
-            domain=fields["domain"],
-        )
+    return mill_id, slug, plant_id
+
+
+def _legacy_plant(row: dict[str, Any], where: str, common: dict[str, Any]) -> Plant:
+    fields = {
+        key: _require_text(row.get(key), f"{where}.{key}", FINDING_PLANT_FIELD_MISSING)
+        for key in PAIR_KEYS
+    }
+    return _build_plant(common, None, fields)
+
+
+def _payload_plant(row: dict[str, Any], where: str, common: dict[str, Any]) -> Plant:
     payload = row.get("payload")
     refuse_when(
         not isinstance(payload, dict),
         FINDING_PLANT_FIELD_INVALID,
         f"{where}.payload must be an object",
     )
+    return _build_plant(common, payload, dict.fromkeys(_PLANT_TEXT_KEYS, ""))
+
+
+def _build_plant(
+    common: dict[str, Any], payload: dict[str, Any] | None, text: Mapping[str, str]
+) -> Plant:
     return Plant(
-        plant_id=plant_id,
-        mill_id=mill_id,
-        source=source,
-        base_round=base_round,
-        shape=shape,
-        slug=slug,
+        **common,
         payload=payload,
-        mod="",
-        drop="",
-        stack="",
-        field="",
-        naive="",
-        conf="",
-        conf2="",
-        oldc="",
-        newc="",
-        old2="",
-        new2="",
-        test="",
-        ticket="",
-        fail="",
-        domain="",
+        mod=text["mod"],
+        drop=text["drop"],
+        stack=text["stack"],
+        field=text["field"],
+        naive=text["naive"],
+        conf=text["conf"],
+        conf2=text["conf2"],
+        oldc=text["oldc"],
+        newc=text["newc"],
+        old2=text["old2"],
+        new2=text["new2"],
+        test=text["test"],
+        ticket=text["ticket"],
+        fail=text["fail"],
+        domain=text["domain"],
     )
 
 
@@ -492,67 +521,96 @@ def _registry_factory_ids() -> set[str]:
     except (OSError, ValueError) as exc:
         refuse(FINDING_FACTORY_NOT_REGISTERED, f"factory registry is unreadable: {exc}")
     factories = payload.get("factories") if isinstance(payload, dict) else None
-    refuse_when(
-        not isinstance(factories, list),
-        FINDING_FACTORY_NOT_REGISTERED,
-        "factory registry factories is not a list",
-    )
-    return {
-        row.get("path_id")
-        for row in factories
-        if isinstance(row, dict) and isinstance(row.get("path_id"), str)
-    }
+    if not isinstance(factories, list):
+        refuse(FINDING_FACTORY_NOT_REGISTERED, "factory registry factories is not a list")
+    path_ids = (row.get("path_id") for row in factories if isinstance(row, dict))
+    return {path_id for path_id in path_ids if isinstance(path_id, str)}
 
 
 def load_catalog(directory: Path | None = None) -> Catalog:
     """Load a catalog directory and refuse unless every pin holds."""
 
     catalog_dir = Path(default_catalog_dir() if directory is None else directory)
-    meta_path = catalog_dir / CATALOG_FILENAME
     plants_path = catalog_dir / PLANTS_FILENAME
-    try:
-        meta_text = meta_path.read_text(encoding="utf-8")
-    except OSError:
-        refuse(FINDING_CATALOG_FILE_MISSING, f"{meta_path} is missing")
-    try:
-        meta = load_strict_json(meta_text)
-    except ValueError:
-        refuse(FINDING_CATALOG_FIELD_INVALID, f"{CATALOG_FILENAME} is not strict JSON")
+    meta = _read_meta(catalog_dir / CATALOG_FILENAME)
     catalog_id = _require_text(
         _field(meta, "catalog_id", str, CATALOG_FILENAME),
         f"{CATALOG_FILENAME}.catalog_id",
         FINDING_CATALOG_FIELD_INVALID,
     )
-    fmt = _field(meta, "format", str, CATALOG_FILENAME)
-    refuse_when(
-        fmt != CATALOG_FORMAT,
-        FINDING_CATALOG_FIELD_INVALID,
-        f"{CATALOG_FILENAME}.format must be {CATALOG_FORMAT}",
+    _require_pinned_text(meta, "format", CATALOG_FORMAT)
+    factory = _require_pinned_text(meta, "factory", FACTORY)
+    _require_pinned_text(meta, "mill_prefix", PREFIX)
+    _require_pinned_text(meta, "record_kind", RECORD_KIND)
+    _require_quota(meta)
+    plant_count, full_plant_count, representative = _meta_plant_counts(meta)
+    plants_sha256 = _field(meta, "plants_sha256", str, CATALOG_FILENAME)
+    mill_rows = _field(meta, "mills", list, CATALOG_FILENAME)
+    mills = tuple(
+        _mill_from_row(row, f"{CATALOG_FILENAME}.mills[{i}]") for i, row in enumerate(mill_rows)
     )
-    factory = _field(meta, "factory", str, CATALOG_FILENAME)
+    digest = _pinned_plants_digest(plants_path, plants_sha256)
     refuse_when(
-        factory != FACTORY,
-        FINDING_CATALOG_FIELD_INVALID,
-        f"{CATALOG_FILENAME}.factory must be {FACTORY}",
+        factory not in _registry_factory_ids(),
+        FINDING_FACTORY_NOT_REGISTERED,
+        f"{factory} is not a registry path_id",
     )
-    prefix = _field(meta, "mill_prefix", str, CATALOG_FILENAME)
+    plants = _load_plants(plants_path, plant_count)
+    by_mill = _plants_per_mill(plants)
+    mill_ids = {mill.mill_id for mill in mills}
     refuse_when(
-        prefix != PREFIX,
+        mill_ids != set(by_mill),
         FINDING_CATALOG_FIELD_INVALID,
-        f"{CATALOG_FILENAME}.mill_prefix must be {PREFIX}",
+        "catalog mills do not match plant mill_id values",
     )
-    kind = _field(meta, "record_kind", str, CATALOG_FILENAME)
+    if representative:
+        _check_representative_inventory(mills, by_mill, full_plant_count)
+    else:
+        _check_exact_inventory(mills, by_mill)
+    return Catalog(
+        catalog_id=catalog_id,
+        directory=catalog_dir,
+        factory=factory,
+        plants_sha256=digest,
+        plants=plants,
+        mills=mills,
+        meta=meta,
+    )
+
+
+def _read_meta(meta_path: Path) -> Any:
+    try:
+        meta_text = meta_path.read_text(encoding="utf-8")
+    except OSError:
+        refuse(FINDING_CATALOG_FILE_MISSING, f"{meta_path} is missing")
+    try:
+        return load_strict_json(meta_text)
+    except ValueError:
+        refuse(FINDING_CATALOG_FIELD_INVALID, f"{CATALOG_FILENAME} is not strict JSON")
+
+
+def _require_pinned_text(meta: Any, key: str, expected: str) -> str:
+    value = _field(meta, key, str, CATALOG_FILENAME)
     refuse_when(
-        kind != RECORD_KIND,
+        value != expected,
         FINDING_CATALOG_FIELD_INVALID,
-        f"{CATALOG_FILENAME}.record_kind must be {RECORD_KIND}",
+        f"{CATALOG_FILENAME}.{key} must be {expected}",
     )
+    return value
+
+
+def _require_quota(meta: Any) -> None:
     quota = _field(meta, "quota_per_round", int, CATALOG_FILENAME)
     refuse_when(
         isinstance(quota, bool) or quota != QUOTA_PER_ROUND,
         FINDING_CATALOG_FIELD_INVALID,
         f"{CATALOG_FILENAME}.quota_per_round must be {QUOTA_PER_ROUND}",
     )
+
+
+def _meta_plant_counts(meta: Any) -> tuple[int, int, bool]:
+    """Committed and full plant counts, and whether the meta pins the full slice."""
+
     plant_count = _field(meta, "plant_count", int, CATALOG_FILENAME)
     full_raw = meta.get("full_plant_count", plant_count)
     refuse_when(
@@ -573,11 +631,10 @@ def load_catalog(directory: Path | None = None) -> Catalog:
             FINDING_CATALOG_FIELD_INVALID,
             f"{CATALOG_FILENAME}.full_plant_count must be {FULL_PLANT_COUNT}",
         )
-    plants_sha256 = _field(meta, "plants_sha256", str, CATALOG_FILENAME)
-    mill_rows = _field(meta, "mills", list, CATALOG_FILENAME)
-    mills = tuple(
-        _mill_from_row(row, f"{CATALOG_FILENAME}.mills[{i}]") for i, row in enumerate(mill_rows)
-    )
+    return plant_count, full_plant_count, representative
+
+
+def _pinned_plants_digest(plants_path: Path, plants_sha256: str) -> str:
     try:
         plants_bytes = plants_path.read_bytes()
     except OSError:
@@ -588,11 +645,10 @@ def load_catalog(directory: Path | None = None) -> Catalog:
         FINDING_CATALOG_SHA256_MISMATCH,
         f"{PLANTS_FILENAME} digest {digest} != catalog pin {plants_sha256}",
     )
-    refuse_when(
-        factory not in _registry_factory_ids(),
-        FINDING_FACTORY_NOT_REGISTERED,
-        f"{factory} is not a registry path_id",
-    )
+    return digest
+
+
+def _load_plants(plants_path: Path, plant_count: int) -> tuple[Plant, ...]:
     rows = _read_jsonl(plants_path)
     refuse_when(
         len(rows) != plant_count,
@@ -610,49 +666,47 @@ def load_catalog(directory: Path | None = None) -> Catalog:
             f"duplicate plant_id {plant.plant_id}",
         )
         seen.add(plant.plant_id)
+    return plants
+
+
+def _plants_per_mill(plants: tuple[Plant, ...]) -> dict[str, int]:
     by_mill: dict[str, int] = {}
     for plant in plants:
         by_mill[plant.mill_id] = by_mill.get(plant.mill_id, 0) + 1
-    mill_ids = {mill.mill_id for mill in mills}
+    return by_mill
+
+
+def _check_representative_inventory(
+    mills: tuple[Mill, ...], by_mill: dict[str, int], full_plant_count: int
+) -> None:
+    """Full slice: the mill pins carry the full inventory; the file commits a subset of each."""
+
     refuse_when(
-        mill_ids != set(by_mill),
+        sum(mill.plant_count for mill in mills) != full_plant_count,
         FINDING_CATALOG_FIELD_INVALID,
-        "catalog mills do not match plant mill_id values",
+        "mill plant_count values must sum to full_plant_count",
     )
-    if representative:
-        refuse_when(
-            sum(mill.plant_count for mill in mills) != full_plant_count,
-            FINDING_CATALOG_FIELD_INVALID,
-            "mill plant_count values must sum to full_plant_count",
-        )
-        refuse_when(
-            tuple((mill.mill_id, mill.plant_count) for mill in mills) != FULL_MILL_COUNTS,
-            FINDING_CATALOG_FIELD_INVALID,
-            "mill inventory does not match FULL_MILL_COUNTS",
-        )
-        for mill in mills:
-            committed = by_mill.get(mill.mill_id, 0)
-            refuse_when(
-                committed < 1 or committed > mill.plant_count,
-                FINDING_CATALOG_FIELD_INVALID,
-                f"{mill.mill_id} committed {committed} outside 1..{mill.plant_count}",
-            )
-    else:
-        for mill in mills:
-            refuse_when(
-                by_mill.get(mill.mill_id, 0) != mill.plant_count,
-                FINDING_CATALOG_FIELD_INVALID,
-                f"{mill.mill_id} plant_count {mill.plant_count} != {by_mill.get(mill.mill_id, 0)}",
-            )
-    return Catalog(
-        catalog_id=catalog_id,
-        directory=catalog_dir,
-        factory=factory,
-        plants_sha256=digest,
-        plants=plants,
-        mills=mills,
-        meta=meta,
+    refuse_when(
+        tuple((mill.mill_id, mill.plant_count) for mill in mills) != FULL_MILL_COUNTS,
+        FINDING_CATALOG_FIELD_INVALID,
+        "mill inventory does not match FULL_MILL_COUNTS",
     )
+    for mill in mills:
+        committed = by_mill.get(mill.mill_id, 0)
+        refuse_when(
+            committed < 1 or committed > mill.plant_count,
+            FINDING_CATALOG_FIELD_INVALID,
+            f"{mill.mill_id} committed {committed} outside 1..{mill.plant_count}",
+        )
+
+
+def _check_exact_inventory(mills: tuple[Mill, ...], by_mill: dict[str, int]) -> None:
+    for mill in mills:
+        refuse_when(
+            by_mill.get(mill.mill_id, 0) != mill.plant_count,
+            FINDING_CATALOG_FIELD_INVALID,
+            f"{mill.mill_id} plant_count {mill.plant_count} != {by_mill.get(mill.mill_id, 0)}",
+        )
 
 
 def catalog_check(directory: Path | None = None) -> list[dict[str, str]]:

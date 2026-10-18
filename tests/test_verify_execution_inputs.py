@@ -99,7 +99,7 @@ class VerifyExecutionInputs(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             batch = Path(td) / "batch-r01.jsonl"
             batch.write_bytes(b"{\x80abc: 123}\n")
-            counts, findings, blocked = verify_execution.verify_batch_for_frontier(
+            counts, _findings, blocked = verify_execution.verify_batch_for_frontier(
                 batch, strict=True
             )
         self.assertTrue(blocked)

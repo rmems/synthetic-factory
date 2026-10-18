@@ -35,6 +35,14 @@ import training_audit  # noqa: E402
 from exact_json import parse_finite_json_float  # noqa: E402
 
 
+def _required_item(items):
+    """Return the first selected fixture item, failing clearly when the selection is empty."""
+    try:
+        return next(iter(items))
+    except StopIteration as exc:
+        raise AssertionError("required fixture selection is empty") from exc
+
+
 class SourceVocabularyMappingTests(unittest.TestCase):
     """The frozen 510-key / 140-shape mapping is checkable without the raw run."""
 
@@ -72,8 +80,9 @@ class SourceVocabularyMappingTests(unittest.TestCase):
             if entry["disposition"] != curate_rewards.DISPOSITION_MAGNITUDE_TERM:
                 continue
             self.assertNotIn(key, curate_rewards.UNWEIGHTED_EXCLUDE)
-            self.assertTrue(
-                set(entry["observed_types"]) <= {"number", "value-object"},
+            self.assertLessEqual(
+                set(entry["observed_types"]),
+                {"number", "value-object"},
                 f"{key} is a magnitude term but was observed as "
                 f"{entry['observed_types']}",
             )
@@ -122,7 +131,7 @@ class SourceVocabularyMappingTests(unittest.TestCase):
             ("declared_weighted_sum", "unweighted_component_sum"),
             ("unweighted_component_sum", "declared_weighted_sum"),
         ):
-            shape = next(
+            shape = _required_item(
                 copy.deepcopy(row)
                 for row in document["source_vocabulary"]["shapes"]
                 if row.get("arithmetic_method") == expected_method
@@ -133,7 +142,7 @@ class SourceVocabularyMappingTests(unittest.TestCase):
         for name, shape in cases:
             with self.subTest(name=name):
                 malformed = copy.deepcopy(document)
-                index = next(
+                index = _required_item(
                     index
                     for index, row in enumerate(
                         malformed["source_vocabulary"]["shapes"]
@@ -271,10 +280,10 @@ class SourceVocabularyMappingTests(unittest.TestCase):
         expected = curate_rewards.CONVERSION_POLICY["expected_classification"]
         self.assertEqual(expected["run"], "2026-08-17")
         self.assertEqual(sum(expected["comparability"].values()), expected["records"])
-        self.assertTrue(
-            set(expected["comparability"]) <= curate_rewards.COMPARABILITY_CLASSES
+        self.assertLessEqual(
+            set(expected["comparability"]), curate_rewards.COMPARABILITY_CLASSES
         )
-        self.assertTrue(set(expected["reason_codes"]) <= curate_rewards.REASON_CODES)
+        self.assertLessEqual(set(expected["reason_codes"]), curate_rewards.REASON_CODES)
         by_factory = expected["by_factory"]
         self.assertEqual(
             sum(entry["records"] for entry in by_factory.values()), expected["records"]
@@ -404,8 +413,9 @@ class RewardOntologyFixtureRegression(unittest.TestCase):
             )
             rule = curate_rewards.comparability_rule(rule_id)
             self.assertEqual(rule["comparability"], comparability, key)
-            self.assertTrue(
-                set(rule["reason_codes"]) <= set(reasons),
+            self.assertLessEqual(
+                set(rule["reason_codes"]),
+                set(reasons),
                 f"{key} does not carry rule {rule_id}'s reason codes",
             )
             seen.add(key)

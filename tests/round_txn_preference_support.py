@@ -16,6 +16,10 @@ sys.path.insert(0, str(REPO / "pipelines"))
 import round_txn  # noqa: E402
 import preference_arms  # noqa: E402
 
+# The Session A diagnosis document is a preference-arm artifact; reuse the
+# preference-arm suite's builder rather than keeping a second copy here.
+from preference_arms_support import diagnosis_document
+
 PREFERENCE_FIXTURES = REPO / "tests" / "fixtures" / "preference-arms"
 
 
@@ -100,34 +104,6 @@ def rejected_scratch(record):
         for stamped in ("isolation", "round", "factory"):
             meta.pop(stamped, None)
     return arm
-
-
-def diagnosis_document(index, *, root_cause=None, context=None):
-    if context is None:
-        context = {
-            "state": {"sim_or_real": "designed", "case": index},
-            "proposed_action": {"action": "hold", "case": index},
-        }
-    target = {"per_component": {"safety": 0.5, "task_progress": 0.25}, "total": 0.75}
-    return (
-        "# Diagnosis\n\n"
-        "## Shared context\n\n"
-        "```json\n"
-        f"{json.dumps(context, sort_keys=True)}\n"
-        "```\n\n"
-        "## Root cause\n\n"
-        f"{root_cause or f'The gate skipped the required check for case {index}.'}\n\n"
-        "## Cascade effects\n\n"
-        "The gate error propagated through execution, outcome, and reward.\n\n"
-        "## Supervisor catch\n\n"
-        "Require the missing evidence before allowing execution.\n\n"
-        "## Repair sketch\n\n"
-        "Add the bounded check and use the safe fallback on failure.\n\n"
-        "## Target reward delta\n\n"
-        "```json\n"
-        f"{json.dumps(target, sort_keys=True)}\n"
-        "```\n"
-    )
 
 
 class PreferenceRoundHarness(unittest.TestCase):

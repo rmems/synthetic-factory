@@ -602,7 +602,7 @@ class IntegerCounts(unittest.TestCase):
 
     def test_every_registered_count_quantity_is_in_the_integer_domain(self):
         older = {"healthy_channel_count", "dropped_event_count", "context_switches", "repeats"}
-        self.assertTrue(older <= oc.INTEGER_QUANTITIES)
+        self.assertLessEqual(older, oc.INTEGER_QUANTITIES)
         self.assertEqual(
             oc.INTEGER_QUANTITIES,
             frozenset(

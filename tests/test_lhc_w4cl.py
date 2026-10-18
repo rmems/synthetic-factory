@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import ast
+import json
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -13,7 +15,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "pipelines"))
 
-from lhc_w4cl.catalog import CATALOG  # noqa: E402
+from lhc_w4cl.catalog import CATALOG, load_catalog  # noqa: E402
 from lhc_w4cl.catalog_extract import (  # noqa: E402
     SHAPE_PLANTS_MK_FN,
     catalog_document,
@@ -24,7 +26,7 @@ from lhc_w4cl.catalog_extract import (  # noqa: E402
 )
 from lhc_w4cl.identity import is_vendor_filename, refuse_vendor_paths  # noqa: E402
 from lhc_w4cl.sources import MILL_SOURCES, catalog_sources  # noqa: E402
-from lhc_w4cl import vocabulary as cv  # noqa: E402
+from lhc_w4cl import catalog_ast, vocabulary as cv  # noqa: E402
 from mill_reviewed_vocabulary import REVIEWED_MILL_PREFIX_HOMES  # noqa: E402
 
 _W4CL_SNIPPET = '''
@@ -218,6 +220,82 @@ class LhcW4clSkeletonTests(unittest.TestCase):
         self.assertEqual(mill.pairs[0]["success_key"], "ceph")
         self.assertEqual(mill.pairs[-1]["fail_key"], "typesense")
         self.assertEqual(mill.shape, SHAPE_PLANTS_MK_FN)
+
+
+class LhcW4clEdgeTests(unittest.TestCase):
+    """Literal resolution, extractor refusals and the catalog source binding on small inputs."""
+
+    PATH = "experiments/lhc-mill-w4cl-r9.py"
+
+    def _refused(self, old: str, new: str, fragment: str) -> None:
+        self.assertIn(old, _W4CL_SNIPPET)
+        source = _W4CL_SNIPPET.replace(old, new, 1)
+        with self.assertRaises(ValueError) as caught:
+            extract_mill_catalog(source, path=self.PATH)
+        self.assertIn(fragment, str(caught.exception))
+
+    def test_literal_values_resolve_names_negations_and_containers(self):
+        cases = (
+            ("N", 4), ("M", catalog_ast.UNSET), ("-N", -4), ("-'x'", catalog_ast.UNSET),
+            ("+1", catalog_ast.UNSET),
+            ("(1, -2)", (1, -2)), ("[1, N]", [1, 4]), ("[1, M]", catalog_ast.UNSET),
+            ("{'a': [1]}", {"a": [1]}), ("{**x}", catalog_ast.UNSET),
+            ("{'a': M}", catalog_ast.UNSET), ("f(1)", catalog_ast.UNSET),
+        )
+        for expr, expected in cases:
+            with self.subTest(expr=expr):
+                node = ast.parse(expr, mode="eval").body
+                self.assertEqual(catalog_ast.literal_value(node, {"N": 4}), expected)
+
+    def test_plant_table_refusals(self):
+        not_a_plant = "PLANTS[0] is not a literal mk() plant"
+        cases = (
+            ("PLANTS = {", "PLANTX = {", "PLANTS assignment is missing"),
+            ("PLANTS = {", "PLANTS = {}\nOTHER = {", "PLANTS is not a non-empty dict"),
+            ('"ceph": mk(\n        True,', '"ceph": mk(\n        1,', not_a_plant),
+            ('"ceph": mk(\n        True,', '"ceph": mk(\n        X,', not_a_plant),
+            ('True, "pr-ceph-osd-memory-target-bytes"', 'True, ""', not_a_plant),
+            ('"lock-cephmem",', '"",', not_a_plant),
+            ('"ceph": mk(', '"ceph": mk(True),\n    "zz": mk(', not_a_plant),
+            ('"ceph": mk(', '"ceph": other(', not_a_plant),
+            ('"ceph": mk(', '**extra, "ceph": mk(', not_a_plant),
+        )
+        for old, new, fragment in cases:
+            with self.subTest(new=new):
+                self._refused(old, new, fragment)
+
+    def test_pair_table_refusals(self):
+        not_a_pair = "LHC_PAIRS[0] is not a fn() identity pair"
+        cases = (
+            ("LHC_PAIRS = [", "LHC_PAIRX = [", "LHC_PAIRS assignment is missing"),
+            ("LHC_PAIRS = [", "LHC_PAIRS = []\nOTHER = [", "LHC_PAIRS is not a non-empty list"),
+            ('"Ceph osd_memory_target vs MinIO erasure set"', '""', not_a_pair),
+            ('fn("minio"), "d", "l", "n")', 'fn("minio"), "d", "l")', not_a_pair),
+            ('fn("ceph")', 'fn(1)', not_a_pair),
+            ('fn("minio")', 'fn("nope")', not_a_pair),
+        )
+        for old, new, fragment in cases:
+            with self.subTest(new=new):
+                self._refused(old, new, fragment)
+
+    def test_catalog_binding_refuses_mill_and_row_drift(self):
+        document = json.loads(catalog_json_path().read_text(encoding="utf-8"))
+        ((mill_id, mill),) = document["mills"].items()
+        root = Path(tempfile.mkdtemp(prefix="lhc-bind-"))
+        self.addCleanup(shutil.rmtree, root, True)
+        cases = (
+            ({mill_id: mill, "other": mill}, "catalog mills drifted from sources"),
+            ({mill_id: {**mill, "blob_sha": "0" * 40}}, "pin disagrees with sources.py"),
+            ({mill_id: {**mill, "catalog_first": 1}}, "catalog_first disagrees with sources.py"),
+            ({mill_id: {**mill, "n_rows": mill["n_rows"] + 1}}, "pair rows do not match n_rows"),
+            ({mill_id: {**mill, "plants": mill["plants"][:-1]}}, "plant rows do not match n_plants"),
+        )
+        for index, (mills, fragment) in enumerate(cases):
+            target = root / f"{index}.json"
+            target.write_text(json.dumps({**document, "mills": mills}), encoding="utf-8")
+            with self.subTest(fragment=fragment), self.assertRaises(ValueError) as caught:
+                load_catalog(target)
+            self.assertIn(fragment, str(caught.exception))
 
 
 class LhcW4clLegacyExtractTests(unittest.TestCase):

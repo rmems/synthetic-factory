@@ -191,13 +191,15 @@ class FixtureBuilderRawTreeContainment(unittest.TestCase):
             evidence_root.mkdir()
             alias = root / "alias-raw"
             alias.symlink_to(evidence_root, target_is_directory=True)
-            with mock.patch.object(raw_tree_guard, "DEFAULT_RAW_OUTPUT_ROOT", evidence_root):
-                with _generators_must_not_run(module):
-                    for out in (alias / "distillation-run", evidence_root / "distillation-run"):
-                        with self.subTest(out=out.relative_to(root)):
-                            with self.assertRaises(SystemExit) as caught:
-                                module.build(out, force=True)
-                            self.assertIn("immutable evidence tree", str(caught.exception))
+            with (
+                mock.patch.object(raw_tree_guard, "DEFAULT_RAW_OUTPUT_ROOT", evidence_root),
+                _generators_must_not_run(module),
+            ):
+                for out in (alias / "distillation-run", evidence_root / "distillation-run"):
+                    with self.subTest(out=out.relative_to(root)):
+                        with self.assertRaises(SystemExit) as caught:
+                            module.build(out, force=True)
+                        self.assertIn("immutable evidence tree", str(caught.exception))
             self.assertEqual(list(evidence_root.iterdir()), [])
 
     def test_an_existing_run_is_refused_before_any_mutation_even_with_force(self):
@@ -214,9 +216,8 @@ class FixtureBuilderRawTreeContainment(unittest.TestCase):
                         with self.assertRaises(SystemExit) as caught:
                             module.build(out, force=force)
                         self.assertIn("fresh", str(caught.exception))
-                with self.subTest(entry="cli --force"):
-                    with self.assertRaises(SystemExit):
-                        module.main(["--out", str(out), "--force"])
+                with self.subTest(entry="cli --force"), self.assertRaises(SystemExit):
+                    module.main(["--out", str(out), "--force"])
             # Nothing was deleted, rewritten or added: the run the builder
             # wrote and the nested files it did not write are byte-identical.
             self.assertEqual(_tree_bytes(out), before)
@@ -226,9 +227,8 @@ class FixtureBuilderRawTreeContainment(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             out = Path(tmp) / "distillation-run"
             out.mkdir()
-            with _generators_must_not_run(module):
-                with self.assertRaises(SystemExit):
-                    module.build(out, force=True)
+            with _generators_must_not_run(module), self.assertRaises(SystemExit):
+                module.build(out, force=True)
             self.assertTrue(out.is_dir())
             self.assertEqual(list(out.iterdir()), [])
 
@@ -246,9 +246,8 @@ class FixtureBuilderRawTreeContainment(unittest.TestCase):
                 side_effect=RuntimeError("generator regression"),
             ):
                 for force in (False, True):
-                    with self.subTest(force=force):
-                        with self.assertRaises(RuntimeError):
-                            module.build(fresh, force=force)
+                    with self.subTest(force=force), self.assertRaises(RuntimeError):
+                        module.build(fresh, force=force)
             self.assertEqual(_tree_bytes(previous), before)
             # A failed build into a fresh directory leaves no partial tree.
             self.assertFalse(fresh.exists())

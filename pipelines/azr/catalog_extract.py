@@ -11,7 +11,7 @@ import ast
 import hashlib
 import json
 import re
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -51,6 +51,7 @@ from .vocabulary import (
 )
 
 _ROUND_RE = re.compile(r"r(\d+)")
+_SLICE_PLANT_PATH = "experiments/azr-plants-r1285.py"
 
 
 def sha256_bytes(payload: bytes) -> str:
@@ -86,7 +87,7 @@ def _list_assignment(tree: ast.AST, name: str) -> ast.List | None:
     return None
 
 
-def _identity_list(elts: list[ast.AST]) -> list[dict[str, Any]]:
+def _identity_list(elts: Sequence[ast.AST]) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for elt in elts:
         kwargs = identity_kwargs(elt)
@@ -172,18 +173,8 @@ def extract_plant_catalog(
 
     payload = source.encode()
     tree = ast.parse(source, filename=path)
-    idors: list[dict[str, Any]] = []
-    bflas: list[dict[str, Any]] = []
-    idor_list = _list_assignment(tree, "EXTRA_IDOR_ROWS")
-    if idor_list is not None:
-        idors = _identity_list(idor_list.elts)
-    bfla_list = _list_assignment(tree, "BFLA_ROWS")
-    if bfla_list is not None:
-        bflas = _identity_list(bfla_list.elts)
-    else:
-        extra = function_named(tree, "extra_bflas")
-        if extra is not None:
-            bflas = add_identities(extra)
+    idors = _plant_idors(tree)
+    bflas = _plant_bflas(tree)
     if not idors:
         raise ValueError(f"{path} has no EXTRA_IDOR_ROWS catalog")
     if bflas and len(bflas) != len(idors):
@@ -205,6 +196,46 @@ def extract_plant_catalog(
     }
 
 
+def _plant_idors(tree: ast.AST) -> list[dict[str, Any]]:
+    idor_list = _list_assignment(tree, "EXTRA_IDOR_ROWS")
+    return _identity_list(idor_list.elts) if idor_list is not None else []
+
+
+def _plant_bflas(tree: ast.AST) -> list[dict[str, Any]]:
+    """``BFLA_ROWS`` identities, else the ``add(...)`` rows of ``extra_bflas()``."""
+
+    bfla_list = _list_assignment(tree, "BFLA_ROWS")
+    if bfla_list is not None:
+        return _identity_list(bfla_list.elts)
+    extra = function_named(tree, "extra_bflas")
+    return add_identities(extra) if extra is not None else []
+
+
+def _paired_rows(
+    idors: list[dict[str, Any]], bflas: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """One identity row per idor, paired with the bfla at its index when there is one."""
+
+    return [
+        _row_identity(success, bflas[index] if index < len(bflas) else None)
+        for index, success in enumerate(idors)
+    ]
+
+
+def _tip_only_record(shape: str, tips: Mapping[str, str]) -> dict[str, Any]:
+    """A record pinned only by the mill's tip-slug asserts (no companion rows to read)."""
+
+    return {
+        "shape": shape,
+        "n_rows": None,
+        "first_slug": tips.get("success"),
+        "last_slug": None,
+        "first_fail_slug": tips.get("fail"),
+        "last_fail_slug": None,
+        "pairs": [],
+    }
+
+
 def _require_plant(
     plants: Mapping[str, str] | None,
     path: str,
@@ -216,14 +247,25 @@ def _require_plant(
     return extract_plant_catalog(plants[path], path=path)
 
 
-def _literal_pairs(tree: ast.AST) -> dict[str, Any] | None:
-    node = _list_assignment(tree, "PAIRS")
+def _literal_list(tree: ast.AST, name: str) -> list[Any] | None:
+    """The first ``name = [...]`` as a non-empty literal list; None otherwise."""
+
+    node = _list_assignment(tree, name)
     if node is None or not node.elts:
         return None
     resolved = literal_value(node)
     if not isinstance(resolved, list) or not resolved:
         return None
-    if not all(isinstance(row, (tuple, list)) and len(row) == 2 for row in resolved):
+    return resolved
+
+
+def _is_two_item_row(row: Any) -> bool:
+    return isinstance(row, (tuple, list)) and len(row) == 2
+
+
+def _literal_pairs(tree: ast.AST) -> dict[str, Any] | None:
+    resolved = _literal_list(tree, "PAIRS")
+    if resolved is None or not all(_is_two_item_row(row) for row in resolved):
         return None
     rows = [_pair_identity(row) for row in resolved]
     if rows[0]["success_slug"] is None:
@@ -232,21 +274,12 @@ def _literal_pairs(tree: ast.AST) -> dict[str, Any] | None:
 
 
 def _new_plus_keep(tree: ast.AST) -> dict[str, Any] | None:
-    node = _list_assignment(tree, "NEW_PAIRS")
-    if node is None or not node.elts:
-        return None
-    resolved = literal_value(node)
-    if not isinstance(resolved, list) or not resolved:
+    resolved = _literal_list(tree, "NEW_PAIRS")
+    if resolved is None:
         return None
     new_rows = [_pair_identity(row) for row in resolved]
     keep_slug = _jackson_keep_slug(tree)
-    keep_fail = None
-    constants = _module_constants(tree)
-    keep = constants.get("KEEP_FROM_UNUSED")
-    if isinstance(keep, set):
-        others = [item for item in keep if item != keep_slug]
-        if len(others) == 1:
-            keep_fail = others[0]
+    keep_fail = _keep_fail_slug(tree, keep_slug)
     keep_row = {
         "success_slug": keep_slug or "jackson-isadmin-missing-jsonignore",
         "fail_slug": keep_fail,
@@ -255,6 +288,16 @@ def _new_plus_keep(tree: ast.AST) -> dict[str, Any] | None:
         "fail_handoff": False,
     }
     return _rows_record(SHAPE_NEW_PLUS_KEEP, [keep_row, *new_rows])
+
+
+def _keep_fail_slug(tree: ast.AST, keep_slug: str | None) -> str | None:
+    """The one ``KEEP_FROM_UNUSED`` slug that is not the jackson keep slug, if exactly one."""
+
+    keep = _module_constants(tree).get("KEEP_FROM_UNUSED")
+    if not isinstance(keep, set):
+        return None
+    others = [item for item in keep if item != keep_slug]
+    return others[0] if len(others) == 1 else None
 
 
 def _jackson_keep_slug(tree: ast.AST) -> str | None:
@@ -295,28 +338,19 @@ def _compose_idor_bfla(
     extras = extra_plant_paths(tree)
     if own is None:
         return None
+    if not extras:
+        return _rows_record(SHAPE_IDOR_BFLA, _paired_rows(*own))
     idors, bflas = own
-    extra_rows: list[dict[str, Any]] = []
     for plant_path in extras:
         plant = _require_plant(plants, plant_path, mill_path=path)
-        extra_idors = plant["idors"]
-        extra_bflas = plant["bflas"]
-        extra_rows.extend(
-            _row_identity(success, extra_bflas[index] if index < len(extra_bflas) else None)
-            for index, success in enumerate(extra_idors)
-        )
-        idors = [*idors, *extra_idors]
-        bflas = [*bflas, *extra_bflas]
-    if extras:
-        if len(idors) != len(bflas):
-            raise ValueError(f"{path}: composed idor {len(idors)} != bfla {len(bflas)}")
-        rows = [_row_identity(success, bflas[index]) for index, success in enumerate(idors)]
-        record = _rows_record(SHAPE_IDOR_BFLA_COMPOSE, rows)
-        record["n_own_rows"] = len(own[0])
-        record["extra_plant_paths"] = list(extras)
-        return record
-    rows = [_row_identity(success, bflas[index] if index < len(bflas) else None) for index, success in enumerate(idors)]
-    return _rows_record(SHAPE_IDOR_BFLA, rows)
+        idors = [*idors, *plant["idors"]]
+        bflas = [*bflas, *plant["bflas"]]
+    if len(idors) != len(bflas):
+        raise ValueError(f"{path}: composed idor {len(idors)} != bfla {len(bflas)}")
+    record = _rows_record(SHAPE_IDOR_BFLA_COMPOSE, _paired_rows(idors, bflas))
+    record["n_own_rows"] = len(own[0])
+    record["extra_plant_paths"] = list(extras)
+    return record
 
 
 def _companion_plant_path(source: str, tree: ast.AST) -> str | None:
@@ -338,33 +372,30 @@ def _zip_from_plant(
     if plant_path is None:
         return None
     if plants is None or plant_path not in plants:
-        tips = tip_slug_asserts(tree)
-        if not tips.get("success") and "leftover3" not in Path(path).name:
-            return None
-        record = {
-            "shape": SHAPE_PLANTS_ZIP,
-            "n_rows": None,
-            "first_slug": tips.get("success"),
-            "last_slug": None,
-            "first_fail_slug": tips.get("fail"),
-            "last_fail_slug": None,
-            "pairs": [],
-            "companion_path": plant_path,
-        }
-        return record
+        return _unread_zip_record(tree, path=path, plant_path=plant_path)
     plant = extract_plant_catalog(plants[plant_path], path=plant_path)
-    rows = [
-        _row_identity(success, plant["bflas"][index] if index < len(plant["bflas"]) else None)
-        for index, success in enumerate(plant["idors"])
-    ]
-    record = _rows_record(SHAPE_PLANTS_ZIP, rows)
+    record = _rows_record(SHAPE_PLANTS_ZIP, _paired_rows(plant["idors"], plant["bflas"]))
     record["companion_path"] = plant_path
+    _check_zip_tips(tip_slug_asserts(tree), record, path=path)
+    return record
+
+
+def _unread_zip_record(tree: ast.AST, *, path: str, plant_path: str) -> dict[str, Any] | None:
+    """The tip-pinned record of a zip mill whose companion plant text was not supplied."""
+
     tips = tip_slug_asserts(tree)
+    if not tips.get("success") and "leftover3" not in Path(path).name:
+        return None
+    record = _tip_only_record(SHAPE_PLANTS_ZIP, tips)
+    record["companion_path"] = plant_path
+    return record
+
+
+def _check_zip_tips(tips: Mapping[str, str], record: Mapping[str, Any], *, path: str) -> None:
     if tips.get("success") and tips["success"] != record["first_slug"]:
         raise ValueError(f"{path} tip slug {tips['success']} != {record['first_slug']}")
     if tips.get("fail") and tips["fail"] != record["first_fail_slug"]:
         raise ValueError(f"{path} fail tip {tips['fail']} != {record['first_fail_slug']}")
-    return record
 
 
 def _slice_record(
@@ -373,36 +404,37 @@ def _slice_record(
     path: str,
     plants: Mapping[str, str] | None,
 ) -> dict[str, Any] | None:
+    if not _assigns_pairs_slice(tree):
+        return None
+    tips = tip_slug_asserts(tree)
+    record = _slice_rows_record(tips, plants)
+    if record is None:
+        return None
+    record["companion_path"] = _SLICE_PLANT_PATH
+    if tips.get("success") and record["first_slug"] not in {None, tips["success"]}:
+        raise ValueError(f"{path} slice tip drifted")
+    return record
+
+
+def _assigns_pairs_slice(tree: ast.AST) -> bool:
+    """``PAIRS = <companion>.PAIRS[...]`` (the r1181 first slice)."""
+
     for node in getattr(tree, "body", ()):
         name, value = assignment_of(node)
-        if name != "PAIRS" or not isinstance(value, ast.Subscript):
-            continue
-        tips = tip_slug_asserts(tree)
-        plant_path = "experiments/azr-plants-r1285.py"
-        if plants and plant_path in plants:
-            plant = extract_plant_catalog(plants[plant_path], path=plant_path)
-            rows = [
-                _row_identity(success, plant["bflas"][index] if index < len(plant["bflas"]) else None)
-                for index, success in enumerate(plant["idors"])
-            ]
-            record = _rows_record(SHAPE_SLICE, rows)
-        else:
-            if not tips.get("success"):
-                return None
-            record = {
-                "shape": SHAPE_SLICE,
-                "n_rows": None,
-                "first_slug": tips.get("success"),
-                "last_slug": None,
-                "first_fail_slug": tips.get("fail"),
-                "last_fail_slug": None,
-                "pairs": [],
-            }
-        record["companion_path"] = plant_path
-        if tips.get("success") and record["first_slug"] not in {None, tips["success"]}:
-            raise ValueError(f"{path} slice tip drifted")
-        return record
-    return None
+        if name == "PAIRS" and isinstance(value, ast.Subscript):
+            return True
+    return False
+
+
+def _slice_rows_record(
+    tips: Mapping[str, str], plants: Mapping[str, str] | None
+) -> dict[str, Any] | None:
+    if plants and _SLICE_PLANT_PATH in plants:
+        plant = extract_plant_catalog(plants[_SLICE_PLANT_PATH], path=_SLICE_PLANT_PATH)
+        return _rows_record(SHAPE_SLICE, _paired_rows(plant["idors"], plant["bflas"]))
+    if not tips.get("success"):
+        return None
+    return _tip_only_record(SHAPE_SLICE, tips)
 
 
 def extract_mill_catalog(
@@ -585,22 +617,29 @@ def load_pair_rows(path: Path | None = None) -> list[dict[str, Any]]:
         raise ValueError(f"cannot load AZR pairs {destination}: {exc}") from exc
     if "\r" in text or not text.endswith("\n"):
         raise ValueError(f"{destination.name} must be LF-framed jsonl")
-    rows: list[dict[str, Any]] = []
-    for index, line in enumerate(text.splitlines(), start=1):
-        if not line:
-            raise ValueError(f"{destination.name}:{index} is empty")
-        if line.startswith((" ", "\t")):
-            raise ValueError(f"{destination.name}:{index} is not compact")
-        try:
-            row = json.loads(line)
-        except json.JSONDecodeError as exc:
-            raise ValueError(f"{destination.name}:{index} is not JSON: {exc}") from exc
-        if not isinstance(row, dict) or set(row) != set(PAIR_ROW_KEYS):
-            raise ValueError(f"{destination.name}:{index} keys differ")
-        rows.append(row)
+    rows = [
+        _pair_row(line, f"{destination.name}:{index}")
+        for index, line in enumerate(text.splitlines(), start=1)
+    ]
     if not rows:
         raise ValueError(f"{destination.name} must contain deferred pair identities")
     return rows
+
+
+def _pair_row(line: str, where: str) -> dict[str, Any]:
+    """One compact ``pairs.jsonl`` line carrying exactly the pair-row keys."""
+
+    if not line:
+        raise ValueError(f"{where} is empty")
+    if line.startswith((" ", "\t")):
+        raise ValueError(f"{where} is not compact")
+    try:
+        row = json.loads(line)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"{where} is not JSON: {exc}") from exc
+    if not isinstance(row, dict) or set(row) != set(PAIR_ROW_KEYS):
+        raise ValueError(f"{where} keys differ")
+    return row
 
 
 def is_slice_mill(mill_id: str) -> bool:

@@ -29,7 +29,7 @@ Novel coverage: 12.3%
 
 The value is the agent's self-estimate of what fraction of this round's scenarios, edges, or failure modes are novel relative to all prior committed rounds for that factory. The workflow prompt enforces this line:
 
-> Include a line "Novel coverage: <N>%" estimating the fraction of this round's scenarios/edges that are novel vs prior rounds (used for token-efficiency early-stop: 2 consecutive rounds <5% triggers stop).
+> Include a line "Novel coverage: <N>%" estimating the fraction of this round's scenarios/edges that are novel vs prior rounds (used for token-efficiency early-stop: 2 consecutive rounds <5% triggers stop — saving ~40% tokens on plateau; be honest even if <5%).
 
 The retired prompt lane carried the same requirement in each factory prompt
 (preserved at tag `legacy-prompt-factory-v0.2`), so a lane started by hand
@@ -89,18 +89,21 @@ const TOKEN_EFFICIENCY = {
   novelThresholdPct: 5,
   consecutiveLimit: 2,
   expectedSavingPct: 40,
+  docs: 'docs/token-efficiency.md',
 }
 ```
 
 Per factory lane:
 
-- After each verified round, `novelCoveragePct(result.coverage_notes)` parses the summary's `coverage_notes` (mirrors `NOTES-rNN.md`).
+- After each verified round, the lane uses the `novel_coverage_pct` that the verifier reads from the published `NOTES-rNN.md` line rather than the `coverage_notes` the generation agent returns. The number is still the agent's own estimate; a missing or out-of-range value counts as unparseable.
 - `<5%` increments `consecutiveLowNovel`; `>=5%` resets it; unparseable holds it.
 - At `consecutiveLowNovel >= 2`, the lane breaks with:
 
   ```
-  early-stop: 2 consecutive NOTES <5% novel coverage (token-efficiency ~40% saving mode)
+  early-stop: 2 consecutive rounds <5% novel coverage (~<N> rounds + verifiers avoided; token-efficiency mode)
   ```
+
+  or, when the streak completes at the backstop round, `coverage plateau (2 consecutive rounds <5%) reached at backstop rNN; no rounds saved`.
 
 - `stopped_reason` is reported in `per_factory[]` of the workflow return value.
 - Other factories are unaffected (`parallel` lanes are independent).
@@ -138,17 +141,19 @@ python3 .claude/skills/run-synthetic-factory/driver.py \
 
 `thalamic-trajectory-factory` there reports 4.2% then 3.1% and early-stops at
 r02; `agentic-coding-trajectory-factory` reports 4.8% then 12.0% and keeps
-running. `tests/test_factory_driver.py` asserts both.
+running. `tests/test_factory_driver_token_efficiency.py` asserts both.
 
 Example output:
 
 ```text
-thalamic-trajectory-factory: EARLY-STOP at r02 — 2 consecutive NOTES <5% novel coverage (40% saving mode)
-  r01 NOTES-r01.md: 4.2% LOW
-  r02 NOTES-r02.md: 3.1% LOW
-agentic-coding-trajectory-factory: no early-stop (1 low round(s), need 2 consecutive <5%)
+agentic-coding-trajectory-factory: no early-stop (1 low round(s), need 2 consecutive <5%) — no plateau; run to backstop (see docs/token-efficiency.md)
   r01 NOTES-r01.md: 4.8% LOW
   r02 NOTES-r02.md: 12.0%
+thalamic-trajectory-factory: EARLY-STOP at r02 — 2 consecutive NOTES <5% novel coverage (40% saving mode, docs/token-efficiency.md)
+  r01 NOTES-r01.md: 4.2% LOW
+  r02 NOTES-r02.md: 3.1% LOW
+
+Token-efficiency docs: docs/token-efficiency.md — 40% saving mode enabled by default in workflow.
 ```
 
 ### 4. Interaction with verification
@@ -173,5 +178,5 @@ Savings scale with backstop distance: a window starting at r12 with plateau at r
 
 ## References
 
-- Workflow: `.claude/skills/run-synthetic-factory/factory-window.workflow.js:95` (`TOKEN_EFFICIENCY`, `novelCoveragePct`, early-stop loop)
-- Driver: `.claude/skills/run-synthetic-factory/driver.py:65` (`TOKEN_EFFICIENCY_*`), `:72` (`LEGACY_NOVEL_COVERAGE_RE`), `:392` (`factory_token_efficiency`), `:490` (`cmd_token_efficiency`)
+- Workflow: `.claude/skills/run-synthetic-factory/factory-window.workflow.js:211` (`TOKEN_EFFICIENCY`, `novelCoveragePct`, early-stop loop)
+- Driver: `.claude/skills/run-synthetic-factory/driver.py:78` (`TOKEN_EFFICIENCY_*`), `:85` (`LEGACY_NOVEL_COVERAGE_RE`), `:287` (`factory_token_efficiency`), `:351` (`cmd_token_efficiency`)
