@@ -46,7 +46,7 @@ def _load_golden():
     return manifest, snapshots, records
 
 
-class GoldenRunFixture(unittest.TestCase):
+class GoldenRunMixin:
     """Shared golden-run inputs for the run-level checks."""
 
     @classmethod
@@ -67,7 +67,7 @@ class GoldenRunFixture(unittest.TestCase):
         self.assertTrue(matched, f"expected a finding containing {fragment!r}, got {errors}")
 
 
-class ManifestMetadataAcceptTest(GoldenRunFixture):
+class ManifestMetadataAcceptTest(GoldenRunMixin, unittest.TestCase):
     """The committed golden run must bind cleanly to its manifest."""
 
     def test_golden_manifest_metadata_has_no_findings(self):
@@ -78,7 +78,7 @@ class ManifestMetadataAcceptTest(GoldenRunFixture):
         self.assertEqual(len(self.records), 20)
 
 
-class ManifestHeaderFieldTest(GoldenRunFixture):
+class ManifestHeaderFieldTest(GoldenRunMixin, unittest.TestCase):
     """Scalar manifest header fields are range- and type-checked."""
 
     def test_round_below_range_is_rejected(self):
@@ -127,7 +127,7 @@ class ManifestHeaderFieldTest(GoldenRunFixture):
         )
 
 
-class ManifestFamiliesTest(GoldenRunFixture):
+class ManifestFamiliesTest(GoldenRunMixin, unittest.TestCase):
     """The declared families block must match the captured directories."""
 
     def test_non_object_families_is_rejected(self):
@@ -156,7 +156,7 @@ class ManifestFamiliesTest(GoldenRunFixture):
         self.assert_reports(lambda m: m.__setitem__("round", 2), "does not match manifest round")
 
 
-class ManifestAvailabilityTest(GoldenRunFixture):
+class ManifestAvailabilityTest(GoldenRunMixin, unittest.TestCase):
     """oracle_availability must agree with the probes captured in records."""
 
     def test_availability_requires_object(self):
@@ -197,7 +197,7 @@ class ManifestAvailabilityTest(GoldenRunFixture):
         self.assert_reports(mutate, "oracle_availability.unbound disagrees")
 
 
-class ManifestNoteTest(GoldenRunFixture):
+class ManifestNoteTest(GoldenRunMixin, unittest.TestCase):
     """The note is derived from record publishability, never free text."""
 
     def test_note_granting_diagnostic_fixture_publishability_is_rejected(self):

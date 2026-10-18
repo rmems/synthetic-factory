@@ -25,7 +25,6 @@ if __package__:
     from . import training_audit_rights_coverage as _coverage
     from . import training_audit_rights_manifest as _manifest
     from .rights_record import (
-        BLOCKER_PREFIX,
         ENVELOPE_FIELD,
         invalid_envelope_blocker,
         missing_envelope_blocker,
@@ -41,7 +40,6 @@ else:
     import training_audit_rights_coverage as _coverage
     import training_audit_rights_manifest as _manifest
     from rights_record import (
-        BLOCKER_PREFIX,
         ENVELOPE_FIELD,
         invalid_envelope_blocker,
         missing_envelope_blocker,
@@ -185,12 +183,6 @@ def capture_rights_audit(run_dir: Path, files: Mapping[str, bytes] | None = None
 def collect_rights_blockers(run_dir: Path) -> list[str]:
     """Return rights blockers without exposing the captured audit metadata."""
     return list(capture_rights_audit(run_dir).blockers)
-
-
-def is_rights_blocker(item: object) -> bool:
-    """Return whether one audit/export blocker belongs to the rights gate."""
-
-    return isinstance(item, str) and item.startswith(BLOCKER_PREFIX)
 
 
 if __package__:

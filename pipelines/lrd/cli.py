@@ -132,39 +132,51 @@ def _scan_exec_surface() -> list[dict[str, Any]]:
     for path in sorted(package_dir.glob("*.py")):
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         for node in ast.walk(tree):
-            if isinstance(node, ast.Import):
-                for alias in node.names:
-                    head = alias.name.split(".")[0]
-                    if head in BANNED_IMPORTS:
-                        code = (
-                            FINDING_HOPPER_REFUSED if head == "hopper" else FINDING_PACKAGE_EXEC
-                        )
-                        findings.append(
-                            {
-                                "file": path.name,
-                                "code": code,
-                                "name": alias.name,
-                                "line": node.lineno,
-                            }
-                        )
-            elif isinstance(node, ast.ImportFrom):
-                if node.module and node.module.split(".")[0] in BANNED_IMPORTS:
-                    head = node.module.split(".")[0]
-                    code = FINDING_HOPPER_REFUSED if head == "hopper" else FINDING_PACKAGE_EXEC
-                    findings.append(
-                        {"file": path.name, "code": code, "name": node.module, "line": node.lineno}
-                    )
-            elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                if node.name in BANNED_DEFS:
-                    code = (
-                        FINDING_HOPPER_REFUSED
-                        if node.name == "mill_and_publish"
-                        else FINDING_PACKAGE_EXEC
-                    )
-                    findings.append(
-                        {"file": path.name, "code": code, "name": node.name, "line": node.lineno}
-                    )
+            findings.extend(_node_findings(path.name, node))
     return findings
+
+
+def _node_findings(file: str, node: ast.AST) -> list[dict[str, Any]]:
+    if isinstance(node, ast.Import):
+        return _import_findings(file, node)
+    if isinstance(node, ast.ImportFrom):
+        return _import_from_findings(file, node)
+    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+        return _def_findings(file, node)
+    return []
+
+
+def _finding(file: str, code: str, name: str, line: int) -> dict[str, Any]:
+    return {"file": file, "code": code, "name": name, "line": line}
+
+
+def _banned_code(name: str, hopper_name: str) -> str:
+    return FINDING_HOPPER_REFUSED if name == hopper_name else FINDING_PACKAGE_EXEC
+
+
+def _import_findings(file: str, node: ast.Import) -> list[dict[str, Any]]:
+    findings: list[dict[str, Any]] = []
+    for alias in node.names:
+        head = alias.name.split(".")[0]
+        if head in BANNED_IMPORTS:
+            findings.append(_finding(file, _banned_code(head, "hopper"), alias.name, node.lineno))
+    return findings
+
+
+def _import_from_findings(file: str, node: ast.ImportFrom) -> list[dict[str, Any]]:
+    if node.module and node.module.split(".")[0] in BANNED_IMPORTS:
+        head = node.module.split(".")[0]
+        return [_finding(file, _banned_code(head, "hopper"), node.module, node.lineno)]
+    return []
+
+
+def _def_findings(
+    file: str, node: ast.FunctionDef | ast.AsyncFunctionDef
+) -> list[dict[str, Any]]:
+    if node.name in BANNED_DEFS:
+        code = _banned_code(node.name, "mill_and_publish")
+        return [_finding(file, code, node.name, node.lineno)]
+    return []
 
 
 def _audit(args: argparse.Namespace) -> int:

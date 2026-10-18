@@ -3,6 +3,7 @@
 
 import json
 import unittest
+from typing import ClassVar
 
 from card_schema_test_support import (
     META_JSON_YAML,
@@ -55,7 +56,7 @@ def _hub_item():
 class RagRetrievalDebugDeclarationTests(DeclarationTestCase):
     """Issue #71: episode-only top-level extras against an otherwise thin record."""
 
-    EVH_IDS = [
+    EVH_IDS: ClassVar[list[str]] = [
         "evh-r21-cite-orphan-c3e8",
         "evh-r21-hybrid-sku-a91b",
         "evh-r22-rerank-pad-d7f2",

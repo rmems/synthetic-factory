@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import os
+import types
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -23,6 +24,7 @@ from ._contract import (
     FINDING_RAW_ROOT_REQUIRED,
     bind_import_twin,
     is_under_raw,
+    refuse,
     refuse_first,
     refuse_when,
 )
@@ -46,25 +48,21 @@ __all__ = [
     "dumps_episode", "emit_stage", "factory_dir", "set_raw_root", "validate_pair",
 ]
 
-_RAW_ROOT: Path | None = None
+_RAW_ROOT = types.SimpleNamespace(path=None)
 
 
 def set_raw_root(path: Path | None) -> None:
     """Optional raw-tree root for ``factory_dir`` (never a repo-relative default)."""
-    global _RAW_ROOT
-    _RAW_ROOT = None if path is None else Path(path)
+    _RAW_ROOT.path = None if path is None else Path(path)
 
 
 def factory_dir(factory: str, raw_root: Path | None = None) -> Path:
-    root = raw_root if raw_root is not None else _RAW_ROOT
+    root = raw_root if raw_root is not None else _RAW_ROOT.path
     if root is None:
         env = os.environ.get("HOPPER_RAW_ROOT")
         root = Path(env) if env else None
-    refuse_when(
-        root is None,
-        FINDING_RAW_ROOT_REQUIRED,
-        "factory_dir needs raw_root or HOPPER_RAW_ROOT",
-    )
+    if root is None:
+        refuse(FINDING_RAW_ROOT_REQUIRED, "factory_dir needs raw_root or HOPPER_RAW_ROOT")
     return Path(root) / factory
 
 
@@ -435,10 +433,11 @@ def validate_pair(ok_ep: Mapping, bad_ep: Mapping, round_n: int) -> None:
 
 
 def build_pair(factory: str, round_n: int, ok: Mapping, bad: Mapping):
-    prefix = PREFIX[factory] if factory in PREFIX else ok.get("prefix") or bad.get("prefix")
-    refuse_when(not prefix, FINDING_PAIR_INVALID, f"no prefix for factory {factory}")
-    ok_ep = build_success(factory, prefix, round_n, ok)
-    bad_ep = build_fail(factory, prefix, round_n, bad)
+    raw_prefix = PREFIX[factory] if factory in PREFIX else ok.get("prefix") or bad.get("prefix")
+    if not isinstance(raw_prefix, str) or not raw_prefix:
+        refuse(FINDING_PAIR_INVALID, f"no prefix for factory {factory}")
+    ok_ep = build_success(factory, raw_prefix, round_n, ok)
+    bad_ep = build_fail(factory, raw_prefix, round_n, bad)
     validate_pair(ok_ep, bad_ep, round_n)
     notes = notes_md(factory, round_n, ok, bad, ok_ep["id"], bad_ep["id"])
     refuse_when("Novel coverage:" not in notes, FINDING_PAIR_INVALID, "NOTES missing Novel coverage")

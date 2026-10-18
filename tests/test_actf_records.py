@@ -55,7 +55,7 @@ class RecordsTests(unittest.TestCase):
             (listed / "path.json").write_text(
                 json.dumps({
                     "path_key": "actf-r77--syntax",
-                    "original_path": "/tmp/actf-r77/gen.py",
+                    "original_path": "/srv/actf-r77/gen.py",
                     "original_basename": "gen.py",
                     "classification": "exact",
                     "version_count": 1,
@@ -71,12 +71,12 @@ class RecordsTests(unittest.TestCase):
 
     def test_recovery_root_under_outputs_raw_is_refused(self):
         with self.assertRaises(cv.ActfRefusal) as caught:
-            records.scan_recovery_tree(Path("/tmp/outputs/raw/actf"))
+            records.scan_recovery_tree(Path("/srv/outputs/raw/actf"))
         self.assertEqual(caught.exception.code, cv.FINDING_RECOVERY_ROOT_UNDER_RAW)
 
     def test_a_vendored_mill_destination_is_refused(self):
         with self.assertRaises(cv.ActfRefusal) as caught:
-            records.scan_recovery_tree(Path("/tmp/actf-mill-r10.py"))
+            records.scan_recovery_tree(Path("/srv/actf-mill-r10.py"))
         self.assertEqual(caught.exception.code, cv.FINDING_VENDOR_PATH)
 
     def test_cli_scan_prints_the_fixture_summary(self):
@@ -92,7 +92,7 @@ class RecordsTests(unittest.TestCase):
     def test_cli_scan_returns_two_on_a_coded_refusal(self):
         err = StringIO()
         with patch("sys.stderr", err):
-            code = cli.run(["scan", "/tmp/outputs/raw/actf"])
+            code = cli.run(["scan", "/srv/outputs/raw/actf"])
         self.assertEqual(code, 2)
         self.assertIn(cv.FINDING_RECOVERY_ROOT_UNDER_RAW, err.getvalue())
 

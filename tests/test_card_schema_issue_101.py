@@ -5,6 +5,7 @@ import json
 import re
 import unittest
 from pathlib import Path
+from typing import ClassVar
 
 from card_schema_test_support import (
     DISCLOSURES_HEADING,
@@ -382,7 +383,7 @@ class CascadingErrorRecoveryDeclarationTests(DeclarationTestCase):
     # Three representative rows, one per published shape. Written here rather
     # than copied out of the mirror so the union check runs on CI, where the
     # read-only mirror is not mounted.
-    STRING_FORM_ROW = {
+    STRING_FORM_ROW: ClassVar[dict] = {
         "id": "cer-r10-retry-storm-a1",
         "goal": "recover the cascade",
         "plan": "isolate, then roll back",
@@ -405,7 +406,7 @@ class CascadingErrorRecoveryDeclarationTests(DeclarationTestCase):
         "meta": {"factory": "cascading-error-recovery-factory", "generator": "grok-4.6", "round": 10},
     }
 
-    OBJECT_FORM_ROW = {
+    OBJECT_FORM_ROW: ClassVar[dict] = {
         "id": "cer-r11-mask-survives-b2",
         "goal": "recover the cascade",
         "plan": "trace the mask",
@@ -427,7 +428,7 @@ class CascadingErrorRecoveryDeclarationTests(DeclarationTestCase):
         "meta": {"factory": "cascading-error-recovery-factory", "generator": "grok-4.6", "round": 11},
     }
 
-    LEFTOVER_ROW = {
+    LEFTOVER_ROW: ClassVar[dict] = {
         "id": "dbc-r2021-containerd-content-lease-l3",
         "goal": "leftover content lease blocks the cache",
         "plan": "drop the stale lease",

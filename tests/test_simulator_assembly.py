@@ -15,7 +15,8 @@ FACTORY = "fault-recovery-simulator-factory"
 
 
 class SimulatorAssembly(unittest.TestCase):
-    def _generated(self, root):
+    @staticmethod
+    def _generated(root):
         records = fault_oracle.build_records(97531, 6, produced_at="2026-09-18T12:00:00.000Z")
         payload = "".join(json.dumps(row, separators=(",", ":")) + "\n" for row in records).encode()
         source = root / "source" / FACTORY / "fresh.jsonl"
@@ -44,10 +45,9 @@ class SimulatorAssembly(unittest.TestCase):
                 evidence = export_hf._compose_metadata(root / "composed", files, report)
             self.assertTrue(evidence)
             self.assertEqual(replay_launches.call_count, 1)
+            request = export_hf.ExportRequest(root / "composed", root / "export")
             with self.assertRaisesRegex(export_hf.ExportError, "research-only"):
-                export_hf.export_run(
-                    export_hf.ExportRequest(root / "composed", root / "export")
-                )
+                export_hf.export_run(request)
             self.assertFalse((root / "export").exists())
 
     def test_crlf_and_unterminated_native_source_bytes_are_preserved(self):
@@ -66,10 +66,9 @@ class SimulatorAssembly(unittest.TestCase):
             self.assertEqual(summary["counts"]["retained"], 2)
             target = root / "composed" / "records" / FACTORY / "fresh.jsonl"
             self.assertEqual(target.read_bytes(), payload)
+            request = export_hf.ExportRequest(root / "composed", root / "export")
             with self.assertRaises(export_hf.ExportError):
-                export_hf.export_run(
-                    export_hf.ExportRequest(root / "composed", root / "export")
-                )
+                export_hf.export_run(request)
             self.assertFalse((root / "export").exists())
 
     def test_malformed_family_claim_cannot_escape_to_thalamic_shape(self):

@@ -134,25 +134,32 @@ def _mill_from_row(
     )
 
 
-def _bind_header(mills: Mapping[str, MillCatalog], expected: Mapping[str, MillSource]) -> None:
+def _require_same_mills(
+    mills: Mapping[str, MillCatalog], expected: Mapping[str, MillSource]
+) -> None:
     extra = sorted(set(mills) - set(expected))
     missing = sorted(set(expected) - set(mills))
     if extra or missing:
         raise ValueError(f"catalog mills drifted from sources: extra={extra} missing={missing}")
+
+
+def _check_mill_pin(mill_id: str, mill: MillCatalog, source: MillSource) -> None:
+    if mill.path != source.path or mill.blob_sha != source.blob_sha:
+        raise ValueError(f"{mill_id} pin disagrees with sources.py")
+    if not is_slice_mill(mill_id) and mill.pairs:
+        raise ValueError(f"{mill_id} is not the first slice and must omit pair rows")
+
+
+def _bind_header(mills: Mapping[str, MillCatalog], expected: Mapping[str, MillSource]) -> None:
+    _require_same_mills(mills, expected)
     slice_mill = mills[SLICE_MILL_ID]
     if len(slice_mill.pairs) != slice_mill.n_rows:
         raise ValueError("w4x-r4358 slice n_rows does not match extracted pairs")
     for mill_id, mill in mills.items():
-        source = expected[mill_id]
-        if mill.path != source.path or mill.blob_sha != source.blob_sha:
-            raise ValueError(f"{mill_id} pin disagrees with sources.py")
-        if not is_slice_mill(mill_id) and mill.pairs:
-            raise ValueError(f"{mill_id} is not the first slice and must omit pair rows")
+        _check_mill_pin(mill_id, mill, expected[mill_id])
 
 
-def _overlay_deferred_pairs(
-    mills: Mapping[str, MillCatalog], rows: list[dict[str, Any]]
-) -> dict[str, MillCatalog]:
+def _group_pair_rows(rows: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
     grouped: dict[str, list[dict[str, Any]]] = {}
     for row in rows:
         grouped.setdefault(row["mill_id"], []).append(row)
@@ -160,20 +167,42 @@ def _overlay_deferred_pairs(
         raise ValueError(f"{PAIRS_FILENAME} must omit the w4x first-slice mill")
     if EXCLUDED_DEFERRED_MILL_ID in grouped:
         raise ValueError(f"{PAIRS_FILENAME} must omit {EXCLUDED_DEFERRED_MILL_ID}")
+    return grouped
+
+
+def _check_mill_rows(
+    mill_id: str, mill_rows: list[dict[str, Any]], mills: Mapping[str, MillCatalog]
+) -> None:
+    if mill_id not in mills:
+        raise ValueError(f"{PAIRS_FILENAME} names unknown mill {mill_id}")
+    expected_index = list(range(len(mill_rows)))
+    if [row["i"] for row in mill_rows] != expected_index:
+        raise ValueError(f"{mill_id} pair index drifted")
+    if any(row["path"] != mills[mill_id].path for row in mill_rows):
+        raise ValueError(f"{mill_id} path drifted from catalog")
+
+
+def _overlay_deferred_pairs(
+    mills: Mapping[str, MillCatalog], rows: list[dict[str, Any]]
+) -> dict[str, MillCatalog]:
+    grouped = _group_pair_rows(rows)
     out = dict(mills)
     for mill_id, mill_rows in grouped.items():
-        if mill_id not in mills:
-            raise ValueError(f"{PAIRS_FILENAME} names unknown mill {mill_id}")
-        expected_index = list(range(len(mill_rows)))
-        if [row["i"] for row in mill_rows] != expected_index:
-            raise ValueError(f"{mill_id} pair index drifted")
-        if any(row["path"] != mills[mill_id].path for row in mill_rows):
-            raise ValueError(f"{mill_id} path drifted from catalog")
+        _check_mill_rows(mill_id, mill_rows, mills)
         out[mill_id] = replace(
             mills[mill_id],
             pairs=tuple(pair_identity(row) for row in mill_rows),
         )
     return out
+
+
+def _check_pair_identities(mill_id: str, mill: MillCatalog) -> None:
+    if len(mill.pairs) != mill.n_rows:
+        raise ValueError(f"{mill_id} n_rows does not match committed pair identities")
+    if mill.pairs[0]["success_slug"] != mill.first_slug:
+        raise ValueError(f"{mill_id} first_slug drifted from pair identities")
+    if mill.pairs[-1]["success_slug"] != mill.last_slug:
+        raise ValueError(f"{mill_id} last_slug drifted from pair identities")
 
 
 def _bind_sources(catalog: LhcCatalog) -> None:
@@ -185,14 +214,8 @@ def _bind_sources(catalog: LhcCatalog) -> None:
     if excluded.pairs:
         raise ValueError(f"{EXCLUDED_DEFERRED_MILL_ID} pair bodies live in lhc_w4cl only")
     for mill_id, mill in catalog.mills.items():
-        if is_deferred_excluded_mill(mill_id):
-            continue
-        if len(mill.pairs) != mill.n_rows:
-            raise ValueError(f"{mill_id} n_rows does not match committed pair identities")
-        if mill.pairs[0]["success_slug"] != mill.first_slug:
-            raise ValueError(f"{mill_id} first_slug drifted from pair identities")
-        if mill.pairs[-1]["success_slug"] != mill.last_slug:
-            raise ValueError(f"{mill_id} last_slug drifted from pair identities")
+        if not is_deferred_excluded_mill(mill_id):
+            _check_pair_identities(mill_id, mill)
 
 
 def catalog_json_path(package_dir: Path | None = None) -> Path:

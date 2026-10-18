@@ -67,8 +67,9 @@ class ParityDatasetAssembly(unittest.TestCase):
             report = training_audit.audit_run(composed / 'records')
             self.assertEqual(report['totals']['eligible_records'], 0)
             self.assertTrue(export_hf._compose_metadata(composed, files, report))
+            request = export_hf.ExportRequest(composed, root / 'training-export')
             with self.assertRaisesRegex(export_hf.ExportError, 'research-only'):
-                export_hf.export_run(export_hf.ExportRequest(composed, root / 'training-export'))
+                export_hf.export_run(request)
             self.assertFalse((root / 'training-export').exists())
 
     def test_identity_tree_replays_native_bytes_and_rejects_manifest_authority_change(self):

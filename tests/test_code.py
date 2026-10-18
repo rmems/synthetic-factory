@@ -173,14 +173,15 @@ class CommittedCatalog(unittest.TestCase):
         self.assertEqual(theirs, cat.CRP_LEFTOVER3_SLUGS)
 
     def test_code_mill_source_reextracts_the_notfam_index(self):
-        source = Path("/tmp/code-mills/code_review_preference_mill_leftover3.py")
+        mills = Path(tempfile.gettempdir(), "code-mills")
+        source = mills / "code_review_preference_mill_leftover3.py"
         if not source.is_file():
             self.skipTest("legacy code mill is not in this environment")
         extracted = cat.notfam_slugs_from_source(source.read_text(encoding="utf-8"))
         self.assertEqual(extracted, cat.CODE_MILL_NOTFAM)
 
     def test_leftover3_source_reextracts_the_committed_rows(self):
-        source = Path("/tmp/code-mills/crp-mill-leftover3.py")
+        source = Path(tempfile.gettempdir(), "code-mills", "crp-mill-leftover3.py")
         if not source.is_file():
             self.skipTest("legacy leftover3 mill is not in this environment")
         extracted = cat.plants_from_source(source.read_text(encoding="utf-8"))

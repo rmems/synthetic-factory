@@ -235,8 +235,4 @@ def dumps_jsonl(rows: list[Mapping[str, Any]]) -> str:
     return "\n".join(lines) + "\n"
 
 
-def dumps_header(document: Mapping[str, Any]) -> str:
-    return dumps_exact_json(document, ensure_ascii=True, indent=2, sort_keys=True) + "\n"
-
-
 bind_import_twin(__name__)

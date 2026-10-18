@@ -60,39 +60,50 @@ _assert_no_symlink = _paths._assert_no_symlink
 _relative_artifact_destination = _paths._relative_artifact_destination
 
 
+def _reward_sidecar_text(path: Path, payload: bytes | None) -> str:
+    """The sidecar artifact as UTF-8 text, snapshotting the file when no bytes are given."""
+    if payload is None:
+        payload, _digest, _size = _read_regular_file_snapshot(path, "reward sidecars")
+    try:
+        return payload.decode("utf-8")
+    except UnicodeError as exc:
+        raise GateError(f"cannot decode reward sidecars {path}: {exc}") from exc
+
+
+def _is_reward_sidecar(document: Any) -> bool:
+    return isinstance(document, dict) and document.get("document_type") == "reward_source_sidecar"
+
+
+def _reward_sidecar_document(path: Path, line_number: int, line: str) -> dict[str, Any]:
+    """Parse one sidecar line and validate it against the reward ontology."""
+    try:
+        document = json.loads(
+            line,
+            parse_constant=reject_json_constant,
+            parse_float=parse_finite_json_float,
+        )
+    except ValueError as exc:
+        raise GateError(f"{path}:{line_number}: invalid reward sidecar JSON: {exc}") from exc
+    if not _is_reward_sidecar(document):
+        raise GateError(f"{path}:{line_number}: expected a reward_source_sidecar document")
+    try:
+        curate_rewards.validate_ontology_document(document)
+    except curate_rewards.RewardOntologyError as exc:
+        raise GateError(f"{path}:{line_number}: invalid reward sidecar: {exc}") from exc
+    return document
+
+
 def _load_reward_sidecars(
     path: Path,
     *,
     payload: bytes | None = None,
 ) -> list[dict[str, Any]]:
-    documents: list[dict[str, Any]] = []
-    if payload is None:
-        payload, _digest, _size = _read_regular_file_snapshot(path, "reward sidecars")
-    try:
-        text = payload.decode("utf-8")
-    except UnicodeError as exc:
-        raise GateError(f"cannot decode reward sidecars {path}: {exc}") from exc
-    for line_number, line in enumerate(_lf_lines(text), 1):
-        if not line.strip():
-            continue
-        try:
-            document = json.loads(
-                line,
-                parse_constant=reject_json_constant,
-                parse_float=parse_finite_json_float,
-            )
-        except ValueError as exc:
-            raise GateError(f"{path}:{line_number}: invalid reward sidecar JSON: {exc}") from exc
-        if (
-            not isinstance(document, dict)
-            or document.get("document_type") != "reward_source_sidecar"
-        ):
-            raise GateError(f"{path}:{line_number}: expected a reward_source_sidecar document")
-        try:
-            curate_rewards.validate_ontology_document(document)
-        except curate_rewards.RewardOntologyError as exc:
-            raise GateError(f"{path}:{line_number}: invalid reward sidecar: {exc}") from exc
-        documents.append(document)
+    text = _reward_sidecar_text(path, payload)
+    documents = [
+        _reward_sidecar_document(path, line_number, line)
+        for line_number, line in enumerate(_lf_lines(text), 1)
+        if line.strip()
+    ]
     if not documents:
         raise GateError(f"{path}: reward sidecar artifact is empty")
     ids = [document["sidecar_id"] for document in documents]

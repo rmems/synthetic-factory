@@ -34,20 +34,20 @@ class RightsPolicyGuardTests(unittest.TestCase):
         class NonTupleSlots:
             __slots__ = "value"
 
-            def __setstate__(self, state):
-                del state
+            def __setstate__(self, _state):
+                """Accept and discard restored state; only the hook's presence matters."""
 
         class EmptySlots:
             __slots__ = ()
 
-            def __setstate__(self, state):
-                del state
+            def __setstate__(self, _state):
+                """Accept and discard restored state; only the hook's presence matters."""
 
         class HostileNonTupleSlots:
             __slots__ = HostileSlots()
 
-            def __setstate__(self, state):
-                del state
+            def __setstate__(self, _state):
+                """Accept and discard restored state; only the hook's presence matters."""
 
         incompatible_classes = (
             MissingSetstate,
@@ -231,13 +231,12 @@ class RightsPolicyGuardTests(unittest.TestCase):
         serialized["profiles"][0]["intended_use"] = SpoofedString(
             "training_candidate", "research_only"
         )
+        payload = json.dumps(serialized).encode("utf-8")
         with self.assertRaisesRegex(
             rights_policy.RightsPolicyError,
             "inconsistent intended_use and project policy",
         ):
-            rights_policy.load_rights_policy_bytes(
-                json.dumps(serialized).encode("utf-8")
-            )
+            rights_policy.load_rights_policy_bytes(payload)
 
 
 def _spoofed_closed_vocabulary_cases():

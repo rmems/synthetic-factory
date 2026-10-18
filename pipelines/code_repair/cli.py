@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
-"""Code-repair commands: catalog-check, generate, replay, publish, export, render.
+"""Code-repair commands: catalog-check, generate, replay, publish, export, dedup, render,
+hub-bundle, recall-probe.
 
 Exit codes: 0 when the command succeeded with nothing to report, 1 when it
-ran and reports catalog findings, 2 on a coded refusal or a usage error. ``--json`` prints one object
-with a ``code`` field per finding so an agent never parses prose.
+ran and reports findings (catalog findings, replay failures, cross-run duplicates, leak
+findings, exact recall under the probe's ``docstring_only`` variant), 2 on a coded refusal
+or a usage error. ``--json`` prints one object with a ``code`` field per finding so an
+agent never parses prose.
 """
 
 from __future__ import annotations
@@ -17,12 +20,17 @@ from typing import Any
 from . import catalog as cat
 from . import catalog_check as cc
 from . import catalog_load
+from . import dedup
 from . import executor as ex
 from . import export
 from . import generate
+from . import hub_bundle
 from . import publication
+from . import recall_probe
 from . import replay
 from . import views
+from . import views_chat
+from . import views_edit
 from . import record_validation as validation
 from . import vocabulary as cv
 from ._contract import bind_import_twin, dumps_exact_json, envelope, oc
@@ -73,11 +81,57 @@ def build_parser() -> argparse.ArgumentParser:
     pub.add_argument("--lineage-cap", type=int, default=export.DEFAULT_LINEAGE_CAP)
     pub.add_argument("--json", action="store_true")
 
+    _add_dedup_parser(commands)
+
     render = commands.add_parser("render", help="the SFT prompt/completion of one record")
     render.add_argument("run_dir", type=Path)
     render.add_argument("record_id")
     render.add_argument("--json", action="store_true")
+    _add_hub_bundle(commands)
+    _add_recall_probe(commands)
     return parser
+
+
+def _add_dedup_parser(commands: Any) -> None:
+    """``dedup``: run directories in keep-first order and an optional brand-new file."""
+
+    dup =commands.add_parser("dedup", help="read-only duplicate report over stacked runs")
+    dup.add_argument("--run", dest="runs", type=Path, action="append", required=True,
+                     help="a run directory; repeat in keep-first order")
+    dup.add_argument("--out", type=Path, default=None,
+                     help="a brand-new file for the manifest, outside every run directory")
+    dup.add_argument("--json", action="store_true")
+
+
+def _add_hub_bundle(commands: Any) -> None:
+    bundle = commands.add_parser(
+        "hub-bundle", help="a Hub-ready dataset directory with typed configs from a complete export"
+    )
+    bundle.add_argument("--export", dest="export_dir", type=Path, required=True)
+    bundle.add_argument("--out", type=Path, required=True)
+    bundle.add_argument("--dataset-id", required=True, help="owner/name of the Hub dataset")
+    bundle.add_argument("--pretty-name", default=None)
+    bundle.add_argument("--json", action="store_true")
+
+
+def _add_recall_probe(commands: argparse._SubParsersAction) -> None:
+    """``recall-probe emit`` writes prompts; ``recall-probe score`` reads completions made elsewhere."""
+
+    probe = commands.add_parser(
+        "recall-probe", help="offline upstream-recall probe; no model is called from here"
+    )
+    steps = probe.add_subparsers(dest="probe_command", required=True)
+    emit = steps.add_parser("emit", help="two prompt variants per positive record into a new dir")
+    emit.add_argument("--run", type=Path, required=True)
+    emit.add_argument("--out", type=Path, required=True, help="a new directory for prompts.jsonl")
+    emit.add_argument("--json", action="store_true")
+    scored = steps.add_parser("score", help="score completions.jsonl; nothing is executed")
+    scored.add_argument("--prompts", type=Path, required=True, help="the emitted prompts.jsonl")
+    scored.add_argument("--completions", type=Path, required=True,
+                        help="{id, variant, completion} rows produced elsewhere")
+    scored.add_argument("--run", type=Path, required=True)
+    scored.add_argument("--out", type=Path, required=True, help="the new report file")
+    scored.add_argument("--json", action="store_true")
 
 
 def _emit(payload: dict[str, Any], as_json: bool, text: str) -> None:
@@ -163,6 +217,28 @@ def _publish(args: argparse.Namespace) -> int:
     return 0
 
 
+def _dedup(args: argparse.Namespace) -> int:
+    manifest = dedup.report(dedup.DedupRequest(tuple(args.runs), args.out))
+    counts = manifest["counts"]
+    findings = [
+        {"code": d["code"], "record_id": d["id"], "run": d["run"],
+         "duplicate_of": d["duplicate_of"]}
+        for d in manifest["dropped"]
+    ]
+    by_code = ", ".join(f"{code} {n}" for code, n in counts["by_code"].items())
+    lines = [f"{f['code']} {f['record_id']} (run {f['run']}) repeats {f['duplicate_of']}"
+             for f in findings]
+    lines.append(
+        f"dedup: {counts['kept']} kept, {counts['dropped']} dropped ({by_code}) from "
+        f"{counts['positives']} positives across {counts['runs']} runs"
+        + (f"; {args.out}" if args.out is not None else "")
+    )
+    status = "findings" if findings else "ok"
+    payload = {"command": "dedup", "status": status, "findings": findings, "manifest": manifest}
+    _emit(payload, args.json, "\n".join(lines))
+    return 1 if findings else 0
+
+
 def _load_record(run_dir: Path, record_id: str) -> dict[str, Any]:
     """The record with this id, refused unless the shared envelope and digest accept it."""
 
@@ -194,7 +270,9 @@ def _render(args: argparse.Namespace) -> int:
         return 1
     row = {"prompt": views.render_prompt(views.public_view(record)),
            "completion": views.completion_of(record)}
-    leaks = views.view_findings(record, row)
+    chat, edit = views_chat.chat_candidate(record), views_edit.edit_candidate(record)
+    leaks = (views.view_findings(record, row) + views_chat.chat_findings(record, chat)
+             + views_edit.edit_findings(record, edit))
     payload = {
         "command": "render", "status": "findings" if leaks else "ok", "record_id": args.record_id,
         "findings": [{"code": code} for code in leaks],
@@ -205,14 +283,64 @@ def _render(args: argparse.Namespace) -> int:
         # A pair with a leak finding is never emitted, not even beside its findings.
         _emit(payload, args.json, "leak findings: " + ", ".join(leaks))
         return 1
-    payload["sft"] = row
+    payload.update(sft=row, chat=chat, edit=edit)
     _emit(payload, args.json, f"### prompt\n{row['prompt']}\n### completion\n{row['completion']}")
     return 0
 
 
+def _hub_bundle(args: argparse.Namespace) -> int:
+    summary = hub_bundle.run(hub_bundle.BundleRequest(
+        args.export_dir, args.out, args.dataset_id, args.pretty_name,
+    ))
+    text = (
+        f"bundled {summary['dataset_id']} into {args.out}: configs "
+        f"{', '.join(summary['configs']) or 'viewer only'}; training_ready "
+        f"{str(summary['training_ready']).lower()}; no Hub repository created or uploaded"
+    )
+    _emit({"command": "hub-bundle", "status": "ok", "summary": summary}, args.json, text)
+    return 0
+
+
+
+def _recall_probe_emit(args: argparse.Namespace) -> int:
+    summary = recall_probe.emit(recall_probe.EmitRequest(args.run, args.out))
+    text = (
+        f"emitted {summary['prompts']['rows']} prompts ({summary['per_variant']}) for "
+        f"{summary['run']['positives']} positives into {args.out}; no model was called"
+    )
+    _emit({"command": "recall-probe emit", "status": "ok", "summary": summary}, args.json, text)
+    return 0
+
+
+def _recall_probe_score(args: argparse.Namespace) -> int:
+    report = recall_probe.score(recall_probe.ScoreRequest(
+        args.prompts, args.completions, args.run, args.out,
+    ))
+    findings = report["findings"]
+    parts = [
+        f"{variant}: exact {bucket['exact']}/{bucket['completions']}, "
+        f"structural {bucket['structural']}/{bucket['completions']}, "
+        f"unparsable {bucket['unparsable']}, missing {bucket['missing']}"
+        for variant, bucket in report["per_variant"].items()
+    ]
+    text = (
+        f"recall probe {report['status']}: " + "; ".join(parts)
+        + f"; {len(findings)} exact under docstring_only; report {args.out}; nothing was executed"
+    )
+    _emit({"command": "recall-probe score", "status": report["status"], "findings": findings,
+           "report": report}, args.json, text)
+    return 1 if findings else 0
+
+
+def _recall_probe(args: argparse.Namespace) -> int:
+    steps = {"emit": _recall_probe_emit, "score": _recall_probe_score}
+    return steps[args.probe_command](args)
+
+
 _COMMANDS = {
     "catalog-check": _catalog_check, "generate": _generate, "render": _render, "replay": _replay,
-    "export": _export, "publish": _publish,
+    "export": _export, "publish": _publish, "dedup": _dedup, "hub-bundle": _hub_bundle,
+    "recall-probe": _recall_probe,
 }
 
 

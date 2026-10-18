@@ -63,7 +63,8 @@ class BridgeMaterialization(unittest.TestCase):
         )
         return source
 
-    def _source_tree(self, root):
+    @staticmethod
+    def _source_tree(root):
         first = root / "factory-a" / "batch-r01.jsonl"
         second = root / "factory-b" / "batch-r02.jsonl"
         first.parent.mkdir(parents=True)

@@ -405,7 +405,7 @@ A record as generated (digests and prose abbreviated):
   "id": "twd-462d3436a2cf0388-f037150e8fdb3a71-6430791596913631286-00001",
   "task_author": {"model": "tool-world-pack", "version": "<pack sha256>", "prompt_hash": "sha256:<task spec>", "run_id": "twd-run-1-<catalog>"},
   "solver": {"model": "tool-world-scripted-policy", "version": "<policy source sha256>", "tool_policy": "workspace-gold", "run_id": "twd-run-1-<catalog>", "outcome": "success"},
-  "oracle": {"kind": "tool_world_replay", "status": "validated", "repo_commit": "<pack sha256>", "command": "python3 pipelines/tool_world_cli.py replay --record <id>", "result_hash": "sha256:<replay digest>", "certifier": "tool_world.replay", "signals": ["deterministic_environment", "replay_agreement", "predicate_pass"]},
+  "oracle": {"kind": "tool_world_replay", "status": "validated", "repo_commit": "<pack sha256>", "command": "python3 pipelines/tool_world_cli.py replay <run_dir> --record <id>", "result_hash": "sha256:<replay digest>", "certifier": "tool_world.replay", "signals": ["deterministic_environment", "replay_agreement", "predicate_pass"]},
   "curation": {"pipeline_version": "tool-world-v1", "decision": "accept", "reason_codes": []},
   "environment": {"repo_snapshot_hash": "sha256:<pack sha256>", "repo_pack_id": "counter-workspace", "task_id": "counter.delete-stale-lock", "catalog_sha256": "<catalog>", "pack_id": "counter-workspace", "pack_sha256": "<pack sha256>", "seed": 6430791596913631286, "surfaces": ["workspace"], "max_steps": 10},
   "payload": {

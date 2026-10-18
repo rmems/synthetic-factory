@@ -42,10 +42,13 @@ class ReplaySnapshot(unittest.TestCase):
 
     def test_worker_timeout_is_a_coded_identity_refusal(self):
         reader, writer = os.pipe()
-        with os.fdopen(reader, "rb", buffering=0) as incoming, os.fdopen(writer, "wb"):
-            with patch.object(replay, "_REPLAY_TIMEOUT", 0.01):
-                with self.assertRaisesRegex(IdentityCurationError, "timed out"):
-                    replay._read_frame(incoming)
+        with (
+            os.fdopen(reader, "rb", buffering=0) as incoming,
+            os.fdopen(writer, "wb"),
+            patch.object(replay, "_REPLAY_TIMEOUT", 0.01),
+            self.assertRaisesRegex(IdentityCurationError, "timed out"),
+        ):
+            replay._read_frame(incoming)
 
     def test_worker_result_parsing_is_bounded(self):
         reader, writer = os.pipe()
@@ -55,9 +58,11 @@ class ReplaySnapshot(unittest.TestCase):
                 outgoing.write(payload)
         sender = threading.Thread(target=write)
         sender.start()
-        with os.fdopen(reader, "rb", buffering=0) as incoming:
-            with self.assertRaisesRegex(IdentityCurationError, "exceeds its bound"):
-                replay._read_frame(incoming)
+        with (
+            os.fdopen(reader, "rb", buffering=0) as incoming,
+            self.assertRaisesRegex(IdentityCurationError, "exceeds its bound"),
+        ):
+            replay._read_frame(incoming)
         sender.join(timeout=2)
         self.assertFalse(sender.is_alive())
 
@@ -69,9 +74,11 @@ class ReplaySnapshot(unittest.TestCase):
             processes.append(process)
             return process
         with patch.object(replay.subprocess, "Popen", launch), replay.replay_session():
-            with patch.object(replay, "_read_frame", side_effect=ValueError("bad JSON")):
-                with self.assertRaises(IdentityCurationError):
-                    replay.replay_coordinate(COORDINATE)
+            with (
+                patch.object(replay, "_read_frame", side_effect=ValueError("bad JSON")),
+                self.assertRaises(IdentityCurationError),
+            ):
+                replay.replay_coordinate(COORDINATE)
             self.assertIsNotNone(processes[0].poll())
             with self.assertRaisesRegex(IdentityCurationError, "session has failed"):
                 replay.replay_coordinate(COORDINATE)
@@ -81,6 +88,8 @@ class ReplaySnapshot(unittest.TestCase):
         reader, writer = os.pipe()
         with os.fdopen(reader, "rb", buffering=0) as incoming, os.fdopen(writer, "wb", buffering=0) as outgoing:
             outgoing.write(b"{}\n")
-            with patch.object(replay.time, "monotonic", side_effect=[0, 61]):
-                with self.assertRaisesRegex(IdentityCurationError, "timed out"):
-                    replay._read_frame(incoming)
+            with (
+                patch.object(replay.time, "monotonic", side_effect=[0, 61]),
+                self.assertRaisesRegex(IdentityCurationError, "timed out"),
+            ):
+                replay._read_frame(incoming)

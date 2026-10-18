@@ -11,7 +11,8 @@ from __future__ import annotations
 import ast
 import hashlib
 import json
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -58,6 +59,8 @@ _TABLE_PAIRS = (
     ("_LANGS", "_LEFTS"),
     ("_CRYPTO", "_GPIO"),
 )
+_ZIP_TABLE_NAMES = frozenset({"_LANGS", "_LEFTS", "_CRYPTO", "_GPIO"})
+_LEFTOVER_LANG_TABLES = frozenset({"LANGS", "LEFTOVERS"})
 
 
 def sha256_bytes(payload: bytes) -> str:
@@ -158,31 +161,58 @@ def _extract_shape(tree: ast.AST, *, path: str) -> dict[str, Any]:
     raise ValueError(f"{path} has no extractable DBC catalog assignment")
 
 
-def _leftover_lang(tree: ast.AST) -> dict[str, Any] | None:
-    langs: list[Any] | None = None
-    leftovers: list[Any] | None = None
-    saw_zip = False
+def _named_list_tables(tree: ast.AST, names: frozenset[str]) -> dict[str, list[Any]] | None:
+    """The last literal list bound to each of ``names``; None once one is not a non-empty list.
+
+    Only :func:`literal_value` can raise here, so callers check the (pure) ``PAIRS``
+    shape in a separate pass without changing which error a malformed module raises.
+    """
+
+    tables: dict[str, list[Any]] = {}
     for node in getattr(tree, "body", ()):
         name, value = assignment_of(node)
-        if name == "LANGS" and value is not None:
-            resolved = literal_value(value)
-            if not isinstance(resolved, list) or not resolved:
-                return None
-            langs = resolved
+        if name not in names or value is None:
             continue
-        if name == "LEFTOVERS" and value is not None:
-            resolved = literal_value(value)
-            if not isinstance(resolved, list) or not resolved:
-                return None
-            leftovers = resolved
-            continue
-        if name == "PAIRS" and isinstance(value, ast.Call) and call_name(value) == "list":
-            if len(value.args) == 1 and isinstance(value.args[0], ast.Call):
-                inner = value.args[0]
-                if call_name(inner) == "zip":
-                    saw_zip = True
-    if langs is None or leftovers is None or not saw_zip:
+        resolved = literal_value(value)
+        if not isinstance(resolved, list) or not resolved:
+            return None
+        tables[name] = resolved
+    return tables
+
+
+def _is_list_of_zip(value: ast.AST | None) -> bool:
+    """``list(zip(...))``."""
+
+    if not isinstance(value, ast.Call) or call_name(value) != "list":
+        return False
+    if len(value.args) != 1 or not isinstance(value.args[0], ast.Call):
+        return False
+    return call_name(value.args[0]) == "zip"
+
+
+def _assigns_pairs(tree: ast.AST, shape: Callable[[ast.AST | None], bool]) -> bool:
+    """Whether any top-level ``PAIRS = ...`` has the given shape."""
+
+    for node in getattr(tree, "body", ()):
+        name, value = assignment_of(node)
+        if name == "PAIRS" and shape(value):
+            return True
+    return False
+
+
+def _leftover_lang(tree: ast.AST) -> dict[str, Any] | None:
+    tables = _named_list_tables(tree, _LEFTOVER_LANG_TABLES)
+    if tables is None or not _assigns_pairs(tree, _is_list_of_zip):
         return None
+    if set(tables) != _LEFTOVER_LANG_TABLES:
+        return None
+    rows = _leftover_lang_rows(tables["LANGS"], tables["LEFTOVERS"])
+    if not rows or any(row["success_slug"] is None for row in rows):
+        return None
+    return _rows_record(SHAPE_LEFTOVER_LANG, rows)
+
+
+def _leftover_lang_rows(langs: list[Any], leftovers: list[Any]) -> list[dict[str, Any]] | None:
     rows = []
     for success, fail in zip(langs, leftovers, strict=False):
         if not isinstance(success, dict) or not isinstance(fail, dict):
@@ -196,49 +226,47 @@ def _leftover_lang(tree: ast.AST) -> dict[str, Any] | None:
                 "fail_handoff": True,
             }
         )
-    if not rows or any(row["success_slug"] is None for row in rows):
-        return None
-    return _rows_record(SHAPE_LEFTOVER_LANG, rows)
+    return rows
 
 
 def _zip_tables(tree: ast.AST) -> dict[str, Any] | None:
-    tables: dict[str, list[Any]] = {}
-    saw_zip = False
-    empty_pairs = False
-    for node in getattr(tree, "body", ()):
-        name, value = assignment_of(node)
-        if name in {"_LANGS", "_LEFTS", "_CRYPTO", "_GPIO"} and value is not None:
-            resolved = literal_value(value)
-            if not isinstance(resolved, list) or not resolved:
-                return None
-            tables[name] = resolved
-            continue
-        if name == "PAIRS" and isinstance(value, ast.List) and not value.elts:
-            empty_pairs = True
-            continue
-        if name == "PAIRS" and isinstance(value, ast.ListComp):
-            if _listcomp_zips_tables(value):
-                saw_zip = True
-    if not saw_zip:
-        saw_zip = empty_pairs and _has_zip_fill_loop(tree)
+    tables = _named_list_tables(tree, _ZIP_TABLE_NAMES)
+    if tables is None or not _pairs_zip_tables(tree):
+        return None
     for left_name, right_name in _TABLE_PAIRS:
-        if left_name in tables and right_name in tables and saw_zip:
-            left_rows = tables[left_name]
-            right_rows = tables[right_name]
-            rows = []
-            for success, fail in zip(left_rows, right_rows, strict=False):
-                rows.append(
-                    {
-                        "success_slug": _table_slug(success),
-                        "fail_slug": _table_slug(fail),
-                        "success_plant": None,
-                        "fail_plant": None,
-                        "fail_handoff": True,
-                    }
-                )
+        if left_name in tables and right_name in tables:
+            rows = _zip_table_rows(tables[left_name], tables[right_name])
             if rows and rows[0]["success_slug"]:
                 return _rows_record(SHAPE_ZIP_TABLES, rows)
     return None
+
+
+def _pairs_zip_tables(tree: ast.AST) -> bool:
+    """``PAIRS = [... for ... in zip(A, B)]``, or ``PAIRS = []`` filled by a zip loop."""
+
+    empty_pairs = False
+    for node in getattr(tree, "body", ()):
+        name, value = assignment_of(node)
+        if name != "PAIRS":
+            continue
+        if isinstance(value, ast.List) and not value.elts:
+            empty_pairs = True
+        elif isinstance(value, ast.ListComp) and _listcomp_zips_tables(value):
+            return True
+    return empty_pairs and _has_zip_fill_loop(tree)
+
+
+def _zip_table_rows(left_rows: list[Any], right_rows: list[Any]) -> list[dict[str, Any]]:
+    return [
+        {
+            "success_slug": _table_slug(success),
+            "fail_slug": _table_slug(fail),
+            "success_plant": None,
+            "fail_plant": None,
+            "fail_handoff": True,
+        }
+        for success, fail in zip(left_rows, right_rows, strict=False)
+    ]
 
 
 def _table_slug(row: Any) -> str | None:
@@ -267,15 +295,22 @@ def _zip_table_names(node: ast.AST | None) -> tuple[str, ...] | None:
 
     if not isinstance(node, ast.Call):
         return None
-    call = node
-    if call_name(call) == "enumerate" and call.args:
-        inner = call.args[0]
-        if isinstance(inner, ast.Call) and call_name(inner) == "zip":
-            call = inner
+    call = _unwrap_enumerate(node)
     if call_name(call) != "zip":
         return None
     names = [arg.id for arg in call.args if isinstance(arg, ast.Name)]
     return tuple(names) if len(names) == 2 else None
+
+
+def _unwrap_enumerate(call: ast.Call) -> ast.Call:
+    """``enumerate(zip(...))`` → the inner ``zip(...)``; any other call is returned as is."""
+
+    if call_name(call) != "enumerate" or not call.args:
+        return call
+    inner = call.args[0]
+    if isinstance(inner, ast.Call) and call_name(inner) == "zip":
+        return inner
+    return call
 
 
 def _has_zip_fill_loop(tree: ast.AST) -> bool:
@@ -288,27 +323,45 @@ def _has_zip_fill_loop(tree: ast.AST) -> bool:
     return False
 
 
-def _skip_extra(tree: ast.AST) -> dict[str, Any] | None:
+@dataclass
+class _SkipExtraScan:
+    """One in-order pass over ``SKIP = {...}``, ``EXTRA = [...]`` and ``PAIRS = [...] + EXTRA``.
+
+    SKIP and EXTRA are read in the same pass because either may refuse the module.
+    """
+
     skip: set[str] | None = None
     extra_rows: list[dict[str, Any]] | None = None
-    saw_filter = False
-    for node in getattr(tree, "body", ()):
-        name, value = assignment_of(node)
+    saw_filter: bool = False
+
+    def take(self, name: str | None, value: ast.AST | None) -> bool:
+        """Fold in one assignment; False when SKIP or EXTRA is not a literal catalog."""
+
         if name == "SKIP" and value is not None:
-            resolved = literal_value(value)
-            if not isinstance(resolved, set) or not all(isinstance(item, str) for item in resolved):
-                return None
-            skip = {str(item) for item in resolved}
-            continue
+            self.skip = _skip_slugs(value)
+            return self.skip is not None
         if name == "EXTRA" and isinstance(value, ast.List):
-            rows = _pair_list_identities(value)
-            if rows is None:
-                return None
-            extra_rows = rows
-            continue
+            self.extra_rows = _pair_list_identities(value)
+            return self.extra_rows is not None
         if name == "PAIRS" and _is_skip_extra_pairs(value):
-            saw_filter = True
-    if skip is None or extra_rows is None or not saw_filter:
+            self.saw_filter = True
+        return True
+
+
+def _skip_slugs(value: ast.AST) -> set[str] | None:
+    resolved = literal_value(value)
+    if not isinstance(resolved, set) or not all(isinstance(item, str) for item in resolved):
+        return None
+    return {str(item) for item in resolved}
+
+
+def _skip_extra(tree: ast.AST) -> dict[str, Any] | None:
+    scan = _SkipExtraScan()
+    for node in getattr(tree, "body", ()):
+        if not scan.take(*assignment_of(node)):
+            return None
+    skip, extra_rows = scan.skip, scan.extra_rows
+    if skip is None or extra_rows is None or not scan.saw_filter:
         return None
     return {
         "shape": SHAPE_SKIP_EXTRA,
@@ -328,20 +381,27 @@ def _is_skip_extra_pairs(value: ast.AST | None) -> bool:
     return False
 
 
-def _new_extend(tree: ast.AST) -> dict[str, Any] | None:
-    new_rows: list[dict[str, Any]] | None = None
-    saw_build = False
+def _assigned_pair_rows(tree: ast.AST, list_name: str) -> list[dict[str, Any]] | None:
+    """Identities of the last ``list_name = [...]``; None when absent or one is not literal."""
+
+    rows: list[dict[str, Any]] | None = None
     for node in getattr(tree, "body", ()):
         name, value = assignment_of(node)
-        if name == "NEW_PAIRS" and isinstance(value, ast.List):
-            rows = _pair_list_identities(value)
-            if rows is None:
-                return None
-            new_rows = rows
+        if name != list_name or not isinstance(value, ast.List):
             continue
-        if name == "PAIRS" and isinstance(value, ast.Call) and call_name(value) == "build_pairs":
-            saw_build = True
-    if new_rows is None or not saw_build:
+        rows = _pair_list_identities(value)
+        if rows is None:
+            return None
+    return rows
+
+
+def _is_build_pairs_call(value: ast.AST | None) -> bool:
+    return isinstance(value, ast.Call) and call_name(value) == "build_pairs"
+
+
+def _new_extend(tree: ast.AST) -> dict[str, Any] | None:
+    new_rows = _assigned_pair_rows(tree, "NEW_PAIRS")
+    if new_rows is None or not _assigns_pairs(tree, _is_build_pairs_call):
         return None
     return {
         "shape": SHAPE_NEW_EXTEND,
@@ -357,16 +417,13 @@ def _new_extend(tree: ast.AST) -> dict[str, Any] | None:
 def _pair_tuples(tree: ast.AST) -> dict[str, Any] | None:
     for node in getattr(tree, "body", ()):
         name, value = assignment_of(node)
-        if name != "PAIRS" or not isinstance(value, ast.List) or not value.elts:
+        if name != "PAIRS" or not isinstance(value, ast.List):
             continue
         rows = _pair_list_identities(value)
         if not rows or rows[0]["success_slug"] is None:
             continue
-        if all(_is_dict_tuple(elt) for elt in value.elts):
-            return _rows_record(SHAPE_LITERAL, rows)
-        if all(_is_ctor_tuple(elt) for elt in value.elts):
-            return _rows_record(SHAPE_CTOR, rows)
-        return _rows_record(SHAPE_CTOR, rows)
+        literal = all(_is_dict_tuple(elt) for elt in value.elts)
+        return _rows_record(SHAPE_LITERAL if literal else SHAPE_CTOR, rows)
     return None
 
 
@@ -374,17 +431,26 @@ def _plant_build(tree: ast.AST) -> dict[str, Any] | None:
     for node in getattr(tree, "body", ()):
         if not isinstance(node, ast.FunctionDef) or node.name != "build":
             continue
-        aliases = _CTOR_NAMES | _build_ctor_aliases(node)
-        returns = [stmt for stmt in node.body if isinstance(stmt, ast.Return)]
-        if len(returns) != 1 or not isinstance(returns[0].value, ast.List):
+        pairs = _build_returned_pairs(node)
+        if pairs is None:
             return None
-        value = returns[0].value
-        if not value.elts or not all(_is_named_ctor_tuple(elt, aliases) for elt in value.elts):
-            return None
-        rows = [_named_ctor_tuple_identity(elt) for elt in value.elts]
+        rows = [_named_ctor_tuple_identity(elt) for elt in pairs]
         if rows and rows[0]["success_slug"]:
             return _rows_record(SHAPE_PLANT_BUILD, rows)
     return None
+
+
+def _build_returned_pairs(node: ast.FunctionDef) -> list[ast.expr] | None:
+    """The ``(ctor(...), ctor(...))`` elements of ``build()``'s single ``return [...]``."""
+
+    aliases = _CTOR_NAMES | _build_ctor_aliases(node)
+    returns = [stmt for stmt in node.body if isinstance(stmt, ast.Return)]
+    if len(returns) != 1 or not isinstance(returns[0].value, ast.List):
+        return None
+    value = returns[0].value
+    if not value.elts or not all(_is_named_ctor_tuple(elt, aliases) for elt in value.elts):
+        return None
+    return value.elts
 
 
 def _build_ctor_aliases(node: ast.FunctionDef) -> set[str]:
@@ -393,21 +459,28 @@ def _build_ctor_aliases(node: ast.FunctionDef) -> set[str]:
     aliases: set[str] = set()
     params = {arg.arg for arg in node.args.args}
     for stmt in node.body:
-        if not isinstance(stmt, ast.Assign) or len(stmt.targets) != 1:
-            continue
-        target = stmt.targets[0]
-        if isinstance(target, ast.Tuple) and isinstance(stmt.value, ast.Tuple):
-            for left, right in zip(target.elts, stmt.value.elts, strict=False):
-                if (
-                    isinstance(left, ast.Name)
-                    and isinstance(right, ast.Name)
-                    and right.id in params
-                ):
-                    aliases.add(left.id)
+        for left, right in _tuple_unpack_pairs(stmt):
+            if isinstance(left, ast.Name) and _names_one_of(right, params):
+                aliases.add(left.id)
     return aliases
 
 
-def _is_named_ctor_tuple(node: ast.AST, names: set[str]) -> bool:
+def _tuple_unpack_pairs(stmt: ast.stmt) -> list[tuple[ast.expr, ast.expr]]:
+    """``(target, value)`` element pairs of an ``A, B = C, D`` statement."""
+
+    if not isinstance(stmt, ast.Assign) or len(stmt.targets) != 1:
+        return []
+    target = stmt.targets[0]
+    if not isinstance(target, ast.Tuple) or not isinstance(stmt.value, ast.Tuple):
+        return []
+    return list(zip(target.elts, stmt.value.elts, strict=False))
+
+
+def _names_one_of(node: ast.expr, names: set[str]) -> bool:
+    return isinstance(node, ast.Name) and node.id in names
+
+
+def _is_named_ctor_tuple(node: ast.AST, names: frozenset[str]) -> bool:
     if not isinstance(node, ast.Tuple) or len(node.elts) != 2:
         return False
     return call_name(node.elts[0]) in names and call_name(node.elts[1]) in names
@@ -519,12 +592,26 @@ def _ctor_identity(node: ast.AST) -> dict[str, Any]:
     kwargs = call_kwargs(node) or {}
     args = call_posargs(node) or []
     slug = kwargs.get("slug")
-    if slug is None and args and isinstance(args[0], str):
-        slug = args[0]
+    if slug is None:
+        slug = _positional_slug(args)
     harbor = kwargs.get("harbor")
-    if harbor is None and len(args) > 1 and isinstance(args[1], str) and args[1].startswith("harbor-"):
-        harbor = args[1]
+    if harbor is None:
+        harbor = _positional_harbor(args)
     return {"slug": slug, "harbor": harbor, "plant": kwargs.get("plant")}
+
+
+def _positional_slug(args: list[Any]) -> str | None:
+    """A string first positional argument is the slug."""
+
+    return args[0] if args and isinstance(args[0], str) else None
+
+
+def _positional_harbor(args: list[Any]) -> str | None:
+    """A ``harbor-*`` string second positional argument is the harbor plant."""
+
+    if len(args) < 2 or not isinstance(args[1], str):
+        return None
+    return args[1] if args[1].startswith("harbor-") else None
 
 
 def _empty_identity() -> dict[str, Any]:
@@ -552,28 +639,44 @@ def compose_family_records(records: Mapping[str, dict[str, Any]]) -> dict[str, d
 
     composed = {mill_id: dict(record) for mill_id, record in records.items()}
     if R248_MILL_ID in composed and R248_COMPANION_ID in composed:
-        companion = composed[R248_COMPANION_ID]
-        current = composed[R248_MILL_ID]
-        skip = set(current.get("skip_slugs") or ())
-        kept = [
-            pair
-            for pair in companion.get("pairs") or ()
-            if pair["success_slug"] not in skip and pair["fail_slug"] not in skip
-        ]
-        rows = [*kept, *list(current.get("pairs") or ())]
-        current.update(_rows_record(SHAPE_SKIP_EXTRA, rows))
-        current["n_extra"] = len(records[R248_MILL_ID].get("pairs") or ())
-        current["n_skip"] = len(skip)
-        current["skip_slugs"] = sorted(skip)
+        _compose_r248(composed, records)
     if R647_MILL_ID in composed and R647_COMPANION_ID in composed:
-        companion = composed[R647_COMPANION_ID]
-        current = composed[R647_MILL_ID]
-        inherited = list(companion.get("pairs") or ())[R647_INHERIT_FROM:]
-        rows = [*inherited, *list(records[R647_MILL_ID].get("pairs") or ())]
-        current.update(_rows_record(SHAPE_NEW_EXTEND, rows))
-        current["n_new"] = len(records[R647_MILL_ID].get("pairs") or ())
-        current["n_inherited"] = len(inherited)
+        _compose_r647(composed, records)
     return composed
+
+
+def _compose_r248(
+    composed: dict[str, dict[str, Any]], records: Mapping[str, dict[str, Any]]
+) -> None:
+    """r248 = the companion's pairs minus its SKIP slugs, then its own EXTRA rows."""
+
+    companion = composed[R248_COMPANION_ID]
+    current = composed[R248_MILL_ID]
+    skip = set(current.get("skip_slugs") or ())
+    kept = [
+        pair
+        for pair in companion.get("pairs") or ()
+        if pair["success_slug"] not in skip and pair["fail_slug"] not in skip
+    ]
+    rows: list[dict[str, Any]] = [*kept, *list(current.get("pairs") or ())]
+    current.update(_rows_record(SHAPE_SKIP_EXTRA, rows))
+    current["n_extra"] = len(records[R248_MILL_ID].get("pairs") or ())
+    current["n_skip"] = len(skip)
+    current["skip_slugs"] = sorted(skip)
+
+
+def _compose_r647(
+    composed: dict[str, dict[str, Any]], records: Mapping[str, dict[str, Any]]
+) -> None:
+    """r647 = the companion's pairs from ``R647_INHERIT_FROM`` on, then its NEW_PAIRS."""
+
+    companion = composed[R647_COMPANION_ID]
+    current = composed[R647_MILL_ID]
+    inherited = list(companion.get("pairs") or ())[R647_INHERIT_FROM:]
+    rows: list[dict[str, Any]] = [*inherited, *list(records[R647_MILL_ID].get("pairs") or ())]
+    current.update(_rows_record(SHAPE_NEW_EXTEND, rows))
+    current["n_new"] = len(records[R647_MILL_ID].get("pairs") or ())
+    current["n_inherited"] = len(inherited)
 
 
 def extract_companion_path(source: str) -> str | None:

@@ -13,7 +13,7 @@ import ast
 import hashlib
 import re
 import sys
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -49,10 +49,10 @@ RECORD_KIND = _contract.RECORD_KIND
 
 if (__package__ or "").startswith("pipelines."):
     from ..catalog_cli.pinned_load import load_pinned_catalog
-    from ..catalog_cli.source_const import const_dict, registry_factory_ids
+    from ..catalog_cli.source_const import registry_factory_ids
 else:
     from catalog_cli.pinned_load import load_pinned_catalog
-    from catalog_cli.source_const import const_dict, registry_factory_ids
+    from catalog_cli.source_const import registry_factory_ids
 
 OK_KEYS = (
     "slug",
@@ -185,32 +185,60 @@ def sha256_bytes(payload: bytes) -> str:
     return hashlib.sha256(payload).hexdigest()
 
 
+def _dict_items(node: ast.Dict) -> list[tuple[ast.expr, ast.expr]]:
+    """The key and value nodes of a dict literal; ``**`` unpacking refuses before any is read."""
+
+    items: list[tuple[ast.expr, ast.expr]] = []
+    for key, value in zip(node.keys, node.values):
+        if key is None:
+            raise GqlRefusal(FINDING_SOURCE_NOT_PARSEABLE, "plant source uses dict unpacking")
+        items.append((key, value))
+    return items
+
+
+def _bare_s_call(node: ast.AST) -> ast.Call | None:
+    """``S(**kwargs)``: a call of the name ``S`` with keywords only, else None."""
+
+    if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Name):
+        return None
+    return node if node.func.id == "S" and not node.args else None
+
+
+def _negated(values: list[Any]) -> Any:
+    return -values[0]
+
+
+def _const_parts(node: ast.AST) -> tuple[Sequence[ast.AST], Callable[[list[Any]], Any]]:
+    """A list, a negation or an ``S(**kwargs)`` call as (child nodes, rebuild); others refuse.
+
+    ``_const_eval`` evaluates the children itself, so a nesting level costs one frame.
+    """
+
+    if isinstance(node, ast.List):
+        return node.elts, list
+    if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
+        return (node.operand,), _negated
+    call = _bare_s_call(node)
+    if call is None:
+        raise GqlRefusal(
+            FINDING_SOURCE_NOT_PARSEABLE,
+            f"plant source is not a constant ({type(node).__name__})",
+        )
+    names = [kw.arg for kw in call.keywords]
+    return [kw.value for kw in call.keywords], lambda values: dict(zip(names, values))
+
+
 def _const_eval(node: ast.AST) -> Any:
     """Literal values only. ``S(**kwargs)`` is a dict; other calls refuse."""
 
     if isinstance(node, ast.Constant):
         return node.value
-    if isinstance(node, (ast.List, ast.Tuple)):
-        values = [_const_eval(item) for item in node.elts]
-        return values if isinstance(node, ast.List) else tuple(values)
+    if isinstance(node, ast.Tuple):
+        return tuple(_const_eval(item) for item in node.elts)
     if isinstance(node, ast.Dict):
-        return const_dict(
-            node,
-            _const_eval,
-            lambda: GqlRefusal(
-                FINDING_SOURCE_NOT_PARSEABLE, "plant source uses dict unpacking"
-            ),
-        )
-    if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
-        return -_const_eval(node.operand)
-    if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
-        func = node.func
-        if func.id == "S" and not node.args:
-            return {kw.arg: _const_eval(kw.value) for kw in node.keywords}
-    raise GqlRefusal(
-        FINDING_SOURCE_NOT_PARSEABLE,
-        f"plant source is not a constant ({type(node).__name__})",
-    )
+        return {_const_eval(key): _const_eval(value) for key, value in _dict_items(node)}
+    children, rebuild = _const_parts(node)
+    return rebuild([_const_eval(child) for child in children])
 
 
 def _assigned_name(node: ast.AST) -> tuple[str, ast.AST] | None:
@@ -219,9 +247,7 @@ def _assigned_name(node: ast.AST) -> tuple[str, ast.AST] | None:
         if isinstance(target, ast.Name):
             return target.id, node.value
     if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
-        value = node.value
-        if value is not None:
-            return node.target.id, value
+        return None if node.value is None else (node.target.id, node.value)
     return None
 
 
@@ -257,9 +283,17 @@ def _side_dict(raw: Any, keys: tuple[str, ...], where: str) -> dict[str, Any]:
     return out
 
 
-def _pair_from_raw(
-    raw: Any, *, mill_id: str, source: str, base_round: int, index: int
-) -> dict[str, Any]:
+@dataclass(frozen=True)
+class _MillSource:
+    """The mill a raw plant literal was read from: id, source path, and base round."""
+
+    mill_id: str
+    source: str
+    base_round: int
+
+
+def _pair_from_raw(raw: Any, mill: _MillSource, index: int) -> dict[str, Any]:
+    mill_id, source, base_round = mill.mill_id, mill.source, mill.base_round
     if not isinstance(raw, dict):
         raise GqlRefusal(FINDING_SOURCE_NOT_PARSEABLE, f"{source}[{index}] is not an object")
     plant = _require_text(raw.get("plant"), f"{source}[{index}].plant", FINDING_PLANT_FIELD_MISSING)
@@ -291,9 +325,8 @@ def _pair_from_raw(
     }
 
 
-def _surface_from_raw(
-    raw: Any, *, mill_id: str, source: str, base_round: int, index: int
-) -> dict[str, Any]:
+def _surface_from_raw(raw: Any, mill: _MillSource, index: int) -> dict[str, Any]:
+    mill_id, source, base_round = mill.mill_id, mill.source, mill.base_round
     if not isinstance(raw, tuple) or len(raw) != 9:
         raise GqlRefusal(FINDING_SOURCE_NOT_PARSEABLE, f"{source}[{index}] is not a 9-tuple")
     off, sid, fid, product, mech, vs, plant, old, new = raw
@@ -321,18 +354,52 @@ def _surface_from_raw(
     }
 
 
-def _selected_plants(found: Mapping[str, ast.AST], source: str) -> tuple[Any, str]:
-    """EXTRA wins, then PAIRS, PLANTS, and CATALOG. The message names ``source``."""
+# EXTRA before a computed PAIRS binding; never follow unused-pair loops.
+_PLANT_LITERALS = (
+    ("EXTRA", SHAPE_PAIR),
+    ("PAIRS", SHAPE_PAIR),
+    ("PLANTS", SHAPE_PAIR),
+    ("CATALOG", SHAPE_SURFACE),
+)
 
-    if "EXTRA" in found:
-        return _const_eval(found["EXTRA"]), SHAPE_PAIR
-    if "PAIRS" in found:
-        return _const_eval(found["PAIRS"]), SHAPE_PAIR
-    if "PLANTS" in found:
-        return _const_eval(found["PLANTS"]), SHAPE_PAIR
-    if "CATALOG" in found:
-        return _const_eval(found["CATALOG"]), SHAPE_SURFACE
-    raise GqlRefusal(FINDING_SOURCE_NOT_PARSEABLE, f"{source} has no plant literal")
+
+def _module_literals(tree: ast.Module) -> tuple[dict[str, ast.AST], Any, ast.AST | None]:
+    """Plant literal nodes by name, the evaluated BASE / CATALOG_FIRST, and the BANNED node."""
+
+    found: dict[str, ast.AST] = {}
+    inferred_base: Any = None
+    banned_node: ast.AST | None = None
+    for node in tree.body:
+        assigned = _assigned_name(node)
+        if assigned is None:
+            continue
+        name, value = assigned
+        if name in LITERAL_NAMES:
+            found[name] = value
+        elif name in {"BASE", "CATALOG_FIRST"}:
+            inferred_base = _const_eval(value)
+        elif name == "BANNED":
+            banned_node = value
+    return found, inferred_base, banned_node
+
+
+def _raw_plants(found: Mapping[str, ast.AST], source: str) -> tuple[list[Any], str]:
+    for name, shape in _PLANT_LITERALS:
+        if name in found:
+            raw_plants = _const_eval(found[name])
+            break
+    else:
+        raise GqlRefusal(FINDING_SOURCE_NOT_PARSEABLE, f"{source} has no plant literal")
+    if not isinstance(raw_plants, list) or not raw_plants:
+        raise GqlRefusal(FINDING_SOURCE_NOT_PARSEABLE, f"{source} plant literal is empty")
+    return raw_plants, shape
+
+
+def _base_round(inferred_base: Any, base_round: int | None, mill_id: str, source: str) -> int:
+    base = inferred_base if base_round is None else base_round
+    if base is None:
+        base = int(mill_id[len("gql_r") :])
+    return _require_int(base, f"{source} BASE", FINDING_PLANT_FIELD_INVALID, 1)
 
 
 def _refuse_banned_slugs(banned_node: ast.AST, rows: list[dict[str, Any]], source: str) -> None:
@@ -341,37 +408,14 @@ def _refuse_banned_slugs(banned_node: ast.AST, rows: list[dict[str, Any]], sourc
         raise GqlRefusal(FINDING_SOURCE_NOT_PARSEABLE, f"{source} BANNED is not a list")
     tokens = {str(token).lower() for token in banned}
     for row in rows:
-        _refuse_banned_row(row, tokens, source)
-
-
-def _refuse_banned_row(row: Mapping[str, Any], tokens: set[str], source: str) -> None:
-    for side_name in ("ok", "bad"):
-        slug = str(row[side_name]["slug"]).lower()
-        for token in tokens:
-            if token in slug:
+        for side_name in ("ok", "bad"):
+            slug = str(row[side_name]["slug"]).lower()
+            hit = next((token for token in tokens if token in slug), None)
+            if hit is not None:
                 raise GqlRefusal(
                     FINDING_PLANT_FIELD_INVALID,
-                    f"{source} {side_name}.slug carries banned token {token}",
+                    f"{source} {side_name}.slug carries banned token {hit}",
                 )
-
-
-def _resolved_base(inferred: Any, base_round: int | None, mill_id: str, source: str) -> int:
-    base = inferred if base_round is None else base_round
-    if base is None:
-        base = int(mill_id[len("gql_r") :])
-    return _require_int(base, f"{source} BASE", FINDING_PLANT_FIELD_INVALID, 1)
-
-
-def _row_from_raw(
-    raw: Any,
-    shape: str,
-    bound: tuple[str, str, int],
-    index: int,
-) -> dict[str, Any]:
-    mill_id, source, base = bound
-    if shape == SHAPE_PAIR:
-        return _pair_from_raw(raw, mill_id=mill_id, source=source, base_round=base, index=index)
-    return _surface_from_raw(raw, mill_id=mill_id, source=source, base_round=base, index=index)
 
 
 def plants_from_source(
@@ -389,29 +433,13 @@ def plants_from_source(
         raise GqlRefusal(
             FINDING_SOURCE_NOT_PARSEABLE, f"{source} does not parse: {exc}"
         ) from exc
-    found: dict[str, ast.AST] = {}
-    inferred_base: Any = None
-    banned_node: ast.AST | None = None
-    for node in tree.body:
-        assigned = _assigned_name(node)
-        if assigned is None:
-            continue
-        name, value = assigned
-        if name in LITERAL_NAMES:
-            found[name] = value
-        elif name in {"BASE", "CATALOG_FIRST"}:
-            inferred_base = _const_eval(value)
-        elif name == "BANNED":
-            banned_node = value
-    # EXTRA before a computed PAIRS binding; never follow unused-pair loops.
-    raw_plants, shape = _selected_plants(found, source)
-    if not isinstance(raw_plants, list) or not raw_plants:
-        raise GqlRefusal(FINDING_SOURCE_NOT_PARSEABLE, f"{source} plant literal is empty")
+    found, inferred_base, banned_node = _module_literals(tree)
+    raw_plants, shape = _raw_plants(found, source)
     if not MILL_ID_RE.fullmatch(mill_id):
         raise GqlRefusal(FINDING_PLANT_FIELD_INVALID, f"mill_id {mill_id!r} is not gql_rNNN")
-    base = _resolved_base(inferred_base, base_round, mill_id, source)
-    bound = (mill_id, source, base)
-    rows = [_row_from_raw(raw, shape, bound, index) for index, raw in enumerate(raw_plants)]
+    mill = _MillSource(mill_id, source, _base_round(inferred_base, base_round, mill_id, source))
+    build = _pair_from_raw if shape == SHAPE_PAIR else _surface_from_raw
+    rows = [build(raw, mill, index) for index, raw in enumerate(raw_plants)]
     if banned_node is not None:
         _refuse_banned_slugs(banned_node, rows, source)
     return tuple(rows)
@@ -434,9 +462,9 @@ def _payload_text(row: Mapping[str, Any], key: str, where: str, *, strip: bool =
     return _require_text(row.get(key), f"{where}.{key}", FINDING_PLANT_FIELD_MISSING, strip=strip)
 
 
-def _plant_from_row(row: Any, where: str) -> Plant:
-    if not isinstance(row, dict):
-        raise GqlRefusal(FINDING_PLANT_FIELD_INVALID, f"{where} must be an object")
+def _plant_identity(row: Mapping[str, Any], where: str) -> tuple[str, str, str]:
+    """``(mill_id, slug, plant_id)``; ``plant_id`` must be ``mill_id:slug``."""
+
     mill_id = _require_text(row.get("mill_id"), f"{where}.mill_id", FINDING_PLANT_FIELD_INVALID)
     slug = _require_text(row.get("slug"), f"{where}.slug", FINDING_PLANT_FIELD_INVALID)
     if not MILL_ID_RE.fullmatch(mill_id):
@@ -447,30 +475,39 @@ def _plant_from_row(row: Any, where: str) -> Plant:
     expected = f"{mill_id}:{slug}"
     if plant_id != expected:
         raise GqlRefusal(FINDING_PLANT_FIELD_INVALID, f"{where}.plant_id must be {expected!r}")
-    base_round = _require_int(row.get("base_round"), f"{where}.base_round", FINDING_PLANT_FIELD_INVALID, 1)
-    shape = _require_text(row.get("shape"), f"{where}.shape", FINDING_PLANT_FIELD_INVALID)
-    plant = _require_text(row.get("plant"), f"{where}.plant", FINDING_PLANT_FIELD_MISSING)
-    coverage = _require_int(row.get("coverage"), f"{where}.coverage", FINDING_PLANT_FIELD_INVALID, 1)
-    source = _require_text(row.get("source"), f"{where}.source", FINDING_PLANT_FIELD_MISSING)
-    payload: dict[str, Any]
+    return mill_id, slug, plant_id
+
+
+def _plant_payload(row: Mapping[str, Any], where: str, shape: str, coverage: int) -> dict[str, Any]:
     if shape == SHAPE_PAIR:
-        payload = {
+        return {
             "bad": _side_dict(row.get("bad"), BAD_KEYS, f"{where}.bad"),
             "field": _payload_text(row, "field", where),
             "next": _payload_text(row, "next", where, strip=False),
             "ok": _side_dict(row.get("ok"), OK_KEYS, f"{where}.ok"),
             "window": _payload_text(row, "window", where, strip=False),
         }
-    elif shape == SHAPE_SURFACE:
-        payload = {
+    if shape == SHAPE_SURFACE:
+        payload: dict[str, Any] = {
             key: _payload_text(row, key, where)
             for key in SURFACE_ROW_KEYS
             if key not in ("idx", "coverage")
         }
         payload["idx"] = _require_int(row.get("idx"), f"{where}.idx", FINDING_PLANT_FIELD_INVALID, 0)
         payload["coverage"] = coverage
-    else:
-        raise GqlRefusal(FINDING_PLANT_FIELD_INVALID, f"{where}.shape must be pair or surface")
+        return payload
+    raise GqlRefusal(FINDING_PLANT_FIELD_INVALID, f"{where}.shape must be pair or surface")
+
+
+def _plant_from_row(row: Any, where: str) -> Plant:
+    if not isinstance(row, dict):
+        raise GqlRefusal(FINDING_PLANT_FIELD_INVALID, f"{where} must be an object")
+    mill_id, slug, plant_id = _plant_identity(row, where)
+    base_round = _require_int(row.get("base_round"), f"{where}.base_round", FINDING_PLANT_FIELD_INVALID, 1)
+    shape = _require_text(row.get("shape"), f"{where}.shape", FINDING_PLANT_FIELD_INVALID)
+    plant = _require_text(row.get("plant"), f"{where}.plant", FINDING_PLANT_FIELD_MISSING)
+    coverage = _require_int(row.get("coverage"), f"{where}.coverage", FINDING_PLANT_FIELD_INVALID, 1)
+    source = _require_text(row.get("source"), f"{where}.source", FINDING_PLANT_FIELD_MISSING)
     return Plant(
         plant_id=plant_id,
         mill_id=mill_id,
@@ -480,7 +517,7 @@ def _plant_from_row(row: Any, where: str) -> Plant:
         slug=slug,
         plant=plant,
         coverage=coverage,
-        payload=payload,
+        payload=_plant_payload(row, where, shape, coverage),
     )
 
 
@@ -538,13 +575,19 @@ def _registry_factory_ids() -> set[str]:
     )
 
 
+def _registry_ids_hook() -> set[str]:
+    """Resolve ``_registry_factory_ids`` per call so patching it still takes effect."""
+
+    return _registry_factory_ids()
+
+
 CATALOG_HOOKS = (
     _field,
     _require_text,
     _mill_from_row,
     _plant_from_row,
     _read_jsonl,
-    _registry_factory_ids,
+    _registry_ids_hook,
 )
 
 
@@ -552,7 +595,6 @@ def load_catalog(directory: Path | None = None) -> Catalog:
     """Load a catalog directory and refuse unless every pin holds."""
 
     return load_pinned_catalog(directory, sys.modules[__name__], _contract, GqlRefusal)
-
 
 
 def catalog_check(directory: Path | None = None) -> list[dict[str, str]]:

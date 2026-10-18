@@ -12,7 +12,7 @@ import hashlib
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, TypeGuard
 
 from ._contract import (
     CATALOG_FILENAME,
@@ -30,6 +30,7 @@ from ._contract import (
     PLANTS_FILENAME,
     SOURCE_COMMIT,
     SOURCE_REF,
+    MacRefusal,
     bind_import_twin,
     load_strict_json,
     package_dir,
@@ -206,7 +207,7 @@ def _source_from_mapping(row: Mapping[str, Any], where: str) -> SourcePin:
     )
     digest = _as_str(row.get("sha256"), f"{where}.sha256")
     refuse_when(
-        len(digest) != 64 or any(char not in "0123456789abcdef" for char in digest),
+        not _is_hex_digest(digest),
         FINDING_CATALOG_FIELD_INVALID,
         f"{where}.sha256 is not a lowercase hex digest",
     )
@@ -222,8 +223,12 @@ def _source_from_mapping(row: Mapping[str, Any], where: str) -> SourcePin:
     )
 
 
-def load_catalog(path: Path | None = None) -> Catalog:
-    catalog_file = catalog_path() if path is None else path
+def _is_hex_digest(text: str) -> bool:
+    return len(text) == 64 and all(char in "0123456789abcdef" for char in text)
+
+
+def _load_meta(catalog_file: Path) -> dict[str, Any]:
+    """CATALOG.json as a mapping with every required key and the pinned identity."""
     refuse_when(
         not catalog_file.is_file(),
         FINDING_CATALOG_FILE_MISSING,
@@ -247,6 +252,10 @@ def load_catalog(path: Path | None = None) -> Catalog:
         (meta.get("generator") != GENERATOR, FINDING_CATALOG_FIELD_INVALID,
          f"generator {shown(meta.get('generator'))} != {GENERATOR}"),
     ))
+    return meta
+
+
+def _check_source_provenance(meta: Mapping[str, Any]) -> None:
     source = _as_mapping(meta.get("source"), "source")
     refuse_first((
         (source.get("ref") != SOURCE_REF, FINDING_CATALOG_FIELD_INVALID,
@@ -258,10 +267,10 @@ def load_catalog(path: Path | None = None) -> Catalog:
         (source.get("exec") is not False, FINDING_CATALOG_FIELD_INVALID,
          "source.exec must be false"),
     ))
-    extract = _as_mapping(meta.get("extract"), "extract")
-    raw_sources = meta.get("sources")
-    refuse_when(not isinstance(raw_sources, list) or not raw_sources,
-                FINDING_CATALOG_EMPTY, "catalog has no source pins")
+
+
+def _plants_pin(meta: Mapping[str, Any]) -> tuple[str, str]:
+    """The committed plants filename and its pinned sha256."""
     plants_filename = _as_str(meta.get("plants_filename"), "plants_filename")
     refuse_when(
         plants_filename != PLANTS_FILENAME,
@@ -270,10 +279,22 @@ def load_catalog(path: Path | None = None) -> Catalog:
     )
     plants_sha256 = _as_str(meta.get("plants_sha256"), "plants_sha256")
     refuse_when(
-        len(plants_sha256) != 64 or any(char not in "0123456789abcdef" for char in plants_sha256),
+        not _is_hex_digest(plants_sha256),
         FINDING_CATALOG_FIELD_INVALID,
         "plants_sha256 is not a lowercase hex digest",
     )
+    return plants_filename, plants_sha256
+
+
+def load_catalog(path: Path | None = None) -> Catalog:
+    catalog_file = catalog_path() if path is None else path
+    meta = _load_meta(catalog_file)
+    _check_source_provenance(meta)
+    extract = _as_mapping(meta.get("extract"), "extract")
+    raw_sources = meta.get("sources")
+    if not isinstance(raw_sources, list) or not raw_sources:
+        raise MacRefusal(FINDING_CATALOG_EMPTY, "catalog has no source pins")
+    plants_filename, plants_sha256 = _plants_pin(meta)
     jsonl_path = catalog_file.parent / plants_filename
     try:
         plants_bytes = jsonl_path.read_bytes()
@@ -293,7 +314,7 @@ def load_catalog(path: Path | None = None) -> Catalog:
     )
     sources = tuple(
         _source_from_mapping(_as_mapping(row, f"sources[{index}]"), f"sources[{index}]")
-        for index, row in enumerate(cast(list[Any], raw_sources))
+        for index, row in enumerate(raw_sources)
     )
     return Catalog(
         catalog_id=CATALOG_ID,
@@ -310,12 +331,7 @@ def catalog_check(path: Path | None = None) -> dict[str, Any]:
 
     loaded = load_catalog(path)
     refuse_when(not loaded.plants, FINDING_CATALOG_EMPTY, "catalog has no plants")
-    slugs: dict[str, str] = {}
-    for plant in loaded.plants:
-        key = f"{plant.source}:{plant.slug}"
-        if key in slugs:
-            refuse(FINDING_DUPLICATE_FAMILY, f"slug {shown(plant.slug)} repeats in {plant.source}")
-        slugs[key] = plant.shape
+    _refuse_duplicate_slugs(loaded.plants)
     catalog_sources = tuple(pin for pin in loaded.sources if pin.role == "catalog")
     refuse_when(
         any(pin.n_rows < 1 for pin in catalog_sources),
@@ -323,25 +339,54 @@ def catalog_check(path: Path | None = None) -> dict[str, Any]:
         "a catalog source pin has n_rows < 1",
     )
     full_rows = sum(pin.n_rows for pin in catalog_sources)
+    _check_extract_counts(loaded, full_rows)
+    return {
+        "status": "ok",
+        "catalog_id": loaded.catalog_id,
+        "factory": loaded.factory,
+        "plants": len(loaded.plants),
+        "deferred_rows": loaded.extract.get("deferred_rows"),
+        "sources": len(loaded.sources),
+        "catalog_files": len(catalog_sources),
+        "full_row_count": full_rows,
+        "first_round": 3034,
+        "exec": False,
+    }
+
+
+def _refuse_duplicate_slugs(plants: tuple[Plant, ...]) -> None:
+    slugs: dict[str, str] = {}
+    for plant in plants:
+        key = f"{plant.source}:{plant.slug}"
+        if key in slugs:
+            refuse(FINDING_DUPLICATE_FAMILY, f"slug {shown(plant.slug)} repeats in {plant.source}")
+        slugs[key] = plant.shape
+
+
+def _is_int(value: Any) -> TypeGuard[int]:
+    """An int that is not a bool; strict JSON decoding yields no other int type."""
+    return not isinstance(value, bool) and isinstance(value, int)
+
+
+def _check_extract_counts(loaded: Catalog, full_rows: int) -> None:
+    """Refuse extract counts that drift from the pins."""
     refuse_when(
         loaded.extract.get("full_row_count") != full_rows,
         FINDING_CATALOG_FIELD_INVALID,
         f"extract.full_row_count {shown(loaded.extract.get('full_row_count'))} != {full_rows}",
     )
     committed_rows = loaded.extract.get("committed_rows")
-    refuse_when(
-        committed_rows != len(loaded.plants),
-        FINDING_CATALOG_FIELD_INVALID,
-        "extract.committed_rows drifted from the plant slice",
-    )
+    if committed_rows is None or committed_rows != len(loaded.plants):
+        raise MacRefusal(
+            FINDING_CATALOG_FIELD_INVALID, "extract.committed_rows drifted from the plant slice"
+        )
     deferred_rows = loaded.extract.get("deferred_rows")
+    if not _is_int(deferred_rows) or deferred_rows < 0:
+        raise MacRefusal(
+            FINDING_CATALOG_FIELD_INVALID, "extract.deferred_rows must be a non-negative int"
+        )
     refuse_when(
-        type(deferred_rows) is not int or deferred_rows < 0,
-        FINDING_CATALOG_FIELD_INVALID,
-        "extract.deferred_rows must be a non-negative int",
-    )
-    refuse_when(
-        cast(int, committed_rows) + cast(int, deferred_rows) != full_rows,
+        committed_rows + deferred_rows != full_rows,
         FINDING_CATALOG_FIELD_INVALID,
         "extract committed + deferred rows must equal full_row_count",
     )
@@ -350,18 +395,6 @@ def catalog_check(path: Path | None = None) -> dict[str, Any]:
         FINDING_CATALOG_FIELD_INVALID,
         "extract.full_source_files drifted from the source pins",
     )
-    return {
-        "status": "ok",
-        "catalog_id": loaded.catalog_id,
-        "factory": loaded.factory,
-        "plants": len(loaded.plants),
-        "deferred_rows": deferred_rows,
-        "sources": len(loaded.sources),
-        "catalog_files": len(catalog_sources),
-        "full_row_count": full_rows,
-        "first_round": 3034,
-        "exec": False,
-    }
 
 
 bind_import_twin(__name__)

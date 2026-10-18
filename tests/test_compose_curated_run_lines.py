@@ -40,18 +40,18 @@ class ComposeRunLinesContract(unittest.TestCase):
         from compose_curated_run_context import ComposeRunState, SourceFileContext
 
         class Services:
-            def write_new_text(self, *args, **kwargs):
+            @staticmethod
+            def write_new_text(*args, **kwargs):
                 raise AssertionError("must not write unterminated middle records")
 
         from compose_contract import NativeRecordFrame
 
+        state = ComposeRunState()
+        source = SourceFileContext("factory/a.jsonl", b"", object(), None)
+        frames = [NativeRecordFrame('{"a":1}', ""), NativeRecordFrame('{"b":2}', "\n")]
+        services = Services()
         with self.assertRaisesRegex(ComposeError, "unterminated"):
-            write_emitted_records(
-                ComposeRunState(),
-                SourceFileContext("factory/a.jsonl", b"", object(), None),
-                [NativeRecordFrame('{"a":1}', ""), NativeRecordFrame('{"b":2}', "\n")],
-                Services(),
-            )
+            write_emitted_records(state, source, frames, services)
 
 
 if __name__ == "__main__":

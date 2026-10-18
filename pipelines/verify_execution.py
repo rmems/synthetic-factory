@@ -28,43 +28,85 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any, NoReturn
 
-# Reuse the existing validator vocabulary as ground truth.
-try:
-    from check_records import ALLOWED_SIM_OR_REAL
-except ImportError:  # pragma: no cover - depends on sys.path of the caller
-    print(
-        "verify_execution: check_records unavailable — falling back to the "
-        "built-in state.sim_or_real set",
-        file=sys.stderr,
-    )
-    ALLOWED_SIM_OR_REAL = frozenset({"designed", "simulated", "hil"})
+# The shape checkers are None when a direct caller cannot import validate_run;
+# verify_execution_shapes checks each for None before calling it.
+check_episode: Callable[..., Any] | None
+check_line: Callable[..., Any] | None
+check_safety_case: Callable[..., Any] | None
 
-try:
-    from validate_run import (
+if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("verify_execution")
+    # The package always ships its validators, so the package form imports
+    # them outright: a missing sibling raises instead of taking the fallbacks
+    # below, which exist only for direct callers with an unusual sys.path.
+    from .check_records import ALLOWED_SIM_OR_REAL
+    from .operator_paths import confine
+    from .validate_run import (
         THALAMIC_CORE_KEYS,
         check_episode,
         check_line,
         check_safety_case,
     )
-except ImportError:  # pragma: no cover - publish imports from the repo tree
-    THALAMIC_CORE_KEYS = (
-        "state",
-        "proposed_action",
-        "safety_decision",
-        "executed_action",
-        "future_outcome",
-        "reward_components",
+    from .verify_execution_shapes import verify_record_execution
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "verify_execution"
     )
-    check_episode = None
-    check_line = None
-    check_safety_case = None
+    # Reuse the existing validator vocabulary as ground truth.
+    try:
+        from check_records import ALLOWED_SIM_OR_REAL
+    except ImportError:  # pragma: no cover - depends on sys.path of the caller
+        print(
+            "verify_execution: check_records unavailable — falling back to the "
+            "built-in state.sim_or_real set",
+            file=sys.stderr,
+        )
+        ALLOWED_SIM_OR_REAL = frozenset({"designed", "simulated", "hil"})
 
+    try:
+        from validate_run import (
+            THALAMIC_CORE_KEYS,
+            check_episode,
+            check_line,
+            check_safety_case,
+        )
+    except ImportError:  # pragma: no cover - publish imports from the repo tree
+        THALAMIC_CORE_KEYS = (
+            "state",
+            "proposed_action",
+            "safety_decision",
+            "executed_action",
+            "future_outcome",
+            "reward_components",
+        )
+        check_episode = None
+        check_line = None
+        check_safety_case = None
 
-from operator_paths import confine  # noqa: E402
-from verify_execution_shapes import (  # noqa: E402
-    verify_record_execution,
+    from operator_paths import confine
+    from verify_execution_shapes import verify_record_execution
+
+# The validator names are host exports: verify_execution_shapes reads them
+# through ``_host()`` at call time, so a test patches them on this module.
+__all__ = (
+    "ALLOWED_SIM_OR_REAL",
+    "THALAMIC_CORE_KEYS",
+    "audit_run",
+    "check_episode",
+    "check_line",
+    "check_safety_case",
+    "frontier_gate_result",
+    "jsonl_lines",
+    "main",
+    "verify_batch_for_frontier",
+    "verify_record_execution",
+    "verify_stage_for_frontier",
 )
 
 # ---------------------------------------------------------------------------
@@ -250,60 +292,85 @@ def _confined(parser, args):
     )
 
 
-def main(argv=None):
-    p = argparse.ArgumentParser(description="Execution-grounded verification (verified/inconclusive/failed)")
+def _build_parser():
+    p = argparse.ArgumentParser(
+        description="Execution-grounded verification (verified/inconclusive/failed)"
+    )
     p.add_argument("run_dir", nargs="?", help="run directory containing .jsonl files")
-    p.add_argument("--strict", action="store_true", help="inconclusive also blocks (default: only failed blocks)")
+    p.add_argument(
+        "--strict",
+        action="store_true",
+        help="inconclusive also blocks (default: only failed blocks)",
+    )
     p.add_argument("--record", help="single jsonl file to check")
     p.add_argument("--line", type=int, help="line number for --record mode")
     p.add_argument("--json", action="store_true", help="emit JSON findings")
-    p.add_argument("--batch", help="single batch file for frontier gate check (alias for --record dir batch)")
-    args = p.parse_args(argv)
-    run_dir, path, batch = _confined(p, args)
+    p.add_argument(
+        "--batch",
+        help="single batch file for frontier gate check (alias for --record dir batch)",
+    )
+    return p
 
-    if path is not None:
-        lineno = 1 if args.line is None else args.line
-        try:
-            text = jsonl_lines(path.read_text())
-        except (OSError, UnicodeError) as exc:
-            print(json.dumps({"status": "failed", "reason": str(exc)}, indent=2))
-            sys.exit(1)
-        if lineno < 1 or lineno > len(text):
-            print(json.dumps({
-                "status": "failed",
-                "reason": f"--line {lineno} out of range (file has {len(text)} lines)",
-            }, indent=2))
-            sys.exit(1)
-        try:
-            obj = json.loads(text[lineno - 1])
-        except json.JSONDecodeError as exc:
-            print(json.dumps({"status": "failed", "reason": f"JSON parse: {exc}"}, indent=2))
-            sys.exit(1)
-        status, reason = verify_record_execution(obj, f"{path}:{lineno}")
-        print(json.dumps({"status": status, "reason": reason}, indent=2))
-        sys.exit(0 if status == "verified" else 1)
 
-    if batch is not None:
-        counts, findings, blocked = verify_batch_for_frontier(batch, strict=args.strict)
-        if args.json:
-            print(json.dumps({"counts": counts, "findings": findings, "blocked": blocked}, indent=2))
-        else:
-            print(json.dumps(counts, indent=2))
-            for f in findings:
-                print(f"{f['status'].upper()}: {f['file']}:{f['line']} — {f['reason']}", file=sys.stderr)
-        sys.exit(1 if blocked else 0)
+def _record_failed(reason) -> NoReturn:
+    print(json.dumps({"status": "failed", "reason": reason}, indent=2))
+    sys.exit(1)
 
-    if run_dir is None:
-        p.print_help()
-        sys.exit(2)
-    counts, findings, blocked = audit_run(run_dir, strict=args.strict)
-    if args.json:
+
+def _record_object(path, lineno):
+    """The JSON value on ``lineno`` of ``path``; a read, range or parse failure exits 1."""
+    try:
+        text = jsonl_lines(path.read_text())
+    except (OSError, UnicodeError) as exc:
+        _record_failed(str(exc))
+    if lineno < 1 or lineno > len(text):
+        _record_failed(f"--line {lineno} out of range (file has {len(text)} lines)")
+    try:
+        return json.loads(text[lineno - 1])
+    except json.JSONDecodeError as exc:
+        _record_failed(f"JSON parse: {exc}")
+
+
+def _check_record(path, line) -> NoReturn:
+    lineno = 1 if line is None else line
+    obj = _record_object(path, lineno)
+    status, reason = verify_record_execution(obj, f"{path}:{lineno}")
+    print(json.dumps({"status": status, "reason": reason}, indent=2))
+    sys.exit(0 if status == "verified" else 1)
+
+
+def _report_counts(result, as_json) -> NoReturn:
+    """Print one ``(counts, findings, blocked)`` result and exit 1 when it blocks."""
+    counts, findings, blocked = result
+    if as_json:
         print(json.dumps({"counts": counts, "findings": findings, "blocked": blocked}, indent=2))
     else:
         print(json.dumps(counts, indent=2))
         for f in findings:
-            print(f"{f['status'].upper()}: {f['file']}:{f['line']} — {f['reason']}", file=sys.stderr)
+            print(
+                f"{f['status'].upper()}: {f['file']}:{f['line']} — {f['reason']}",
+                file=sys.stderr,
+            )
     sys.exit(1 if blocked else 0)
+
+
+def main(argv=None):
+    p = _build_parser()
+    args = p.parse_args(argv)
+    run_dir, path, batch = _confined(p, args)
+
+    if path is not None:
+        _check_record(path, args.line)
+    if batch is not None:
+        _report_counts(verify_batch_for_frontier(batch, strict=args.strict), args.json)
+    if run_dir is None:
+        p.print_help()
+        sys.exit(2)
+    _report_counts(audit_run(run_dir, strict=args.strict), args.json)
+
+
+if __package__:
+    _expose_package_sibling(__name__)
 
 
 if __name__ == "__main__":

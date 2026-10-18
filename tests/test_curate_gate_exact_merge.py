@@ -23,17 +23,13 @@ class ExactMergeTests(unittest.TestCase):
         baseline = {"metric": parse_finite_json_float("0.0")}
         current = {"metric": parse_finite_json_float("1.0")}
         lane_value = {"metric": parse_finite_json_float("1.0000000000000001")}
+        scope = curate_gate.MergeScope(("source.jsonl", 7), "spike")
 
         with self.assertRaisesRegex(
             curate_gate.GateError,
             r"lane 'spike' conflicts with an earlier lane at source.jsonl:7/metric",
         ):
-            curate_gate._merge_lane_delta(
-                baseline,
-                current,
-                lane_value,
-                curate_gate.MergeScope(("source.jsonl", 7), "spike"),
-            )
+            curate_gate._merge_lane_delta(baseline, current, lane_value, scope)
 
     def test_same_json_keeps_json_number_types_distinct(self):
         """Integer and decimal JSON values remain unequal despite Python equality."""

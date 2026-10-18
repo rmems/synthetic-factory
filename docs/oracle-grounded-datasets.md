@@ -192,8 +192,10 @@ Every accepted record retains:
   A record whose commit is not a lowercase 40- or 64-hex identifier resolving
   to that exact commit object in the local source repository is **rejected**;
   symbolic names, nonexistent object IDs, and `"unknown"` are not acceptable.
-* `oracle.module_digest` — checkout-path-independent sha256 over the oracle implementation sources
-  (`canon.py`, `families.py`, `generators.py`, `oracles.py`, `rng.py`, `sim.py`;
+* `oracle.module_digest` — checkout-path-independent sha256 over the 32 measurement sources named by
+  `source_snapshot.SOURCE_NAMES` (`canon.py`, `families.py`, `generators.py`, `oracles.py`,
+  `rng.py`, `sim.py`, and their `family_*`, `generator_*`, `sim_*`, `oracle_*`, and `native_*`
+  sibling modules;
   `record.py` validates records and never measures, so it is excluded). This,
   not the git commit, is what actually pins the code that produced a
   measurement, and it stays meaningful in a dirty tree. `rng.py` also carries
@@ -394,6 +396,27 @@ remote dataset nor establishes that an accepted-only sample is statistically
 unbiased. The default `--oracle-selection all` keeps the prior preservation
 behavior. New dataset families still require reviewed generator, schema, and
 registry code; the CLI selects and parameterizes the five implemented families.
+
+## Text training views
+
+`python3 pipelines/oracle_text_views.py <run_dir> --out <new_dir>` projects a run
+that the shared validator authenticates and validates cleanly into
+`<family>.sft.jsonl`, `<family>.chat.jsonl` and `<family>.choice.jsonl` rows plus
+a `VIEWS.json` summary (per-family counts, refused record ids with their codes,
+and the digest of every source and written file), and refuses an existing or
+`outputs/raw/` destination. Only accepted, publishable, simulated, self-attributed
+and still-sealed records whose reference measurement replays to the stored
+`result_hash` become rows; the prompt is rendered from an allowlist of
+`scenario` and `intervention` keys with long numeric arrays summarized, the
+completion and the multiple-choice answer are re-derived from `result.measured`,
+and `view_findings` reports by code any row that differs from that derivation,
+carries a `predicted_*` value or the heuristic `basis` text, or holds a
+hidden-reasoning key; any finding aborts the write. The view is a projection of
+the record, not a curation decision: it makes no training-readiness claim, adds
+no registry row or rights lane, and leaves the training audit, the compose
+contract and the round gate as the authorities on whether anything may be
+trained on. The `pipelines/oracle_views/` package sits beside `oracle_grounded/`
+rather than inside it so the sealed oracle catalog digest does not move.
 
 ## Tests
 

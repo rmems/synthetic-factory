@@ -18,7 +18,6 @@ if __package__:
     from . import generate as gen
     from . import pipe_catalog as pipes
     from ._contract import (
-        COMMITTED_SPEC_ROW_COUNT,
         CATALOG_FIRST,
         FACTORY,
         FAMILY_SOURCE_FILES,
@@ -41,7 +40,6 @@ else:
     from irc import generate as gen
     from irc import pipe_catalog as pipes
     from irc._contract import (
-        COMMITTED_SPEC_ROW_COUNT,
         CATALOG_FIRST,
         FACTORY,
         FAMILY_SOURCE_FILES,
@@ -169,7 +167,7 @@ def _refused(args: argparse.Namespace | None, refusal: IrcRefusal) -> int:
         print(
             dumps_exact_json(
                 {
-                    "command": getattr(args, "command", None) if args is not None else None,
+                    "command": getattr(args, "command", None),
                     "status": "refused",
                     "code": refusal.code,
                     "message": str(refusal),

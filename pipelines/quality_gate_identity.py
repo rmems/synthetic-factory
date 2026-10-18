@@ -10,8 +10,18 @@ from __future__ import annotations
 
 import hashlib
 import json
+import sys
 
 from exact_json import dumps_exact_json, exact_fraction
+
+if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("quality_gate_identity")
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "quality_gate_identity"
+    )
 
 
 _IDENTITY_FIELDS = (
@@ -545,3 +555,7 @@ def record_hash(obj):
     dumps_exact_json(obj, sort_keys=False, ensure_ascii=False)
     blob = _canonical_record_blob(exact_identity_view(obj))
     return hashlib.sha256(blob.encode("utf-8")).hexdigest()[:16]
+
+
+if __package__:
+    _expose_package_sibling(__name__)

@@ -459,8 +459,8 @@ class EvhArchiveBPlantsTests(unittest.TestCase):
 
     def test_archive_b_rows_match_catalog_pins(self):
         archive = CATALOG.archive_b
-        self.assertIsNotNone(archive)
-        assert archive is not None
+        if archive is None:
+            self.fail("CATALOG.archive_b is unexpectedly None")
         self.assertEqual(archive.path, cv.ARCHIVE_B_PATH)
         self.assertEqual(archive.n_pairs, cv.LEFTOVER_PLANTS_N_ROWS)
         self.assertEqual(len(archive.pairs), cv.LEFTOVER_PLANTS_N_ROWS)
@@ -501,8 +501,8 @@ class EvhArchiveCPlantsTests(unittest.TestCase):
 
     def test_archive_c_rows_match_catalog_pins(self):
         archive = CATALOG.archive_c
-        self.assertIsNotNone(archive)
-        assert archive is not None
+        if archive is None:
+            self.fail("CATALOG.archive_c is unexpectedly None")
         self.assertEqual(archive.path, cv.ARCHIVE_C_PATH)
         self.assertEqual(archive.n_pairs, cv.LEFTOVER_PLANTS_B_N_ROWS)
         self.assertEqual(len(archive.pairs), cv.LEFTOVER_PLANTS_B_N_ROWS)

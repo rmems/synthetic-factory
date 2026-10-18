@@ -100,6 +100,13 @@ class PublisherIntegrationTests(unittest.TestCase):
             "blurb": "Test factory.",
             "tags": ["synthetic-data"],
         }
+        summary = publisher.PayloadSummary(
+            records=2,
+            bytes_=10,
+            first="r01",
+            last="r02",
+            names=["batch-r01.jsonl"],
+        )
         with tempfile.TemporaryDirectory() as td:
             root = Path(td) / "card-schemas"
             write_declaration(root, LONG_HORIZON, {**MINIMAL, "dataset": LONG_HORIZON, "note": ""})
@@ -107,16 +114,7 @@ class PublisherIntegrationTests(unittest.TestCase):
                 mock.patch.object(card_schema, "SCHEMA_ROOT", root),
                 self.assertRaisesRegex(SystemExit, "non-empty 'note'"),
             ):
-                publisher.render_card(
-                    item,
-                    summary=publisher.PayloadSummary(
-                        records=2,
-                        bytes_=10,
-                        first="r01",
-                        last="r02",
-                        names=["batch-r01.jsonl"],
-                    ),
-                )
+                publisher.render_card(item, summary=summary)
 
     def test_render_card_refuses_a_declaration_that_misses_a_payload(self):
         item = {
@@ -126,17 +124,15 @@ class PublisherIntegrationTests(unittest.TestCase):
             "blurb": "Test factory.",
             "tags": ["synthetic-data"],
         }
+        summary = publisher.PayloadSummary(
+            records=2,
+            bytes_=10,
+            first=None,
+            last=None,
+            names=["episodes.jsonl"],
+        )
         with self.assertRaisesRegex(SystemExit, "does not cover the published payload"):
-            publisher.render_card(
-                item,
-                summary=publisher.PayloadSummary(
-                    records=2,
-                    bytes_=10,
-                    first=None,
-                    last=None,
-                    names=["episodes.jsonl"],
-                ),
-            )
+            publisher.render_card(item, summary=summary)
 
     def test_an_undeclared_dataset_card_carries_the_visible_placeholder(self):
         # Use a name that no published dataset owns so adding a declaration for

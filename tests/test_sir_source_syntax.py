@@ -21,17 +21,21 @@ class SourceSyntaxTests(unittest.TestCase):
 
         for extractor in (extract_mill_catalog, module_constants):
             for forged in (ForgedPath('/unreviewed/untrusted-leftover.py'), None, 7):
-                with self.subTest(extractor=extractor.__name__, kind=type(forged)):
-                    with self.assertRaisesRegex(ValueError, 'path'):
-                        extractor(_LEFTOVER_SNIPPET, path=forged)
+                with (
+                    self.subTest(extractor=extractor.__name__, kind=type(forged)),
+                    self.assertRaisesRegex(ValueError, 'path'),
+                ):
+                    extractor(_LEFTOVER_SNIPPET, path=forged)
 
     def test_compiler_invalid_original_source_is_refused(self):
         for suffix in ('__debug__ = 0', 'def f(x, x): pass', 'def f(): break',
                        'if __name__ == "__main__":\n    break'):
             for extractor in (extract_mill_catalog, module_constants):
-                with self.subTest(suffix=suffix, extractor=extractor.__name__):
-                    with self.assertRaises(ValueError):
-                        extractor(_LEFTOVER_SNIPPET + '\n' + suffix, path='experiments/sir-mill-leftover3-r72.py')
+                with (
+                    self.subTest(suffix=suffix, extractor=extractor.__name__),
+                    self.assertRaises(ValueError),
+                ):
+                    extractor(_LEFTOVER_SNIPPET + '\n' + suffix, path='experiments/sir-mill-leftover3-r72.py')
 
     def test_compiler_validation_never_executes_source(self):
         deferred = '\ndef unused():\n    open("unexpected", "w")'

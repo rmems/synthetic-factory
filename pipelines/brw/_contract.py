@@ -16,6 +16,7 @@ else:
 
 FAMILY_PREFIX = "brw"
 FACTORY = "browser-tool-use-factory"
+_EXACT_INT = (int,)  # exact type: bool and every other int subclass are refused
 GENERATOR = "grok-4.6"
 GEN = GENERATOR
 CATALOG_FIRST = 193
@@ -288,6 +289,6 @@ class BrwError(ValueError):
 def require_round(rnd: int) -> int:
     """Accept a positive integer round token. Booleans are not rounds."""
 
-    if type(rnd) is not int or rnd < 1:
+    if type(rnd) not in _EXACT_INT or rnd < 1:
         raise BrwError(f"invalid_round: {rnd!r}")
     return rnd
