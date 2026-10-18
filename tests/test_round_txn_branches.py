@@ -211,7 +211,8 @@ class MarkerModeTests(TempCaseMixin, unittest.TestCase):
             round_txn.validated_marker_mode(factory)
 
     def test_execution_gate_policy_rejects_malformed_bindings(self):
-        rounds, cutover = round_txn.EXECUTION_VERIFIED_ROUNDS_KEY, round_txn.EXECUTION_CUTOVER_KEY
+        rounds = round_txn.EXECUTION_VERIFIED_ROUNDS_FIELD
+        cutover = round_txn.EXECUTION_CUTOVER_FIELD
         cases = (
             ({rounds: "1"}, rounds), ({cutover: 3, rounds: [0]}, rounds),
             ({cutover: 3, rounds: [2, 1]}, rounds), ({rounds: [1]}, rounds),
@@ -533,9 +534,7 @@ class GateHelperTests(TempCaseMixin, unittest.TestCase):
     def test_completed_agentic_batch_must_meet_its_fixed_quota(self):
         factory = self.factory("cache-stampede-factory")
         with self.assertRaisesRegex(TXN, "requires exactly 2"):
-            round_txn._completed_agentic_envelope_matches(
-                factory, 1, factory / "batch-r01.jsonl", {"episode": 1}, 1
-            )
+            round_txn._completed_agentic_envelope_matches(factory, 1, {"episode": 1}, 1)
 
 
 class CliTests(TempCaseMixin, unittest.TestCase):
