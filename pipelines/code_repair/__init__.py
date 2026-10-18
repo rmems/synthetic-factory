@@ -16,8 +16,8 @@ adds no vocabulary to the envelope and re-implements none of its primitives.
 __all__ = (
     "_contract vocabulary catalog catalog_load catalog_check catalog_build catalog_inputs "
     "lineage mutate mutate_span mutate_literals mutate_sites executor sandbox "
-    "verify records views views_chat views_edit generate replay export export_integrity hub_card "
-    "hub_bundle cli "
+    "verify records views views_chat views_edit generate replay export export_integrity "
+    "dedup hub_card hub_bundle cli "
     "record_validation evidence "
     "publication publication_export publication_receipt selection admission source_policy "
     "card_claims "

@@ -23,7 +23,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from .candidate_io import load_candidate_records
+from .candidate_io import load_candidate_records, load_run_summary
 from . import catalog
 from . import export_integrity as integrity
 from . import generate
@@ -39,7 +39,6 @@ from ._contract import (
     bind_import_twin,
     dumps_exact_json,
     is_under_raw,
-    load_strict_json,
     oc,
     vocab,
 )
@@ -138,20 +137,7 @@ def _check_request(request: ExportRequest) -> None:
     ))
 
 
-def _load_run(data: bytes) -> dict[str, Any]:
-    try:
-        metadata = load_strict_json(data)
-    except ValueError as exc:
-        raise cv.RepairRefusal(
-            cv.FINDING_RUN_FILE_MISSING, f"RUN.json is not JSON: {cv.shown(exc)}"
-        ) from exc
-    cv.refuse_when(
-        not isinstance(metadata, dict) or metadata.get("format") != generate.RUN_FORMAT,
-        cv.FINDING_RUN_FILE_MISSING, "RUN.json is not a code-repair metadata summary",
-    )
-    return metadata
-
-
+_load_run = load_run_summary
 _load_records = load_candidate_records
 
 

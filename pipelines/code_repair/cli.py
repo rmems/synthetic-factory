@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-"""Code-repair commands: catalog-check, generate, replay, publish, export, render, hub-bundle,
-recall-probe.
+"""Code-repair commands: catalog-check, generate, replay, publish, export, dedup, render,
+hub-bundle, recall-probe.
 
 Exit codes: 0 when the command succeeded with nothing to report, 1 when it
-ran and reports findings (catalog findings, replay failures, leak findings, exact recall under
-the probe's ``docstring_only`` variant), 2 on a coded refusal or a usage error. ``--json``
-prints one object with a ``code`` field per finding so an agent never parses prose.
+ran and reports findings (catalog findings, replay failures, cross-run duplicates, leak
+findings, exact recall under the probe's ``docstring_only`` variant), 2 on a coded refusal
+or a usage error. ``--json`` prints one object with a ``code`` field per finding so an
+agent never parses prose.
 """
 
 from __future__ import annotations
@@ -19,6 +20,7 @@ from typing import Any
 from . import catalog as cat
 from . import catalog_check as cc
 from . import catalog_load
+from . import dedup
 from . import executor as ex
 from . import export
 from . import generate
@@ -79,6 +81,8 @@ def build_parser() -> argparse.ArgumentParser:
     pub.add_argument("--lineage-cap", type=int, default=export.DEFAULT_LINEAGE_CAP)
     pub.add_argument("--json", action="store_true")
 
+    _add_dedup_parser(commands)
+
     render = commands.add_parser("render", help="the SFT prompt/completion of one record")
     render.add_argument("run_dir", type=Path)
     render.add_argument("record_id")
@@ -86,6 +90,17 @@ def build_parser() -> argparse.ArgumentParser:
     _add_hub_bundle(commands)
     _add_recall_probe(commands)
     return parser
+
+
+def _add_dedup_parser(commands: Any) -> None:
+    """``dedup``: run directories in keep-first order and an optional brand-new file."""
+
+    dup =commands.add_parser("dedup", help="read-only duplicate report over stacked runs")
+    dup.add_argument("--run", dest="runs", type=Path, action="append", required=True,
+                     help="a run directory; repeat in keep-first order")
+    dup.add_argument("--out", type=Path, default=None,
+                     help="a brand-new file for the manifest, outside every run directory")
+    dup.add_argument("--json", action="store_true")
 
 
 def _add_hub_bundle(commands: Any) -> None:
@@ -202,6 +217,28 @@ def _publish(args: argparse.Namespace) -> int:
     return 0
 
 
+def _dedup(args: argparse.Namespace) -> int:
+    manifest = dedup.report(dedup.DedupRequest(tuple(args.runs), args.out))
+    counts = manifest["counts"]
+    findings = [
+        {"code": d["code"], "record_id": d["id"], "run": d["run"],
+         "duplicate_of": d["duplicate_of"]}
+        for d in manifest["dropped"]
+    ]
+    by_code = ", ".join(f"{code} {n}" for code, n in counts["by_code"].items())
+    lines = [f"{f['code']} {f['record_id']} (run {f['run']}) repeats {f['duplicate_of']}"
+             for f in findings]
+    lines.append(
+        f"dedup: {counts['kept']} kept, {counts['dropped']} dropped ({by_code}) from "
+        f"{counts['positives']} positives across {counts['runs']} runs"
+        + (f"; {args.out}" if args.out is not None else "")
+    )
+    status = "findings" if findings else "ok"
+    payload = {"command": "dedup", "status": status, "findings": findings, "manifest": manifest}
+    _emit(payload, args.json, "\n".join(lines))
+    return 1 if findings else 0
+
+
 def _load_record(run_dir: Path, record_id: str) -> dict[str, Any]:
     """The record with this id, refused unless the shared envelope and digest accept it."""
 
@@ -302,7 +339,7 @@ def _recall_probe(args: argparse.Namespace) -> int:
 
 _COMMANDS = {
     "catalog-check": _catalog_check, "generate": _generate, "render": _render, "replay": _replay,
-    "export": _export, "publish": _publish, "hub-bundle": _hub_bundle,
+    "export": _export, "publish": _publish, "dedup": _dedup, "hub-bundle": _hub_bundle,
     "recall-probe": _recall_probe,
 }
 
