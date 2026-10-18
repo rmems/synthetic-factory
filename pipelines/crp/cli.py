@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -85,7 +86,7 @@ def _generate(args: argparse.Namespace) -> int:
 
 _COMMANDS = {"catalog-check": _catalog_check, "generate": _generate}
 
-_CATALOG_CHECKS = {
+_CATALOG_CHECKS: dict[str, Callable[[], dict[str, Any]]] = {
     "leftover3": cat.catalog_check,
     "leftover3-prior": leftover3_prior_cat.catalog_check,
     "r432": r432_cat.catalog_check,
