@@ -65,12 +65,12 @@ class GenerateRequest:
 
 def _walk_keys(value: Any) -> list[str]:
     if isinstance(value, dict):
-        keys = list(value)
+        keys: list[str] = list(value)
         for item in value.values():
             keys.extend(_walk_keys(item))
         return keys
     if isinstance(value, list):
-        keys: list[str] = []
+        keys = []
         for item in value:
             keys.extend(_walk_keys(item))
         return keys
@@ -339,6 +339,16 @@ def _require_round(value: int | None, default: int) -> int:
     return rnd
 
 
+def _selected_mills(loaded: cat.Catalog, mill_id: str | None) -> list[cat.Mill]:
+    """Every mill in catalog order, or the one named (refused unless it has plants)."""
+
+    if mill_id is None:
+        return list(loaded.mills)
+    mills = [mill for mill in loaded.mills if mill.mill_id == mill_id]
+    loaded.mill_plants(mill_id)
+    return mills
+
+
 def _jobs(loaded: cat.Catalog, request: GenerateRequest) -> list[tuple[int, cat.Plant]]:
     selectors = (request.plant_id is not None, request.mill_id is not None, request.all_plants)
     if sum(selectors) != 1:
@@ -348,13 +358,8 @@ def _jobs(loaded: cat.Catalog, request: GenerateRequest) -> list[tuple[int, cat.
         return [(_require_round(request.round, plant.base_round), plant)]
     if request.round is not None:
         raise GqlRefusal(FINDING_USAGE, "round applies only with plant_id")
-    if request.mill_id is not None:
-        mills = [mill for mill in loaded.mills if mill.mill_id == request.mill_id]
-        loaded.mill_plants(request.mill_id)
-    else:
-        mills = list(loaded.mills)
     jobs: list[tuple[int, cat.Plant]] = []
-    for mill in mills:
+    for mill in _selected_mills(loaded, request.mill_id):
         for index, plant in enumerate(loaded.mill_plants(mill.mill_id)):
             jobs.append((mill.base_round + index, plant))
     return jobs

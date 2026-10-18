@@ -9,6 +9,7 @@ importing a ``*mill*.py`` module.
 
 from __future__ import annotations
 
+import ast
 import contextlib
 import io
 import json
@@ -32,6 +33,7 @@ from ttf._contract import (  # noqa: E402
     CATALOG_ID,
     FACTORY,
     FAMILY_PREFIX,
+    FINDING_AST_NOT_A_PLANT,
     FINDING_DESTINATION_EXISTS,
     FINDING_DESTINATION_UNDER_RAW,
     FINDING_ROUND_OUT_OF_DOMAIN,
@@ -260,6 +262,35 @@ class AstExtract(unittest.TestCase):
         ])
         self.assertEqual(plants[0].domain, "warehouse-amr")
         self.assertEqual(plants[0].decision, "MODIFY")
+
+
+class AstExtractEdges(unittest.TestCase):
+    @staticmethod
+    def walk(source, consts):
+        return cat._walk_mapping(ast.parse(source, mode="eval").body, consts)
+
+    def test_only_a_negated_number_literal_walks_to_a_value(self):
+        self.assertEqual(
+            self.walk("[-1, -2.5, -'x', +3, -N, (N, M)]", {"N": 4}),
+            [-1, -2.5, None, None, None, (4, None)],
+        )
+
+    def test_dict_walk_drops_splats_non_string_keys_and_raster_payloads(self):
+        walked = self.walk(
+            "{**base, 1: 'one', 'raster': [1], 'spikes': 2, 'id': K,"
+            " 'f': g(1, k=2, **kw), 'm': obj.m()}",
+            {"K": "ttf-r02-001"},
+        )
+        self.assertEqual(walked, {
+            "id": "ttf-r02-001",
+            "f": {"_call": "g", "args": [1], "kwargs": {"k": 2}},
+            "m": {"_call": None, "args": [], "kwargs": {}},
+        })
+
+    def test_unparseable_source_is_refused(self):
+        with self.assertRaises(TtfRefusal) as ctx:
+            cat.plants_from_source("REC_001 = {", "broken")
+        self.assertEqual(ctx.exception.code, FINDING_AST_NOT_A_PLANT)
 
 
 class CommittedCatalog(unittest.TestCase):
