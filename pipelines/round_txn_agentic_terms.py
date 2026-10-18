@@ -207,6 +207,17 @@ PLAN_CHANGE_TERMS = (
     "rollback",
     "update",
 )
+# Each term starts a word and carries at most an inflection, so "add" matches
+# "add", "added" and "adding" but not "address", "padding" or "additional".
+# "escalat" is a stem on purpose: it takes "e", "ed", "ing" and "ion".
+_PLAN_CHANGE_INFLECTIONS = r"(?:e|es|s|d|ed|ing|ion|ions|red|ring)?"
+PLAN_CHANGE_RE = re.compile(
+    r"\b(?:"
+    + "|".join(re.escape(term) for term in PLAN_CHANGE_TERMS)
+    + r")"
+    + _PLAN_CHANGE_INFLECTIONS
+    + r"\b"
+)
 IGNORED_PLAN_TERMS = (
     "ignored",
     "no change",
