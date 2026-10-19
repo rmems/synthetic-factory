@@ -101,26 +101,29 @@ class RefreshTests(unittest.TestCase):
             with self.subTest(name=name):
                 self.assertEqual(refreshed.resolve(name), "b/b")
 
-    def test_a_target_that_did_not_move_with_its_alias_refuses_the_refresh(self):
+    def _assert_sibling_refresh_refused(self, answers, expected_message):
+        """Refresh ``x/x`` over x/x, y/y -> a/a (id 7) and require a refusal that writes nothing."""
+
         cache = api_cache(self.root / "siblings.json",
                           {"x/x": "a/a", "y/y": "a/a", "a/a": "a/a"},
                           {"x/x": 7, "y/y": 7, "a/a": 7})
-        github = {"x/x": {"full_name": "b/b", "id": 7}, "a/a": {"full_name": "a/a", "id": 9}}
+        github = {name: {"full_name": full_name, "id": github_id}
+                  for name, (full_name, github_id) in answers.items()}
         code, _, stderr = self._main("x/x", fetch=github.__getitem__, cache=cache)
         self.assertEqual(code, 1)
-        self.assertIn("a/a: no longer resolves to b/b", stderr)
-        self.assertFalse((self.root / "out.json").exists())
+        self.assertIn(expected_message, stderr)
+        self.assertEqual([path.name for path in self.root.iterdir()], ["siblings.json"])
+
+    def test_a_target_that_did_not_move_with_its_alias_refuses_the_refresh(self):
+        self._assert_sibling_refresh_refused(
+            {"x/x": ("b/b", 7), "a/a": ("a/a", 9)}, "a/a: no longer resolves to b/b"
+        )
 
     def test_a_reused_sibling_alias_is_refused_rather_than_repointed(self):
-        cache = api_cache(self.root / "siblings.json",
-                          {"x/x": "a/a", "y/y": "a/a", "a/a": "a/a"},
-                          {"x/x": 7, "y/y": 7, "a/a": 7})
-        github = {"x/x": {"full_name": "b/b", "id": 7}, "a/a": {"full_name": "b/b", "id": 7},
-                  "y/y": {"full_name": "y/y", "id": 8}}
-        code, _, stderr = self._main("x/x", fetch=github.__getitem__, cache=cache)
-        self.assertEqual(code, 1)
-        self.assertIn("y/y: no longer resolves to b/b (github_id 7)", stderr)
-        self.assertEqual([path.name for path in self.root.iterdir()], ["siblings.json"])
+        self._assert_sibling_refresh_refused(
+            {"x/x": ("b/b", 7), "a/a": ("b/b", 7), "y/y": ("y/y", 8)},
+            "y/y: no longer resolves to b/b (github_id 7)",
+        )
 
     def test_a_reused_name_with_a_new_repository_id_is_refused(self):
         cache = api_cache(self.root / "cache.json", {"x/x": "a/a", "a/a": "a/a"},
@@ -274,6 +277,15 @@ class RefreshTests(unittest.TestCase):
         with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
             self.assertEqual(refresh.main(argv, fetch=fake_fetch, now=lambda: NOW), 1)
         self.assertIn("resolves outside", stderr.getvalue())
+
+    def test_the_write_guard_refuses_a_target_outside_its_root(self):
+        escaped = (str(self.root), "/refresh-escape.json")
+        with (
+            mock.patch.object(refresh, "_confined_target", return_value=escaped),
+            self.assertRaisesRegex(refresh.RefreshError, "resolves outside the repository"),
+        ):
+            refresh.publish_new_file(self.root / "out.json", b"{}\n")
+        self.assertFalse(Path("/refresh-escape.json").exists())
 
     def test_a_path_inside_the_checkout_is_accepted(self):
         inside = refresh.REPO / "config" / "eval-exclusion"

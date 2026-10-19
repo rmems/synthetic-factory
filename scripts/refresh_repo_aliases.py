@@ -256,8 +256,37 @@ def _is_within(path: str, root: str) -> bool:
     return os.path.commonpath((path, root)) == root
 
 
-def confined_output(path: Path) -> Path:
-    """Resolve ``--out`` and refuse anything outside the allowed roots or in the raw tree.
+_OUTSIDE = "resolves outside the repository and the temporary directory"
+
+
+def _refuse_symlink_leaf(supplied: str) -> None:
+    if os.path.islink(supplied):
+        raise RefreshError(f"--out {supplied} is a symlink")
+
+
+def _refuse_raw_tree(supplied: str, resolved: str) -> None:
+    if raw_tree_guard.is_under_raw(Path(resolved)):
+        raise RefreshError(f"--out {supplied} names or aliases outputs/raw/, which is immutable")
+
+
+def _require_parent_dir(supplied: str, resolved: str) -> str:
+    parent = os.path.dirname(resolved)
+    if not os.path.isdir(parent):
+        raise RefreshError(f"--out {supplied}: parent {parent} is not an existing directory")
+    return parent
+
+
+def _require_allowed_root(supplied: str, parent: str) -> str:
+    """The allowed root that contains ``parent``; anything else is refused."""
+
+    for root in _allowed_output_roots():
+        if _is_within(parent, root):
+            return root
+    raise RefreshError(f"--out {supplied} {_OUTSIDE}")
+
+
+def _confined_target(path: Path) -> tuple[str, str]:
+    """``(allowed root, resolved target)`` for ``--out``, after every refusal has run.
 
     The final component may not be a symlink; every parent symlink is resolved
     with ``realpath`` before the containment check, so ``..`` segments and
@@ -265,40 +294,44 @@ def confined_output(path: Path) -> Path:
     """
 
     supplied = os.fspath(path)
-    if os.path.islink(supplied):
-        raise RefreshError(f"--out {supplied} is a symlink")
+    _refuse_symlink_leaf(supplied)
     resolved = os.path.realpath(supplied)
-    if raw_tree_guard.is_under_raw(Path(resolved)):
-        raise RefreshError(f"--out {supplied} names or aliases outputs/raw/, which is immutable")
-    parent = os.path.dirname(resolved)
-    if not os.path.isdir(parent):
-        raise RefreshError(f"--out {supplied}: parent {parent} is not an existing directory")
-    if not any(_is_within(parent, root) for root in _allowed_output_roots()):
-        raise RefreshError(
-            f"--out {supplied} resolves outside the repository and the temporary directory"
-        )
-    return Path(resolved)
+    _refuse_raw_tree(supplied, resolved)
+    parent = _require_parent_dir(supplied, resolved)
+    root = _require_allowed_root(supplied, parent)
+    return root, os.path.join(parent, os.path.basename(resolved))
+
+
+def confined_output(path: Path) -> Path:
+    """Resolve ``--out`` and refuse anything outside the allowed roots or in the raw tree."""
+
+    return Path(_confined_target(path)[1])
 
 
 def publish_new_file(path: Path, payload: bytes) -> None:
     """Publish ``payload`` at a new ``path`` atomically; no partial file is ever visible.
 
+    ``path`` is confined first (see ``_confined_target``), and the write uses only
+    the resolved target after a same-function prefix check against its root.
     The bytes go to an exclusive temporary sibling, are fsynced, then hard-linked
     into place (``os.link`` refuses an existing destination). The temporary is
     removed on every path, so a failed write leaves neither it nor ``path``.
     """
 
-    path = confined_output(path)
-    temporary = path.parent / f".{path.name}.{uuid.uuid4().hex}.publishing"
+    root, target = _confined_target(path)
+    if not target.startswith(root + os.sep):
+        raise RefreshError(f"--out {os.fspath(path)} {_OUTSIDE}")
+    directory, name = os.path.split(target)
+    temporary = os.path.join(directory, f".{name}.{uuid.uuid4().hex}.publishing")
     descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
     try:
         with os.fdopen(descriptor, "wb") as handle:
             handle.write(payload)
             handle.flush()
             os.fsync(handle.fileno())
-        os.link(temporary, path, follow_symlinks=False)
+        os.link(temporary, target, follow_symlinks=False)
     finally:
-        temporary.unlink(missing_ok=True)
+        Path(temporary).unlink(missing_ok=True)
 
 
 def parse_args(argv: list[str] | None) -> argparse.Namespace:
