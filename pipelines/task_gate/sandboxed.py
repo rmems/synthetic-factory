@@ -56,8 +56,8 @@ CHILD_FILES = (
     ("_child.py", Path(__file__).with_name("_child.py")),
     (CHILD_NAME, Path(__file__).with_name(CHILD_NAME)),
     ("_sandboxed_record.py", Path(__file__).with_name("_sandboxed_record.py")),
-    ("_sandbox.py", Path(ec.landlock.__file__)),
-    ("_sandbox_paths.py", Path(ec.landlock.__file__).with_name("_sandbox_paths.py")),
+    ("_sandbox.py", ec.executor.SANDBOX_PATH),
+    ("_sandbox_paths.py", ec.executor.SANDBOX_PATHS_PATH),
 )
 
 __all__ = ["SandboxedHarness"]
@@ -103,7 +103,7 @@ def _require_attested(stdout: bytes) -> None:
     cv.refuse_when(limits is not True, cv.REFUSE_HARNESS_UNAVAILABLE,
                    f"resource limits not attested: {limits}")
     token = ec.harness_report.landlock_attested(stdout)
-    cv.refuse_when(not ec.landlock.applied(token), cv.REFUSE_HARNESS_UNAVAILABLE,
+    cv.refuse_when(not ec.executor.landlock_applied(token), cv.REFUSE_HARNESS_UNAVAILABLE,
                    f"landlock not attested: {token}")
 
 

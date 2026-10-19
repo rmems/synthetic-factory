@@ -21,10 +21,11 @@ import test_task_gate_harness as base
 from task_gate_test_support import (
     ADD, PROGRAMS, cv, gate, harness, proposal_for, refused, rules,
 )
+from code_repair import _sandbox
 from task_gate import _executor_contract as ec
 from task_gate import procedural, sandboxed
 
-AVAILABLE = ec.sandbox.os_boundary_available() and ec.landlock.available()
+AVAILABLE = ec.sandbox.os_boundary_available() and _sandbox.available()
 NEEDS_BWRAP = unittest.skipUnless(AVAILABLE, "bwrap/Landlock isolation is not available here")
 KEY = bytes(range(32))
 ATTESTED = (

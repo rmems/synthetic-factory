@@ -73,7 +73,7 @@ def _read_plan(fd):
 
 
 def _attest_limits(inner, cpu_seconds, stream):
-    applied = inner._limit(cpu_seconds)
+    applied = inner.apply_limits(cpu_seconds)
     stream.write(LIMITS_PREFIX + str(applied).lower() + "\n")
     stream.flush()
     return applied
@@ -85,7 +85,7 @@ def _attest_landlock(workdir, stream):
     report = {"load": {"status": "ok"}, "environment": {}}
     try:
         _sibling("_sandbox").enforce(workdir, {"require_landlock": True}, report, stream)
-    except Exception:  # enforce wrote the attestation line before raising
+    except (RuntimeError, OSError):  # enforce wrote the attestation line before raising
         return False
     return True
 
@@ -168,7 +168,7 @@ def _observe(inner, codec, channel, run):
 
     workdir, function, sources = run
     with _Ending(channel, codec):
-        module = inner._load(workdir)
+        module = inner.load_program(workdir)
         getattr(module, function)  # a missing target is a load error, as in ``_child.py``
         runner = doctest.DocTestRunner(
             checker=_Recorder(channel, codec), verbose=False, optionflags=0,
@@ -183,7 +183,7 @@ def main(argv):
     inner.FILE_SIZE_BYTES = max(inner.FILE_SIZE_BYTES, codec.REPORT_LIMIT)  # the report must fit
     stream = os.fdopen(os.dup(1), "w", encoding="utf-8")
     plan = _read_plan(0)
-    inner._silence_stdout()
+    inner.silence_stdout()
     attested = _attest_limits(inner, cpu_seconds, stream) and _attest_landlock(workdir, stream)
     stream.close()  # no descriptor onto the attested stdout survives into the program
     if attested and plan is not None:

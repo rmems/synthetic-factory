@@ -37,8 +37,8 @@ MAX_REPORT_BYTES = 64 * 1024
 KILL_GRACE_S = 5
 
 __all__ = [
-    "HarnessResult", "SubprocessHarness", "checked_timeout", "child_environment",
-    "selfcheck",
+    "INTERPRETER_FLAGS", "MAX_REPORT_BYTES", "HarnessResult", "SubprocessHarness",
+    "checked_timeout", "child_environment", "selfcheck",
 ]
 
 

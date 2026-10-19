@@ -383,10 +383,10 @@ class ChildInProcess(unittest.TestCase):
 
     def test_attestations_are_written_and_reported(self):
         stream = io.StringIO()
-        limits = mock.Mock(_limit=mock.Mock(return_value=False))
+        limits = mock.Mock(apply_limits=mock.Mock(return_value=False))
         self.assertFalse(child._attest_limits(limits, 3, stream))
         self.assertEqual(stream.getvalue(), child.LIMITS_PREFIX + "false\n")
-        broken = mock.Mock(enforce=mock.Mock(side_effect=RuntimeError("no landlock")))
+        broken = mock.Mock(enforce=mock.Mock(side_effect=RuntimeError("SANDBOX_UNAVAILABLE: landlock")))
         with mock.patch.object(child, "_sibling", return_value=broken):
             self.assertFalse(child._attest_landlock(str(self.workdir), stream))
         with mock.patch.object(child, "_sibling", return_value=mock.Mock()):
@@ -398,7 +398,7 @@ class ChildInProcess(unittest.TestCase):
         def sibling(name):
             module = real(name)
             if name == "_child":
-                module._silence_stdout = lambda: None
+                module.silence_stdout = lambda: None
             return module
 
         self.workdir.joinpath("program.py").write_text(sandboxed_plan.plan_for(PROGRAM, "f").text)

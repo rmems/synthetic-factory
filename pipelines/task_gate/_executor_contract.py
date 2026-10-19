@@ -9,16 +9,14 @@ as in ``_contract.py``.
 from __future__ import annotations
 
 if __name__.startswith("pipelines."):
-    from ..code_repair import _sandbox as landlock
-    from ..code_repair import harness_report, sandbox
+    from ..code_repair import executor, harness_report, sandbox
     from ..code_repair.vocabulary import RepairRefusal
 else:
-    from code_repair import _sandbox as landlock
-    from code_repair import harness_report, sandbox
+    from code_repair import executor, harness_report, sandbox
     from code_repair.vocabulary import RepairRefusal
 
 from ._contract import bind_import_twin
 
-__all__ = ["RepairRefusal", "harness_report", "landlock", "sandbox"]
+__all__ = ["RepairRefusal", "executor", "harness_report", "sandbox"]
 
 bind_import_twin(__name__)
