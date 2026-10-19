@@ -11,7 +11,8 @@ python3 pipelines/task_gate_cli.py verify --catalog <catalog_dir> --proposals pr
 # Gate the procedural mutator's seeded proposals through the same code path
 python3 pipelines/task_gate_cli.py procedural --catalog <catalog_dir> --seed 1 --count 200 \
   --denylist <denylist.txt> --out <new_dir>
-python3 -m unittest tests.test_task_gate tests.test_task_gate_harness tests.test_task_gate_sandboxed -q -b
+python3 -m unittest tests.test_task_gate tests.test_task_gate_harness tests.test_task_gate_sandboxed \
+  tests.test_task_gate_sandboxed_report -q -b
 ```
 
 ## Inputs
@@ -80,11 +81,31 @@ For untrusted mutants (the model-backed proposer) pass `--sandbox`, which runs t
 through `SandboxedHarness` on `code_repair`'s OS boundary (`bwrap-ro-netns-v1`: read-only root,
 unshared user/net/pid namespaces, private tmp, seccomp, unprivileged uid) plus the Landlock
 allowlist. The network is denied by the kernel (empty network namespace and EPERM on `connect`),
-not by patching `socket`. A per-run nonce reaches the child only on stdin and must be echoed in
-its report, so a program that writes to the report descriptor cannot forge a verdict. A program
-that reflectively reads the nonce out of the child's own frames is the same hostile-introspection
-class as the AST tamper check and is not claimed closed. The flag never falls back: when bwrap or
-Landlock is unavailable, or a run's resource-limit and Landlock attestations are missing, the run
-is refused (`TASK_GATE_HARNESS_UNAVAILABLE`). `summary.json` records the harness in
+not by patching `socket`.
+
+The sandboxed verdict is made in the parent, never in the process that loads the program. The
+parent parses the target's doctests from the text (`sandboxed_plan.py`), writes `program.py`
+with that docstring emptied, and sends the child only a per-run key and each example's source.
+The child runs the examples through `doctest` with a checker that records what each one
+produced, and writes one record per example, sealed with the key (HMAC-SHA256) and numbered, to
+the report file. The parent opens the records and compares each with the expected output it kept
+(`sandboxed_judge.py`), with `doctest`'s own checker and the example's option flags. What follows:
+
+- A pass cannot be forged. The expected outputs never enter the sandbox, so a program passes only
+  by producing them, or by guessing them from the example source alone.
+- Writing to the report from outside the child's own code (a forked poller, a write to any
+  inherited descriptor, a truncation) makes the run `crashed`, never a verdict. The key is read
+  from stdin and stdin is replaced before `program.py` is read; it is never written to a file,
+  argument or environment variable, and Landlock keeps `/proc/self/mem` unreadable.
+- Not closed: a program that tampers with the interpreter it runs in (rebinding the child's
+  checker, or reading the key out of the child's own objects) can make its own run report
+  `failed` or `crashed`, though still never `passed`. That is the hostile-introspection class the
+  AST tamper check also leaves open.
+
+The examples are read from the source, so the target is the last top-level `def` of that name and
+its docstring as written; examples marked `+SKIP` are neither sent nor counted, and a docstring
+`doctest` cannot parse is a `load_error` before anything runs. The flag never falls back: when
+bwrap or Landlock is unavailable, or a run's resource-limit and Landlock attestations are
+missing, the run is refused (`TASK_GATE_HARNESS_UNAVAILABLE`). `summary.json` records the harness in
 `inputs.harness` (`kind`: `subprocess` or `sandboxed`, plus the isolation identity). `Gate`
 accepts any object with `run(program_text, function)`.

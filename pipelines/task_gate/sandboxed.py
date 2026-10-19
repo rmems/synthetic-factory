@@ -8,10 +8,21 @@ unprivileged uid (``Isolation.os_boundary``), then the Landlock allowlist the ch
 itself. The network is denied by the kernel (an empty network namespace plus EPERM on
 ``connect``), not by patching ``socket``.
 
-The report cannot be forged by writing to an inherited descriptor. A per-run nonce travels on
-the child's stdin only and is consumed before ``program.py`` is read; the report must echo it
-(see ``_sandboxed_child.py``). Reflectively recovering the nonce from the child's own frames is
-the same hostile-introspection class as the AST tamper check and is not claimed closed.
+The verdict is made here, never in the process that loads the program. This process parses the
+target's doctests (``sandboxed_plan.py``), gives the child the program with that docstring
+emptied plus each example's source, and compares what the child reports each example produced
+with the expected output it kept (``sandboxed_judge.py``). So:
+
+* A pass cannot be forged. The expected outputs never enter the sandbox; a program passes only
+  by producing them, or by guessing them from the example source alone.
+* Writing to the report file from outside the child's own code (a forked poller, a write to an
+  inherited descriptor, a truncation) makes the run ``crashed``, never a verdict: each record
+  is sealed with a per-run key that reaches the child on stdin only, is consumed before
+  ``program.py`` is read, and is never written to any file, argument or environment variable.
+* Not closed: a program that tampers with the interpreter it runs in (rebinding the child's
+  checker or channel, reading the key out of the child's memory) can make its own run report
+  ``failed`` or ``crashed``. It still cannot report a pass. This is the hostile-introspection
+  class the AST tamper check in ``mutation.py`` also leaves open.
 
 It never falls back: an unavailable boundary refuses at construction, and a run whose limits or
 Landlock were not attested on the real stdout refuses instead of producing a verdict.
@@ -20,7 +31,6 @@ Landlock were not attested on the real stdout refuses instead of producing a ver
 from __future__ import annotations
 
 import hashlib
-import hmac
 import os
 import secrets
 import subprocess  # nosec B404
@@ -31,17 +41,21 @@ from pathlib import Path
 from typing import Any
 
 from . import _executor_contract as ec
+from . import _sandboxed_record as record
 from . import vocabulary as cv
-from ._contract import bind_import_twin, load_strict_json
+from ._contract import bind_import_twin
 from .harness import (
     INTERPRETER_FLAGS, MAX_REPORT_BYTES, HarnessResult, checked_timeout, child_environment,
-    report_result, selfcheck,
+    selfcheck,
 )
+from .sandboxed_judge import judged, report_limit
+from .sandboxed_plan import Plan, plan_for
 
 CHILD_NAME = "_sandboxed_child.py"
 CHILD_FILES = (
     ("_child.py", Path(__file__).with_name("_child.py")),
     (CHILD_NAME, Path(__file__).with_name(CHILD_NAME)),
+    ("_sandboxed_record.py", Path(__file__).with_name("_sandboxed_record.py")),
     ("_sandbox.py", Path(ec.landlock.__file__)),
     ("_sandbox_paths.py", Path(ec.landlock.__file__).with_name("_sandbox_paths.py")),
 )
@@ -93,44 +107,13 @@ def _require_attested(stdout: bytes) -> None:
                    f"landlock not attested: {token}")
 
 
-def _crashed(detail: str) -> HarnessResult:
-    return HarnessResult(cv.OUTCOME_CRASHED, detail=detail)
-
-
-def _parsed(body: bytes) -> object:
-    try:
-        return load_strict_json(body.decode("utf-8"))
-    except (ValueError, RecursionError):
-        return None
-
-
-def _nonce_matches(echoed: object, nonce: str) -> bool:
-    """True only for an ASCII string equal to the nonce; never raises on a hostile value."""
-
-    if not isinstance(echoed, str) or not echoed.isascii():
-        return False
-    return hmac.compare_digest(echoed.encode("ascii"), nonce.encode("ascii"))
-
-
-def _result_of_body(body: bytes, nonce: str) -> HarnessResult:
-    """The result of a report that echoes the nonce; anything else is ``crashed``."""
-
-    if len(body) > MAX_REPORT_BYTES:
-        return _crashed("report_oversize")
-    report = _parsed(body)
-    echoed = report.get("nonce") if isinstance(report, dict) else None
-    if not _nonce_matches(echoed, nonce):
-        return _crashed("report_nonce")
-    return report_result(report)
-
-
 @dataclass(frozen=True)
 class _Run:
-    """What one child run is started with: its workdir, environment, nonce and capture files."""
+    """What one child run is started with: its workdir, environment, stdin and capture files."""
 
     workdir: Path
     env: dict[str, str]
-    nonce: str
+    stdin: bytes
     out: Any
     report: Any
 
@@ -162,12 +145,15 @@ class SandboxedHarness:
         selfcheck(self)
 
     def run(self, program_text: str, function: str) -> HarnessResult:
+        plan = plan_for(program_text, function)
+        if plan.outcome:  # decided from the text alone; no program code runs
+            return HarnessResult(plan.outcome, detail=plan.detail)
         with tempfile.TemporaryDirectory(prefix="task-gate-sbx-") as tmp:
             workdir = Path(tmp)
-            workdir.joinpath("program.py").write_text(program_text, encoding="utf-8")
+            workdir.joinpath("program.py").write_text(plan.text, encoding="utf-8")
             for name, payload in self._files.items():
                 workdir.joinpath(name).write_bytes(payload)
-            return self._execute(workdir, function)
+            return self._execute(workdir, function, plan)
 
     def _argv(self, workdir: Path, function: str, report_fd: int) -> list[str]:
         cpu_seconds = int(self.timeout_s) + 2
@@ -176,46 +162,46 @@ class SandboxedHarness:
             str(cpu_seconds), str(report_fd),
         ]
 
-    def _execute(self, workdir: Path, function: str) -> HarnessResult:
-        nonce = secrets.token_hex(32)
+    def _execute(self, workdir: Path, function: str, plan: Plan) -> HarnessResult:
+        key = secrets.token_bytes(record.KEY_BYTES)
+        limit = report_limit(len(plan.examples))
         with tempfile.TemporaryFile() as out, tempfile.TemporaryFile() as report:
             os.set_inheritable(report.fileno(), True)
             env = child_environment(str(workdir))
             argv = self._argv(workdir, function, report.fileno())
             confined = self.isolation.confine(argv, workdir, env)
             try:
-                code = self._spawn(confined, _Run(workdir, env, nonce, out, report))
+                finished = self._spawn(confined, _Run(workdir, env, plan.child_input(key), out, report))
             finally:
                 confined.close()
             out.seek(0)
             report.seek(0)
-            stdout, body = out.read(MAX_REPORT_BYTES), report.read(MAX_REPORT_BYTES + 1)
-            if code is None:
-                _require_attested(stdout)  # unattested means the program never ran
-                return HarnessResult(cv.OUTCOME_TIMEOUT, detail="wall_clock")
-            return self._judged(code, stdout, body, nonce)
+            stdout, body = out.read(MAX_REPORT_BYTES), report.read(limit + 1)
+        _require_attested(stdout)  # unattested means the program never ran
+        if not finished:
+            return HarnessResult(cv.OUTCOME_TIMEOUT, detail="wall_clock")
+        if len(body) > limit:
+            return HarnessResult(cv.OUTCOME_CRASHED, detail="report_oversize")
+        return judged(plan.examples, body, key)
 
-    def _spawn(self, confined: Any, run: _Run) -> int | None:
-        """The child's exit status, or ``None`` when the wall clock expired."""
+    def _spawn(self, confined: Any, run: _Run) -> bool:
+        """True when the child ended within the wall clock.
+
+        Its exit status is not consulted: the program controls it, and the sealed report is
+        the only account of the run.
+        """
 
         try:
-            done = subprocess.run(  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit.dangerous-subprocess-use-audit  # nosec B603
-                confined.argv, cwd=run.workdir, env=run.env, input=run.nonce.encode("ascii"),
+            subprocess.run(  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit.dangerous-subprocess-use-audit  # nosec B603
+                confined.argv, cwd=run.workdir, env=run.env, input=run.stdin,
                 stdout=run.out, stderr=subprocess.DEVNULL, timeout=self.timeout_s, check=False,
                 pass_fds=(*confined.pass_fds, run.report.fileno()),
             )
         except subprocess.TimeoutExpired:
-            return None
+            return False
         except OSError as exc:
             raise _refuse(f"cannot start the sandbox: {exc}") from exc
-        return done.returncode
-
-    @staticmethod
-    def _judged(returncode: int, stdout: bytes, body: bytes, nonce: str) -> HarnessResult:
-        _require_attested(stdout)
-        if returncode != 0:
-            return _crashed("exit_status")
-        return _result_of_body(body, nonce)
+        return True
 
 
 bind_import_twin(__name__)

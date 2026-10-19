@@ -38,7 +38,7 @@ KILL_GRACE_S = 5
 
 __all__ = [
     "HarnessResult", "SubprocessHarness", "checked_timeout", "child_environment",
-    "report_result", "selfcheck",
+    "selfcheck",
 ]
 
 
@@ -81,12 +81,6 @@ def _report_of(raw: bytes) -> HarnessResult:
         report = load_strict_json(lines[0][len(MARKER):])
     except (ValueError, RecursionError):
         return HarnessResult(cv.OUTCOME_CRASHED, detail="report_not_json")
-    return _result_of(report)
-
-
-def report_result(report: object) -> HarnessResult:
-    """The result a child's parsed report stands for; a malformed report is ``crashed``."""
-
     return _result_of(report)
 
 

@@ -1,8 +1,9 @@
 """The sandboxed gate harness (#509): the code_repair OS boundary under the gate's protocol.
 
-The kernel classes run only where bwrap and Landlock work; the refusal and parsing classes run
-everywhere. ``SandboxedRealHarness`` replays the whole ``RealHarness`` suite against the new
-harness, so verdict semantics are the ones the subprocess harness already pins.
+The kernel classes run only where bwrap and Landlock work; the refusal classes run everywhere,
+and ``test_task_gate_sandboxed_report.py`` covers the plan, the sealed records, the judge and
+the child in process. ``SandboxedRealHarness`` replays the whole ``RealHarness`` suite against
+the new harness, so verdict semantics are the ones the subprocess harness already pins.
 """
 
 import contextlib
@@ -25,17 +26,11 @@ from task_gate import procedural, sandboxed
 
 AVAILABLE = ec.sandbox.os_boundary_available() and ec.landlock.available()
 NEEDS_BWRAP = unittest.skipUnless(AVAILABLE, "bwrap/Landlock isolation is not available here")
-NONCE = "ab" * 32
-GOOD_REPORT = {"protocol": cv.HARNESS_PROTOCOL, "outcome": "ran", "attempted": 2, "failed": 0,
-               "detail": "", "nonce": NONCE}
+KEY = bytes(range(32))
 ATTESTED = (
     b"code-repair-limits-attestation/1 true\n"
     b"code-repair-landlock-attestation/1 landlock-abi7\n"
 )
-
-
-def body_of(report):
-    return json.dumps(report).encode()
 
 
 class FakeIsolation:
@@ -80,12 +75,6 @@ class Refusals(unittest.TestCase):
                 fake = sandboxed.SandboxedHarness(5, isolation=FakeIsolation(argv))
                 self.assertEqual(refused(fake.run, ADD, "add"), cv.REFUSE_HARNESS_UNAVAILABLE)
 
-    def test_a_non_ascii_or_surrogate_nonce_is_a_crash_not_an_exception(self):
-        for echoed in ("caf\u00e9" * 16, "\ud800" * 64):
-            with self.subTest(echoed=echoed):
-                body = json.dumps({**GOOD_REPORT, "nonce": echoed}).encode()
-                self.assertEqual(sandboxed._result_of_body(body, NONCE).detail, "report_nonce")
-
     def test_a_timeout_is_a_timeout_only_when_the_program_was_attested_to_run(self):
         hang = [sys.executable, "-c", "import time; time.sleep(30)"]
         unattested = sandboxed.SandboxedHarness(0.3, isolation=FakeIsolation(hang))
@@ -127,29 +116,7 @@ class Refusals(unittest.TestCase):
         self.assertFalse(Path(tmp, "out").exists())
 
 
-class ReportParsing(unittest.TestCase):
-    def result(self, body):
-        return sandboxed._result_of_body(body, NONCE)
-
-    def test_a_report_echoing_the_nonce_is_read_like_any_protocol_report(self):
-        self.assertEqual(self.result(body_of(GOOD_REPORT)), harness.HarnessResult(cv.OUTCOME_PASSED, 2, 0))
-        failed = {**GOOD_REPORT, "failed": 1}
-        self.assertEqual(self.result(body_of(failed)).outcome, cv.OUTCOME_FAILED)
-
-    def test_anything_else_is_a_crash_and_never_a_verdict(self):
-        wrong = {**GOOD_REPORT, "nonce": "cd" * 32}
-        missing = {key: value for key, value in GOOD_REPORT.items() if key != "nonce"}
-        cases = {
-            "wrong nonce": body_of(wrong), "no nonce": body_of(missing),
-            "numeric nonce": body_of({**GOOD_REPORT, "nonce": 5}), "empty": b"",
-            "not json": b"{", "list": b"[]", "nan": b'{"nonce": NaN}',
-            "duplicate keys": b'{"nonce": "a", "nonce": "' + NONCE.encode() + b'"}',
-            "oversize": b" " * (harness.MAX_REPORT_BYTES + 1),
-        }
-        for name, body in cases.items():
-            with self.subTest(name):
-                self.assertEqual(self.result(body).outcome, cv.OUTCOME_CRASHED)
-
+class Description(unittest.TestCase):
     def test_describe_records_which_harness_ran(self):
         described = sandboxed.SandboxedHarness(7, isolation=FakeIsolation([])).describe()
         self.assertEqual(
@@ -161,10 +128,10 @@ class ReportParsing(unittest.TestCase):
 
 
 def forge_everywhere(then):
-    """A program that writes a perfect-looking failing report to every low descriptor."""
+    """A program that writes a failing-looking report to every low descriptor at import."""
 
-    report = json.dumps({"protocol": cv.HARNESS_PROTOCOL, "outcome": "ran", "attempted": 1,
-                         "failed": 1, "detail": "", "nonce": "guess"})
+    report = json.dumps({"payload": json.dumps({"seq": 0, "body": {"kind": "end", "count": 1}}),
+                         "mac": "00" * 32}) + "\n"
     return (
         "import os\nREPORT = " + repr(report) + "\n"
         "for fd in range(0, 128):\n"
@@ -172,6 +139,21 @@ def forge_everywhere(then):
         "        os.ftruncate(fd, len(REPORT))\n    except OSError:\n        pass\n"
         + then + "def f():\n    '''\n    >>> f()\n    1\n    '''\n    return 1\n"
     )
+
+
+# Forks at import and keeps rewriting the report so that the genuine pass reads as a failure:
+# the old nonce-echo report's count, and the observed text of a sealed record.
+POLLER = r"""
+import os, sys
+fd = int(sys.argv[4])
+if os.fork() == 0:
+    seen = b""
+    while True:
+        data = os.pread(fd, 1 << 20, 0)
+        if data and data != seen:
+            seen = data.replace(b'"failed": 0', b'"failed": 1').replace(b'text\\":\\"1', b'text\\":\\"2')
+            os.pwrite(fd, seen, 0)
+"""
 
 
 @NEEDS_BWRAP
@@ -188,20 +170,61 @@ class Kernel(unittest.TestCase):
         honest = harness.HarnessResult(cv.OUTCOME_PASSED, 1, 0)
         self.assertEqual(self.sandbox.run(forge_everywhere(""), "f"), honest)
         crashed = self.sandbox.run(forge_everywhere("os._exit(0)\n"), "f")
-        self.assertEqual((crashed.outcome, crashed.detail), (cv.OUTCOME_CRASHED, "report_nonce"))
+        self.assertEqual((crashed.outcome, crashed.detail), (cv.OUTCOME_CRASHED, "report_seal"))
         forged_pass = forge_everywhere("").replace("return 1", "return 2")
         self.assertEqual(self.sandbox.run(forged_pass, "f").outcome, cv.OUTCOME_FAILED)
 
-    def test_the_nonce_is_not_in_the_environment_or_any_workdir_file(self):
+    def test_a_forked_poller_rewriting_the_report_is_a_crash_never_a_verdict(self):
+        """The Blocks finding on #513: a poller that rewrites each record it sees."""
+
+        result = self.sandbox.run(POLLER + base.probe("return 1", 1), "f")
+        self.assertIn(result.outcome, (cv.OUTCOME_PASSED, cv.OUTCOME_CRASHED), result)
+
+    def test_a_pass_cannot_be_forged_even_by_tampering_with_the_child(self):
+        """The residual: a program can rebind the child's checker and seal what it likes.
+
+        It still cannot pass, because the expected output is not in the sandbox to copy.
+        """
+
+        tamper = (
+            "import sys\nrecorder = sys.modules['__main__']._Recorder\n"
+            "def forged(self, want, got, flags):\n"
+            "    self._channel.send(self._codec.observation('out', 'forged\\n'))\n"
+            "    return True\n"
+            "recorder.check_output = forged\n"
+        )
+        result = self.sandbox.run(tamper + base.probe("return 2", "e5f1c0a7"), "f")
+        self.assertEqual(result, harness.HarnessResult(cv.OUTCOME_FAILED, 1, 1))
+
+    def test_the_expected_output_never_reaches_the_sandbox(self):
         body = (
-            "import os\nneedle = (%r * %d).encode()\nfound = [k for k, v in os.environ.items() "
-            "if needle in v.encode()]\nfor name in os.listdir('.'):\n    if os.path.isfile(name):\n"
-            "        with open(name, 'rb') as handle:\n            if needle in handle.read():\n"
-            "                found.append(name)\nreturn found"
-        ) % (NONCE[:2], len(NONCE) // 2)
-        with mock.patch.object(sandboxed.secrets, "token_hex", return_value=NONCE):
-            result = self.sandbox.run(base.probe(body, []), "f")
+            "import os\nneedle = ('>' * 3 + ' f()').encode()\nfound = []\n"
+            "for name in os.listdir('.'):\n    with open(name, 'rb') as handle:\n"
+            "        if needle in handle.read():\n            found.append(name)\n"
+            "return found, f.__doc__"
+        )
+        self.assertEqual(self.sandbox.run(base.probe(body, ([], "")), "f"),
+                         harness.HarnessResult(cv.OUTCOME_PASSED, 1, 0))
+
+    def test_the_key_is_not_in_the_environment_any_workdir_file_or_stdin(self):
+        body = (
+            "import os\nneedles = (bytes(range(32)), bytes(range(32)).hex().encode())\n"
+            "found = [k for k, v in os.environ.items() if any(n in v.encode() for n in needles)]\n"
+            "for name in os.listdir('.'):\n    with open(name, 'rb') as handle:\n"
+            "        data = handle.read()\n    if any(n in data for n in needles):\n"
+            "        found.append(name)\nreturn found, os.read(0, 8)"
+        )
+        with mock.patch.object(sandboxed.secrets, "token_bytes", return_value=KEY):
+            result = self.sandbox.run(base.probe(body, ([], b"")), "f")
         self.assertEqual(result.outcome, cv.OUTCOME_PASSED, result)
+
+    def test_the_child_cannot_read_its_own_memory_through_proc(self):
+        body = (
+            "out = []\nfor path in ('/proc/self/mem', '/proc/self/maps', '/proc/self/environ'):\n"
+            "    try:\n        open(path, 'rb').read(1)\n        out.append(path)\n"
+            "    except OSError:\n        pass\nreturn out"
+        )
+        self.assertEqual(self.sandbox.run(base.probe(body, []), "f").outcome, cv.OUTCOME_PASSED)
 
     def test_network_is_denied_below_the_socket_module(self):
         body = (
@@ -230,10 +253,6 @@ class Kernel(unittest.TestCase):
             "        out.append(path)\n    except OSError:\n        pass\nreturn out"
         )
         self.assertEqual(self.sandbox.run(base.probe(body, []), "f").outcome, cv.OUTCOME_PASSED)
-
-    def test_stdin_does_not_give_the_nonce_back(self):
-        body = "import os\nreturn os.read(0, 8)"
-        self.assertEqual(self.sandbox.run(base.probe(body, b""), "f").outcome, cv.OUTCOME_PASSED)
 
     def test_system_exit_and_interrupts_at_import_are_load_errors(self):
         for raised in ("SystemExit(3)", "KeyboardInterrupt()", "GeneratorExit()"):

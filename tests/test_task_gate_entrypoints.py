@@ -121,6 +121,7 @@ class DirectScript(unittest.TestCase):
 FRESH_LOADERS = {
     "pipelines.task_gate._contract": lambda: importlib.import_module("pipelines.task_gate._contract"),
     "pipelines.task_gate.procedural": lambda: importlib.import_module("pipelines.task_gate.procedural"),
+    "pipelines.task_gate.sandboxed": lambda: importlib.import_module("pipelines.task_gate.sandboxed"),
 }
 
 
@@ -147,6 +148,10 @@ class PackageSpelling(unittest.TestCase):
             found,
             [("pipelines.task_gate._contract", True), ("pipelines.task_gate.procedural", True)],
         )
+
+    def test_the_sandboxed_harness_and_its_contract_bind_their_flat_twins(self):
+        found = self.import_fresh("pipelines.task_gate.sandboxed")
+        self.assertEqual(found, [("pipelines.task_gate.sandboxed", True)])
 
     def test_the_flat_spelling_of_the_same_modules_is_untouched_afterwards(self):
         before = sys.modules.get("task_gate._contract")
