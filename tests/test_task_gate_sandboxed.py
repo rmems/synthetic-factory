@@ -183,6 +183,15 @@ class Kernel(unittest.TestCase):
         one run must actually carry the rewrite, and every run that does is a crash.
         """
 
+        runs = self.poller_runs(attempts=5)
+        self.assertIn(REWRITTEN, runs[-1][1], "the poller never reached the report")
+        for result, report in runs:
+            expected = cv.OUTCOME_CRASHED if REWRITTEN in report else cv.OUTCOME_PASSED
+            self.assertEqual(result.outcome, expected, result)
+
+    def poller_runs(self, attempts):
+        """``(result, report)`` per run of the poller, stopping at the first rewritten report."""
+
         reports = []
         judge = sandboxed.judged
 
@@ -190,16 +199,11 @@ class Kernel(unittest.TestCase):
             reports.append(body)
             return judge(examples, body, key)
 
-        outcomes = []
         with mock.patch.object(sandboxed, "judged", side_effect=capture):
-            for _ in range(5):
-                outcomes.append(self.sandbox.run(POLLER + base.probe("return 1", 1), "f"))
-                if REWRITTEN in reports[-1]:
-                    break
-        self.assertIn(REWRITTEN, reports[-1], "the poller never reached the report")
-        for result, body in zip(outcomes, reports, strict=True):
-            expected = cv.OUTCOME_CRASHED if REWRITTEN in body else cv.OUTCOME_PASSED
-            self.assertEqual(result.outcome, expected, result)
+            results = [self.sandbox.run(POLLER + base.probe("return 1", 1), "f")]
+            while REWRITTEN not in reports[-1] and len(results) < attempts:
+                results.append(self.sandbox.run(POLLER + base.probe("return 1", 1), "f"))
+        return list(zip(results, reports, strict=True))
 
     def test_a_pass_cannot_be_forged_even_by_tampering_with_the_child(self):
         """The residual: a program can rebind the child's checker and seal what it likes.
