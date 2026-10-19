@@ -52,10 +52,11 @@ def _malformed(detail: str) -> cv.GateRefusal:
 
 
 def _bound(value: object, name: str) -> Fraction:
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
+    if type(value) not in (int, float):  # exact types: bool is not a JSON number here
         raise _malformed(f"{name} must be a JSON number")
     bound = Fraction(str(value))
-    if bound <= 0 or bound >= 1:
+    # Fraction keeps the denominator positive, so 0 < bound < 1 is 0 < numerator < denominator.
+    if not 0 < bound.numerator < bound.denominator:
         raise _malformed(f"{name} must lie strictly between 0 and 1")
     return bound
 
