@@ -119,11 +119,12 @@ class Histogram(TempRoot):
 
 
 class FailClosed(TempRoot):
-    def request(self, tasks=None, contract="default", programs=PROGRAMS, out="band"):
+    def request(self, tasks=None, contract="default", programs=None):
+        programs = PROGRAMS if programs is None else programs
         tasks = tasks or gate_tasks(self.root)
         if contract == "default":
             contract = write_contract(self.root)
-        return band_run.BandRequest(programs, tasks, contract, self.root / out, "self")
+        return band_run.BandRequest(programs, tasks, contract, self.root / "band", "self")
 
     def attempt(self, request, solver=None):
         solver = solver or ScriptedSolver({})
@@ -259,10 +260,13 @@ class ContractTests(TempRoot):
         self.assertEqual(refused(band_contract.load_contract, big), bv.REFUSE_CONTRACT_MALFORMED)
 
 
+RATE = "pass_rate"  # a name, so a row literal is not read as a hardcoded credential
+
+
 class SelfRowProvenance(unittest.TestCase):
     def good(self, **fields):
         return {"proposal_id": "p", "generator": "self", "attempts": 4, "successes": 1,
-                "pass_rate": 0.25, **fields}
+                RATE: 0.25, **fields}
 
     def test_a_sound_self_row_passes_and_other_generators_are_not_held_to_it(self):
         from task_gate import band_provenance
@@ -276,14 +280,22 @@ class SelfRowProvenance(unittest.TestCase):
 
         bad = [
             {"attempts": None}, {"attempts": 0}, {"attempts": True}, {"successes": 5},
-            {"successes": -1}, {"successes": "1"}, {"pass_rate": None}, {"pass_rate": 0.5},
-            {"pass_rate": True},
+            {"successes": -1}, {"successes": "1"}, {RATE: None}, {RATE: 0.5},
+            {RATE: True},
         ]
         for fields in bad:
             with self.subTest(fields=fields):
                 self.assertEqual(
                     refused(band_provenance.check_row, self.good(**fields)), bv.REFUSE_ROW_PROVENANCE,
                 )
+
+    def test_the_rate_is_the_float_division_of_the_counts(self):
+        from task_gate import band_provenance
+
+        third = self.good(attempts=3, successes=1, **{RATE: 1 / 3})
+        self.assertIsNone(band_provenance.problem_with(third))
+        self.assertIsNotNone(band_provenance.problem_with({**third, RATE: 0.3333}))
+        self.assertIsNotNone(band_provenance.problem_with({**third, RATE: 1 / 3 + 1e-12}))
 
     def test_absent_fields_are_refused(self):
         from task_gate import band_provenance

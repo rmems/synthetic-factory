@@ -1,6 +1,7 @@
 """Defensive paths of the band stage: bad tasks files, cleanup, injected contract, odd candidates."""
 
 import json
+from fractions import Fraction
 import sys
 import tempfile
 import unittest
@@ -13,6 +14,7 @@ from band_test_support import (
     ADD, PROGRAMS, STUDENT_PASSES, ScriptedSolver, band_run, bv, cv, gate_tasks, read_rows,
     write_contract,
 )
+from task_gate import mutation
 from task_gate import band_contract, band_report, band_solver, band_tasks
 from task_gate_test_support import PROGRAM, FakeHarness, refused
 
@@ -86,6 +88,37 @@ class OddCandidates(unittest.TestCase):
                 with mock.patch.object(band_solver.mutation, "candidate_problem", side_effect=error):
                     self.assertFalse(scorer.passes(ADD))
         self.assertEqual(fake.calls, [])
+
+    def test_an_oversized_candidate_fails_before_it_is_parsed_or_run(self):
+        fake = FakeHarness()
+        padded = ADD + "#" * cv.MAX_PROGRAM_BYTES
+        with mock.patch.object(mutation.ast, "parse", side_effect=AssertionError("parsed")):
+            self.assertFalse(band_solver.Scorer(PROGRAM, fake).passes(padded))
+        self.assertEqual(fake.calls, [])
+        self.assertEqual(mutation.candidate_problem(PROGRAM, padded), cv.DETAIL_MUTANT_ESCAPES_BODY)
+
+    def test_a_harness_that_raises_is_a_coded_refusal_not_a_failed_attempt(self):
+        class Broken(FakeHarness):
+            def run(self, program_text, function):
+                raise OSError("sandbox gone")
+
+        self.assertEqual(refused(band_solver.Scorer(PROGRAM, Broken()).passes, ADD), bv.REFUSE_HARNESS_FAILED)
+
+    def test_a_harness_refusal_passes_through_with_its_own_code(self):
+        class Refusing(FakeHarness):
+            def run(self, program_text, function):
+                raise cv.GateRefusal("OTHER_CODE", "x")
+
+        self.assertEqual(refused(band_solver.Scorer(PROGRAM, Refusing()).passes, ADD), "OTHER_CODE")
+
+
+class RowsFile(unittest.TestCase):
+    def test_every_band_is_in_the_rows_file_and_the_vocabulary_is_exhaustive(self):
+        contract = band_contract.BandContract(10, Fraction(1, 5), Fraction(9, 10), "0" * 64)
+        seen = {contract.classify(n, 10) for n in range(11)}
+        self.assertEqual(seen, set(bv.BANDS))
+        rows = [band_report.BandRow({"proposal_id": str(n)}, "self", 10, n, contract.classify(n, 10)) for n in range(11)]
+        self.assertEqual(len(band_report.BandOutcome(rows, contract, {}).all_rows()), 11)
 
 
 if __name__ == "__main__":

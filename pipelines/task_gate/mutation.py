@@ -281,9 +281,13 @@ def candidate_problem(program: GateProgram, candidate_text: str) -> str | None:
     """Why ``candidate_text`` is not a legal rewrite of the target body, or None when it is.
 
     The same confinement a mutant must satisfy: it compiles, and everything but the target's
-    body (including its docstring and doctests) is unchanged and untampered.
+    body (including its docstring and doctests) is unchanged and untampered. Solver output is
+    untrusted, so a candidate larger than ``MAX_PROGRAM_BYTES`` (the cap a program itself
+    obeys) is refused before it is parsed.
     """
 
+    if len(candidate_text.encode("utf-8")) > cv.MAX_PROGRAM_BYTES:
+        return cv.DETAIL_MUTANT_ESCAPES_BODY
     return _mutant_problem(program, candidate_text)
 
 

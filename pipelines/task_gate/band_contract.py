@@ -55,7 +55,7 @@ def _bound(value: object, name: str) -> Fraction:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise _malformed(f"{name} must be a JSON number")
     bound = Fraction(str(value))
-    if not 0 < bound < 1:
+    if bound <= 0 or bound >= 1:
         raise _malformed(f"{name} must lie strictly between 0 and 1")
     return bound
 

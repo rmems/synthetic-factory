@@ -69,6 +69,9 @@ class BandOutcome:
     contract: BandContract
     meta: Mapping[str, Any]
 
+    def all_rows(self) -> list[dict[str, Any]]:
+        return [row.as_row() for row in self.rows]
+
     def with_band(self, *bands: str) -> list[dict[str, Any]]:
         return [row.as_row() for row in self.rows if row.band in bands]
 
@@ -94,7 +97,7 @@ def _summary(outcome: BandOutcome, outputs: Mapping[str, Any]) -> dict[str, Any]
 
 def _stage(stage: Path, outcome: BandOutcome) -> dict[str, Any]:
     files = {
-        bv.ROWS_FILENAME: outcome.with_band(*bv.BANDS),
+        bv.ROWS_FILENAME: outcome.all_rows(),
         bv.KEPT_FILENAME: outcome.with_band(bv.BAND_KEPT),
         bv.SEED_NEEDED_FILENAME: outcome.with_band(bv.BAND_SEED_NEEDED),
     }

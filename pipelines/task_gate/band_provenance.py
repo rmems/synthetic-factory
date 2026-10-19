@@ -3,8 +3,9 @@
 
 ``check_row`` is the check the band writer applies to every row it emits and the one a
 composing step can apply to any row of a train set. Only ``generator == "self"`` rows are
-held to it; it is exact (``pass_rate`` must equal ``successes / attempts``), so a row cannot
-claim a difficulty its counts do not support.
+held to it; it is exact: ``pass_rate`` is the Python float division ``successes / attempts`` (the double
+nearest the true ratio, which is what the writer emits and exact JSON round-trips), so a
+row cannot claim a difficulty its counts do not support. Any other double is refused.
 """
 
 from __future__ import annotations
@@ -33,7 +34,8 @@ def _rate_problem(row: Mapping[str, Any]) -> str | None:
     rate = row.get("pass_rate")
     if isinstance(rate, bool) or not isinstance(rate, (int, float)):
         return "pass_rate must be a number"
-    return None if rate == row["successes"] / row["attempts"] else "pass_rate != successes / attempts"
+    expected = row["successes"] / row["attempts"]  # the writer's own division, so equality is exact
+    return None if rate == expected else "pass_rate != successes / attempts"
 
 
 def problem_with(row: Mapping[str, Any]) -> str | None:

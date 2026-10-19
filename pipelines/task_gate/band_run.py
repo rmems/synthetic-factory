@@ -80,7 +80,7 @@ def _prepare(request: BandRequest, loaded: band_tasks.LoadedTasks) -> list[Prepa
 def run(request: BandRequest, solver: Solver, harness: Harness | None = None) -> dict[str, Any]:
     """Run the band stage and return the summary that was written to ``band-summary.json``."""
 
-    check_destination(Path(request.out))
+    check_destination(Path(request.out))  # fail fast before any work; publish's no-replace rename is the authority
     cv.refuse_when(
         not is_identifier(request.generator), bv.REFUSE_REQUEST_INVALID, "generator must be named",
     )

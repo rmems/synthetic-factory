@@ -5,7 +5,9 @@ A solver receives only the broken module (never the original program) and return
 candidate module text. The stage, not the solver, decides success: the candidate must be a legal rewrite
 of the target body (:func:`mutation.candidate_problem`, so it cannot edit the doctests) and the
 reference harness must run it to a pass with at least one doctest attempted. A solver that
-raises, or returns a non-string, fails closed or counts as a failed attempt respectively.
+raises fails closed (``BAND_SOLVER_FAILED``), and so does a harness that raises while
+scoring a candidate (``BAND_HARNESS_FAILED``): both are infrastructure failures, not student
+failures. A solver that returns a non-string or an illegal rewrite is a failed attempt.
 
 Real solver wiring (the student adapter, #160) is a follow-up: this module is the seam.
 """
@@ -13,7 +15,7 @@ Real solver wiring (the student adapter, #160) is a follow-up: this module is th
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Any, Protocol
 
 from . import band_vocabulary as bv
 from . import mutation
@@ -48,8 +50,18 @@ class Scorer:
     def passes(self, candidate: object) -> bool:
         if not self._legal(candidate):
             return False
-        result = self.harness.run(candidate, self.program.function)
+        result = self._run(candidate)
         return result.outcome == cv.OUTCOME_PASSED and result.attempted > 0
+
+    def _run(self, candidate: str) -> Any:
+        try:
+            return self.harness.run(candidate, self.program.function)
+        except cv.GateRefusal:
+            raise
+        except Exception as exc:  # a harness crash is infrastructure failure, never a failed attempt
+            raise cv.GateRefusal(
+                bv.REFUSE_HARNESS_FAILED, f"{self.program.program_id}: {type(exc).__name__}",
+            ) from exc
 
     def _legal(self, candidate: object) -> bool:
         """A module text that is a legal rewrite of the target body and nothing else."""
