@@ -139,13 +139,18 @@ jobs:
   test:
     name: unittest (Python 3.14)
     needs: [lint, shard, oracle]
-    # A failed or cancelled prerequisite would otherwise skip this job, and a
-    # skipped required check reads as passing to branch protection.
-    if: always()
+    # A failed prerequisite would otherwise skip this job, and a skipped required
+    # check reads as passing to branch protection, so it runs unless the whole run
+    # was cancelled (a superseded push), in which case it is skipped with the rest.
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     # Gate, coverage combine and Codecov upload take about a minute.
     timeout-minutes: 10
     steps:
+      # Strict on purpose: a shard that hits timeout-minutes, or one cancelled from the
+      # UI while the run continues, reports `cancelled` here and must keep this job red.
+      # One comparison per command, so each failing result stops the step under `bash -e`
+      # on its own, independent of where it sits in the script.
       - name: Require the lint gate, every shard and the oracle job to have succeeded
         env:
           LINT_RESULT: ${{ needs.lint.result }}
@@ -153,7 +158,9 @@ jobs:
           ORACLE_RESULT: ${{ needs.oracle.result }}
         run: |
           echo "lint=$LINT_RESULT shard=$SHARD_RESULT oracle=$ORACLE_RESULT"
-          test "$LINT_RESULT" = success && test "$SHARD_RESULT" = success && test "$ORACLE_RESULT" = success
+          test "$LINT_RESULT" = success
+          test "$SHARD_RESULT" = success
+          test "$ORACLE_RESULT" = success
 
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
