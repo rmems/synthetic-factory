@@ -50,7 +50,9 @@ its own merits.
 ## Outputs
 
 A run writes a brand-new directory (refused if it exists or names the raw tree), staged beside
-its destination and renamed into place:
+its destination and moved into place with an atomic no-replace rename (`renameat2` with
+`RENAME_NOREPLACE`, the repository's shared `compose_destination_rename.rename_noreplace`), so a
+destination another writer creates mid-run is refused, never overwritten:
 
 * `tasks.jsonl` -- one row per input proposal, in input order, with verdict, detail, resolved
   span, dedup key and program/mutant digests.

@@ -1,5 +1,6 @@
 """Edge branches of the gate: oversized inputs, unreadable files, bad reports, failed writes."""
 
+import errno
 import sys
 import tempfile
 import unittest
@@ -96,18 +97,39 @@ class HarnessReports(unittest.TestCase):
         self.assertEqual(harness._result_of(ok), harness.HarnessResult(cv.OUTCOME_FAILED, 2, 1))
 
 
+def _run_into(tmp):
+    request = runner.GateRequest({"prog-add": PROGRAM}, [proposal_for()], DENY, Path(tmp) / "out")
+    return lambda: runner.run(request, FakeHarness({ADD: PASSED}))
+
+
 class FailedWrites(unittest.TestCase):
     def test_a_failure_while_publishing_leaves_no_destination_and_no_stage(self):
+        failure = OSError(errno.ENOSPC, "No space left on device")
         with tempfile.TemporaryDirectory() as tmp:
-            request = runner.GateRequest(
-                {"prog-add": PROGRAM}, [proposal_for()], DENY, Path(tmp) / "out",
-            )
-            fake = FakeHarness({ADD: PASSED})
-            with mock.patch.object(report.os, "rename", side_effect=OSError("disk full")):
-                with self.assertRaises(OSError):
-                    runner.run(request, fake)
+            run = _run_into(tmp)
+            with mock.patch.object(report, "rename_noreplace", side_effect=failure):
+                code = refused(run)
             leftover = sorted(path.name for path in Path(tmp).iterdir())
+        self.assertEqual(code, cv.REFUSE_INPUT_INVALID)
         self.assertEqual(leftover, [])
+
+    def test_a_destination_created_during_the_run_is_refused_not_replaced(self):
+        stage_files = report._stage_files
+
+        def racing_writer(stage, outcome):
+            summary = stage_files(stage, outcome)
+            Path(stage.parent, "out").mkdir()  # another writer wins the name after the check
+            return summary
+
+        with tempfile.TemporaryDirectory() as tmp:
+            run = _run_into(tmp)
+            with mock.patch.object(report, "_stage_files", side_effect=racing_writer):
+                code = refused(run)
+            leftover = sorted(path.name for path in Path(tmp).iterdir())
+            untouched = sorted(path.name for path in Path(tmp, "out").iterdir())
+        self.assertEqual(code, cv.REFUSE_DESTINATION_EXISTS)
+        self.assertEqual(leftover, ["out"])
+        self.assertEqual(untouched, [])
 
 
 if __name__ == "__main__":

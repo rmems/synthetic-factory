@@ -9,6 +9,7 @@ proposal is executed.
 
 from __future__ import annotations
 
+import errno
 import hashlib
 import os
 import shutil
@@ -20,7 +21,7 @@ from pathlib import Path
 from typing import Any
 
 from . import vocabulary as cv
-from ._contract import bind_import_twin, dumps_exact_json, is_under_raw
+from ._contract import bind_import_twin, dumps_exact_json, is_under_raw, rename_noreplace
 from .dedup_index import PriorIndex, index_bytes
 from .gate import Decision
 
@@ -133,6 +134,27 @@ def _stage_files(stage: Path, outcome: RunOutcome) -> dict[str, Any]:
     return summary
 
 
+_EXISTING_ENTRY = frozenset({errno.EEXIST, errno.ENOTEMPTY})
+
+
+def _publish(stage: Path, destination: Path) -> None:
+    """Move the stage onto the destination atomically, never replacing an existing entry.
+
+    ``rename_noreplace`` (``renameat2`` with ``RENAME_NOREPLACE``) closes the window
+    between the entry check and the rename, so a destination created by another
+    writer meanwhile is refused rather than overwritten.
+    """
+
+    parent = os.open(stage.parent, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        rename_noreplace(parent, stage.name, destination.name)
+    except OSError as exc:
+        code = cv.REFUSE_DESTINATION_EXISTS if exc.errno in _EXISTING_ENTRY else cv.REFUSE_INPUT_INVALID
+        raise cv.GateRefusal(code, f"cannot publish {destination}: {exc.strerror}") from exc
+    finally:
+        os.close(parent)
+
+
 def write_run(out: Path, outcome: RunOutcome) -> dict[str, Any]:
     """Write the three files into the new destination and return the summary."""
 
@@ -141,8 +163,7 @@ def write_run(out: Path, outcome: RunOutcome) -> dict[str, Any]:
     stage = Path(tempfile.mkdtemp(prefix=".task-gate-stage-", dir=destination.resolve().parent))
     try:
         summary = _stage_files(stage, outcome)
-        check_destination(destination)
-        os.rename(stage, destination)
+        _publish(stage, destination)
     except BaseException:
         shutil.rmtree(stage, ignore_errors=True)
         raise

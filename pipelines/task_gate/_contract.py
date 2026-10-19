@@ -9,12 +9,14 @@ Both import forms work (``task_gate.x`` with ``pipelines/`` on ``sys.path`` and
 from __future__ import annotations
 
 if __name__.startswith("pipelines."):
+    from ..compose_destination_rename import rename_noreplace
     from ..exact_json import dumps_exact_json
     from ..oracle_grounded.import_twins import bind_import_twin
     from ..raw_tree_guard import is_under_raw
     from ..strict_jsonl import StrictJsonlError, strict_lf_jsonl_lines
     from ..tag_jsonutil import reject_duplicate_object_keys, reject_json_constant
 else:
+    from compose_destination_rename import rename_noreplace
     from exact_json import dumps_exact_json
     from oracle_grounded.import_twins import bind_import_twin
     from raw_tree_guard import is_under_raw
@@ -30,6 +32,7 @@ __all__ = [
     "dumps_exact_json",
     "is_under_raw",
     "load_strict_json",
+    "rename_noreplace",
     "strict_lf_jsonl_lines",
 ]
 
