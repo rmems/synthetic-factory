@@ -93,6 +93,19 @@ class WriteRun(unittest.TestCase):
 REPO = Path(__file__).resolve().parents[1]
 
 
+# Literal module names only: each loader imports exactly one fixed path, under both spellings.
+FRESH_LOADERS = {
+    "pipelines.maos.generate": lambda: importlib.import_module("pipelines.maos.generate"),
+    "maos.generate": lambda: importlib.import_module("maos.generate"),
+    "pipelines.nelb.generate": lambda: importlib.import_module("pipelines.nelb.generate"),
+    "nelb.generate": lambda: importlib.import_module("nelb.generate"),
+    "pipelines.pkg.generate": lambda: importlib.import_module("pipelines.pkg.generate"),
+    "pkg.generate": lambda: importlib.import_module("pkg.generate"),
+    "pipelines.ttf.generate": lambda: importlib.import_module("pipelines.ttf.generate"),
+    "ttf.generate": lambda: importlib.import_module("ttf.generate"),
+}
+
+
 class PackageSpelling(unittest.TestCase):
     """Each family's ``generate`` finds the shared writer under its package spelling too."""
 
@@ -102,19 +115,18 @@ class PackageSpelling(unittest.TestCase):
 
         family = name.split(".")[-2]
         with mock.patch.dict(sys.modules):
-            for key in [k for k in sys.modules if k.split(".")[:2] in ([family], ["pipelines", family])
+            for key in [k for k in sys.modules if k in (family, f"pipelines.{family}")
                         or k.startswith((f"{family}.", f"pipelines.{family}."))]:
                 del sys.modules[key]
-            return importlib.import_module(name)
+            return FRESH_LOADERS[name]()
 
     def test_family_generators_import_the_writer_under_both_spellings(self):
         if str(REPO) not in sys.path:
             sys.path.append(str(REPO))
-        for family in ("maos", "nelb", "pkg", "ttf"):
-            for name in (f"pipelines.{family}.generate", f"{family}.generate"):
-                with self.subTest(module=name):
-                    module = self.fresh_import(name)
-                    self.assertIs(module._exclusive_run.write_run, exclusive_run.write_run)
+        for name in FRESH_LOADERS:
+            with self.subTest(module=name):
+                module = self.fresh_import(name)
+                self.assertIs(module._exclusive_run.write_run, exclusive_run.write_run)
 
 
 if __name__ == "__main__":
