@@ -51,6 +51,17 @@ class TasksFile(unittest.TestCase):
         bad.write_text(row + row)
         self.assertEqual(self.code(bad), bv.REFUSE_TASKS_INVALID)
 
+    def test_rows_the_gate_did_not_keep_are_skipped_whatever_their_proposal_id(self):
+        # The gate takes any text as a proposal_id and does not require uniqueness, so only the
+        # kept rows (which become tasks keyed by that id) are held to the stricter rule.
+        rows = read_rows(self.tasks)
+        kept = [row for row in rows if row["verdict"] == cv.VERDICT_KEPT]
+        odd = {**rows[0], "verdict": cv.VERDICT_MUTANT_PASSES, "proposal_id": "a b"}
+        path = self.root / "odd.jsonl"
+        path.write_text("".join(json.dumps(row) + "\n" for row in [*kept, odd, odd]))
+        loaded = band_tasks.load_kept(path)
+        self.assertEqual((len(loaded.kept), loaded.skipped), (len(kept), 2))
+
     def test_a_mutant_that_no_longer_rebuilds_is_refused(self):
         loaded = band_tasks.load_kept(self.tasks)
         row = band_tasks.KeptTask({**loaded.kept[0], "mutant_sha256": "0" * 64})
@@ -110,6 +121,22 @@ class OddCandidates(unittest.TestCase):
                 raise cv.GateRefusal("OTHER_CODE", "x")
 
         self.assertEqual(refused(band_solver.Scorer(PROGRAM, Refusing()).passes, ADD), "OTHER_CODE")
+
+
+class InjectedContract(unittest.TestCase):
+    def test_a_hand_built_contract_obeys_the_loaded_contract_rules(self):
+        good = (10, Fraction(1, 10), Fraction(9, 10), "0" * 64)
+        bad = {
+            "one attempt": (1, *good[1:]),
+            "bool attempts": (True, *good[1:]),
+            "zero bound": (10, Fraction(0), good[2], good[3]),
+            "float bound": (10, 0.1, good[2], good[3]),
+            "inverted": (10, Fraction(9, 10), Fraction(1, 10), good[3]),
+        }
+        band_contract.BandContract(*good)
+        for name, fields in bad.items():
+            with self.subTest(name=name):
+                self.assertEqual(refused(band_contract.BandContract, *fields), bv.REFUSE_CONTRACT_MALFORMED)
 
 
 class RowsFile(unittest.TestCase):

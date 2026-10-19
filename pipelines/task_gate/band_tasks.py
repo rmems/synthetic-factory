@@ -56,6 +56,7 @@ def _read(path: Path | str) -> bytes:
 
 def _kept_problem(row: dict) -> str | None:
     ok = all(is_text(row.get(key)) for key in _KEPT_TEXT) and is_identifier(row["program_id"])
+    ok = ok and is_identifier(row.get("proposal_id"))
     ok = ok and is_count(row.get("start_byte")) and is_count(row.get("end_byte"))
     return None if ok else "kept row lacks its span, program or digests"
 
@@ -63,8 +64,8 @@ def _kept_problem(row: dict) -> str | None:
 def _row_problem(row: object) -> str | None:
     if not isinstance(row, dict) or row.get("format") != cv.TASKS_FORMAT:
         return "not a task-gate row"
-    if row.get("verdict") not in cv.VERDICTS or not is_identifier(row.get("proposal_id")):
-        return "unknown verdict or proposal_id"
+    if row.get("verdict") not in cv.VERDICTS:
+        return "unknown verdict"
     return _kept_problem(row) if row["verdict"] == cv.VERDICT_KEPT else None
 
 
@@ -76,8 +77,10 @@ def _rows(path: Path | str, data: bytes) -> list[dict[str, Any]]:
     for number, row in enumerate(rows, 1):
         problem = _row_problem(row)
         cv.refuse_when(problem is not None, bv.REFUSE_TASKS_INVALID, f"{path}:{number}: {problem}")
-    ids = [row["proposal_id"] for row in rows]
-    cv.refuse_when(len(set(ids)) != len(ids), bv.REFUSE_TASKS_INVALID, f"{path} repeats a proposal_id")
+    # Only kept rows become tasks keyed by proposal_id; the gate itself does not require ids to be
+    # unique or identifier-shaped, so rows it did not keep are counted and otherwise left alone.
+    ids = [row["proposal_id"] for row in rows if row["verdict"] == cv.VERDICT_KEPT]
+    cv.refuse_when(len(set(ids)) != len(ids), bv.REFUSE_TASKS_INVALID, f"{path} repeats a kept proposal_id")
     return rows
 
 

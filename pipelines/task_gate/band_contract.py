@@ -36,6 +36,12 @@ class BandContract:
     pass_rate_max: Fraction
     sha256: str
 
+    def __post_init__(self) -> None:
+        # The same rules as a loaded contract, so a hand-built one cannot skip them.
+        _attempts(self.attempts_per_task)
+        if _bound(self.pass_rate_min, "pass_rate_min") > _bound(self.pass_rate_max, "pass_rate_max"):
+            raise _malformed("pass_rate_min exceeds pass_rate_max")
+
     def classify(self, successes: int, attempts: int) -> str:
         """The band verdict for ``successes`` out of ``attempts`` solver attempts."""
 
@@ -77,11 +83,7 @@ def _attempts(value: object) -> int:
 
 def _validated(document: object, digest: str) -> BandContract:
     fields = _shape(document)
-    attempts = _attempts(fields["attempts_per_task"])
-    low, high = _bound(fields["pass_rate_min"], "pass_rate_min"), _bound(fields["pass_rate_max"], "pass_rate_max")
-    if low > high:
-        raise _malformed("pass_rate_min exceeds pass_rate_max")
-    return BandContract(attempts, low, high, digest)
+    return BandContract(fields["attempts_per_task"], fields["pass_rate_min"], fields["pass_rate_max"], digest)
 
 
 def _regular_file_head(path: Path | str) -> bytes:
