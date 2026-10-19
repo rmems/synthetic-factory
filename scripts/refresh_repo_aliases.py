@@ -308,20 +308,38 @@ def confined_output(path: Path) -> Path:
     return Path(_confined_target(path)[1])
 
 
+def _destination_inside(root: str, target: str) -> Path:
+    """Rebuild ``target`` from ``root`` after ``resolve`` and ``relative_to``.
+
+    The link destination is this new path, not the ``--out`` string. ``relative_to``
+    raises when the resolved target is not inside the allowed root, which also
+    rejects a root-prefix such as ``/repo-evil`` against ``/repo``.
+    """
+
+    allowed = Path(root).resolve()
+    try:
+        relative = Path(target).resolve().relative_to(allowed)
+    except ValueError:
+        raise RefreshError(f"--out {target} {_OUTSIDE}") from None
+    if not relative.parts or relative.parts == (os.curdir,):
+        raise RefreshError(f"--out {target} {_OUTSIDE}")
+    return allowed.joinpath(*relative.parts)
+
+
 def publish_new_file(path: Path, payload: bytes) -> None:
     """Publish ``payload`` at a new ``path`` atomically; no partial file is ever visible.
 
-    ``path`` is confined first (see ``_confined_target``), and the write uses only
-    the resolved target after a same-function prefix check against its root.
-    The bytes go to an exclusive temporary sibling, are fsynced, then hard-linked
-    into place (``os.link`` refuses an existing destination). The temporary is
-    removed on every path, so a failed write leaves neither it nor ``path``.
+    ``path`` is confined first (see ``_confined_target``). The hard-link destination
+    is then rebuilt from that allowed root via ``_destination_inside``, so the
+    ``os.link`` sink does not receive the ``--out`` string. The bytes go to an
+    exclusive temporary sibling, are fsynced, then hard-linked into place
+    (``os.link`` refuses an existing destination). The temporary is removed on
+    every path, so a failed write leaves neither it nor ``path``.
     """
 
     root, target = _confined_target(path)
-    if not target.startswith(root + os.sep):
-        raise RefreshError(f"--out {os.fspath(path)} {_OUTSIDE}")
-    directory, name = os.path.split(target)
+    destination = os.fspath(_destination_inside(root, target))
+    directory, name = os.path.split(destination)
     temporary = os.path.join(directory, f".{name}.{uuid.uuid4().hex}.publishing")
     descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
     try:
@@ -329,7 +347,7 @@ def publish_new_file(path: Path, payload: bytes) -> None:
             handle.write(payload)
             handle.flush()
             os.fsync(handle.fileno())
-        os.link(temporary, target, follow_symlinks=False)
+        os.link(temporary, destination, follow_symlinks=False)
     finally:
         Path(temporary).unlink(missing_ok=True)
 
