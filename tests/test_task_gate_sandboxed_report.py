@@ -47,6 +47,18 @@ def sealed(*bodies, key=KEY):
     return b"".join(record.seal(key, seq, body) for seq, body in enumerate(bodies))
 
 
+def compiled_function(text):
+    """``f`` from ``text`` loaded as a module from a temporary file, as the harness child does."""
+
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp, "program_under_test.py")
+        path.write_text(text, encoding="utf-8")
+        spec = importlib.util.spec_from_file_location("program_under_test", path)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+    return module.f
+
+
 def examples_of(docstring):
     return tuple(doctest.DocTestParser().get_examples(docstring))
 
@@ -227,9 +239,7 @@ class Planning(unittest.TestCase):
         }
         for name, text in shapes.items():
             with self.subTest(name):
-                namespace = {}
-                exec(compile(text, "<test>", "exec"), namespace)  # nosec B102 - test-authored source
-                (test,) = doctest.DocTestFinder(recurse=False).find(namespace["f"], "f")
+                (test,) = doctest.DocTestFinder(recurse=False).find(compiled_function(text), "f")
                 found = [(e.source, e.want, e.exc_msg, e.options) for e in test.examples]
                 planned = [(e.source, e.want, e.exc_msg, e.options)
                            for e in sandboxed_plan.plan_for(text, "f").examples]
