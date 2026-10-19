@@ -6,6 +6,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "pipelines"))
@@ -119,6 +120,13 @@ class ListLoaderTests(unittest.TestCase):
         self._refused(None, "non-integer number 'NaN'", raw=raw)
         self._refused(None, "not strict JSON", raw=b"\xff\n")
         self._refused(None, "canonical form", raw=json.dumps(self.base).encode())
+
+    def test_an_oversized_file_is_refused_before_it_is_parsed(self):
+        with (
+            mock.patch.object(lists, "MAX_LIST_BYTES", 16),
+            self.assertRaisesRegex(lists.ExclusionPolicyError, "exceeds 16 bytes"),
+        ):
+            self._load(self.base)
 
     def test_shape_and_identity_are_exact(self):
         cases = {

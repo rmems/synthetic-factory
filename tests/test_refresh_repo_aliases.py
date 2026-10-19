@@ -190,6 +190,25 @@ class RefreshTests(unittest.TestCase):
         ):
             refresh.gh_api_repo("a/b")
 
+    def test_the_script_runs_as_a_cli_and_puts_pipelines_on_its_path(self):
+        import runpy
+
+        script = REPO / "scripts" / "refresh_repo_aliases.py"
+        pipelines = str(REPO / "pipelines")
+        argv = [str(script), "a/b", "--cache", str(self.root / "absent.json"),
+                "--out", str(self.root / "out.json")]
+        trimmed = [entry for entry in sys.path if entry != pipelines]
+        with (
+            mock.patch.object(sys, "argv", argv),
+            mock.patch.object(sys, "path", trimmed),
+            contextlib.redirect_stderr(io.StringIO()) as stderr,
+            self.assertRaises(SystemExit) as raised,
+        ):
+            runpy.run_path(str(script), run_name="__main__")
+        self.assertEqual(raised.exception.code, 1)
+        self.assertIn("unreadable", stderr.getvalue())
+        self.assertFalse((self.root / "out.json").exists())
+
     def test_gh_is_resolved_to_an_absolute_path_and_names_are_validated_first(self):
         with (
             mock.patch.object(refresh.shutil, "which", return_value=None),
