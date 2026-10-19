@@ -244,6 +244,15 @@ class AstExtract(unittest.TestCase):
             catalog.plants_from_source(source, mill_id="flk_r0001", source="bad.py")
         self.assertEqual(caught.exception.code, FINDING_SOURCE_NOT_PARSEABLE)
 
+    def test_a_deep_dict_and_negation_nest_evaluates_before_the_plants_lookup(self):
+        # One stack frame per nesting level, as on main: 150 dicts around a 600-deep
+        # negation evaluate, and the source is refused for having no PLANTS list.
+        source = "BASE = " + '{"a": ' * 150 + "-" * 600 + "1" + "}" * 150
+        with self.assertRaises(FlkRefusal) as caught:
+            catalog.plants_from_source(source, mill_id="flk_r0001", source="deep.py")
+        self.assertEqual(caught.exception.code, FINDING_SOURCE_NOT_PARSEABLE)
+        self.assertIn("has no PLANTS list", str(caught.exception))
+
     def test_plants_from_source_refuses_shape_base_and_mill_id(self):
         with self.assertRaises(FlkRefusal) as caught:
             catalog.plants_from_source("PLANTS = [\n", mill_id="flk_r0001", source="bad.py")

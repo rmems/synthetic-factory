@@ -90,55 +90,32 @@ def const_dict(
     }
 
 
-def _sequence_const(
-    node: ast.List | ast.Tuple,
-    evaluate: Callable[[ast.AST], Any],
-) -> list[Any] | tuple[Any, ...]:
-    values = [evaluate(item) for item in node.elts]
-    if isinstance(node, ast.List):
-        return values
-    return tuple(values)
-
-
-def _unary_fold(node: ast.AST, evaluate: Callable[[ast.AST], Any]) -> tuple[Any] | None:
-    if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
-        return (-evaluate(node.operand),)
-    return None
-
-
-def _folded_const(
-    node: ast.AST,
-    refusal: Callable[..., BaseException],
-    finding: str,
-) -> tuple[Any] | None:
-    def evaluate(item: ast.AST) -> Any:
-        return plant_const_eval(item, refusal, finding)
-
-    if isinstance(node, ast.Constant):
-        return (node.value,)
-    if isinstance(node, (ast.List, ast.Tuple)):
-        return (_sequence_const(node, evaluate),)
-    if isinstance(node, ast.Dict):
-        return (
-            const_dict(
-                node,
-                evaluate,
-                lambda: refusal(finding, "plant source uses dict unpacking"),
-            ),
-        )
-    return _unary_fold(node, evaluate)
-
-
 def plant_const_eval(node: ast.AST, refusal: Callable[..., BaseException], finding: str) -> Any:
-    """Literal values only. Refuses calls, names, and starred dicts."""
+    """Literal values only. Refuses calls, names, and starred dicts.
 
-    folded = _folded_const(node, refusal, finding)
-    if folded is None:
-        raise refusal(
-            finding,
-            f"plant source is not a constant ({type(node).__name__})",
-        )
-    return folded[0]
+    The function calls itself directly, so each nesting level costs one stack
+    frame, as the per-mill evaluators on main did; deep negations and nests
+    reach the coded refusal rather than ``RecursionError``.
+    """
+
+    value: Any
+    if isinstance(node, ast.Constant):
+        value = node.value
+    elif isinstance(node, ast.List):
+        value = [plant_const_eval(item, refusal, finding) for item in node.elts]
+    elif isinstance(node, ast.Tuple):
+        value = tuple([plant_const_eval(item, refusal, finding) for item in node.elts])
+    elif isinstance(node, ast.Dict):
+        keys = _present_keys(node, lambda: refusal(finding, "plant source uses dict unpacking"))
+        value = {
+            plant_const_eval(key, refusal, finding): plant_const_eval(item, refusal, finding)
+            for key, item in zip(keys, node.values, strict=True)
+        }
+    elif isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
+        value = -plant_const_eval(node.operand, refusal, finding)
+    else:
+        raise refusal(finding, f"plant source is not a constant ({type(node).__name__})")
+    return value
 
 
 def _base_from_mill(base: Any, mill_id: str, prefix: str) -> Any:

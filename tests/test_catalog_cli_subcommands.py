@@ -12,11 +12,9 @@ from __future__ import annotations
 
 import ast
 import contextlib
-import importlib
 import io
 import json
 import multiprocessing
-import pickle
 import shutil
 import sys
 import tempfile
@@ -485,26 +483,26 @@ class SourceConstTests(unittest.TestCase):
 class PublicCallables(unittest.TestCase):
     """``run``, ``build_parser`` and ``main`` stay module-level names."""
 
-    def _cli(self, key: str) -> ModuleType:
-        return importlib.import_module(f"pipelines.{key}.cli")
-
-    def test_each_public_callable_pickles_by_reference(self):
-        for key in GENERATE_PACKAGES + EXTRACT_PACKAGES:
-            cli = self._cli(key)
+    def test_each_public_callable_is_found_by_its_module_and_name(self):
+        # Pickle stores a function by ``__module__`` and ``__qualname__`` and
+        # requires that lookup to return the same object, which lets a worker
+        # pool receive it; a bound method or a local closure fails that lookup.
+        for key, cli in _package_clis().items():
             names = ("build_parser", "run", "main") if key in GENERATE_PACKAGES else ("build_parser", "run")
             for name in names:
                 with self.subTest(package=key, name=name):
                     function = getattr(cli, name)
-                    self.assertIs(pickle.loads(pickle.dumps(function)), function)
+                    self.assertEqual(function.__qualname__, name)
+                    self.assertIs(getattr(sys.modules[function.__module__], name), function)
 
     def test_main_calls_the_current_run(self):
+        clis = _package_clis()
         for key in GENERATE_PACKAGES:
-            cli = self._cli(key)
+            cli = clis[key]
             with self.subTest(package=key), mock.patch.object(cli, "run", return_value=7):
                 with self.assertRaises(SystemExit) as raised:
                     cli.main()
                 self.assertEqual(raised.exception.code, 7)
-
 
 if __name__ == "__main__":
     unittest.main()
