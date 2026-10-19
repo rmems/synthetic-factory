@@ -426,7 +426,28 @@ Compose writes a brand-new destination:
 | `records/<factory>/<file>.jsonl` | curated payload — the only subtree the audit reads |
 | `manifest/compose-manifest.jsonl` | one entry per source record: source hashes, per-lane transform name/version, action, reason codes, output hash |
 | `manifest/reward-sidecars.jsonl` | reversible copies of every source reward |
-| `COMPOSE.json` | counts, exclusions by reason code, output digests, audit result |
+| `COMPOSE.json` | counts, exclusions by reason code, output digests, audit result, and the `eval_exclusion` block (sha256 of both exclusion lists and of the alias cache) |
+
+**Eval denylist / do-not-train gate (#494).** After the lanes decide a line,
+compose runs `pipelines/compose_eval_gate.py` over it, and export replays the
+same gate. A retained record that names a public source repository
+(`code_repair` upstream at `scenario.source.upstream.repository`, or a
+`real_public_engineering` record's `environment.source_repo`) is canonicalized
+offline: lowercased, then resolved through the committed, timestamped alias
+cache `config/eval-exclusion/repo-aliases.json` (renames and transfers; compose
+never calls GitHub). The canonical `owner/name`, `program_id`, and `task_id` are
+then matched as whole values against `config/eval-exclusion/eval-denylist.json`
+and `config/eval-exclusion/do-not-train.json`. A match is excluded with
+`compose.eval_denylisted` or `compose.do_not_train_listed`; a repository that is
+missing, malformed, or absent from the cache is excluded with
+`compose.source_repo_unresolved` or `compose.source_repo_invalid`. An invalid
+list or cache raises at import. `COMPOSE.json` and export `provenance.json`
+record all three file digests, and export refuses a compose made under
+different lists. `scripts/refresh_repo_aliases.py` is the operator step that
+resolves names through `gh api repos/<owner>/<name>` into a new cache file for
+review. The committed lists are reviewed: the eval denylist names 23 canonical
+repositories and the do-not-train list names 19. `repo-aliases.json` is a
+381-entry cache resolved through the GitHub API on 2026-10-19T01:28:28Z.
 
 Export writes `data/curated/…` (byte-identical payload),
 `data/viewer/records.parquet` (`{source_file, source_line, record_json}`,

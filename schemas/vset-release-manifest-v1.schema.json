@@ -123,6 +123,17 @@
         "environment",
         "release"
       ],
+      "allOf": [
+        {
+          "if": {
+            "required": ["source_kind"],
+            "properties": { "source_kind": { "const": "real_public_engineering" } }
+          },
+          "then": {
+            "properties": { "environment": { "required": ["source_repo"] } }
+          }
+        }
+      ],
       "properties": {
         "record_kind": {
           "enum": [
@@ -208,7 +219,11 @@
           "properties": {
             "repo_snapshot_hash": { "$ref": "#/$defs/sha256" },
             "task_id": { "$ref": "#/$defs/nonempty" },
-            "repo_pack_id": { "$ref": "#/$defs/nonempty" }
+            "repo_pack_id": { "$ref": "#/$defs/nonempty" },
+            "source_repo": {
+              "$ref": "actor-provenance-v1.schema.json#/$defs/canonicalRepo",
+              "description": "Canonical lowercase GitHub owner/name; required when source_kind is real_public_engineering (#494), matching actor-provenance-v1 on the record side."
+            }
           }
         },
         "release": {
