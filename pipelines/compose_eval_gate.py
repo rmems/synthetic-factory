@@ -26,20 +26,23 @@ if __package__:
 
     _assert_direct_sibling("compose_eval_gate")
     from . import eval_exclusion_policy as _policy
-    from .compose_contract import ACTION_EXCLUDED, ACTION_RETAINED, ComposeError
+    from .compose_contract import ACTION_EXCLUDED, ACTION_RETAINED, LANE_ORDER, ComposeError
     from .eval_exclusion_subject import source_identity
 else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
         "compose_eval_gate"
     )
     import eval_exclusion_policy as _policy
-    from compose_contract import ACTION_EXCLUDED, ACTION_RETAINED, ComposeError
+    from compose_contract import ACTION_EXCLUDED, ACTION_RETAINED, LANE_ORDER, ComposeError
     from eval_exclusion_subject import source_identity
 
 NAME = "eval-exclusion-gate"
 VERSION = 1
 LANE = "eval_exclusion"
 SUMMARY_KEY = "eval_exclusion"
+# Lanes whose stage actions COMPOSE.json totals under ``lane_actions``: the five
+# curation lanes plus this gate, counted identically by compose and export replay.
+ACCOUNTED_LANES = (*LANE_ORDER, LANE)
 
 
 def active_policy(policy: Any = None) -> Any:

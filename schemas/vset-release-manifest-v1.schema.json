@@ -221,8 +221,7 @@
             "task_id": { "$ref": "#/$defs/nonempty" },
             "repo_pack_id": { "$ref": "#/$defs/nonempty" },
             "source_repo": {
-              "type": "string",
-              "pattern": "^[a-z0-9](?:[a-z0-9-]{0,37}[a-z0-9])?/[a-z0-9._-]{1,100}$",
+              "$ref": "actor-provenance-v1.schema.json#/$defs/canonicalRepo",
               "description": "Canonical lowercase GitHub owner/name; required when source_kind is real_public_engineering (#494), matching actor-provenance-v1 on the record side."
             }
           }

@@ -223,6 +223,7 @@ class ComposeIntegrationTests(unittest.TestCase):
                          lists.sha256_hex(policy.DO_NOT_TRAIN_PATH.read_bytes()))
         entries = _jsonl(curated / MANIFEST)
         self.assertTrue(entries)
+        self.assertEqual(summary["lane_actions"]["eval_exclusion"], {"retained": len(entries)})
         for entry in entries:
             self.assertEqual(entry["stages"][-1]["lane"], "eval_exclusion")
             self.assertEqual(entry["stages"][-1]["action"], "retained")
@@ -231,11 +232,12 @@ class ComposeIntegrationTests(unittest.TestCase):
         provenance = json.loads((self.root / "export/provenance.json").read_text(encoding="utf-8"))
         self.assertEqual(provenance["compose"]["eval_exclusion"], gate.descriptor())
         changed = write_policy(self.root)
+        stale_request = export_hf.ExportRequest(curated, self.root / "export-stale")
         with (
             mock.patch.object(policy, "ACTIVE_POLICY", changed),
             self.assertRaisesRegex(ExportError, "eval_exclusion does not match"),
         ):
-            export_hf.export_run(export_hf.ExportRequest(curated, self.root / "export-stale"))
+            export_hf.export_run(stale_request)
 
     def test_denylisted_program_is_excluded_and_export_replays_the_exclusion(self):
         held_out = self._program_ids()[0]
@@ -243,6 +245,9 @@ class ComposeIntegrationTests(unittest.TestCase):
         with mock.patch.object(policy, "ACTIVE_POLICY", listed):
             curated, summary = self._compose("curated")
             self.assertEqual(summary["exclusions"], {policy.REASON_EVAL_DENYLISTED: 1})
+            retained = summary["counts"]["retained"]
+            self.assertEqual(summary["lane_actions"]["eval_exclusion"],
+                             {"excluded": 1, "retained": retained})
             self.assertEqual(summary["eval_exclusion"]["eval_denylist"]["sha256"],
                              listed.denylist.sha256)
             excluded = [e for e in _jsonl(curated / MANIFEST) if e["action"] == "excluded"]
@@ -255,10 +260,13 @@ class ComposeIntegrationTests(unittest.TestCase):
             replay = _replayed(summary)
             self.assertEqual(replay.expected_manifest, _jsonl(curated / MANIFEST))
             self.assertEqual(dict(replay.exclusions), summary["exclusions"])
+            self.assertEqual(dict(replay.lane_actions["eval_exclusion"]),
+                             summary["lane_actions"]["eval_exclusion"])
             # A completed procedural round with a record removed is no longer complete,
             # so the training audit refuses export rather than shipping a partial round.
+            request = export_hf.ExportRequest(curated, self.root / "export")
             with self.assertRaisesRegex(ExportError, "not training_ready"):
-                export_hf.export_run(export_hf.ExportRequest(curated, self.root / "export"))
+                export_hf.export_run(request)
 
     def test_a_do_not_train_source_repository_excludes_every_record_from_it(self):
         listed = write_policy(self.root, do_not_train={"repos": ["thealgorithms/python"]})

@@ -102,7 +102,7 @@ def read_canonical_document(path: Path, label: str) -> tuple[Any, bytes]:
             parse_constant=_reject_number,
             parse_float=_reject_number,
         )
-    except (UnicodeDecodeError, ValueError, RecursionError) as exc:
+    except (ValueError, RecursionError) as exc:  # UnicodeDecodeError is a ValueError
         raise ExclusionPolicyError(f"{label} {path} is not strict JSON: {exc}") from exc
     if payload != canonical_bytes(document):
         raise ExclusionPolicyError(

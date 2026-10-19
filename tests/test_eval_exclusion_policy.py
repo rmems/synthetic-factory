@@ -41,7 +41,8 @@ class RepoIdentityTests(unittest.TestCase):
         for value in (
             "", "rmems", "rmems/", "/name", " rmems/x", "rmems/x ", "rmems/x/y",
             "https://github.com/rmems/x", "-rmems/x", "rmems-/x", "rm--ems/x", "rmems/.",
-            "rmems/..", "rm_ems/x", "rmems/x y", None, 7, ["rmems/x"],
+            "rmems/..", "a--b/x", "a/.", "a/..", "rmems/x\n", "rm_ems/x", "rmems/x y", None, 7,
+            ["rmems/x"],
         ):
             with self.subTest(value=value):
                 with self.assertRaises(repo_identity.RepoNameError):
@@ -108,7 +109,14 @@ class ListLoaderTests(unittest.TestCase):
             lists.load_list(self.root / "absent.json", lists.LIST_EVAL_DENYLIST)
         self._refused(None, "not strict JSON", raw=b'{"a": 1, "a": 2}\n')
         self._refused(None, "not strict JSON", raw=b'{"a": 1.5}\n')
-        self._refused(None, "not strict JSON", raw=b'{"a": NaN}\n')
+        # json.loads accepts NaN / Infinity / -Infinity by default and parse_float never
+        # sees them; parse_constant is what refuses them (it is supported on 3.14).
+        for constant in (b"NaN", b"Infinity", b"-Infinity"):
+            with self.subTest(constant=constant):
+                self._refused(None, "not strict JSON", raw=b'{"a": ' + constant + b"}\n")
+        nan_list = dict(self.base, program_ids=["tap-1"])
+        raw = lists.canonical_bytes(nan_list).replace(b'"tap-1"', b"NaN")
+        self._refused(None, "non-integer number 'NaN'", raw=raw)
         self._refused(None, "not strict JSON", raw=b"\xff\n")
         self._refused(None, "canonical form", raw=json.dumps(self.base).encode())
 
@@ -177,6 +185,34 @@ class AliasCacheTests(unittest.TestCase):
         self.assertEqual(aliases.load_cache(self.path).resolve("thealgorithms/python"),
                          "thealgorithms/python")
 
+    def test_an_api_alias_must_name_the_same_repository_as_its_target(self):
+        def api(document, name, github_id):
+            entry = self._entry(document, name)
+            entry.pop("evidence")
+            entry.update(method="github_api", github_id=github_id)
+
+        def mismatched(document):
+            api(document, "kbknapp/clap-rs", 101)
+            api(document, "clap-rs/clap", 202)
+
+        self._refused(mismatched, "alias_cache.github_id_mismatch: 'kbknapp/clap-rs' "
+                      "\\(github_id 101\\) resolves to 'clap-rs/clap' \\(github_id 202\\)")
+        self._refused(lambda d: api(d, "kbknapp/clap-rs", 101),
+                      "alias_cache.github_id_mismatch: .*github_id None")
+        document = copy.deepcopy(self.base)
+        api(document, "kbknapp/clap-rs", 101)
+        api(document, "clap-rs/clap", 101)
+        self.path.write_bytes(lists.canonical_bytes(document))
+        self.assertEqual(aliases.load_cache(self.path).resolve("kbknapp/clap-rs"), "clap-rs/clap")
+
+    def test_timestamps_render_in_the_cache_form(self):
+        from datetime import UTC, datetime, timedelta, timezone
+
+        moment = datetime(2026, 10, 18, 23, 14, 32, 999, tzinfo=timezone(timedelta(hours=-5)))
+        self.assertEqual(aliases.format_timestamp(moment), "2026-10-19T04:14:32Z")
+        self.assertEqual(aliases.parse_timestamp("2026-10-19T04:14:32Z", "t"),
+                         datetime(2026, 10, 19, 4, 14, 32, tzinfo=UTC))
+
     def test_cache_shape_closure_and_timestamps_fail_closed(self):
         def chain(document):
             self._entry(document, "clap-rs/clap")["canonical"] = "rmems/thalamic-relay"
@@ -189,7 +225,9 @@ class AliasCacheTests(unittest.TestCase):
             "no self-entry ": drop_target,
             "sorted by unique name": lambda d: d["entries"].reverse(),
             "must match": lambda d: d.update(updated_at="2026-10-18"),
-            "canonical timestamp": lambda d: d.update(updated_at="2026-10-18T0:00:00Z"),
+            "must match YYYY": lambda d: d.update(updated_at="2026-10-18T0:00:00Z"),
+            "day 30 must be in range": lambda d: d.update(updated_at="2026-02-30T00:00:00Z"),
+            "must be a UTC timestamp string": lambda d: d.update(updated_at=20261018),
             "postdates updated_at": lambda d: d.update(updated_at="2026-10-17T00:00:00Z"),
             "method is one of": lambda d: self._entry(d, "clap-rs/clap").update(method="guess"),
             "keys differ": lambda d: self._entry(d, "clap-rs/clap").update(github_id=1),
@@ -218,12 +256,13 @@ class SchemaDriftTests(unittest.TestCase):
                          lists.LIST_SCHEMA_VERSION)
         self.assertEqual(schema["properties"]["list"]["enum"], list(lists.LIST_SLOTS))
         self.assertEqual(set(schema["properties"]["status"]["enum"]), set(lists.LIST_STATUSES))
-        self.assertEqual(schema["properties"]["repos"]["items"]["pattern"],
-                         self._schema("actor-provenance-v1.schema.json")["$defs"]
-                         ["canonicalRepo"]["pattern"])
+        self.assertEqual(schema["properties"]["repos"]["items"],
+                         {"$ref": "actor-provenance-v1.schema.json#/$defs/canonicalRepo"})
 
     def test_alias_schema_declares_exactly_the_loader_keys_per_method(self):
         schema = self._schema("repo-alias-cache-v1.schema.json")
+        self.assertEqual(schema["$defs"]["repo"],
+                         {"$ref": "actor-provenance-v1.schema.json#/$defs/canonicalRepo"})
         self.assertEqual(set(schema["required"]), set(aliases.CACHE_KEYS))
         self.assertEqual(schema["properties"]["schema_version"]["const"],
                          aliases.CACHE_SCHEMA_VERSION)

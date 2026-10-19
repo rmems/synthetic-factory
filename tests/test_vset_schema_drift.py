@@ -217,8 +217,11 @@ class SourceRepoSchemaDriftTests(unittest.TestCase):
     ACTOR_SCHEMA = SCHEMAS / "actor-provenance-v1.schema.json"
     SAMPLES = (
         "clap-rs/clap", "rmems/thalamic-relay-trajectories", "a/b.c_d-e", "thealgorithms/python",
+        "rmems/.x", "rmems/...", "a-b-c/x",
         "Clap-rs/clap", "clap-rs", "-a/b", "a-/b", "a/b/c", "a/b c", "a_b/c", "", "a/",
+        "a--b/x", "rm--ems/x", "a/.", "a/..", "rmems/.", "rmems/..", "a/b\n",
     )
+    CANONICAL_REF = "actor-provenance-v1.schema.json#/$defs/canonicalRepo"
 
     def _real_requires_source_repo(self, branches: list[dict[str, Any]]) -> bool:
         for branch in branches:
@@ -237,16 +240,20 @@ class SourceRepoSchemaDriftTests(unittest.TestCase):
     def test_schema_patterns_match_the_validator_spelling_rule(self) -> None:
         import re
 
-        from repo_identity import is_canonical_repo
+        from repo_identity import CANONICAL_REPO_PATTERN, is_canonical_repo
 
         actor = _schema(self.ACTOR_SCHEMA)["$defs"]["canonicalRepo"]["pattern"]
+        self.assertEqual(actor, CANONICAL_REPO_PATTERN)
         entry = _schema(MANIFEST_SCHEMA)["$defs"]["entry"]["properties"]["environment"][
             "properties"
-        ]["source_repo"]["pattern"]
-        self.assertEqual(actor, entry)
+        ]["source_repo"]
+        self.assertEqual(entry["$ref"], self.CANONICAL_REF)
+        self.assertNotIn("pattern", entry)
         for sample in self.SAMPLES:
             with self.subTest(sample=sample):
-                self.assertEqual(bool(re.search(actor, sample)), is_canonical_repo(sample))
+                # re.fullmatch mirrors ECMA-262 '$' (no trailing-newline match).
+                schema_accepts = re.fullmatch(actor, sample, re.ASCII) is not None
+                self.assertEqual(schema_accepts, is_canonical_repo(sample))
 
 
 class FixturePinFreshnessTests(unittest.TestCase):

@@ -115,6 +115,27 @@ class ActorProvenanceContractTests(unittest.TestCase):
         self.assertNotIn("source_repo", synthetic["environment"])
         self.assertEqual(_codes(vset.validate_record(synthetic)), [])
 
+    def test_real_public_record_projects_to_a_valid_manifest_entry(self) -> None:
+        """#494: the projected entry keeps source_repo, so it validates like its record."""
+
+        from vset_constants import registry_pin
+        from vset_manifest_entries import manifest_entry_errors
+
+        record = _load(ACCEPT / "provisional.json")
+        record["source_kind"] = "real_public_engineering"
+        record["environment"]["repo_pack_id"] = "upstream-public-1"
+        record["environment"]["source_repo"] = "clap-rs/clap"
+        self.assertEqual(_codes(vset.validate_record(record)), [])
+        entry = vset.manifest_entry_from_record(record)
+        self.assertEqual(entry["environment"]["source_repo"], "clap-rs/clap")
+        self.assertEqual(_codes(manifest_entry_errors(0, entry, registry_pin())), [])
+        del entry["environment"]["source_repo"]
+        self.assertIn(
+            "vset.source_repo_invalid", _codes(manifest_entry_errors(0, entry, registry_pin()))
+        )
+        synthetic = vset.manifest_entry_from_record(_load(ACCEPT / "provisional.json"))
+        self.assertNotIn("source_repo", synthetic["environment"])
+
     def test_accept_requires_synthetic_and_validated_oracle(self) -> None:
         record = _load(ACCEPT / "provisional.json")
         record["curation"]["decision"] = "accept"

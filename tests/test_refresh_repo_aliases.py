@@ -3,7 +3,6 @@
 import contextlib
 import io
 import json
-import subprocess
 import sys
 import tempfile
 import unittest
@@ -30,6 +29,21 @@ GITHUB = {
 
 def fake_fetch(name):
     return GITHUB[name]
+
+
+def api_cache(path, mapping, ids):
+    """Write a github_api-only cache: ``mapping`` name -> canonical, ``ids`` name -> id."""
+
+    entries = [
+        {"name": name, "canonical": canonical, "method": "github_api",
+         "github_id": ids[name], "resolved_at": "2026-10-18T00:00:00Z"}
+        for name, canonical in sorted(mapping.items())
+    ]
+    path.write_bytes(lists.canonical_bytes({
+        "schema_version": "repo-alias-cache-v1", "updated_at": "2026-10-18T00:00:00Z",
+        "entries": entries,
+    }))
+    return path
 
 
 class RefreshTests(unittest.TestCase):
@@ -72,6 +86,51 @@ class RefreshTests(unittest.TestCase):
         self.assertEqual(cache.resolve("kbknapp/clap-rs"), "clap/clap")
         self.assertEqual(cache.resolve("clap-rs/clap"), "clap/clap")
 
+    def test_every_alias_of_a_moved_target_follows_it(self):
+        cache = api_cache(self.root / "siblings.json",
+                          {"x/x": "a/a", "y/y": "a/a", "a/a": "a/a"},
+                          {"x/x": 7, "y/y": 7, "a/a": 7})
+        github = {"x/x": {"full_name": "b/b", "id": 7}, "a/a": {"full_name": "B/b", "id": 7}}
+        code, _, stderr = self._main("x/x", fetch=github.__getitem__, cache=cache)
+        self.assertEqual(code, 0, stderr)
+        refreshed = aliases.load_cache(self.root / "out.json")
+        for name in ("x/x", "y/y", "a/a", "b/b"):
+            with self.subTest(name=name):
+                self.assertEqual(refreshed.resolve(name), "b/b")
+
+    def test_a_target_that_did_not_move_with_its_alias_refuses_the_refresh(self):
+        cache = api_cache(self.root / "siblings.json",
+                          {"x/x": "a/a", "y/y": "a/a", "a/a": "a/a"},
+                          {"x/x": 7, "y/y": 7, "a/a": 7})
+        github = {"x/x": {"full_name": "b/b", "id": 7}, "a/a": {"full_name": "a/a", "id": 9}}
+        code, _, stderr = self._main("x/x", fetch=github.__getitem__, cache=cache)
+        self.assertEqual(code, 1)
+        self.assertIn("a/a: no longer resolves to b/b", stderr)
+        self.assertFalse((self.root / "out.json").exists())
+
+    def test_a_reused_name_with_a_new_repository_id_is_refused(self):
+        cache = api_cache(self.root / "cache.json", {"x/x": "a/a", "a/a": "a/a"},
+                          {"x/x": 7, "a/a": 7})
+        for github in ({"x/x": {"full_name": "a/a", "id": 8}},
+                       {"a/a": {"full_name": "a/a", "id": 8}}):
+            name = next(iter(github))
+            with self.subTest(name=name):
+                code, _, stderr = self._main(name, fetch=github.__getitem__, cache=cache)
+                self.assertEqual(code, 1)
+                self.assertIn("repository identity changed (cached github_id 7, GitHub now "
+                              "returns 8)", stderr)
+                self.assertFalse((self.root / "out.json").exists())
+
+    def test_a_failed_write_leaves_neither_the_output_nor_a_temporary(self):
+        with mock.patch.object(refresh.os, "fsync", side_effect=OSError("disk full")):
+            code, _, stderr = self._main("kbknapp/clap-rs")
+        self.assertEqual(code, 1)
+        self.assertIn("disk full", stderr)
+        self.assertEqual(list(self.root.iterdir()), [])
+        code, _, stderr = self._main("kbknapp/clap-rs")
+        self.assertEqual(code, 0, stderr)
+        self.assertEqual([path.name for path in self.root.iterdir()], ["out.json"])
+
     def test_every_unresolved_answer_writes_nothing(self):
         answers = (
             ("no repository object", []),
@@ -93,7 +152,9 @@ class RefreshTests(unittest.TestCase):
         (self.root / "taken.json").write_text("keep\n")
         code, _, stderr = self._main("kbknapp/clap-rs", out="taken.json")
         self.assertEqual(code, 1)
+        self.assertIn("File exists", stderr)
         self.assertEqual((self.root / "taken.json").read_text(), "keep\n")
+        self.assertEqual([path.name for path in self.root.iterdir()], ["taken.json"])
         broken = self.root / "broken.json"
         broken.write_text("{}\n")
         code, _, stderr = self._main("kbknapp/clap-rs", cache=broken)
@@ -102,11 +163,14 @@ class RefreshTests(unittest.TestCase):
 
     def test_gh_api_failures_fail_closed(self):
         def run(stdout="", returncode=0, stderr=""):
-            return subprocess.CompletedProcess(["gh"], returncode, stdout, stderr)
+            return refresh.subprocess.CompletedProcess(["gh"], returncode, stdout, stderr)
 
-        with mock.patch.object(refresh.subprocess, "run", return_value=run('{"id": 1}')) as call:
-            self.assertEqual(refresh.gh_api_repo("a/b"), {"id": 1})
-        self.assertEqual(call.call_args.args[0], ["gh", "api", "repos/a/b"])
+        which = mock.patch.object(refresh.shutil, "which", return_value="/opt/bin/gh")
+        with which, mock.patch.object(refresh.subprocess, "run",
+                                      return_value=run('{"id": 1}')) as call:
+            self.assertEqual(refresh.gh_api_repo("A/b"), {"id": 1})
+        self.assertEqual(call.call_args.args[0], ["/opt/bin/gh", "api", "repos/a/b"])
+        self.assertNotIn("shell", call.call_args.kwargs)
         cases = {
             "failed: Not Found": run(returncode=1, stderr="Not Found\n"),
             "invalid JSON": run("<html>"),
@@ -114,15 +178,30 @@ class RefreshTests(unittest.TestCase):
         for pattern, result in cases.items():
             with (
                 self.subTest(pattern=pattern),
+                which,
                 mock.patch.object(refresh.subprocess, "run", return_value=result),
                 self.assertRaisesRegex(refresh.RefreshError, pattern),
             ):
                 refresh.gh_api_repo("a/b")
         with (
+            which,
             mock.patch.object(refresh.subprocess, "run", side_effect=OSError("no gh")),
             self.assertRaisesRegex(refresh.RefreshError, "could not run"),
         ):
             refresh.gh_api_repo("a/b")
+
+    def test_gh_is_resolved_to_an_absolute_path_and_names_are_validated_first(self):
+        with (
+            mock.patch.object(refresh.shutil, "which", return_value=None),
+            self.assertRaisesRegex(refresh.RefreshError, "gh is not on PATH"),
+        ):
+            refresh.gh_api_repo("a/b")
+        with (
+            mock.patch.object(refresh.subprocess, "run") as call,
+            self.assertRaisesRegex(refresh.RefreshError, "not a GitHub owner/name"),
+        ):
+            refresh.gh_api_repo("a/b; rm -rf /")
+        call.assert_not_called()
 
 
 if __name__ == "__main__":

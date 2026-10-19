@@ -21,6 +21,7 @@ is *unresolved* and the caller excludes it; nothing here guesses.
 
 from __future__ import annotations
 
+import re
 import sys
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -52,7 +53,9 @@ ENTRY_KEYS_BY_METHOD = MappingProxyType({
     METHOD_GITHUB_API: _ENTRY_BASE_KEYS | {"github_id"},
     METHOD_REVIEWED_SOURCE_PIN: _ENTRY_BASE_KEYS | {"evidence"},
 })
-TIMESTAMP_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
+TIMESTAMP_SHAPE = "YYYY-MM-DDTHH:MM:SSZ"
+_TIMESTAMP_RE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z", re.ASCII)
+REASON_GITHUB_ID_MISMATCH = "alias_cache.github_id_mismatch"
 
 
 @dataclass(frozen=True)
@@ -75,18 +78,24 @@ class AliasCache:
         return canonical is not None and canonical != name
 
 
+def format_timestamp(moment: datetime) -> str:
+    """Render one aware datetime as the cache's second-precision UTC form."""
+
+    utc = moment.astimezone(UTC).replace(microsecond=0)
+    return utc.isoformat().replace("+00:00", "Z")
+
+
 def parse_timestamp(value: Any, where: str) -> datetime:
     """Parse one second-precision UTC ``YYYY-MM-DDTHH:MM:SSZ`` timestamp."""
 
     if not isinstance(value, str):
         raise ExclusionPolicyError(f"{where} must be a UTC timestamp string")
+    if _TIMESTAMP_RE.fullmatch(value) is None:
+        raise ExclusionPolicyError(f"{where} must match {TIMESTAMP_SHAPE}: {value!r}")
     try:
-        parsed = datetime.strptime(value, TIMESTAMP_FORMAT).replace(tzinfo=UTC)
+        return datetime.fromisoformat(value)
     except ValueError as exc:
-        raise ExclusionPolicyError(f"{where} must match {TIMESTAMP_FORMAT}: {exc}") from exc
-    if parsed.strftime(TIMESTAMP_FORMAT) != value:
-        raise ExclusionPolicyError(f"{where} is not in canonical timestamp form")
-    return parsed
+        raise ExclusionPolicyError(f"{where} must match {TIMESTAMP_SHAPE}: {exc}") from exc
 
 
 def _canonical_field(entry: Mapping[str, Any], key: str, where: str) -> str:
@@ -117,6 +126,28 @@ def _validated_entry(entry: Any, where: str) -> tuple[str, str, datetime]:
     return name, canonical, parse_timestamp(entry["resolved_at"], f"{where}.resolved_at")
 
 
+def _require_one_identity(
+    canonical_by_name: Mapping[str, str], github_id_by_name: Mapping[str, Any], where: str
+) -> None:
+    """An API-resolved alias must name the same GitHub repository as its target.
+
+    A cached old name whose numeric id differs from its target's self-entry
+    points at a different (for example reused) repository, so a list entry for
+    the real target would not catch records filed under that name.
+    """
+
+    for name, canonical in canonical_by_name.items():
+        alias_id = github_id_by_name.get(name)
+        if name == canonical or alias_id is None:
+            continue
+        target_id = github_id_by_name.get(canonical)
+        if target_id != alias_id:
+            raise ExclusionPolicyError(
+                f"{where}: {REASON_GITHUB_ID_MISMATCH}: {name!r} (github_id {alias_id}) "
+                f"resolves to {canonical!r} (github_id {target_id})"
+            )
+
+
 def _require_closed(canonical_by_name: Mapping[str, str], where: str) -> None:
     for name, canonical in canonical_by_name.items():
         if canonical_by_name.get(canonical) != canonical:
@@ -136,6 +167,7 @@ def validate_cache_document(document: Any, sha256: str, where: str) -> AliasCach
     if not isinstance(entries, list):
         raise ExclusionPolicyError(f"{where}.entries must be a list")
     canonical_by_name: dict[str, str] = {}
+    github_id_by_name: dict[str, Any] = {}
     names: list[str] = []
     for index, entry in enumerate(entries):
         name, canonical, resolved_at = _validated_entry(entry, f"{where}.entries[{index}]")
@@ -143,9 +175,11 @@ def validate_cache_document(document: Any, sha256: str, where: str) -> AliasCach
             raise ExclusionPolicyError(f"{where}.entries[{index}] postdates updated_at")
         names.append(name)
         canonical_by_name[name] = canonical
+        github_id_by_name[name] = entry.get("github_id")
     if names != sorted(set(names)):
         raise ExclusionPolicyError(f"{where}.entries must be sorted by unique name")
     _require_closed(canonical_by_name, where)
+    _require_one_identity(canonical_by_name, github_id_by_name, where)
     return AliasCache(MappingProxyType(canonical_by_name), body["updated_at"], sha256)
 
 

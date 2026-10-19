@@ -86,7 +86,7 @@ class _ReplayState:
     counts: Counter[str] = field(default_factory=Counter)
     exclusions: Counter[str] = field(default_factory=Counter)
     lane_actions: dict[str, Counter[str]] = field(
-        default_factory=lambda: {lane: Counter() for lane in compose_curated.LANE_ORDER}
+        default_factory=lambda: {lane: Counter() for lane in compose_eval_gate.ACCOUNTED_LANES}
     )
     expected_manifest: list[dict[str, Any]] = field(default_factory=list)
     expected_sidecars: list[dict[str, Any]] = field(default_factory=list)

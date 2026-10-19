@@ -36,8 +36,8 @@
     },
     "canonicalRepo": {
       "type": "string",
-      "pattern": "^[a-z0-9](?:[a-z0-9-]{0,37}[a-z0-9])?/[a-z0-9._-]{1,100}$",
-      "description": "Canonical lowercase GitHub owner/name; pipelines/repo_identity.py also refuses the names . and .. and consecutive hyphens in the owner."
+      "pattern": "^(?![^/]*--)[a-z0-9](?:[a-z0-9-]{0,37}[a-z0-9])?/(?!\\.{1,2}$)[a-z0-9._-]{1,100}$",
+      "description": "Canonical lowercase GitHub owner/name: owner of 1-39 alphanumerics or single hyphens with no leading, trailing, or consecutive hyphen; name of 1-100 alphanumerics, '.', '_' or '-', never '.' or '..'. The pattern is pipelines/repo_identity.py CANONICAL_REPO_PATTERN verbatim, and the release-manifest, exclusion-list, and alias-cache schemas $ref this definition."
     },
     "reasonCodes": {
       "type": "array",

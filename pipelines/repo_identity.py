@@ -26,13 +26,18 @@ else:
         "repo_identity"
     )
 
-# GitHub owners: 1-39 alphanumerics or single hyphens, no leading/trailing
-# hyphen. Repository names: 1-100 of alphanumerics, ``.``, ``_`` or ``-``,
-# never the path segments ``.`` or ``..``. Both are compared lowercased.
-_OWNER = r"[a-z0-9](?:[a-z0-9-]{0,37}[a-z0-9])?"
-_NAME = r"[a-z0-9._-]{1,100}"
-CANONICAL_REPO_RE = re.compile(rf"(?a)({_OWNER})/({_NAME})\Z")
-_DOT_SEGMENTS = frozenset({".", ".."})
+# The one spelling rule, shared verbatim with the ``canonicalRepo`` definition
+# in schemas/actor-provenance-v1.schema.json (the other schemas ``$ref`` it, and
+# a drift test pins the equality). GitHub owners: 1-39 alphanumerics or single
+# hyphens, no leading, trailing, or consecutive hyphen. Repository names: 1-100
+# of alphanumerics, ``.``, ``_`` or ``-``, never the path segments ``.`` or
+# ``..``. Both are compared lowercased. The syntax is common to ECMA-262 (JSON
+# Schema) and Python ``re``; Python callers use ``fullmatch``, so ``$`` cannot
+# accept a trailing newline.
+CANONICAL_REPO_PATTERN = (
+    r"^(?![^/]*--)[a-z0-9](?:[a-z0-9-]{0,37}[a-z0-9])?/(?!\.{1,2}$)[a-z0-9._-]{1,100}$"
+)
+CANONICAL_REPO_RE = re.compile(CANONICAL_REPO_PATTERN, re.ASCII)
 
 
 class RepoNameError(ValueError):
@@ -49,8 +54,7 @@ def canonical_repo(value: object) -> str:
     if not isinstance(value, str):
         raise RepoNameError("repository name must be a string")
     lowered = value.lower()
-    match = CANONICAL_REPO_RE.match(lowered)
-    if match is None or match.group(2) in _DOT_SEGMENTS or "--" in match.group(1):
+    if CANONICAL_REPO_RE.fullmatch(lowered) is None:
         raise RepoNameError(f"not a GitHub owner/name: {value!r}")
     return lowered
 
