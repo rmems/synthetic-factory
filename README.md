@@ -445,8 +445,9 @@ list or cache raises at import. `COMPOSE.json` and export `provenance.json`
 record all three file digests, and export refuses a compose made under
 different lists. `scripts/refresh_repo_aliases.py` is the operator step that
 resolves names through `gh api repos/<owner>/<name>` into a new cache file for
-review. The committed lists are empty `placeholder` documents until the
-reviewed rmems-eval-v0.1 lists are vendored.
+review. The committed lists are reviewed: the eval denylist names 23 canonical
+repositories and the do-not-train list names 19. `repo-aliases.json` is a
+381-entry cache resolved through the GitHub API on 2026-10-19T01:28:28Z.
 
 Export writes `data/curated/…` (byte-identical payload),
 `data/viewer/records.parquet` (`{source_file, source_line, record_json}`,

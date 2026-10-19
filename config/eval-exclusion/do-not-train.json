@@ -1,9 +1,29 @@
 {
   "list": "do_not_train",
-  "note": "PLACEHOLDER, excludes nothing. The reviewed rmems-eval-v0.1 do-not-train list (sha256 235dd33b..., Evaluation Architect research log 2026-10-15/16) is not in this repository and has not been vendored. Replace this file with the real list, set status to reviewed, and keep every repo canonical (lowercase owner/name resolved through repo-aliases.json). See #494.",
+  "note": "DRAFT from /workspace pin rmems-eval-v0.1-do-not-train.txt (Evaluation Architect, 2026-10-19T01:28:28Z); old names collapsed via GitHub API; not committed anywhere.",
   "program_ids": [],
-  "repos": [],
+  "repos": [
+    "limen-neural/brainstem-daemon",
+    "limen-neural/limbic-critic",
+    "limen-neural/neuromod",
+    "limen-neural/nir-rs",
+    "limen-neural/plasticity-lab",
+    "limen-neural/synaptic-wiring",
+    "rmems/agoge-forger",
+    "rmems/blackwell-kernel-lab",
+    "rmems/engram-parser",
+    "rmems/hybrid-fusion",
+    "rmems/kinetic-signals",
+    "rmems/liquidcortex.jl",
+    "rmems/silicon-hdl",
+    "rmems/spike-viz",
+    "rmems/spikestream.jl",
+    "rmems/theseus-quarry",
+    "rmems/vahtisiru",
+    "rmems/writ",
+    "rmems/xai-dissect"
+  ],
   "schema_version": "eval-exclusion-list-v1",
-  "status": "placeholder",
+  "status": "reviewed",
   "task_ids": []
 }

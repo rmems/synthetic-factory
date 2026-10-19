@@ -52,14 +52,57 @@ class RepoIdentityTests(unittest.TestCase):
 
 
 class CommittedPolicyTests(unittest.TestCase):
-    def test_committed_lists_load_at_import_as_empty_placeholders(self):
+    def test_committed_lists_are_reviewed_and_the_alias_cache_is_seeded(self):
         active = policy.ACTIVE_POLICY
+        expected_counts = {
+            lists.LIST_EVAL_DENYLIST: 23,
+            lists.LIST_DO_NOT_TRAIN: 19,
+        }
         for listed in active.lists():
             with self.subTest(slot=listed.slot):
-                self.assertEqual(listed.status, lists.STATUS_PLACEHOLDER)
-                self.assertEqual((listed.repos, listed.program_ids, listed.task_ids),
-                                 (frozenset(), frozenset(), frozenset()))
-        self.assertEqual(active.resolve_repo("TheAlgorithms/Python"), ("thealgorithms/python", None))
+                self.assertEqual(listed.status, lists.STATUS_REVIEWED)
+                self.assertEqual(len(listed.repos), expected_counts[listed.slot])
+                self.assertEqual((listed.program_ids, listed.task_ids),
+                                 (frozenset(), frozenset()))
+        self.assertEqual(active.aliases.updated_at, "2026-10-19T01:28:28Z")
+        self.assertEqual(len(active.aliases.canonical_by_name), 381)
+        self.assertEqual(
+            active.resolve_repo("TheAlgorithms/Python"), ("thealgorithms/python", None),
+        )
+        procedural = active.evaluate(policy.SourceIdentity("TheAlgorithms/Python"))
+        self.assertEqual(procedural.reason_codes, ())
+
+    def test_seeded_old_names_are_excluded_and_unknown_names_stay_unresolved(self):
+        active = policy.ACTIVE_POLICY
+        clap = active.evaluate(policy.SourceIdentity("kbknapp/clap-rs"))
+        self.assertEqual(clap.canonical_repo, "clap-rs/clap")
+        self.assertEqual(clap.reason_codes, (policy.REASON_EVAL_DENYLISTED,))
+        self.assertIn(
+            {"list": "eval_denylist", "key": "repos", "value": "clap-rs/clap"}, clap.matches,
+        )
+        renamed = active.evaluate(policy.SourceIdentity("rmems/worktrees-hives"))
+        self.assertEqual(renamed.canonical_repo, "rmems/writ")
+        self.assertEqual(
+            renamed.reason_codes, (policy.REASON_EVAL_DENYLISTED, policy.REASON_DO_NOT_TRAIN),
+        )
+        self.assertEqual(
+            active.evaluate(policy.SourceIdentity("someone/not-in-cache")).reason_codes,
+            (policy.REASON_REPO_UNRESOLVED,),
+        )
+        self.assertEqual(
+            active.evaluate(policy.SourceIdentity("not a repo")).reason_codes,
+            (policy.REASON_REPO_INVALID,),
+        )
+        # These four denylist names 404 on the GitHub API and are absent from the cache.
+        # They still fail closed, as unresolved rather than as a denylist hit.
+        for name in (
+            "rmems/myelin", "rmems/recoverly-sim", "rmems/saaq-latent", "rmems/snn-projector",
+        ):
+            with self.subTest(name=name):
+                self.assertIn(name, active.denylist.repos)
+                verdict = active.evaluate(policy.SourceIdentity(name))
+                self.assertEqual(verdict.reason_codes, (policy.REASON_REPO_UNRESOLVED,))
+                self.assertEqual(verdict.matches, ())
 
     def test_descriptor_binds_each_file_to_its_exact_bytes(self):
         descriptor = policy.ACTIVE_POLICY.descriptor()
@@ -72,7 +115,8 @@ class CommittedPolicyTests(unittest.TestCase):
             with self.subTest(key=key):
                 self.assertEqual(descriptor[key]["sha256"], lists.sha256_hex(path.read_bytes()))
                 self.assertEqual(descriptor[key]["path"], path.relative_to(REPO).as_posix())
-        self.assertEqual(descriptor["eval_denylist"]["status"], "placeholder")
+        self.assertEqual(descriptor["eval_denylist"]["status"], "reviewed")
+        self.assertEqual(descriptor["do_not_train"]["status"], "reviewed")
         self.assertEqual(descriptor["repo_aliases"]["updated_at"],
                          _document(policy.ALIAS_CACHE_PATH)["updated_at"])
 
