@@ -49,14 +49,17 @@ def _kind(body: object) -> object:
     return body.get("kind") if isinstance(body, dict) else None
 
 
+_OBSERVATION_FIELDS = {"kind": str, "branch": str, "text": str, "cut": bool}
+_BRANCHES = frozenset({record.BRANCH_OUTPUT, record.BRANCH_EXCEPTION})
+
+
 def _observation(body: object) -> _Observation | None:
-    if _kind(body) != record.KIND_OBSERVED or set(body) != {"kind", "branch", "text", "cut"}:
+    if _kind(body) != record.KIND_OBSERVED or set(body) != set(_OBSERVATION_FIELDS):
         return None
-    branch, text, cut = body["branch"], body["text"], body["cut"]
-    shaped = branch in (record.BRANCH_OUTPUT, record.BRANCH_EXCEPTION)
-    if not shaped or not isinstance(text, str) or not isinstance(cut, bool):
+    typed = all(isinstance(body[name], kind) for name, kind in _OBSERVATION_FIELDS.items())
+    if not typed or body["branch"] not in _BRANCHES:
         return None
-    return _Observation(branch, text, cut)
+    return _Observation(body["branch"], body["text"], body["cut"])
 
 
 def _load_error_detail(body: object) -> str | None:
@@ -133,6 +136,14 @@ def judged(examples: tuple[doctest.Example, ...], report: bytes, key: bytes) -> 
     seen = [_observation(body) for body in observed]
     if any(item is None for item in seen) or len(seen) > len(examples):
         return _crashed("report_shape")
+    return _concluded(examples, seen, terminal)
+
+
+def _concluded(
+    examples: tuple[doctest.Example, ...], seen: list[_Observation], terminal: object,
+) -> HarnessResult:
+    """The result once the observations are well formed: what the terminal record says."""
+
     detail = _load_error_detail(terminal)
     if detail is not None:
         return HarnessResult(cv.OUTCOME_LOAD_ERROR, detail=detail)

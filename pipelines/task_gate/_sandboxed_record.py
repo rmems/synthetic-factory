@@ -82,13 +82,12 @@ def opened(key, line, seq):
     try:
         payload = _authentic_payload(key, line)
         inner = None if payload is None else _strict(payload)
-    except (UnicodeDecodeError, ValueError, RecursionError):
+    except (ValueError, RecursionError):  # UnicodeDecodeError is a ValueError
         return None
     if not isinstance(inner, dict) or set(inner) != {"protocol", "seq", "body"}:
         return None
-    if inner["protocol"] != PROTOCOL or type(inner["seq"]) is not int or inner["seq"] != seq:
-        return None
-    return inner["body"]
+    header = (inner["protocol"], type(inner["seq"]), inner["seq"])
+    return inner["body"] if header == (PROTOCOL, int, seq) else None
 
 
 def observation(branch, text):
