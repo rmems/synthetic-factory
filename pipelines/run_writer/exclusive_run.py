@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import os
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import NoReturn
 
@@ -29,6 +29,7 @@ FINDING_DESTINATION_UNDER_RAW = "DESTINATION_UNDER_RAW"
 
 __all__ = [
     "Guards",
+    "bind",
     "check_destination",
     "fsync_destination",
     "write_run",
@@ -44,6 +45,7 @@ class Guards:
     refuse: Callable[[str, str], NoReturn]
     refuse_when: Callable[[bool, str, str], None]
     is_under_raw: Callable[[Path], bool]
+    fsync: Callable[[int, int], None] | None = None
 
 
 @dataclass(frozen=True)
@@ -138,8 +140,6 @@ def write_run(
     guards: Guards,
     out_dir: Path,
     files: tuple[tuple[str, str], ...],
-    *,
-    fsync: Callable[[int, int], None] = fsync_destination,
 ) -> None:
     """Create ``out_dir`` and its files exclusively; unlink a partial tree."""
 
@@ -159,7 +159,7 @@ def write_run(
         _refuse_raw_path(guards, _opened_path(dest_fd, out_dir), out_dir)
         for name, payload in files:
             _create_exclusive_file(dest_fd, name, payload, created)
-        fsync(dest_fd, parent_fd)
+        (guards.fsync or fsync_destination)(dest_fd, parent_fd)
     except BaseException:
         # Not `Exception`: a Ctrl-C during the payload write or the fsync
         # would otherwise leave a half-written destination behind, and the
@@ -172,6 +172,35 @@ def write_run(
         if dest_fd >= 0:
             os.close(dest_fd)
         os.close(parent_fd)
+
+
+def bind(
+    namespace: dict,
+    guards: Guards,
+    vendor_check: Callable[[tuple[Path, ...]], None] | None = None,
+) -> tuple[Callable[[Path], None], Callable[..., None], Callable[[int, int], None]]:
+    """Build a family's ``(_check_destination, _write_run, _fsync_destination)``.
+
+    ``namespace`` is the family's ``generate`` module globals; the writer looks
+    ``_fsync_destination`` up there on every call, so a test (or a family) that
+    replaces it still intercepts the durability step.
+    """
+
+    def late_fsync(dest_fd: int, parent_fd: int) -> None:
+        namespace["_fsync_destination"](dest_fd, parent_fd)
+
+    bound = replace(guards, fsync=late_fsync)
+
+    def check_family_destination(out_dir: Path) -> None:
+        if vendor_check is not None:
+            vendor_check((out_dir,))
+        check_destination(bound, out_dir)
+
+    def write_family_run(out_dir: Path, files: tuple[tuple[str, str], ...]) -> None:
+        """Create ``out_dir`` and its files exclusively; unlink a partial tree."""
+        write_run(bound, out_dir, files)
+
+    return check_family_destination, write_family_run, fsync_destination
 
 
 bind_import_twin(__name__)

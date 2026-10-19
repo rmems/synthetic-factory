@@ -57,18 +57,9 @@ class RunRequest:
     out_dir: Path
 
 
-def _check_destination(out_dir: Path) -> None:
-    _exclusive_run.check_destination(_GUARDS, out_dir)
-
-
-_GUARDS = _exclusive_run.Guards(refuse, refuse_when, is_under_raw)
-_fsync_destination = _exclusive_run.fsync_destination
-
-
-def _write_run(out_dir: Path, files: tuple[tuple[str, str], ...]) -> None:
-    """Create ``out_dir`` and its files exclusively; unlink a partial tree."""
-
-    _exclusive_run.write_run(_GUARDS, out_dir, files, fsync=_fsync_destination)
+_check_destination, _write_run, _fsync_destination = _exclusive_run.bind(
+    globals(), _exclusive_run.Guards(refuse, refuse_when, is_under_raw)
+)
 
 
 def _step(
