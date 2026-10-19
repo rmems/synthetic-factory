@@ -52,7 +52,7 @@ def examples_of(docstring):
 
 
 def outputs(*texts):
-    return [record.observation(record.BRANCH_OUTPUT, text) for text in texts]
+    return [record.observation(record.BRANCH_OUTPUT, text.encode()) for text in texts]
 
 
 class Records(unittest.TestCase):
@@ -63,8 +63,9 @@ class Records(unittest.TestCase):
         self.assertIsNone(record.opened(KEY, line.rstrip(b"\n"), 2))
 
     def test_any_change_to_a_sealed_line_is_refused(self):
-        line = record.seal(KEY, 0, record.observation("out", "4\n")).rstrip(b"\n")
-        self.assertIsNone(record.opened(KEY, line.replace(b"4", b"5"), 0))
+        line = record.seal(KEY, 0, record.observation("out", b"4\n")).rstrip(b"\n")
+        self.assertIn(b"NAo=", line)  # base64 of "4\n"
+        self.assertIsNone(record.opened(KEY, line.replace(b"NAo=", b"NQo="), 0))
 
     def test_hostile_lines_are_none_and_never_raise(self):
         def framed(payload, mac=None):
@@ -89,15 +90,23 @@ class Records(unittest.TestCase):
             with self.subTest(name):
                 self.assertIsNone(record.opened(KEY, line, 0))
 
-    def test_bodies_are_bounded(self):
-        long = record.observation("out", "x" * (record.TEXT_LIMIT + 1))
-        self.assertEqual((len(long["text"]), long["cut"]), (record.TEXT_LIMIT, True))
-        self.assertFalse(record.observation("out", "x")["cut"])
+    def test_bodies_carry_output_as_base64_and_bound_the_detail(self):
+        body = record.observation("out", "é\n".encode())
+        self.assertEqual((body["data"], body["cut"]), ("w6kK", False))
+        self.assertTrue(record.observation("out", b"x", cut=True)["cut"])
         self.assertEqual(len(record.load_error("E" * 999)["detail"]), record.DETAIL_LIMIT)
 
-    def test_the_record_limit_covers_the_worst_case_text(self):
-        worst = record.observation("exc", "\U0001f600\"\\" * record.TEXT_LIMIT)
-        self.assertLessEqual(len(record.seal(KEY, 10**6, worst)), record.RECORD_LIMIT)
+    def test_the_report_limit_covers_the_worst_honest_report(self):
+        """The whole output budget over the most records, then the costliest load_error."""
+
+        count = record.MAX_EXAMPLES
+        share, extra = divmod(record.OUTPUT_BUDGET, count)
+        chunks = [b"\xff" * (share + (index < extra)) for index in range(count)]
+        bodies = [record.observation("exc", chunk) for chunk in chunks]
+        bodies.append(record.load_error("\U0001f600" * 999))
+        report = b"".join(record.seal(KEY, seq, body) for seq, body in enumerate(bodies))
+        self.assertLessEqual(len(report), record.report_limit(count))
+        self.assertEqual(record.REPORT_LIMIT, record.report_limit(record.MAX_EXAMPLES))
 
 
 class Judge(unittest.TestCase):
@@ -125,14 +134,23 @@ class Judge(unittest.TestCase):
                "Traceback (most recent call last):\npkg.ValueError: other\n"
                ">>> boom()\nTraceback (most recent call last):\nValueError: other\n"
                ">>> fine()\n1\n")
-        exc = record.observation(record.BRANCH_EXCEPTION, "ValueError: bad\n")
+        exc = record.observation(record.BRANCH_EXCEPTION, b"ValueError: bad\n")
         result = self.judged(doc, exc, exc, exc, exc, record.end(4))
         self.assertEqual((result.attempted, result.failed), (4, 2))
 
-    def test_truncated_output_never_matches(self):
-        long = "x" * (record.TEXT_LIMIT + 1)
+    def test_long_output_is_judged_in_full(self):
+        """The Blocks repro on #513: 5000 characters of correct output pass."""
+
+        long = "x" * 5000
         doc = f">>> f()\n{long}\n"
-        self.assertEqual(self.judged(doc, *outputs(long + "\n"), record.end(1)).failed, 1)
+        self.assertEqual(self.judged(doc, *outputs(long + "\n"), record.end(1)),
+                         harness.HarnessResult(cv.OUTCOME_PASSED, 1, 0))
+
+    def test_output_past_the_budget_is_a_crash_never_a_failure(self):
+        doc = ">>> f()\n1\n>>> f()\n1\n"
+        cut = record.observation(record.BRANCH_OUTPUT, b"\xe2\x82", cut=True)  # a split character
+        result = self.judged(doc, *outputs("1\n"), cut, record.end(2))
+        self.assertEqual(result, harness.HarnessResult(cv.OUTCOME_CRASHED, detail="output_truncated"))
 
     def test_a_load_error_ends_the_run_at_any_point(self):
         doc = ">>> f()\n1\n>>> f()\n1\n"
@@ -155,7 +173,10 @@ class Judge(unittest.TestCase):
             "miscounted": sealed(*outputs("1\n"), record.end(2)),
             "boolean count": sealed(*outputs("1\n"), {"kind": "end", "count": True}),
             "bad branch": sealed({**outputs("1\n")[0], "branch": "x"}, record.end(1)),
-            "bad text": sealed({**outputs("1\n")[0], "text": 1}, record.end(1)),
+            "bad data": sealed({**outputs("1\n")[0], "data": 1}, record.end(1)),
+            "not base64": sealed({**outputs("1\n")[0], "data": "!!"}, record.end(1)),
+            "not ascii": sealed({**outputs("1\n")[0], "data": "é"}, record.end(1)),
+            "not utf-8": sealed({**outputs("1\n")[0], "data": "/w=="}, record.end(1)),
             "bad cut": sealed({**outputs("1\n")[0], "cut": "no"}, record.end(1)),
             "extra field": sealed({**outputs("1\n")[0], "x": 1}, record.end(1)),
             "not a dict": sealed([], record.end(1)),
@@ -176,7 +197,7 @@ class Judge(unittest.TestCase):
                                  doctest._strip_exception_details(message))
 
     def test_report_limit_grows_with_the_examples(self):
-        self.assertEqual(sandboxed_judge.report_limit(0), 2 * record.RECORD_LIMIT)
+        self.assertEqual(sandboxed_judge.report_limit(0), record.report_limit(0))
         self.assertGreater(sandboxed_judge.report_limit(3), sandboxed_judge.report_limit(2))
 
 
@@ -252,7 +273,7 @@ class ParentReport(unittest.TestCase):
         self.assertEqual(fake.run(PROGRAM, "f"), harness.HarnessResult(cv.OUTCOME_CRASHED, detail="report_missing"))
 
     def test_an_oversize_report_is_a_crash_without_being_parsed(self):
-        flood = "os.write(int(sys.argv[-1]), b'x' * (8 * %d))" % record.RECORD_LIMIT
+        flood = "os.write(int(sys.argv[-1]), b'x' * %d)" % (2 * record.REPORT_LIMIT)
         fake = sandboxed.SandboxedHarness(5, isolation=PassFdIsolation(attested_script(flood)))
         self.assertEqual(fake.run(PROGRAM, "f").detail, "report_oversize")
 
@@ -296,6 +317,15 @@ class ChildInProcess(unittest.TestCase):
         raising = ("def f():\n    '''\n    >>> f()\n    Traceback (most recent call last):\n"
                    "    KeyError: 'k'\n    >>> f()\n    1\n    '''\n    raise KeyError('k')\n")
         self.assertEqual(self.observe(raising), harness.HarnessResult(cv.OUTCOME_FAILED, 2, 1))
+
+    def test_output_counts_against_one_budget_per_run(self):
+        x5000 = "x" * 5000
+        long = f"def f():\n    '''\n    >>> print('x' * 5000)\n    {x5000}\n    '''\n"
+        self.assertEqual(self.observe(long), harness.HarnessResult(cv.OUTCOME_PASSED, 1, 0))
+        self.report.truncate(0)
+        with mock.patch.object(self.codec, "OUTPUT_BUDGET", 3):
+            result = self.observe(PROGRAM)  # "4\n" fits, "-2\n" does not
+        self.assertEqual(result, harness.HarnessResult(cv.OUTCOME_CRASHED, detail="output_truncated"))
 
     def test_load_failures_are_recorded_as_load_errors(self):
         for text, function, detail in (("def f(:\n", "f", "SyntaxError"), (PROGRAM, "g", "AttributeError"),

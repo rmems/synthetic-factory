@@ -11,7 +11,7 @@ with that docstring emptied; stdin carries only a per-run key and each example's
 ``program.py`` is read, the child consumes stdin and points fds 0 and 1 at ``os.devnull``, then
 applies and attests the resource limits and the Landlock allowlist on a duplicate of the real
 stdout. It then runs the examples through ``doctest`` with a checker that records what each one
-produced instead of comparing it, and writes each record, sealed with the key and numbered, to
+produced instead of comparing it (up to the run's output budget, ``_sandboxed_record.py``), and writes each record, sealed with the key and numbered, to
 the inherited report file at the child's own offset. The expected outputs never enter this
 process, so nothing here can report a pass; the parent compares (``sandboxed_judge.py``).
 Failures are data, never exit codes.
@@ -112,14 +112,22 @@ class _Channel:
 
 
 class _Recorder(doctest.OutputChecker):
-    """A checker that records what each example produced; the comparison is the parent's."""
+    """A checker that records what each example produced; the comparison is the parent's.
+
+    Output is recorded in full until the run's budget is spent; past it, a prefix is kept and
+    the observation is marked ``cut``.
+    """
 
     def __init__(self, channel, codec):
         self._channel, self._codec = channel, codec
+        self._remaining = codec.OUTPUT_BUDGET
 
     def check_output(self, want, got, optionflags):
         branch = self._codec.BRANCH_OUTPUT if want == WANT_SENTINEL else self._codec.BRANCH_EXCEPTION
-        self._channel.send(self._codec.observation(branch, got))
+        data = got.encode("utf-8", "surrogatepass")
+        kept = data[:self._remaining]
+        self._remaining -= len(kept)
+        self._channel.send(self._codec.observation(branch, kept, len(kept) < len(data)))
         return True
 
 
@@ -172,6 +180,7 @@ def _observe(inner, codec, channel, run):
 def main(argv):
     workdir, function, cpu_seconds, report_fd = argv[1], argv[2], int(argv[3]), int(argv[4])
     inner, codec = _sibling("_child"), _sibling("_sandboxed_record")
+    inner.FILE_SIZE_BYTES = max(inner.FILE_SIZE_BYTES, codec.REPORT_LIMIT)  # the report must fit
     stream = os.fdopen(os.dup(1), "w", encoding="utf-8")
     plan = _read_plan(0)
     inner._silence_stdout()

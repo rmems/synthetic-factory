@@ -5,11 +5,13 @@ The child only reports what each example produced (``_sandboxed_child.py``). Her
 is opened with the run key, and each observation is compared with the expected output the
 parent kept (``sandboxed_plan.py``), using ``doctest.OutputChecker`` and the example's own
 option flags as ``DocTestRunner`` does. A report that is not exactly ``observed`` records
-followed by one ``end`` or ``load_error`` record, every one sealed in order, is ``crashed``.
+followed by one ``end`` or ``load_error`` record, every one sealed in order, is ``crashed``; so is
+a run whose output outgrew the budget (``output_truncated``), since a prefix cannot be judged.
 """
 
 from __future__ import annotations
 
+import base64
 import doctest
 from typing import NamedTuple
 
@@ -31,7 +33,7 @@ class _Observation(NamedTuple):
 def report_limit(examples: int) -> int:
     """The most report bytes a run of ``examples`` examples can honestly produce."""
 
-    return (examples + 2) * record.RECORD_LIMIT
+    return record.report_limit(examples)
 
 
 def _crashed(detail: str) -> HarnessResult:
@@ -50,17 +52,29 @@ def _kind(body: object) -> object:
     return body.get("kind") if isinstance(body, dict) else None
 
 
-_OBSERVATION_FIELDS = {"kind": str, "branch": str, "text": str, "cut": bool}
+_OBSERVATION_FIELDS = {"kind": str, "branch": str, "data": str, "cut": bool}
 _BRANCHES = frozenset({record.BRANCH_OUTPUT, record.BRANCH_EXCEPTION})
+
+
+def _text_of(data: str, cut: bool) -> str | None:
+    """The recorded output as text; a cut prefix is never judged, so it is not decoded."""
+
+    if cut:
+        return ""
+    try:
+        return base64.b64decode(data.encode("ascii"), validate=True).decode("utf-8", "surrogatepass")
+    except ValueError:  # binascii.Error and UnicodeError are both ValueErrors
+        return None
 
 
 def _observation(body: object) -> _Observation | None:
     if _kind(body) != record.KIND_OBSERVED or set(body) != set(_OBSERVATION_FIELDS):
         return None
     typed = all(isinstance(body[name], kind) for name, kind in _OBSERVATION_FIELDS.items())
-    if not typed or body["branch"] not in _BRANCHES:
+    text = _text_of(body["data"], body["cut"]) if typed else None
+    if text is None or body["branch"] not in _BRANCHES:
         return None
-    return _Observation(body["branch"], body["text"], body["cut"])
+    return _Observation(body["branch"], text, body["cut"])
 
 
 def _load_error_detail(body: object) -> str | None:
@@ -111,8 +125,6 @@ def _exception_matches(example: doctest.Example, text: str, flags: int) -> bool:
 
 
 def _passes(example: doctest.Example, seen: _Observation) -> bool:
-    if seen.cut:  # truncated output never matches
-        return False
     flags = _flags(example)
     if seen.branch == record.BRANCH_OUTPUT:
         return doctest.OutputChecker().check_output(example.want, seen.text, flags)
@@ -150,6 +162,8 @@ def _concluded(
         return HarnessResult(cv.OUTCOME_LOAD_ERROR, detail=detail)
     if len(seen) != len(examples) or not _ends_after(terminal, len(seen)):
         return _crashed("report_shape")
+    if any(item.cut for item in seen):
+        return _crashed("output_truncated")
     return _verdict(examples, seen)
 
 

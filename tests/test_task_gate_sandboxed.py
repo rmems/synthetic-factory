@@ -189,7 +189,7 @@ class Kernel(unittest.TestCase):
         tamper = (
             "import sys\nrecorder = sys.modules['__main__']._Recorder\n"
             "def forged(self, want, got, flags):\n"
-            "    self._channel.send(self._codec.observation('out', 'forged\\n'))\n"
+            "    self._channel.send(self._codec.observation('out', b'forged\\n'))\n"
             "    return True\n"
             "recorder.check_output = forged\n"
         )
@@ -217,6 +217,16 @@ class Kernel(unittest.TestCase):
         with mock.patch.object(sandboxed.secrets, "token_bytes", return_value=KEY):
             result = self.sandbox.run(base.probe(body, ([], b"")), "f")
         self.assertEqual(result.outcome, cv.OUTCOME_PASSED, result)
+
+    def test_long_output_passes_and_only_the_run_budget_is_a_crash(self):
+        """Blocks on #513: output past 4096 characters used to be judged a failure."""
+
+        x200k = "x" * 200000
+        long = f"def f():\n    '''\n    >>> print('x' * 200000)\n    {x200k}\n    '''\n"
+        self.assertEqual(self.sandbox.run(long, "f"), harness.HarnessResult(cv.OUTCOME_PASSED, 1, 0))
+        flood = "def f():\n    '''\n    >>> print('x' * 1100000)\n    1\n    '''\n"
+        self.assertEqual(self.sandbox.run(flood, "f"),
+                         harness.HarnessResult(cv.OUTCOME_CRASHED, detail="output_truncated"))
 
     def test_the_child_cannot_read_its_own_memory_through_proc(self):
         body = (

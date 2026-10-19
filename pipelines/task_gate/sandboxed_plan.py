@@ -21,10 +21,11 @@ import json
 import re
 from dataclasses import dataclass
 
+from . import _sandboxed_record as record
 from . import vocabulary as cv
 from ._contract import bind_import_twin
 
-MAX_EXAMPLES = 256
+MAX_EXAMPLES = record.MAX_EXAMPLES
 _LINE_BREAK = re.compile(rb"\r\n|\r|\n")
 
 __all__ = ["MAX_EXAMPLES", "Plan", "plan_for"]

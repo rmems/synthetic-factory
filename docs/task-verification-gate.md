@@ -104,7 +104,10 @@ the report file. The parent opens the records and compares each with the expecte
 
 The examples are read from the source, so the target is the last top-level `def` of that name and
 its docstring as written; examples marked `+SKIP` are neither sent nor counted, and a docstring
-`doctest` cannot parse is a `load_error` before anything runs. The flag never falls back: when
+`doctest` cannot parse is a `load_error` before anything runs. Output is recorded in full up to
+1 MiB (UTF-8) per run across all examples; a run that prints more is `crashed`
+(`output_truncated`), never `failed`, because a prefix cannot be judged. This is the one place the
+sandboxed harness differs from `SubprocessHarness`, which has no such budget. The flag never falls back: when
 bwrap or Landlock is unavailable, or a run's resource-limit and Landlock attestations are
 missing, the run is refused (`TASK_GATE_HARNESS_UNAVAILABLE`). `summary.json` records the harness in
 `inputs.harness` (`kind`: `subprocess` or `sandboxed`, plus the isolation identity). `Gate`
