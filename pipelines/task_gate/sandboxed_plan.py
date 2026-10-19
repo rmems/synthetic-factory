@@ -8,7 +8,8 @@ else. The expected outputs stay with the parent, which compares them itself
 (``sandboxed_judge.py``), so no program can report a pass without producing the output.
 
 The target is the last top-level ``def`` of that name, which is the object ``getattr`` returns
-after the module runs. Examples marked ``# doctest: +SKIP`` are dropped, as ``DocTestRunner``
+after the module runs, and its docstring is read as the compiler stores it (``__doc__``), not as
+the AST literal, so examples match ``DocTestFinder``'s on every Python version. Examples marked ``# doctest: +SKIP`` are dropped, as ``DocTestRunner``
 skips them. The empty-string replacement keeps the line count, so line numbers in the child
 match the original program.
 """
@@ -19,6 +20,7 @@ import ast
 import doctest
 import json
 import re
+import types
 from dataclasses import dataclass
 
 from . import _sandboxed_record as record
@@ -93,6 +95,23 @@ def _skipped(example: doctest.Example) -> bool:
     return bool(example.options.get(doctest.SKIP, False))
 
 
+def _compiled_docstring(node: ast.Expr) -> str:
+    """The docstring as the compiler stores it, which is what ``DocTestFinder`` reads.
+
+    Since Python 3.13 the compiler strips common indentation from docstrings, so the AST
+    literal differs whenever an example starts on the docstring's first line. The docstring
+    node alone is compiled into an empty function and read from the code object; nothing is
+    executed.
+    """
+
+    stub = ast.Module(body=[ast.FunctionDef(
+        name="_", args=ast.arguments(), body=[node], decorator_list=[],
+    )], type_ignores=[])
+    module = compile(ast.fix_missing_locations(stub), "<docstring>", "exec", dont_inherit=True)
+    code = next(item for item in module.co_consts if isinstance(item, types.CodeType))
+    return types.FunctionType(code, {}).__doc__ or ""
+
+
 def plan_for(program_text: str, function: str) -> Plan:
     """The plan for one run; a program that cannot be planned runs as is with no examples."""
 
@@ -100,7 +119,7 @@ def plan_for(program_text: str, function: str) -> Plan:
     if node is None:  # unparsable, no such target or no docstring: the child reports the rest
         return Plan(program_text)
     try:
-        found = doctest.DocTestParser().get_examples(node.value.value, function)
+        found = doctest.DocTestParser().get_examples(_compiled_docstring(node), function)
     except ValueError:  # what DocTestFinder raises for the same docstring
         return Plan(program_text, outcome=cv.OUTCOME_LOAD_ERROR, detail="ValueError")
     examples = tuple(example for example in found if not _skipped(example))

@@ -213,6 +213,28 @@ class Planning(unittest.TestCase):
         sent = json.loads(plan.child_input(KEY))
         self.assertEqual(sent, {"key": KEY.hex(), "sources": ["f(2)\n", "f(-1)\n"]})
 
+    def test_examples_match_what_doctest_finds_on_the_compiled_function(self):
+        """Blocks on #513: on Python 3.13+ ``__doc__`` is dedented, the AST literal is not."""
+
+        shapes = {
+            "prompt on the first line": 'def f(x):\n    """>>> f(1)\n    1\n    """\n    return x\n',
+            "indented body": "def f(x):\n    '''\n    >>> f(1)\n    1\n    '''\n    return x\n",
+            "tabs and blank lines": "def f(x):\n\t'''Doc.\n\n\t>>> f(2)\n\t2\n\n\t>>> f(3)\n\t3\n\t'''\n\treturn x\n",
+            "raw with an expected exception": (
+                "def f(x):\n    r'''>>> f(None)  # doctest: +IGNORE_EXCEPTION_DETAIL\n"
+                "    Traceback (most recent call last):\n    TypeError: x\n    '''\n    return x + 1\n"
+            ),
+        }
+        for name, text in shapes.items():
+            with self.subTest(name):
+                namespace = {}
+                exec(compile(text, "<test>", "exec"), namespace)  # nosec B102 - test-authored source
+                (test,) = doctest.DocTestFinder(recurse=False).find(namespace["f"], "f")
+                found = [(e.source, e.want, e.exc_msg, e.options) for e in test.examples]
+                planned = [(e.source, e.want, e.exc_msg, e.options)
+                           for e in sandboxed_plan.plan_for(text, "f").examples]
+                self.assertEqual(planned, found)
+
     def test_skipped_examples_are_neither_sent_nor_counted(self):
         text = "def f():\n    '''\n    >>> f()  # doctest: +SKIP\n    9\n    >>> f()\n    1\n    '''\n    return 1\n"
         self.assertEqual(len(sandboxed_plan.plan_for(text, "f").examples), 1)

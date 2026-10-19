@@ -103,7 +103,8 @@ the report file. The parent opens the records and compares each with the expecte
   AST tamper check also leaves open.
 
 The examples are read from the source, so the target is the last top-level `def` of that name and
-its docstring as written; examples marked `+SKIP` are neither sent nor counted, and a docstring
+its docstring as the compiler stores it (`__doc__`, dedented on Python 3.13+), so the examples
+match `DocTestFinder`'s; examples marked `+SKIP` are neither sent nor counted, and a docstring
 `doctest` cannot parse is a `load_error` before anything runs. Output is recorded in full up to
 1 MiB (UTF-8) per run across all examples; a run that prints more is `crashed`
 (`output_truncated`), never `failed`, because a prefix cannot be judged. This is the one place the

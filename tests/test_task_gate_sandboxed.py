@@ -243,6 +243,16 @@ class Kernel(unittest.TestCase):
             result = self.sandbox.run(base.probe(body, ([], b"")), "f")
         self.assertEqual(result.outcome, cv.OUTCOME_PASSED, result)
 
+    def test_a_prompt_on_the_docstring_first_line_gets_the_subprocess_verdict(self):
+        """Blocks on #513: the AST literal kept the body indentation in ``want``."""
+
+        for body, expected in (("return x", cv.OUTCOME_PASSED), ("return x + 1", cv.OUTCOME_FAILED)):
+            text = f'def f(x):\n    """>>> f(1)\n    1\n    """\n    {body}\n'
+            with self.subTest(body=body):
+                reference = harness.SubprocessHarness(5).run(text, "f")
+                self.assertEqual(reference.outcome, expected)
+                self.assertEqual(self.sandbox.run(text, "f"), reference)
+
     def test_long_output_passes_and_only_the_run_budget_is_a_crash(self):
         """Blocks on #513: output past 4096 characters used to be judged a failure."""
 
