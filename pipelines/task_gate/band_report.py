@@ -87,8 +87,9 @@ def _summary(outcome: BandOutcome, outputs: Mapping[str, Any]) -> dict[str, Any]
         "bands": {band: counts[band] for band in bv.BANDS},
         "contract": {
             "sha256": contract.sha256, "attempts_per_task": contract.attempts_per_task,
-            "pass_rate_min": float(contract.pass_rate_min),
-            "pass_rate_max": float(contract.pass_rate_max),
+            # Exact rationals ("1/10"): a float could round away the threshold actually applied.
+            "pass_rate_min": str(contract.pass_rate_min),
+            "pass_rate_max": str(contract.pass_rate_max),
         },
         "histogram": histogram(outcome.rows, contract),
         "inputs": dict(outcome.meta), "outputs": dict(outputs),

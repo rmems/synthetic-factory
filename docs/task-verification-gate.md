@@ -103,7 +103,7 @@ student `attempts_per_task` times.
 * **Files** (new destination, staged and renamed with no replace): `band-rows.jsonl` (all),
   `band-kept.jsonl` (in band), `seed_needed.jsonl` (zero-pass rows, kept for teacher or
   procedural seeding rather than discarded) and `band-summary.json` (band counts, contract
-  digest, input digests and the difficulty histogram: task count per success count
+  digest and its bounds as exact rationals such as `"1/10"`, input digests and the difficulty histogram: task count per success count
   `0..attempts_per_task`, each marked with its band).
 * **Integrity.** Each kept row is rebuilt through the gate's own `mutation.resolve` and must
   match the recorded program and mutant sha256, so a tasks file cannot be scored against a

@@ -236,6 +236,8 @@ class ContractTests(TempRoot):
         contract = band_contract.load_contract(path)
         self.assertGreater(contract.pass_rate_min, Fraction(1, 10))
         self.assertEqual(contract.classify(2, 20), bv.BAND_TOO_HARD)
+        summary, _, _ = run_band(self.root, {0: 2}, contract=path)
+        self.assertEqual(summary["contract"]["pass_rate_min"], "10000000000000001/100000000000000000")
 
     def test_each_malformed_contract_is_refused(self):
         bad = [
