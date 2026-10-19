@@ -405,6 +405,29 @@ class Outputs(unittest.TestCase):
         self.assertEqual(summary["by_source"]["model"]["kept"], 1)
         self.assertEqual(summary["inputs"]["denylist"]["sha256"], DENY.sha256)
 
+    def test_provenance_adds_keys_without_replacing_computed_evidence(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            summary = self.run_all(
+                tmp, [proposal_for()], provenance={"proposals": {"origin": "file"}},
+            )
+        self.assertEqual(summary["inputs"]["proposals"], {"origin": "file"})
+        self.assertEqual(summary["inputs"]["denylist"]["sha256"], DENY.sha256)
+        for key in ("prior_indexes", "programs", "harness"):
+            self.assertIn(key, summary["inputs"])
+
+    def test_provenance_that_replaces_computed_evidence_refuses_before_a_write(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            for key in ("denylist", "prior_indexes", "programs", "harness"):
+                out = Path(tmp) / key
+                fake = FakeHarness({ADD: PASSED})
+                request = runner.GateRequest(
+                    PROGRAMS, [proposal_for()], DENY, out, provenance={key: {"caller": True}},
+                )
+                with self.subTest(key=key):
+                    self.assertEqual(refused(runner.run, request, fake), cv.REFUSE_INPUT_INVALID)
+                    self.assertFalse(out.exists())
+                    self.assertEqual(fake.calls, [])
+
     def test_destination_must_be_new_and_outside_the_raw_tree(self):
         with tempfile.TemporaryDirectory() as tmp:
             Path(tmp, "out").mkdir()

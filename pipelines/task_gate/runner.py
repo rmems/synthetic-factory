@@ -3,7 +3,8 @@
 
 Every refusal happens before any proposal is executed: an existing or raw-tree destination,
 a missing or malformed denylist, an unreadable or malformed prior index, an out-of-domain
-timeout, a harness that cannot tell a passing program from a failing one, no proposals.
+timeout, a harness that cannot tell a passing program from a failing one, no proposals,
+or provenance that replaces computed denylist, prior-index, program, or harness evidence.
 """
 
 from __future__ import annotations
@@ -59,15 +60,46 @@ def _loaded_prior(request: GateRequest) -> PriorIndex:
     return load_prior(request.prior_index_paths) if request.prior_index_paths else PriorIndex.empty()
 
 
-def _meta(request: GateRequest, rules: Rules, harness: Harness) -> dict[str, Any]:
+_COMPUTED_EVIDENCE = ("denylist", "prior_indexes", "programs", "harness")
+
+
+def _harness_evidence(harness: Harness) -> dict[str, Any]:
     describe = getattr(harness, "describe", None)
+    if callable(describe):
+        return describe()
+    return {"protocol": cv.HARNESS_PROTOCOL}
+
+
+def _evidence(request: GateRequest, rules: Rules, harness: Harness) -> dict[str, Any]:
     return {
         "denylist": {"sha256": rules.denylist.sha256, "entries": len(rules.denylist)},
         "prior_indexes": list(rules.prior.files),
         "programs": {"count": len(request.programs), "sha256": _programs_digest(request.programs)},
-        "harness": describe() if callable(describe) else {"protocol": cv.HARNESS_PROTOCOL},
-        **dict(request.provenance),
+        "harness": _harness_evidence(harness),
     }
+
+
+def _colliding_key(provenance: Mapping[str, Any]) -> str | None:
+    for key in _COMPUTED_EVIDENCE:
+        if key in provenance:
+            return key
+    return None
+
+
+def _provenance(request: GateRequest) -> dict[str, Any]:
+    """Caller provenance may add keys. A key the run computes itself is a refusal."""
+
+    extra = dict(request.provenance)
+    collision = _colliding_key(extra)
+    cv.refuse_when(
+        collision is not None, cv.REFUSE_INPUT_INVALID,
+        f"provenance collides with computed evidence: {collision}",
+    )
+    return extra
+
+
+def _meta(request: GateRequest, rules: Rules, harness: Harness) -> dict[str, Any]:
+    return {**_evidence(request, rules, harness), **_provenance(request)}
 
 
 def run(request: GateRequest, harness: Harness | None = None) -> dict[str, Any]:
@@ -78,9 +110,9 @@ def run(request: GateRequest, harness: Harness | None = None) -> dict[str, Any]:
     cv.refuse_when(not request.proposals, cv.REFUSE_NO_PROPOSALS, "no proposals to verify")
     cv.refuse_when(not request.programs, cv.REFUSE_PROGRAM_INVALID, "no programs")
     active = harness if harness is not None else SubprocessHarness(request.timeout_s)
+    meta = _meta(request, rules, active)
     gate = Gate(request.programs, rules, active)
     decisions = gate.run(request.proposals)
-    meta = _meta(request, rules, active)
     return write_run(Path(request.out), RunOutcome(decisions, gate.kept, rules.prior, meta))
 
 
