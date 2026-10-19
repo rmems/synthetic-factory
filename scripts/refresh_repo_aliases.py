@@ -9,11 +9,16 @@ renamed and transferred repositories, and records the canonical ``full_name``
 (lowercased), the stable numeric ``id``, and the UTC resolution time. The
 canonical target gets its own self-entry, so the cache stays closed.
 
-The result is validated with the same loader compose uses and written to a
-brand-new ``--out`` path (an existing path is refused). Review the diff, then
-replace the committed cache with it in a pull request.
+A name that would follow another to a new target (a moved former target, or a
+sibling alias) is re-resolved first and must land on the same repository id;
+otherwise nothing is written. The result is validated with the same loader
+compose uses and published at a brand-new ``--out`` path inside this checkout
+or the temporary directory (an existing path, a symlink, anything under
+``outputs/raw/``, or a path that resolves elsewhere is refused). Review the
+diff, then replace the committed cache with it in a pull request.
 
-  python3 scripts/refresh_repo_aliases.py --out /tmp/repo-aliases.json kbknapp/clap-rs
+  python3 scripts/refresh_repo_aliases.py \
+      --out config/eval-exclusion/repo-aliases.refreshed.json kbknapp/clap-rs
 """
 
 from __future__ import annotations
@@ -21,9 +26,9 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import shutil
 import subprocess  # nosec B404 -- one fixed `gh api` argv below, never a shell
 import sys
+import tempfile
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
@@ -37,6 +42,7 @@ if str(PIPELINES) not in sys.path:
 import eval_exclusion_aliases as aliases  # noqa: E402
 import eval_exclusion_lists as lists  # noqa: E402
 import eval_exclusion_policy as policy  # noqa: E402
+import raw_tree_guard  # noqa: E402
 import repo_identity  # noqa: E402
 
 Fetch = Callable[[str], Any]
@@ -46,13 +52,21 @@ class RefreshError(RuntimeError):
     """A name could not be resolved, so no cache is written."""
 
 
-def _gh_executable() -> str:
-    """Absolute ``gh`` on PATH; a bare name would be a partial-path launch."""
+GH = "gh"
 
-    found = shutil.which("gh")
-    if found is None:
-        raise RefreshError("gh is not on PATH")
-    return found
+
+def _is_executable_file(path: str) -> bool:
+    return os.path.isfile(path) and os.access(path, os.X_OK)
+
+
+def _gh_executable() -> str:
+    """Absolute ``gh`` from the PATH directories; a bare name would be a partial-path launch."""
+
+    for directory in os.get_exec_path():
+        candidate = os.path.join(os.path.abspath(directory), GH)
+        if _is_executable_file(candidate):
+            return candidate
+    raise RefreshError("gh is not on PATH")
 
 
 def gh_api_repo(name: str) -> Any:
@@ -150,40 +164,44 @@ def _former_target(entries: dict[str, dict[str, Any]], name: str, canonical: str
     return None if former in (None, name, canonical) else former
 
 
-def _require_same_target(former: str, fetch: Fetch, expected: tuple[str, int]) -> None:
-    """A moved target must itself resolve to the new repository before its aliases follow."""
+def _require_same_target(mover: str, fetch: Fetch, expected: tuple[str, int]) -> None:
+    """A name must itself resolve to the new repository before it is repointed there."""
 
-    if _resolved(former, fetch(former)) != expected:
+    if _resolved(mover, fetch(mover)) != expected:
         raise RefreshError(
-            f"{former}: no longer resolves to {expected[0]} (github_id {expected[1]}), so its "
+            f"{mover}: no longer resolves to {expected[0]} (github_id {expected[1]}), so its "
             "other aliases cannot be repointed consistently; the cache is left unchanged"
         )
 
 
-def _repoint(
-    entries: dict[str, dict[str, Any]], moved: set[str], canonical: str, stamp: str
-) -> None:
-    """Send every alias of a moved name to its new canonical target."""
+def _movers(entries: dict[str, dict[str, Any]], name: str, canonical: str) -> list[str]:
+    """Every other cached name that would follow ``name`` to ``canonical``.
 
-    for entry in entries.values():
-        if entry["canonical"] in moved:
-            entry["canonical"] = canonical
-            entry["resolved_at"] = stamp
+    That is the former target of ``name`` (when it changed) and every alias of
+    ``name`` or of that former target. Each one is re-resolved before it moves,
+    because a sibling name may since have been reused for another repository.
+    """
+
+    former = _former_target(entries, name, canonical)
+    moved = {name, former} - {None, canonical}
+    followers = {entry["name"] for entry in entries.values() if entry["canonical"] in moved}
+    return sorted((followers | {former}) - {None, name, canonical})
 
 
 def _apply_resolution(
     entries: dict[str, dict[str, Any]], name: str, fetch: Fetch, stamp: str
 ) -> None:
-    canonical, github_id = _resolved(name, fetch(name))
+    """Resolve ``name`` and everything that follows it, or change nothing at all."""
+
+    expected = _resolved(name, fetch(name))
+    canonical, github_id = expected
     _require_cached_identity(entries, (name, canonical), github_id)
-    former = _former_target(entries, name, canonical)
-    if former is not None:
-        _require_same_target(former, fetch, (canonical, github_id))
-        _require_cached_identity(entries, (former,), github_id)
-        entries[former] = _api_entry(former, canonical, github_id, stamp)
-    _repoint(entries, {name, former} - {None, canonical}, canonical, stamp)
-    entries[name] = _api_entry(name, canonical, github_id, stamp)
-    entries[canonical] = _api_entry(canonical, canonical, github_id, stamp)
+    movers = _movers(entries, name, canonical)
+    for mover in movers:
+        _require_same_target(mover, fetch, expected)
+        _require_cached_identity(entries, (mover,), github_id)
+    for resolved in (*movers, name, canonical):
+        entries[resolved] = _api_entry(resolved, canonical, github_id, stamp)
 
 
 def refreshed_document(
@@ -209,6 +227,40 @@ def refreshed_document(
     return document
 
 
+def _allowed_output_roots() -> tuple[str, ...]:
+    """Where a refreshed cache may be written: this checkout, or the temporary directory."""
+
+    return tuple(os.path.realpath(root) for root in (REPO, tempfile.gettempdir()))
+
+
+def _is_within(path: str, root: str) -> bool:
+    return os.path.commonpath((path, root)) == root
+
+
+def confined_output(path: Path) -> Path:
+    """Resolve ``--out`` and refuse anything outside the allowed roots or in the raw tree.
+
+    The final component may not be a symlink; every parent symlink is resolved
+    with ``realpath`` before the containment check, so ``..`` segments and
+    symlinked directories cannot carry the write elsewhere.
+    """
+
+    supplied = os.fspath(path)
+    if os.path.islink(supplied):
+        raise RefreshError(f"--out {supplied} is a symlink")
+    resolved = os.path.realpath(supplied)
+    if raw_tree_guard.is_under_raw(Path(resolved)):
+        raise RefreshError(f"--out {supplied} names or aliases outputs/raw/, which is immutable")
+    parent = os.path.dirname(resolved)
+    if not os.path.isdir(parent):
+        raise RefreshError(f"--out {supplied}: parent {parent} is not an existing directory")
+    if not any(_is_within(parent, root) for root in _allowed_output_roots()):
+        raise RefreshError(
+            f"--out {supplied} resolves outside the repository and the temporary directory"
+        )
+    return Path(resolved)
+
+
 def publish_new_file(path: Path, payload: bytes) -> None:
     """Publish ``payload`` at a new ``path`` atomically; no partial file is ever visible.
 
@@ -217,6 +269,7 @@ def publish_new_file(path: Path, payload: bytes) -> None:
     removed on every path, so a failed write leaves neither it nor ``path``.
     """
 
+    path = confined_output(path)
     temporary = path.parent / f".{path.name}.{uuid.uuid4().hex}.publishing"
     descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
     try:

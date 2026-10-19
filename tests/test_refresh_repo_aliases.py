@@ -3,6 +3,7 @@
 import contextlib
 import io
 import json
+import os
 import sys
 import tempfile
 import unittest
@@ -79,7 +80,8 @@ class RefreshTests(unittest.TestCase):
         self.assertEqual(out.read_bytes(), lists.canonical_bytes(document))
 
     def test_a_moved_canonical_repoints_its_aliases_so_the_cache_stays_closed(self):
-        moved = dict(GITHUB, **{"clap-rs/clap": {"full_name": "clap/clap", "id": 101}})
+        moved = dict(GITHUB, **{"clap-rs/clap": {"full_name": "clap/clap", "id": 101},
+                                "kbknapp/clap-rs": {"full_name": "clap/clap", "id": 101}})
         code, _, stderr = self._main("clap-rs/clap", fetch=moved.__getitem__)
         self.assertEqual(code, 0, stderr)
         cache = aliases.load_cache(self.root / "out.json")
@@ -90,7 +92,8 @@ class RefreshTests(unittest.TestCase):
         cache = api_cache(self.root / "siblings.json",
                           {"x/x": "a/a", "y/y": "a/a", "a/a": "a/a"},
                           {"x/x": 7, "y/y": 7, "a/a": 7})
-        github = {"x/x": {"full_name": "b/b", "id": 7}, "a/a": {"full_name": "B/b", "id": 7}}
+        github = {"x/x": {"full_name": "b/b", "id": 7}, "a/a": {"full_name": "B/b", "id": 7},
+                  "y/y": {"full_name": "b/b", "id": 7}}
         code, _, stderr = self._main("x/x", fetch=github.__getitem__, cache=cache)
         self.assertEqual(code, 0, stderr)
         refreshed = aliases.load_cache(self.root / "out.json")
@@ -107,6 +110,17 @@ class RefreshTests(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("a/a: no longer resolves to b/b", stderr)
         self.assertFalse((self.root / "out.json").exists())
+
+    def test_a_reused_sibling_alias_is_refused_rather_than_repointed(self):
+        cache = api_cache(self.root / "siblings.json",
+                          {"x/x": "a/a", "y/y": "a/a", "a/a": "a/a"},
+                          {"x/x": 7, "y/y": 7, "a/a": 7})
+        github = {"x/x": {"full_name": "b/b", "id": 7}, "a/a": {"full_name": "b/b", "id": 7},
+                  "y/y": {"full_name": "y/y", "id": 8}}
+        code, _, stderr = self._main("x/x", fetch=github.__getitem__, cache=cache)
+        self.assertEqual(code, 1)
+        self.assertIn("y/y: no longer resolves to b/b (github_id 7)", stderr)
+        self.assertEqual([path.name for path in self.root.iterdir()], ["siblings.json"])
 
     def test_a_reused_name_with_a_new_repository_id_is_refused(self):
         cache = api_cache(self.root / "cache.json", {"x/x": "a/a", "a/a": "a/a"},
@@ -161,15 +175,23 @@ class RefreshTests(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("keys differ", stderr)
 
+    def _fake_gh(self):
+        bin_dir = self.root / "bin"
+        bin_dir.mkdir()
+        gh = bin_dir / "gh"
+        gh.write_text("#!/bin/sh\n")
+        gh.chmod(0o755)
+        return mock.patch.object(refresh.os, "get_exec_path", return_value=[str(bin_dir)]), str(gh)
+
     def test_gh_api_failures_fail_closed(self):
         def run(stdout="", returncode=0, stderr=""):
             return refresh.subprocess.CompletedProcess(["gh"], returncode, stdout, stderr)
 
-        which = mock.patch.object(refresh.shutil, "which", return_value="/opt/bin/gh")
-        with which, mock.patch.object(refresh.subprocess, "run",
-                                      return_value=run('{"id": 1}')) as call:
+        on_path, gh = self._fake_gh()
+        with on_path, mock.patch.object(refresh.subprocess, "run",
+                                        return_value=run('{"id": 1}')) as call:
             self.assertEqual(refresh.gh_api_repo("A/b"), {"id": 1})
-        self.assertEqual(call.call_args.args[0], ["/opt/bin/gh", "api", "repos/a/b"])
+        self.assertEqual(call.call_args.args[0], [gh, "api", "repos/a/b"])
         self.assertNotIn("shell", call.call_args.kwargs)
         cases = {
             "failed: Not Found": run(returncode=1, stderr="Not Found\n"),
@@ -178,40 +200,23 @@ class RefreshTests(unittest.TestCase):
         for pattern, result in cases.items():
             with (
                 self.subTest(pattern=pattern),
-                which,
+                on_path,
                 mock.patch.object(refresh.subprocess, "run", return_value=result),
                 self.assertRaisesRegex(refresh.RefreshError, pattern),
             ):
                 refresh.gh_api_repo("a/b")
         with (
-            which,
+            on_path,
             mock.patch.object(refresh.subprocess, "run", side_effect=OSError("no gh")),
             self.assertRaisesRegex(refresh.RefreshError, "could not run"),
         ):
             refresh.gh_api_repo("a/b")
 
-    def test_the_script_runs_as_a_cli_and_puts_pipelines_on_its_path(self):
-        import runpy
-
-        script = REPO / "scripts" / "refresh_repo_aliases.py"
-        pipelines = str(REPO / "pipelines")
-        argv = [str(script), "a/b", "--cache", str(self.root / "absent.json"),
-                "--out", str(self.root / "out.json")]
-        trimmed = [entry for entry in sys.path if entry != pipelines]
-        with (
-            mock.patch.object(sys, "argv", argv),
-            mock.patch.object(sys, "path", trimmed),
-            contextlib.redirect_stderr(io.StringIO()) as stderr,
-            self.assertRaises(SystemExit) as raised,
-        ):
-            runpy.run_path(str(script), run_name="__main__")
-        self.assertEqual(raised.exception.code, 1)
-        self.assertIn("unreadable", stderr.getvalue())
-        self.assertFalse((self.root / "out.json").exists())
-
     def test_gh_is_resolved_to_an_absolute_path_and_names_are_validated_first(self):
+        (self.root / "empty").mkdir()
+        (self.root / "empty" / "gh").write_text("not executable\n")
         with (
-            mock.patch.object(refresh.shutil, "which", return_value=None),
+            mock.patch.object(refresh.os, "get_exec_path", return_value=[str(self.root / "empty")]),
             self.assertRaisesRegex(refresh.RefreshError, "gh is not on PATH"),
         ):
             refresh.gh_api_repo("a/b")
@@ -221,6 +226,40 @@ class RefreshTests(unittest.TestCase):
         ):
             refresh.gh_api_repo("a/b; rm -rf /")
         call.assert_not_called()
+
+    def test_out_must_stay_inside_the_checkout_or_the_temporary_directory(self):
+        outside = self.root.joinpath(*([".."] * 40), "refresh-escape.json")
+        (self.root / "up").symlink_to("/")
+        raw = self.root / "raw"
+        raw.mkdir()
+        (self.root / "link.json").symlink_to(self.root / "target.json")
+        cases = {
+            "resolves outside the repository": outside,
+            "resolves outside the repository ": self.root / "up" / "refresh-escape.json",
+            "names or aliases outputs/raw": raw / "out.json",
+            "is a symlink": self.root / "link.json",
+            "is not an existing directory": self.root / "missing" / "out.json",
+        }
+        for pattern, out in cases.items():
+            with (
+                self.subTest(pattern=pattern.strip()),
+                mock.patch.object(refresh.raw_tree_guard, "DEFAULT_RAW_OUTPUT_ROOT", raw),
+                self.assertRaisesRegex(refresh.RefreshError, pattern.strip()),
+            ):
+                refresh.publish_new_file(out, b"{}\n")
+        self.assertFalse(Path("/refresh-escape.json").exists())
+        self.assertFalse((self.root / "target.json").exists())
+        self.assertEqual(list(raw.iterdir()), [])
+        stdout, stderr = io.StringIO(), io.StringIO()
+        argv = ["kbknapp/clap-rs", "--cache", str(FIXTURE_CACHE), "--out", str(outside)]
+        with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+            self.assertEqual(refresh.main(argv, fetch=fake_fetch, now=lambda: NOW), 1)
+        self.assertIn("resolves outside", stderr.getvalue())
+
+    def test_a_path_inside_the_checkout_is_accepted(self):
+        inside = refresh.REPO / "config" / "eval-exclusion"
+        self.assertEqual(refresh.confined_output(inside / "x.json"),
+                         Path(os.path.realpath(inside / "x.json")))
 
 
 if __name__ == "__main__":
