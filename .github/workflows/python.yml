@@ -149,9 +149,8 @@ jobs:
     steps:
       # Strict on purpose: a shard that hits timeout-minutes, or one cancelled from the
       # UI while the run continues, reports `cancelled` here and must keep this job red.
-      # Each comparison is its own command. This step runs under `bash -e`, and a failing
-      # `test` that is not the last command of an `&&` list does not fail the step, so a
-      # cancelled shard (the middle result) would otherwise continue into coverage.
+      # One comparison per command, so each failing result stops the step under `bash -e`
+      # on its own, independent of where it sits in the script.
       - name: Require the lint gate, every shard and the oracle job to have succeeded
         env:
           LINT_RESULT: ${{ needs.lint.result }}
