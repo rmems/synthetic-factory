@@ -84,6 +84,31 @@ class Evaluation:
         return bool(self.reason_codes)
 
 
+def _match(listed: ExclusionList, key: str, value: str) -> dict[str, str]:
+    return {"list": listed.slot, "key": key, "value": value}
+
+
+def _repo_matches(listed: ExclusionList, canonical: str | None) -> list[dict[str, str]]:
+    """The list's hit on a resolved canonical repository, if any."""
+
+    if canonical is None or canonical not in listed.repos:
+        return []
+    return [_match(listed, _lists.KEY_REPOS, canonical)]
+
+
+def _identity_ids(identity: SourceIdentity) -> tuple[tuple[str, str], ...]:
+    """The ``(list key, value)`` pairs a record carries as plain strings."""
+
+    pairs = ((key, getattr(identity, attribute)) for key, attribute in _ID_KEYS)
+    return tuple((key, value) for key, value in pairs if isinstance(value, str))
+
+
+def _id_matches(listed: ExclusionList, ids: tuple[tuple[str, str], ...]) -> list[dict[str, str]]:
+    """The list's hits on ``program_id`` / ``task_id`` values."""
+
+    return [_match(listed, key, value) for key, value in ids if value in listed.values(key)]
+
+
 def _display_path(path: Path) -> str:
     resolved = path.resolve()
     try:
@@ -117,15 +142,14 @@ class ExclusionPolicy:
         return (canonical, None) if canonical is not None else (None, REASON_REPO_UNRESOLVED)
 
     def _matches(self, canonical: str | None, identity: SourceIdentity) -> list[dict[str, str]]:
-        found: list[dict[str, str]] = []
-        for listed in self.lists():
-            if canonical is not None and canonical in listed.repos:
-                found.append({"list": listed.slot, "key": _lists.KEY_REPOS, "value": canonical})
-            for key, attribute in _ID_KEYS:
-                value = getattr(identity, attribute)
-                if isinstance(value, str) and value in listed.values(key):
-                    found.append({"list": listed.slot, "key": key, "value": value})
-        return found
+        """Every whole-value hit, list by list: the repository first, then the ids."""
+
+        ids = _identity_ids(identity)
+        return [
+            match
+            for listed in self.lists()
+            for match in (*_repo_matches(listed, canonical), *_id_matches(listed, ids))
+        ]
 
     def evaluate(self, identity: SourceIdentity) -> Evaluation:
         """Match one source identity on whole canonical values; never on substrings."""

@@ -78,16 +78,36 @@ def gh_api_repo(name: str) -> Any:
         raise RefreshError(f"gh api repos/{repo} returned invalid JSON: {exc}") from exc
 
 
-def _resolved(name: str, document: Any) -> tuple[str, int]:
+def _repository_object(name: str, document: Any) -> dict[str, Any]:
     if not isinstance(document, dict):
         raise RefreshError(f"{name}: GitHub returned no repository object")
-    full_name, github_id = document.get("full_name"), document.get("id")
-    if isinstance(github_id, bool) or not isinstance(github_id, int) or github_id < 1:
+    return document
+
+
+def _repository_id(name: str, repository: dict[str, Any]) -> int:
+    github_id = repository.get("id")
+    if not aliases.is_positive_id(github_id):
         raise RefreshError(f"{name}: GitHub returned no repository id")
+    return github_id
+
+
+def _repository_canonical(name: str, repository: dict[str, Any]) -> str:
     try:
-        return repo_identity.canonical_repo(full_name), github_id
+        return repo_identity.canonical_repo(repository.get("full_name"))
     except repo_identity.RepoNameError as exc:
         raise RefreshError(f"{name}: GitHub returned an unusable full_name: {exc}") from exc
+
+
+def _resolved(name: str, document: Any) -> tuple[str, int]:
+    """Classify one ``gh api`` answer as ``(canonical owner/name, github_id)`` or refuse it.
+
+    ``gh`` has already followed GitHub's rename and transfer redirects, so the
+    answer describes the repository the name points at today.
+    """
+
+    repository = _repository_object(name, document)
+    github_id = _repository_id(name, repository)
+    return _repository_canonical(name, repository), github_id
 
 
 def _api_entry(name: str, canonical: str, github_id: int, stamp: str) -> dict[str, Any]:
@@ -95,6 +115,12 @@ def _api_entry(name: str, canonical: str, github_id: int, stamp: str) -> dict[st
         "name": name, "canonical": canonical, "method": aliases.METHOD_GITHUB_API,
         "github_id": github_id, "resolved_at": stamp,
     }
+
+
+def _cached_api_id(cached: dict[str, Any] | None) -> int | None:
+    """The GitHub id a cached entry was resolved to, or ``None`` when it has none."""
+
+    return None if cached is None else cached.get("github_id")
 
 
 def _require_cached_identity(
@@ -110,9 +136,7 @@ def _require_cached_identity(
 
     for name in names:
         cached = entries.get(name)
-        if cached is None or cached["method"] != aliases.METHOD_GITHUB_API:
-            continue
-        if cached["github_id"] != github_id:
+        if _cached_api_id(cached) not in (None, github_id):
             raise RefreshError(
                 f"{name}: repository identity changed (cached github_id {cached['github_id']}, "
                 f"GitHub now returns {github_id}); the cache is left unchanged"
@@ -120,8 +144,9 @@ def _require_cached_identity(
 
 
 def _former_target(entries: dict[str, dict[str, Any]], name: str, canonical: str) -> str | None:
-    cached = entries.get(name)
-    former = None if cached is None else cached["canonical"]
+    """The other repository ``name`` resolved to before this refresh, if it moved."""
+
+    former = entries.get(name, {}).get("canonical")
     return None if former in (None, name, canonical) else former
 
 

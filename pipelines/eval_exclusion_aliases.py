@@ -105,17 +105,37 @@ def _canonical_field(entry: Mapping[str, Any], key: str, where: str) -> str:
     return value
 
 
+def is_positive_id(value: Any) -> bool:
+    """A GitHub repository id: a positive ``int`` that is not a ``bool``."""
+
+    return isinstance(value, int) and not isinstance(value, bool) and value > 0
+
+
+def _require_github_id(entry: Mapping[str, Any], where: str) -> None:
+    if not is_positive_id(entry["github_id"]):
+        raise ExclusionPolicyError(f"{where}.github_id must be a positive integer")
+
+
+def _require_evidence(entry: Mapping[str, Any], where: str) -> None:
+    _lists.require_text(entry["evidence"], f"{where}.evidence")
+
+
+_EVIDENCE_CHECK_BY_METHOD = MappingProxyType({
+    METHOD_GITHUB_API: _require_github_id,
+    METHOD_REVIEWED_SOURCE_PIN: _require_evidence,
+})
+
+
 def _method_evidence(entry: Mapping[str, Any], where: str) -> None:
-    if entry["method"] == METHOD_GITHUB_API:
-        github_id = entry["github_id"]
-        if isinstance(github_id, bool) or not isinstance(github_id, int) or github_id < 1:
-            raise ExclusionPolicyError(f"{where}.github_id must be a positive integer")
-    else:
-        _lists.require_text(entry["evidence"], f"{where}.evidence")
+    _EVIDENCE_CHECK_BY_METHOD[entry["method"]](entry, where)
+
+
+def _has_known_method(entry: Any) -> bool:
+    return isinstance(entry, dict) and entry.get("method") in ENTRY_KEYS_BY_METHOD
 
 
 def _validated_entry(entry: Any, where: str) -> tuple[str, str, datetime]:
-    if not isinstance(entry, dict) or entry.get("method") not in ENTRY_KEYS_BY_METHOD:
+    if not _has_known_method(entry):
         raise ExclusionPolicyError(
             f"{where} must be an object whose method is one of {sorted(ENTRY_KEYS_BY_METHOD)}"
         )
@@ -124,6 +144,12 @@ def _validated_entry(entry: Any, where: str) -> tuple[str, str, datetime]:
     canonical = _canonical_field(entry, "canonical", where)
     _method_evidence(entry, where)
     return name, canonical, parse_timestamp(entry["resolved_at"], f"{where}.resolved_at")
+
+
+def _is_api_alias(name: str, canonical: str, github_id: Any) -> bool:
+    """An old name (not a self-entry) that was resolved through the GitHub API."""
+
+    return name != canonical and github_id is not None
 
 
 def _require_one_identity(
@@ -138,7 +164,7 @@ def _require_one_identity(
 
     for name, canonical in canonical_by_name.items():
         alias_id = github_id_by_name.get(name)
-        if name == canonical or alias_id is None:
+        if not _is_api_alias(name, canonical, alias_id):
             continue
         target_id = github_id_by_name.get(canonical)
         if target_id != alias_id:
@@ -156,31 +182,52 @@ def _require_closed(canonical_by_name: Mapping[str, str], where: str) -> None:
             )
 
 
+@dataclass
+class _EntryIndex:
+    """What the entries of one cache say, collected in document order."""
+
+    names: list[str]
+    canonical_by_name: dict[str, str]
+    github_id_by_name: dict[str, Any]
+
+
+def _validated_cache_header(body: Mapping[str, Any], where: str) -> datetime:
+    if body["schema_version"] != CACHE_SCHEMA_VERSION:
+        raise ExclusionPolicyError(f"{where}.schema_version must be {CACHE_SCHEMA_VERSION!r}")
+    updated_at = parse_timestamp(body["updated_at"], f"{where}.updated_at")
+    if not isinstance(body["entries"], list):
+        raise ExclusionPolicyError(f"{where}.entries must be a list")
+    return updated_at
+
+
+def _index_entries(entries: list[Any], updated_at: datetime, where: str) -> _EntryIndex:
+    index = _EntryIndex([], {}, {})
+    for position, entry in enumerate(entries):
+        entry_where = f"{where}.entries[{position}]"
+        name, canonical, resolved_at = _validated_entry(entry, entry_where)
+        if resolved_at > updated_at:
+            raise ExclusionPolicyError(f"{entry_where} postdates updated_at")
+        index.names.append(name)
+        index.canonical_by_name[name] = canonical
+        index.github_id_by_name[name] = entry.get("github_id")
+    return index
+
+
+def _require_sorted_names(names: list[str], where: str) -> None:
+    if names != sorted(set(names)):
+        raise ExclusionPolicyError(f"{where}.entries must be sorted by unique name")
+
+
 def validate_cache_document(document: Any, sha256: str, where: str) -> AliasCache:
     """Validate one alias-cache document; the result resolves in one lookup."""
 
     body = _lists.require_exact_keys(document, CACHE_KEYS, where)
-    if body["schema_version"] != CACHE_SCHEMA_VERSION:
-        raise ExclusionPolicyError(f"{where}.schema_version must be {CACHE_SCHEMA_VERSION!r}")
-    updated_at = parse_timestamp(body["updated_at"], f"{where}.updated_at")
-    entries = body["entries"]
-    if not isinstance(entries, list):
-        raise ExclusionPolicyError(f"{where}.entries must be a list")
-    canonical_by_name: dict[str, str] = {}
-    github_id_by_name: dict[str, Any] = {}
-    names: list[str] = []
-    for index, entry in enumerate(entries):
-        name, canonical, resolved_at = _validated_entry(entry, f"{where}.entries[{index}]")
-        if resolved_at > updated_at:
-            raise ExclusionPolicyError(f"{where}.entries[{index}] postdates updated_at")
-        names.append(name)
-        canonical_by_name[name] = canonical
-        github_id_by_name[name] = entry.get("github_id")
-    if names != sorted(set(names)):
-        raise ExclusionPolicyError(f"{where}.entries must be sorted by unique name")
-    _require_closed(canonical_by_name, where)
-    _require_one_identity(canonical_by_name, github_id_by_name, where)
-    return AliasCache(MappingProxyType(canonical_by_name), body["updated_at"], sha256)
+    updated_at = _validated_cache_header(body, where)
+    index = _index_entries(body["entries"], updated_at, where)
+    _require_sorted_names(index.names, where)
+    _require_closed(index.canonical_by_name, where)
+    _require_one_identity(index.canonical_by_name, index.github_id_by_name, where)
+    return AliasCache(MappingProxyType(index.canonical_by_name), body["updated_at"], sha256)
 
 
 def load_cache(path: Path) -> AliasCache:

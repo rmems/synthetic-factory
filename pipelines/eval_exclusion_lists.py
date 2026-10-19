@@ -86,8 +86,8 @@ def _reject_number(token: str) -> Any:
     raise ValueError(f"non-integer number {token!r} is not allowed")
 
 
-def read_canonical_document(path: Path, label: str) -> tuple[Any, bytes]:
-    """Read strict JSON whose bytes are exactly its canonical exact-JSON form."""
+def _read_bounded(path: Path, label: str) -> bytes:
+    """Read one policy file, refusing an unreadable or oversized one."""
 
     try:
         payload = path.read_bytes()
@@ -95,8 +95,14 @@ def read_canonical_document(path: Path, label: str) -> tuple[Any, bytes]:
         raise ExclusionPolicyError(f"{label} {path} is unreadable: {exc}") from exc
     if len(payload) > MAX_LIST_BYTES:
         raise ExclusionPolicyError(f"{label} {path} exceeds {MAX_LIST_BYTES} bytes")
+    return payload
+
+
+def _decode_strict(payload: bytes, path: Path, label: str) -> Any:
+    """Decode UTF-8 strict JSON: unique keys, integers only, no NaN or Infinity."""
+
     try:
-        document = json.loads(
+        return json.loads(
             payload.decode("utf-8"),
             object_pairs_hook=_reject_duplicate_keys,
             parse_constant=_reject_number,
@@ -104,10 +110,21 @@ def read_canonical_document(path: Path, label: str) -> tuple[Any, bytes]:
         )
     except (ValueError, RecursionError) as exc:  # UnicodeDecodeError is a ValueError
         raise ExclusionPolicyError(f"{label} {path} is not strict JSON: {exc}") from exc
+
+
+def _require_canonical(document: Any, payload: bytes, path: Path, label: str) -> None:
     if payload != canonical_bytes(document):
         raise ExclusionPolicyError(
             f"{label} {path} is not in canonical form; rewrite it with canonical_bytes()"
         )
+
+
+def read_canonical_document(path: Path, label: str) -> tuple[Any, bytes]:
+    """Read strict JSON whose bytes are exactly its canonical exact-JSON form."""
+
+    payload = _read_bounded(path, label)
+    document = _decode_strict(payload, path, label)
+    _require_canonical(document, payload, path, label)
     return document, payload
 
 
@@ -131,8 +148,14 @@ def require_exact_keys(document: Any, expected: frozenset[str], where: str) -> d
     return document
 
 
+def _is_trimmed_text(value: Any) -> bool:
+    """A non-empty string with no leading or trailing whitespace."""
+
+    return isinstance(value, str) and bool(value) and value == value.strip()
+
+
 def require_text(value: Any, where: str) -> str:
-    if not isinstance(value, str) or not value or value != value.strip():
+    if not _is_trimmed_text(value):
         raise ExclusionPolicyError(f"{where} must be a non-empty string without edge whitespace")
     return value
 
@@ -174,12 +197,26 @@ def validate_list_document(document: Any, slot: str, sha256: str, where: str) ->
 
     body = require_exact_keys(document, LIST_KEYS, where)
     status = _validated_header(body, slot, where)
-    repos = _canonical_repos(body[KEY_REPOS], f"{where}.{KEY_REPOS}")
-    program_ids = frozenset(_sorted_unique_strings(body[KEY_PROGRAM_IDS], f"{where}.program_ids"))
-    task_ids = frozenset(_sorted_unique_strings(body[KEY_TASK_IDS], f"{where}.task_ids"))
-    if status == STATUS_PLACEHOLDER and (repos or program_ids or task_ids):
+    values = _list_values(body, where)
+    if _placeholder_with_entries(status, values):
         raise ExclusionPolicyError(f"{where}: a placeholder list must not carry entries")
-    return ExclusionList(slot, status, repos, program_ids, task_ids, sha256)
+    return ExclusionList(slot, status, *values, sha256)
+
+
+def _list_values(body: dict[str, Any], where: str) -> tuple[frozenset[str], ...]:
+    """The validated ``repos``, ``program_ids`` and ``task_ids`` sets, in that order."""
+
+    return (
+        _canonical_repos(body[KEY_REPOS], f"{where}.{KEY_REPOS}"),
+        frozenset(_sorted_unique_strings(body[KEY_PROGRAM_IDS], f"{where}.program_ids")),
+        frozenset(_sorted_unique_strings(body[KEY_TASK_IDS], f"{where}.task_ids")),
+    )
+
+
+def _placeholder_with_entries(status: str, values: tuple[frozenset[str], ...]) -> bool:
+    """A placeholder list that nonetheless names something: never allowed."""
+
+    return status == STATUS_PLACEHOLDER and any(values)
 
 
 def load_list(path: Path, slot: str) -> ExclusionList:
