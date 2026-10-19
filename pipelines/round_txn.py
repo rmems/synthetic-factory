@@ -847,8 +847,23 @@ def legacy_baseline_jsonl_paths(factory_dir: Path, baseline: int):
     ]
 
 
+MAX_ROUND_NUMBER = 9999
+# Fixed allowlist of marker labels: a marker filename never embeds caller text, only one of
+# these constants, so a caller-supplied round can select a label but cannot shape a path.
+_ROUND_LABELS = tuple(f"{number:02d}" for number in range(MAX_ROUND_NUMBER + 1))
+
+
+def round_label(round_number: int) -> str:
+    """Return the zero-padded marker label for an exact in-range round integer."""
+    if type(round_number) is not int or not 0 <= round_number <= MAX_ROUND_NUMBER:
+        raise TransactionError(
+            f"round must be an integer between 0 and {MAX_ROUND_NUMBER}: {round_number!r}"
+        )
+    return _ROUND_LABELS[round_number]
+
+
 def marker_paths(factory_dir: Path, round_number: int):
-    rr = f"{round_number:02d}"
+    rr = round_label(round_number)
     return {
         "reservation": factory_dir / f"ROUND-r{rr}.reserved.json",
         "publishing": factory_dir / f"ROUND-r{rr}.publishing.json",
