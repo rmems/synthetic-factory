@@ -37,7 +37,7 @@ The first failing rule wins.
 | --- | --- | --- |
 | 1 | `denylisted` | program id is on the eval denylist; nothing is parsed or executed for it |
 | 2 | `parse_error` | malformed row, unknown program, span not resolving to exactly one span of the target body (outside its docstring), mutant does not compile, does not load, or kills the interpreter without a report, or the replacement changes anything outside the target body (`mutant_escapes_target_body`: another module statement, the target's header or docstring, or a new write to its own name, `__doc__` or `__test__`) |
-| 3 | `duplicate` | `sha256(program_id, span, replacement_text)` was kept in a prior run or earlier in this one |
+| 3 | `duplicate` | `sha256(program_id, span, replacement_text)` of the canonical (minimal) edit, bound to the program's sha256, was kept in a prior run or earlier in this one; proposals that produce the same mutant share a key |
 | 4 | `original_fails` | the unmodified program does not pass all its doctests, has none, does not load, or times out |
 | 5 | `timeout` | the mutant exceeded the wall-clock budget (rejected, never kept) |
 | 6 | `mutant_passes` | the mutant passes every doctest |

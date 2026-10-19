@@ -12,8 +12,8 @@ from ._contract import bind_import_twin
 GATE_FORMAT = "task-gate/1"
 TASKS_FORMAT = "task-gate-tasks/1"
 SUMMARY_FORMAT = "task-gate-summary/1"
-INDEX_FORMAT = "task-gate-dedup-index/1"
-KEY_FORMAT = "task-gate-key/1"
+INDEX_FORMAT = "task-gate-dedup-index/2"
+KEY_FORMAT = "task-gate-key/2"
 HARNESS_PROTOCOL = "task-gate-harness/1"
 
 TASKS_FILENAME = "tasks.jsonl"

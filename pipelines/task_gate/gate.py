@@ -149,7 +149,7 @@ class Gate:
     def _verify(
         self, item: GateProposal, program: GateProgram, resolved: mutation.Resolved,
     ) -> Decision:
-        key = dedup_key(item.program_id, resolved.start, resolved.end, item.replacement_text)
+        key, edit_start, edit_end = dedup_key(item.program_id, program.text, resolved.mutant_text)
         base = {
             "proposal_id": item.proposal_id, "program_id": item.program_id, "source": item.source,
             "start_byte": resolved.start, "end_byte": resolved.end,
@@ -173,7 +173,7 @@ class Gate:
         if verdict == cv.VERDICT_KEPT:
             self.kept[key] = {
                 "format": cv.INDEX_FORMAT, "key": key, "program_id": item.program_id,
-                "start_byte": resolved.start, "end_byte": resolved.end,
+                "start_byte": edit_start, "end_byte": edit_end,
             }
         return decision
 

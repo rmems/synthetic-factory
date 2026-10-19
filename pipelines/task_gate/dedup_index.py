@@ -1,8 +1,14 @@
 #!/usr/bin/env python3
 """The persisted duplicate index: kept-proposal keys across runs, read-only until a new write.
 
-A key is ``sha256(program_id, span, replacement_text)`` over exact-JSON bytes of
-``[KEY_FORMAT, program_id, start_byte, end_byte, replacement_text]``. Only kept proposals
+A key is ``sha256(program_id, span, replacement_text)`` taken over the *canonical* edit: the
+smallest byte span and replacement that turn the program into the mutant (the common prefix and
+suffix of original and mutant trimmed away). Two proposals written with more or less surrounding
+context but producing the same mutant therefore share one key. The key also binds the program's
+own sha256, so a key kept against an older catalog text never matches the program once its text
+changes. The hashed bytes are exact JSON of ``[KEY_FORMAT, program_id, program_sha256,
+start_byte, end_byte, replacement_hex]`` (hex, because a minimal byte slice need not be valid
+UTF-8 on its own). Only kept proposals
 are indexed: a rejected proposal is deterministic and is re-rejected on its own merits, so
 the index stays the list of tasks that already exist. Each run reads every prior index file
 it is given and writes a new, cumulative ``dedup-index.jsonl`` into its own new destination;
@@ -26,15 +32,32 @@ from ._contract import (
 )
 from .checks import is_count
 
-__all__ = ["PriorIndex", "dedup_key", "index_bytes", "load_prior"]
+__all__ = ["PriorIndex", "dedup_key", "index_bytes", "load_prior", "minimal_edit"]
 
 _KEY = re.compile(r"[0-9a-f]{64}")
 _FIELDS = frozenset({"format", "key", "program_id", "start_byte", "end_byte"})
 
 
-def dedup_key(program_id: str, start_byte: int, end_byte: int, replacement_text: str) -> str:
-    payload = dumps_exact_json([cv.KEY_FORMAT, program_id, start_byte, end_byte, replacement_text])
-    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+def minimal_edit(original: bytes, mutant: bytes) -> tuple[int, int, bytes]:
+    """The smallest ``(start, end, replacement)`` with ``original[:start] + replacement +
+    original[end:] == mutant``: the common prefix, then the common suffix of what remains."""
+
+    start = len(os.path.commonprefix([original, mutant]))
+    room = min(len(original), len(mutant)) - start
+    tail = min(len(os.path.commonprefix([original[::-1], mutant[::-1]])), room)
+    return start, len(original) - tail, mutant[start:len(mutant) - tail]
+
+
+def dedup_key(program_id: str, program_text: str, mutant_text: str) -> tuple[str, int, int]:
+    """The key of the canonical edit from ``program_text`` to ``mutant_text``, and its span."""
+
+    original = program_text.encode("utf-8")
+    start, end, replacement = minimal_edit(original, mutant_text.encode("utf-8"))
+    payload = dumps_exact_json([
+        cv.KEY_FORMAT, program_id, hashlib.sha256(original).hexdigest(), start, end,
+        replacement.hex(),
+    ])
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest(), start, end
 
 
 @dataclass(frozen=True)

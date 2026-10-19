@@ -258,12 +258,50 @@ class ParseErrors(unittest.TestCase):
 
 
 class Duplicates(unittest.TestCase):
-    def test_key_is_sha256_over_program_span_and_replacement(self):
-        key = dedup_index.dedup_key("prog-add", 1, 2, "x")
+    def test_key_is_sha256_over_program_and_canonical_edit(self):
+        mutant = ADD.replace("a + b", "a - b")
+        key, start, end = dedup_index.dedup_key("prog-add", ADD, mutant)
         self.assertEqual(len(key), 64)
-        self.assertNotEqual(key, dedup_index.dedup_key("prog-add", 1, 2, "y"))
-        self.assertNotEqual(key, dedup_index.dedup_key("prog-add", 1, 3, "x"))
-        self.assertNotEqual(key, dedup_index.dedup_key("prog-eval", 1, 2, "x"))
+        self.assertEqual(ADD.encode()[start:end], b"+")
+        others = (
+            dedup_index.dedup_key("prog-add", ADD, ADD.replace("a + b", "a * b"))[0],
+            dedup_index.dedup_key("prog-eval", ADD, mutant)[0],
+            dedup_index.dedup_key("prog-add", ADD + "\n", mutant + "\n")[0],
+        )
+        self.assertNotIn(key, others)
+
+    def test_minimal_edit_trims_the_common_prefix_and_suffix(self):
+        cases = {
+            (b"return x + 1", b"return x - 1"): (9, 10, b"-"),
+            (b"aaa", b"aa"): (2, 3, b""),
+            (b"ab", b"aXb"): (1, 1, b"X"),
+            (b"same", b"same"): (4, 4, b""),
+            ("é + 1".encode(), "é - 1".encode()): (3, 4, b"-"),
+        }
+        for (original, mutant), expected in cases.items():
+            with self.subTest(original=original, mutant=mutant):
+                start, end, replacement = dedup_index.minimal_edit(original, mutant)
+                self.assertEqual((start, end, replacement), expected)
+                self.assertEqual(original[:start] + replacement + original[end:], mutant)
+
+    def test_edits_written_with_different_context_but_one_mutant_share_a_key(self):
+        fake = FakeHarness({ADD: PASSED})
+        machine = gate.Gate(PROGRAMS, rules(), fake)
+        narrow = proposal_for("a - b")
+        wide = proposal_for("return a - b", proposal_id="wide", needle="return a + b")
+        first, second = machine.run([narrow, wide])
+        self.assertEqual(first.verdict, cv.VERDICT_KEPT)
+        self.assertEqual((second.verdict, second.detail), (cv.VERDICT_DUPLICATE, cv.DETAIL_THIS_RUN))
+        self.assertEqual(first.dedup_key, second.dedup_key)
+        self.assertEqual(len(machine.kept), 1)
+
+    def test_a_key_kept_against_older_program_text_does_not_match_new_text(self):
+        old_text = ADD.replace("Add two numbers.", "Add two values.")
+        old_key = dedup_index.dedup_key("prog-add", old_text, old_text.replace("a + b", "a - b"))[0]
+        prior = dedup_index.PriorIndex({old_key: {"key": old_key}}, ())
+        machine = gate.Gate(PROGRAMS, rules(prior=prior), FakeHarness({ADD: PASSED}))
+        (decision,) = machine.run([proposal_for("a - b")])
+        self.assertEqual(decision.verdict, cv.VERDICT_KEPT)
 
     def test_second_identical_proposal_in_one_run_is_a_duplicate(self):
         machine = gate.Gate(PROGRAMS, rules(), FakeHarness({ADD: PASSED}))
