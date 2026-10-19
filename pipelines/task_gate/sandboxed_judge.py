@@ -16,6 +16,7 @@ from typing import NamedTuple
 from . import _sandboxed_record as record
 from . import vocabulary as cv
 from ._contract import bind_import_twin
+from .checks import is_count
 from .harness import HarnessResult
 
 __all__ = ["judged", "report_limit"]
@@ -72,7 +73,7 @@ def _ends_after(body: object, count: int) -> bool:
     if _kind(body) != record.KIND_END:
         return False
     recorded = body.get("count")
-    return type(recorded) is int and recorded == count
+    return is_count(recorded) and recorded == count
 
 
 def _flags(example: doctest.Example) -> int:
