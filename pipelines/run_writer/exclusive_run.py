@@ -93,6 +93,16 @@ def _refuse_opened_parent(guards: Guards, parent_fd: int, destination: Path) -> 
     _refuse_raw_path(guards, opened / destination.name, destination)
 
 
+def _text_handle(descriptor: int):
+    """Wrap ``descriptor`` in a text handle; close it here if wrapping fails, so it never leaks."""
+
+    try:
+        return os.fdopen(descriptor, "w", encoding="utf-8", newline="\n")
+    except BaseException:
+        os.close(descriptor)
+        raise
+
+
 def _create_exclusive_file(
     parent_fd: int, name: str, payload: str, created: list[_CreatedFile]
 ) -> None:
@@ -103,7 +113,7 @@ def _create_exclusive_file(
         dir_fd=parent_fd,
     )
     created.append(_CreatedFile(parent_fd, name))
-    with os.fdopen(descriptor, "w", encoding="utf-8", newline="\n") as handle:
+    with _text_handle(descriptor) as handle:
         handle.write(payload)
         handle.flush()
         os.fsync(handle.fileno())
