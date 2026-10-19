@@ -47,7 +47,8 @@ def _proposals(args: argparse.Namespace, catalog) -> tuple[list, dict]:
     if args.command == "procedural":
         found = procedural.proposals_from_plan(catalog, args.seed, args.count, args.per_program_cap)
         return found, {"proposals": {
-            "origin": "procedural", "seed": args.seed, "count": len(found),
+            "origin": "procedural", "seed": args.seed, "requested_count": args.count,
+            "per_program_cap": args.per_program_cap, "count": len(found),
             "catalog_id": catalog.catalog_id,
         }}
     try:

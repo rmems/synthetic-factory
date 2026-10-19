@@ -158,6 +158,8 @@ class RealHarness(unittest.TestCase):
             self.assertFalse(_child._limit(5))
         with mock.patch.object(_child, "_limit", return_value=False), \
                 mock.patch.object(_child, "_load", side_effect=AssertionError("program imported")), \
+                mock.patch.object(_child.os, "dup", return_value=1), \
+                mock.patch.object(_child, "_silence_stdout"), \
                 mock.patch.object(_child.os, "fdopen", return_value=stream):
             self.assertEqual(_child.main(["child", ".", "f", "5"]), 0)
         report = json.loads(stream.getvalue().removeprefix(_child.MARKER))

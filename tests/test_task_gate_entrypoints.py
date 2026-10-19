@@ -54,7 +54,11 @@ class DirectScript(unittest.TestCase):
         self.assertEqual(code, 0)
         summary = json.loads((out / cv.SUMMARY_FILENAME).read_text())
         self.assertEqual(json.loads(stdout)["total"], summary["total"])
-        self.assertEqual(summary["inputs"]["proposals"]["origin"], "procedural")
+        proposals = summary["inputs"]["proposals"]
+        self.assertEqual(proposals["origin"], "procedural")
+        self.assertEqual((proposals["seed"], proposals["requested_count"]), (5, 1))
+        self.assertEqual(proposals["per_program_cap"], 3)
+        self.assertEqual(proposals["count"], summary["total"])
 
     def test_verify_subcommand_exits_zero_on_a_proposals_file(self):
         rows = self.root / "rows.jsonl"
@@ -89,12 +93,15 @@ class DirectScript(unittest.TestCase):
 
     def test_the_script_puts_pipelines_on_the_path_when_it_is_missing(self):
         bare = [entry for entry in sys.path if Path(entry or ".").resolve() != PIPELINES]
-        code, _, stderr = run_script(
-            "procedural", "--catalog", str(FIXTURE), "--seed", "5", "--count", "1",
-            "--out", str(self.root / "bare"), path=bare,
-        )
+        with mock.patch.dict(sys.modules):  # cached task_gate modules would mask the path insert
+            PackageSpelling.forget_repository_modules()
+            code, _, stderr = run_script(
+                "procedural", "--catalog", str(FIXTURE), "--seed", "5", "--count", "1",
+                "--out", str(self.root / "bare"), path=bare,
+            )
         self.assertEqual(code, 2)
         self.assertIn(cv.REFUSE_DENYLIST_MISSING, stderr)
+        self.assertIn(str(PIPELINES), bare)
 
     def test_importing_the_script_as_a_module_runs_nothing(self):
         namespace = runpy.run_path(str(SCRIPT), run_name="task_gate_cli_imported")

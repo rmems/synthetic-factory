@@ -8,8 +8,9 @@ Evaluation order, first failing rule wins:
 2. ``parse_error`` -- the row is malformed, the program is unknown, the edit does not resolve
    to exactly one span inside the target body (outside the docstring), the mutant does not
    compile, does not load, or kills the interpreter.
-3. ``duplicate`` -- ``sha256(program_id, span, replacement_text)`` was kept in a prior run or
-   earlier in this one.
+3. ``duplicate`` -- the key of the canonical (minimal) edit, bound to ``program_id`` and the
+   program's sha256 (see ``dedup_index.dedup_key``), was kept in a prior run or earlier in
+   this one, so two spellings of one mutant are one duplicate.
 4. ``original_fails`` -- the unmodified program does not pass all of its doctests (or has none).
 5. ``timeout`` -- the mutant exceeded the wall-clock budget (rejected, never kept).
 6. ``mutant_passes`` -- the mutant passes every doctest.
