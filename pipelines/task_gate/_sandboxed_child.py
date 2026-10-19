@@ -74,7 +74,7 @@ def _verdict(inner, workdir, function):
     try:
         module = inner._load(workdir)
         attempted, failed = inner._doctests(module, function)
-    except BaseException as exc:  # the program may raise anything, including SystemExit
+    except (Exception, SystemExit, KeyboardInterrupt, GeneratorExit) as exc:  # a program may raise these
         return inner._report("load_error", detail=type(exc).__name__)
     return inner._report("ran", attempted, failed)
 

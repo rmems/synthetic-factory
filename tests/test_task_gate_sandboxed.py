@@ -235,6 +235,12 @@ class Kernel(unittest.TestCase):
         body = "import os\nreturn os.read(0, 8)"
         self.assertEqual(self.sandbox.run(base.probe(body, b""), "f").outcome, cv.OUTCOME_PASSED)
 
+    def test_system_exit_and_interrupts_at_import_are_load_errors(self):
+        for raised in ("SystemExit(3)", "KeyboardInterrupt()", "GeneratorExit()"):
+            with self.subTest(raised=raised):
+                text = f"raise {raised}\n" + base.probe("return 1", 1)
+                self.assertEqual(self.sandbox.run(text, "f").outcome, cv.OUTCOME_LOAD_ERROR)
+
     def test_runaway_programs_are_cut_by_the_wall_clock(self):
         fast = sandboxed.SandboxedHarness(timeout_s=1)
         self.assertEqual(fast.run(base.probe("while True:\n    pass", 1), "f").outcome,
