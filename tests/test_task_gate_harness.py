@@ -15,9 +15,10 @@ from unittest import mock
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from task_gate_test_support import (
-    ADD, BROKEN, DENY, NO_DOCTESTS, PROGRAMS, REPO, FakeHarness, cv, gate, harness,
-    denylist, procedural, proposal, proposal_for, refused, rules, runner,
+    ADD, BROKEN, DENY, NO_DOCTESTS, PROGRAMS, REPO, FakeHarness, cv, gate, harness, denylist,
+    proposal, proposal_for, refused, rules,
 )
+from task_gate import procedural, runner
 
 FIXTURE = REPO / "tests" / "fixtures" / "code-repair"
 

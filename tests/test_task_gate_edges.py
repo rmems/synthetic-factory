@@ -10,9 +10,10 @@ from unittest import mock
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from task_gate_test_support import (
-    ADD, DENY, PASSED, PROGRAM, FakeHarness, cv, denylist, gate, harness, mutation, proposal,
-    proposal_for, refused, report, rules, runner,
+    ADD, DENY, PASSED, PROGRAM, FakeHarness, cv, denylist, gate, harness, proposal, proposal_for,
+    refused, rules,
 )
+from task_gate import mutation, report, runner
 
 DOC_ONLY = 'def f():\n    """\n    >>> 1\n    1\n    """\n'
 

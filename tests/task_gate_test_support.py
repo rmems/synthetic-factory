@@ -8,16 +8,7 @@ TESTS = Path(__file__).resolve().parent
 REPO = TESTS.parent
 sys.path[:0] = [str(REPO / "pipelines")]
 
-# Re-exported for the test modules (``name as name`` marks an explicit re-export).
-from task_gate import dedup_index as dedup_index
-from task_gate import denylist as denylist
-from task_gate import gate as gate
-from task_gate import harness as harness
-from task_gate import mutation as mutation
-from task_gate import procedural as procedural
-from task_gate import proposal as proposal
-from task_gate import report as report
-from task_gate import runner as runner
+from task_gate import dedup_index, denylist, gate, harness, proposal
 from task_gate import vocabulary as cv
 
 ADD = '''def add(a, b):

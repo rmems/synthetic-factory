@@ -11,9 +11,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from task_gate_test_support import (
     ADD, DENY, FAILED, NO_DOCTESTS, PASSED, PROGRAM, PROGRAMS, FakeHarness, cv, dedup_index,
-    denylist, gate, harness, mutation, proposal, proposal_for, refused, report, rules, runner,
-    span_of,
+    denylist, gate, harness, proposal, proposal_for, refused, rules, span_of,
 )
+from task_gate import mutation, report, runner
 
 
 def decide(item, fake=None, rule_set=None, programs=None):
