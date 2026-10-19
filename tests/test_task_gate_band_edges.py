@@ -78,6 +78,15 @@ class OddCandidates(unittest.TestCase):
     def test_a_candidate_that_parses_but_drops_the_target_fails(self):
         self.assertFalse(band_solver.Scorer(PROGRAM, FakeHarness()).passes("x = 1\n"))
 
+    def test_a_legality_check_that_raises_fails_the_attempt_without_running_it(self):
+        fake = FakeHarness()
+        scorer = band_solver.Scorer(PROGRAM, fake)
+        for error in (SyntaxError("bad"), ValueError("bad"), RecursionError("deep")):
+            with self.subTest(error=type(error).__name__):
+                with mock.patch.object(band_solver.mutation, "candidate_problem", side_effect=error):
+                    self.assertFalse(scorer.passes(ADD))
+        self.assertEqual(fake.calls, [])
+
 
 if __name__ == "__main__":
     unittest.main()
