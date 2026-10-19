@@ -24,6 +24,7 @@ from . import vocabulary as cv
 from ._contract import (
     StrictJsonlError, bind_import_twin, dumps_exact_json, load_strict_json, strict_lf_jsonl_lines,
 )
+from .checks import is_count
 
 __all__ = ["PriorIndex", "dedup_key", "index_bytes", "load_prior"]
 
@@ -51,15 +52,29 @@ class PriorIndex:
         return cls({}, ())
 
 
+def _shape_is_sound(row: object) -> bool:
+    return isinstance(row, dict) and set(row) == _FIELDS
+
+
+def _key_is_sound(row: dict) -> bool:
+    return isinstance(row["key"], str) and _KEY.fullmatch(row["key"]) is not None
+
+
+def _program_is_sound(row: dict) -> bool:
+    return isinstance(row["program_id"], str) and bool(row["program_id"])
+
+
+def _span_is_sound(row: dict) -> bool:
+    return is_count(row["start_byte"]) and is_count(row["end_byte"])
+
+
+_ROW_CHECKS = (
+    lambda row: row["format"] == cv.INDEX_FORMAT, _key_is_sound, _program_is_sound, _span_is_sound,
+)
+
+
 def _row_is_sound(row: object) -> bool:
-    if not isinstance(row, dict) or set(row) != _FIELDS or row["format"] != cv.INDEX_FORMAT:
-        return False
-    spans = (row["start_byte"], row["end_byte"])
-    return (
-        isinstance(row["key"], str) and _KEY.fullmatch(row["key"]) is not None
-        and isinstance(row["program_id"], str) and bool(row["program_id"])
-        and all(isinstance(n, int) and not isinstance(n, bool) and n >= 0 for n in spans)
-    )
+    return _shape_is_sound(row) and all(check(row) for check in _ROW_CHECKS)
 
 
 def _read(path: Path) -> bytes:

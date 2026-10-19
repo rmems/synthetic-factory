@@ -18,10 +18,10 @@ from . import vocabulary as cv
 from ._contract import bind_import_twin
 from .dedup_index import PriorIndex, load_prior
 from .denylist import Denylist, load_denylist
-from .gate import Gate, Harness
+from .gate import Gate, Harness, Rules
 from .harness import SubprocessHarness
 from .proposal import GateProgram, GateProposal, MalformedProposal
-from .report import check_destination, write_run
+from .report import RunOutcome, check_destination, write_run
 
 __all__ = ["GateRequest", "run"]
 
@@ -49,28 +49,39 @@ def _programs_digest(programs: Mapping[str, GateProgram]) -> str:
     return digest.hexdigest()
 
 
-def run(request: GateRequest, harness: Harness | None = None) -> dict[str, Any]:
-    """Run the gate and return the summary that was written to ``summary.json``."""
+def _loaded_denylist(request: GateRequest) -> Denylist:
+    if isinstance(request.denylist, Denylist):
+        return request.denylist
+    return load_denylist(request.denylist)
 
-    check_destination(Path(request.out))
-    denylist = (
-        request.denylist if isinstance(request.denylist, Denylist) else load_denylist(request.denylist)
-    )
-    prior = load_prior(request.prior_index_paths) if request.prior_index_paths else PriorIndex.empty()
-    cv.refuse_when(not request.proposals, cv.REFUSE_NO_PROPOSALS, "no proposals to verify")
-    cv.refuse_when(not request.programs, cv.REFUSE_PROGRAM_INVALID, "no programs")
-    active = harness if harness is not None else SubprocessHarness(request.timeout_s)
-    gate = Gate(request.programs, denylist, prior, active)
-    decisions = gate.run(request.proposals)
-    describe = getattr(active, "describe", None)
-    meta = {
-        "denylist": {"sha256": denylist.sha256, "entries": len(denylist)},
-        "prior_indexes": list(prior.files),
+
+def _loaded_prior(request: GateRequest) -> PriorIndex:
+    return load_prior(request.prior_index_paths) if request.prior_index_paths else PriorIndex.empty()
+
+
+def _meta(request: GateRequest, rules: Rules, harness: Harness) -> dict[str, Any]:
+    describe = getattr(harness, "describe", None)
+    return {
+        "denylist": {"sha256": rules.denylist.sha256, "entries": len(rules.denylist)},
+        "prior_indexes": list(rules.prior.files),
         "programs": {"count": len(request.programs), "sha256": _programs_digest(request.programs)},
         "harness": describe() if callable(describe) else {"protocol": cv.HARNESS_PROTOCOL},
         **dict(request.provenance),
     }
-    return write_run(Path(request.out), decisions, gate.kept, prior, meta)
+
+
+def run(request: GateRequest, harness: Harness | None = None) -> dict[str, Any]:
+    """Run the gate and return the summary that was written to ``summary.json``."""
+
+    check_destination(Path(request.out))
+    rules = Rules(_loaded_denylist(request), _loaded_prior(request))
+    cv.refuse_when(not request.proposals, cv.REFUSE_NO_PROPOSALS, "no proposals to verify")
+    cv.refuse_when(not request.programs, cv.REFUSE_PROGRAM_INVALID, "no programs")
+    active = harness if harness is not None else SubprocessHarness(request.timeout_s)
+    gate = Gate(request.programs, rules, active)
+    decisions = gate.run(request.proposals)
+    meta = _meta(request, rules, active)
+    return write_run(Path(request.out), RunOutcome(decisions, gate.kept, rules.prior, meta))
 
 
 bind_import_twin(__name__)

@@ -21,7 +21,7 @@ from __future__ import annotations
 import hashlib
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
-from typing import Any, Protocol
+from typing import Any, NamedTuple, Protocol
 
 from . import mutation
 from . import vocabulary as cv
@@ -31,7 +31,7 @@ from .denylist import Denylist
 from .harness import HarnessResult
 from .proposal import GateProgram, GateProposal, MalformedProposal
 
-__all__ = ["Decision", "Gate", "Harness"]
+__all__ = ["Decision", "Gate", "Harness", "Rules"]
 
 
 class Harness(Protocol):
@@ -90,26 +90,39 @@ _MUTANT_VERDICTS = {
 }
 
 
-class Gate:
-    """Holds the required denylist, the prior index and the harness for one run."""
+class Rules(NamedTuple):
+    """What a run is judged against: the required eval denylist and the prior-run index."""
 
-    def __init__(
-        self, programs: Mapping[str, GateProgram], denylist: Denylist, prior: PriorIndex,
-        harness: Harness,
-    ) -> None:
-        cv.refuse_when(
-            not isinstance(denylist, Denylist) or not len(denylist), cv.REFUSE_DENYLIST_MISSING,
-            "the gate needs a loaded, non-empty eval denylist",
-        )
-        cv.refuse_when(
-            not isinstance(prior, PriorIndex), cv.REFUSE_INDEX_MALFORMED, "prior index not loaded",
-        )
-        bad = [pid for pid, program in programs.items() if program.program_id != pid]
-        cv.refuse_when(bool(bad), cv.REFUSE_PROGRAM_INVALID, f"program key/id mismatch: {bad[:1]}")
+    denylist: Denylist
+    prior: PriorIndex
+
+
+def _check_rules(rules: Rules) -> None:
+    cv.refuse_when(
+        not isinstance(rules.denylist, Denylist) or not len(rules.denylist),
+        cv.REFUSE_DENYLIST_MISSING, "the gate needs a loaded, non-empty eval denylist",
+    )
+    cv.refuse_when(
+        not isinstance(rules.prior, PriorIndex), cv.REFUSE_INDEX_MALFORMED, "prior index not loaded",
+    )
+
+
+def _check_programs(programs: Mapping[str, GateProgram]) -> None:
+    bad = [pid for pid, program in programs.items() if program.program_id != pid]
+    cv.refuse_when(bool(bad), cv.REFUSE_PROGRAM_INVALID, f"program key/id mismatch: {bad[:1]}")
+
+
+class Gate:
+    """Holds the programs, the required rules and the harness for one run."""
+
+    def __init__(self, programs: Mapping[str, GateProgram], rules: Rules, harness: Harness) -> None:
+        _check_rules(rules)
+        _check_programs(programs)
         selfcheck = getattr(harness, "selfcheck", None)
         if callable(selfcheck):
             selfcheck()
-        self.programs, self.denylist, self.prior, self.harness = programs, denylist, prior, harness
+        self.programs, self.harness = programs, harness
+        self.denylist, self.prior = rules.denylist, rules.prior
         self.kept: dict[str, dict[str, Any]] = {}
         self._originals: dict[str, str | None] = {}
         self._mutants: dict[str, HarnessResult] = {}

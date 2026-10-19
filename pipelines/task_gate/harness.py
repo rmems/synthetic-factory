@@ -19,7 +19,7 @@ from __future__ import annotations
 import math
 import os
 import signal
-import subprocess  # fixed argv, no shell
+import subprocess  # nosec B404
 import sys
 import tempfile
 from dataclasses import dataclass
@@ -27,11 +27,13 @@ from pathlib import Path
 
 from . import vocabulary as cv
 from ._contract import bind_import_twin, load_strict_json
+from .checks import is_count
 
 CHILD_PATH = Path(__file__).with_name("_child.py")
 INTERPRETER_FLAGS = ("-P", "-s", "-S", "-B", "-X", "utf8")
 MARKER = "TASK-GATE-REPORT "
 MAX_REPORT_BYTES = 64 * 1024
+KILL_GRACE_S = 5
 
 __all__ = ["HarnessResult", "SubprocessHarness", "child_environment"]
 
@@ -78,15 +80,31 @@ def _report_of(raw: bytes) -> HarnessResult:
     return _result_of(report)
 
 
+def _both_counts(attempted: object, failed: object) -> bool:
+    return is_count(attempted) and is_count(failed)
+
+
+def _counts_are_sound(attempted: object, failed: object) -> bool:
+    return _both_counts(attempted, failed) and failed <= attempted
+
+
+def _detail_of(report: dict) -> str:
+    detail = report.get("detail")
+    return detail if isinstance(detail, str) else ""
+
+
+def _is_protocol_report(report: object) -> bool:
+    return isinstance(report, dict) and report.get("protocol") == cv.HARNESS_PROTOCOL
+
+
 def _result_of(report: object) -> HarnessResult:
-    if not isinstance(report, dict) or report.get("protocol") != cv.HARNESS_PROTOCOL:
+    if not _is_protocol_report(report):
         return HarnessResult(cv.OUTCOME_CRASHED, detail="report_protocol")
-    outcome, attempted, failed = report.get("outcome"), report.get("attempted"), report.get("failed")
-    detail = report.get("detail") if isinstance(report.get("detail"), str) else ""
-    if outcome == "load_error":
+    detail = _detail_of(report)
+    if report.get("outcome") == "load_error":
         return HarnessResult(cv.OUTCOME_LOAD_ERROR, detail=detail)
-    counts_ok = all(isinstance(n, int) and not isinstance(n, bool) and n >= 0 for n in (attempted, failed))
-    if outcome != "ran" or not counts_ok or failed > attempted:
+    attempted, failed = report.get("attempted"), report.get("failed")
+    if report.get("outcome") != "ran" or not _counts_are_sound(attempted, failed):
         return HarnessResult(cv.OUTCOME_CRASHED, detail=detail or "report_shape")
     return HarnessResult(
         cv.OUTCOME_FAILED if failed else cv.OUTCOME_PASSED, attempted, failed, detail,
@@ -121,7 +139,7 @@ class SubprocessHarness:
             ]
             try:
                 with out_path.open("wb") as sink:
-                    process = subprocess.Popen(  # nosec B603 - fixed argv, no shell
+                    process = subprocess.Popen(  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit.dangerous-subprocess-use-audit  # nosec B603
                         argv, cwd=workdir, env=child_environment(workdir), stdin=subprocess.DEVNULL,
                         stdout=sink, stderr=subprocess.DEVNULL, start_new_session=True,
                         close_fds=True,
@@ -135,13 +153,19 @@ class SubprocessHarness:
                 return _report_of(source.read(MAX_REPORT_BYTES))
 
     def _wait(self, process: subprocess.Popen) -> bool:
+        """True when the run counts as a timeout; never blocks past the kill grace period."""
+
+        timed_out = False
         try:
             process.wait(timeout=self.timeout_s)
-            return False
         except subprocess.TimeoutExpired:
-            _kill_group(process)
-            process.wait()
-            return True
+            timed_out = True
+        _kill_group(process)  # also reaps stragglers a finished program left in its group
+        try:
+            process.wait(timeout=KILL_GRACE_S)
+        except subprocess.TimeoutExpired:
+            timed_out = True
+        return timed_out
 
     def selfcheck(self) -> None:
         """Refuse unless the harness separates a passing program from a failing one."""

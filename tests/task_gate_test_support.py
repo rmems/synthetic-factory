@@ -32,28 +32,48 @@ PASSED = harness.HarnessResult(cv.OUTCOME_PASSED, 2, 0)
 FAILED = harness.HarnessResult(cv.OUTCOME_FAILED, 2, 1)
 
 __all__ = [
-    "ADD", "BROKEN", "DENY", "FAILED", "FakeHarness", "NO_DOCTESTS", "PASSED", "PROGRAM",
+    "ADD", "BROKEN", "DENY", "EVAL_PROGRAM", "FAILED", "FakeHarness", "NO_DOCTESTS", "PASSED", "PROGRAM",
     "PROGRAMS", "REPO", "TESTS", "cv", "dedup_index", "denylist", "gate", "harness", "mutation",
-    "procedural", "proposal", "proposal_for", "report", "runner", "span_of",
+    "procedural", "proposal", "proposal_for", "refused", "report", "rules", "runner", "span_of",
 ]
+
+
+def rules(deny=DENY, prior=None):
+    """The gate's rules: the denylist and a prior index (empty unless given)."""
+
+    return gate.Rules(deny, dedup_index.PriorIndex.empty() if prior is None else prior)
+
+
+def refused(call, *args):
+    """The refusal code ``call(*args)`` raises, or None when it does not refuse.
+
+    Callers build every argument first, so the only call that can raise is the one under test.
+    """
+
+    try:
+        call(*args)
+    except cv.GateRefusal as exc:
+        return exc.code
+    return None
 
 
 def span_of(text, needle):
     """``(start_byte, end_byte)`` of the only occurrence of ``needle`` in ``text``."""
 
-    assert text.count(needle) == 1, needle
+    if text.count(needle) != 1:
+        raise ValueError(f"{needle!r} must occur exactly once in the program text")
     start = len(text[: text.index(needle)].encode("utf-8"))
     return start, start + len(needle.encode("utf-8"))
 
 
-def proposal_for(replacement="a - b", needle="a + b", program_id="prog-add", text=ADD, **fields):
-    """An explicit-offset proposal over ``text``; extra keyword fields override."""
+def proposal_for(replacement="a - b", needle="a + b", program=PROGRAM, **fields):
+    """An explicit-offset proposal over ``program``; extra keyword fields override."""
 
-    start, end = span_of(text, needle)
+    start, end = span_of(program.text, needle)
     values = {
-        "proposal_id": f"p-{program_id}-{start}-{replacement}", "program_id": program_id,
-        "replacement_text": replacement, "source": "model", "original_text": needle,
-        "start_byte": start, "end_byte": end,
+        "proposal_id": f"p-{program.program_id}-{start}-{replacement}",
+        "program_id": program.program_id, "replacement_text": replacement, "source": "model",
+        "original_text": needle, "start_byte": start, "end_byte": end,
     }
     values.update(fields)
     return proposal.GateProposal(**values)

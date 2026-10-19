@@ -19,6 +19,10 @@ MARKER = "TASK-GATE-REPORT "
 PROTOCOL = "task-gate-harness/1"
 ADDRESS_SPACE_BYTES = 1 << 30
 FILE_SIZE_BYTES = 1 << 20
+BLOCKED_SOCKET_FUNCTIONS = (
+    "create_connection", "getaddrinfo", "gethostbyname", "gethostbyname_ex",
+    "gethostbyaddr", "socketpair", "fromfd", "create_server",
+)
 
 
 def _limit(cpu_seconds):
@@ -46,24 +50,28 @@ def _block_network():
 
     import socket
 
+    # Defense in depth: a later ``import _socket`` raises ImportError. ``socket`` above already
+    # holds its own reference, so the replacements below are what stop ``socket`` users.
+    sys.modules["_socket"] = None
+
     class Blocked(socket.socket):
-        def __init__(self, *args, **kwargs):
+        def __init__(self, *_args, **_kwargs):  # intentionally no super().__init__: it refuses
             _refuse()
 
     socket.socket = Blocked
-    for name in (
-        "create_connection", "getaddrinfo", "gethostbyname", "gethostbyname_ex",
-        "gethostbyaddr", "socketpair", "fromfd", "create_server",
-    ):
+    for name in BLOCKED_SOCKET_FUNCTIONS:
         if hasattr(socket, name):
             setattr(socket, name, _refuse)
 
 
-def _emit(stream, outcome, attempted=0, failed=0, detail=""):
-    report = {
+def _report(outcome, attempted=0, failed=0, detail=""):
+    return {
         "protocol": PROTOCOL, "outcome": outcome, "attempted": attempted, "failed": failed,
         "detail": detail,
     }
+
+
+def _emit(stream, report):
     stream.write(MARKER + json.dumps(report, sort_keys=True) + "\n")
     stream.flush()
 
@@ -94,16 +102,16 @@ def main(argv):
     workdir, function, cpu_seconds = argv[1], argv[2], int(argv[3])
     report_stream = os.fdopen(os.dup(1), "w", encoding="utf-8")
     if not _limit(cpu_seconds):
-        _emit(report_stream, "crashed", detail="limits_not_applied")
+        _emit(report_stream, _report("crashed", detail="limits_not_applied"))
         return 0
     _block_network()
     try:
         module = _load(workdir)
         attempted, failed = _doctests(module, function)
     except BaseException as exc:  # the program may raise anything, including SystemExit
-        _emit(report_stream, "load_error", detail=type(exc).__name__)
+        _emit(report_stream, _report("load_error", detail=type(exc).__name__))
         return 0
-    _emit(report_stream, "ran", attempted, failed)
+    _emit(report_stream, _report("ran", attempted, failed))
     return 0
 
 

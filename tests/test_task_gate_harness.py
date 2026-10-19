@@ -4,7 +4,7 @@ import contextlib
 import io
 import json
 import os
-import subprocess
+import subprocess  # nosec B404
 import sys
 import tempfile
 import time
@@ -16,7 +16,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from task_gate_test_support import (
     ADD, BROKEN, DENY, NO_DOCTESTS, PROGRAMS, REPO, FakeHarness, cv, gate, harness,
-    dedup_index, denylist, procedural, proposal, proposal_for, runner,
+    denylist, procedural, proposal, proposal_for, refused, rules, runner,
 )
 
 FIXTURE = REPO / "tests" / "fixtures" / "code-repair"
@@ -84,8 +84,10 @@ class RealHarness(unittest.TestCase):
             "import os\nreturn sorted(k for k in os.environ if any(w in k.upper() "
             "for w in ('PROXY', 'KEY', 'TOKEN', 'SECRET', 'ANTHROPIC', 'GITHUB')))"
         )
+        probe_value = os.urandom(4).hex()
         with mock.patch.dict(os.environ, {
-            "HTTPS_PROXY": "http://proxy", "ANTHROPIC_API_KEY": "k", "GITHUB_TOKEN": "t",
+            "HTTPS_PROXY": probe_value, "ANTHROPIC_API_KEY": probe_value,
+            "GITHUB_TOKEN": probe_value,
         }):
             result = self.harness.run(probe(body, []), "f")
         self.assertEqual(result.outcome, cv.OUTCOME_PASSED, result)
@@ -116,17 +118,45 @@ class RealHarness(unittest.TestCase):
 
     def test_timeout_domain_is_validated(self):
         for bad in (0, -1, float("nan"), float("inf"), True, "3", cv.MAX_TIMEOUT_S + 1):
-            with self.subTest(bad=bad), self.assertRaises(cv.GateRefusal) as caught:
-                harness.SubprocessHarness(bad)
-            self.assertEqual(caught.exception.code, cv.REFUSE_TIMEOUT_DOMAIN)
+            with self.subTest(bad=bad):
+                self.assertEqual(refused(harness.SubprocessHarness, bad), cv.REFUSE_TIMEOUT_DOMAIN)
 
     def test_self_check_passes_on_a_working_interpreter_and_refuses_on_a_broken_one(self):
         self.harness.selfcheck()
-        with self.assertRaises(cv.GateRefusal) as caught:
-            harness.SubprocessHarness(5, python="/nonexistent/python").selfcheck()
-        self.assertEqual(caught.exception.code, cv.REFUSE_HARNESS_UNAVAILABLE)
-        with self.assertRaises(cv.GateRefusal):
-            harness.SubprocessHarness(5, python="/bin/true").selfcheck()
+        missing = harness.SubprocessHarness(5, python="/nonexistent/python")
+        inert = harness.SubprocessHarness(5, python="/bin/true")
+        self.assertEqual(refused(missing.selfcheck), cv.REFUSE_HARNESS_UNAVAILABLE)
+        self.assertEqual(refused(inert.selfcheck), cv.REFUSE_HARNESS_UNAVAILABLE)
+
+    def test_wait_is_bounded_even_when_the_killed_child_never_reaps(self):
+        stuck = mock.Mock()
+        stuck.pid = 2**22 + 1
+        stuck.wait.side_effect = subprocess.TimeoutExpired("child", 1)
+        started = time.monotonic()
+        with mock.patch.object(harness, "KILL_GRACE_S", 0.05):
+            timed_out = harness.SubprocessHarness(timeout_s=0.05)._wait(stuck)
+        self.assertTrue(timed_out)
+        self.assertLess(time.monotonic() - started, 2)
+        self.assertEqual(stuck.wait.call_count, 2)
+
+    def test_the_private_socket_module_cannot_be_imported_by_the_program(self):
+        body = "try:\n    import _socket\nexcept ImportError:\n    return 'blocked'\nreturn 'open'"
+        self.assertEqual(self.harness.run(probe(body, "blocked"), "f").outcome, cv.OUTCOME_PASSED)
+
+    def test_the_child_refuses_to_run_a_program_when_limits_cannot_be_applied(self):
+        from task_gate import _child
+
+        stream = io.StringIO()
+        with mock.patch.dict(sys.modules, {"resource": None}):
+            self.assertFalse(_child._limit(5))
+        with mock.patch.object(_child, "_limit", return_value=False), \
+                mock.patch.object(_child, "_load", side_effect=AssertionError("program imported")), \
+                mock.patch.object(_child.os, "fdopen", return_value=stream):
+            self.assertEqual(_child.main(["child", ".", "f", "5"]), 0)
+        report = json.loads(stream.getvalue().removeprefix(_child.MARKER))
+        self.assertEqual((report["outcome"], report["detail"]), ("crashed", "limits_not_applied"))
+        crashed = harness._result_of(report)
+        self.assertEqual(crashed.outcome, cv.OUTCOME_CRASHED)
 
 
 class EndToEnd(unittest.TestCase):
@@ -142,7 +172,7 @@ class EndToEnd(unittest.TestCase):
             proposal_for("a *"),
             proposal_for("a - b", proposal_id="again"),
         ]
-        machine = gate.Gate(PROGRAMS, DENY, dedup_index.PriorIndex.empty(), harness.SubprocessHarness(2))
+        machine = gate.Gate(PROGRAMS, rules(), harness.SubprocessHarness(2))
         verdicts = [d.verdict for d in machine.run(items)]
         self.assertEqual(verdicts, [
             cv.VERDICT_KEPT, cv.VERDICT_MUTANT_PASSES, cv.VERDICT_TIMEOUT, cv.VERDICT_DENYLISTED,
@@ -151,9 +181,8 @@ class EndToEnd(unittest.TestCase):
 
     def test_original_that_fails_its_own_doctests(self):
         wrong = proposal.GateProgram("prog-bad", BROKEN.replace("a - b", "a * b"), "add")
-        item = proposal_for("a + b", "a * b", "prog-bad", wrong.text)
-        machine = gate.Gate({"prog-bad": wrong}, DENY, dedup_index.PriorIndex.empty(),
-                            harness.SubprocessHarness(5))
+        item = proposal_for("a + b", "a * b", wrong)
+        machine = gate.Gate({"prog-bad": wrong}, rules(), harness.SubprocessHarness(5))
         decision = machine.decide(item)
         self.assertEqual((decision.verdict, decision.detail),
                          (cv.VERDICT_ORIGINAL_FAILS, cv.DETAIL_ORIGINAL_FAILED))
@@ -178,8 +207,8 @@ class Procedural(unittest.TestCase):
         for program in self.programs.values():
             fake.results[program.text] = harness.HarnessResult(cv.OUTCOME_PASSED, 3, 0)
         deny = denylist.Denylist.of(["not-in-catalog"])
-        left = gate.Gate(self.programs, deny, dedup_index.PriorIndex.empty(), fake)
-        right = gate.Gate(self.programs, deny, dedup_index.PriorIndex.empty(), fake)
+        left = gate.Gate(self.programs, rules(deny), fake)
+        right = gate.Gate(self.programs, rules(deny), fake)
         for item in procedural.proposals_from_plan(self.catalog, seed=7, count=6):
             twin = proposal.proposal_from_row(
                 {"proposal_id": item.proposal_id, "program_id": item.program_id,
@@ -201,8 +230,9 @@ class Procedural(unittest.TestCase):
 
     def test_invalid_count_refuses(self):
         for bad in (0, -1, True, "3"):
-            with self.subTest(bad=bad), self.assertRaises(cv.GateRefusal):
-                procedural.proposals_from_plan(self.catalog, seed=1, count=bad)
+            with self.subTest(bad=bad):
+                code = refused(procedural.proposals_from_plan, self.catalog, 1, bad)
+                self.assertEqual(code, cv.REFUSE_INPUT_INVALID)
 
 
 class Cli(unittest.TestCase):
@@ -261,7 +291,7 @@ class Cli(unittest.TestCase):
         self.assertEqual((verdicts[cv.VERDICT_PARSE_ERROR], verdicts[cv.VERDICT_DENYLISTED]), (1, 1))
 
     def test_direct_entry_point_runs_as_a_script(self):
-        done = subprocess.run(
+        done = subprocess.run(  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit.dangerous-subprocess-use-audit  # nosec B603
             [sys.executable, str(REPO / "pipelines" / "task_gate_cli.py"), "verify", "--help"],
             capture_output=True, text=True, timeout=60, check=False,
         )
@@ -280,8 +310,10 @@ class ImportTwins(unittest.TestCase):
 
     def spawn(self, imports):
         script = self.SCRIPT.format(paths=[str(REPO), str(REPO / "pipelines")], imports=imports)
-        done = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True,
-                              timeout=60, check=False, cwd=tempfile.gettempdir())
+        done = subprocess.run(  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit.dangerous-subprocess-use-audit  # nosec B603
+            [sys.executable, "-c", script], capture_output=True, text=True, timeout=60, check=False,
+            cwd=tempfile.gettempdir(),
+        )
         self.assertEqual(done.stdout.strip(), "True", done.stderr)
 
     def test_both_spellings_are_one_object_in_either_order(self):

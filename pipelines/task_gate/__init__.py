@@ -8,7 +8,7 @@ gets one verdict, so survival rate by reason is reportable.
 """
 
 __all__ = (
-    "_contract vocabulary denylist proposal mutation harness dedup_index gate report "
+    "_contract vocabulary checks denylist proposal mutation harness dedup_index gate report "
     "procedural runner cli"
 ).split()
 

@@ -1,0 +1,144 @@
+"""The direct CLI script and the package spelling of the gate, exercised in this process."""
+
+import contextlib
+import importlib
+import io
+import json
+import runpy
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+from unittest import mock
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from task_gate_test_support import REPO, cv
+
+SCRIPT = REPO / "pipelines" / "task_gate_cli.py"
+FIXTURE = REPO / "tests" / "fixtures" / "code-repair"
+PIPELINES = REPO / "pipelines"
+
+
+def run_script(*argv, path=None):
+    """Run ``task_gate_cli.py`` as ``__main__`` in this process; return (exit code, out, err).
+
+    ``path`` replaces ``sys.path`` for the run (default: unchanged).
+    """
+
+    out, err = io.StringIO(), io.StringIO()
+    with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+        with mock.patch.object(sys, "argv", [str(SCRIPT), *argv]), \
+                mock.patch.object(sys, "path", sys.path if path is None else path):
+            try:
+                runpy.run_path(str(SCRIPT), run_name="__main__")
+            except SystemExit as exited:
+                return exited.code, out.getvalue(), err.getvalue()
+    return None, out.getvalue(), err.getvalue()
+
+
+class DirectScript(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        self.deny = self.root / "deny.txt"
+        self.deny.write_text("eval-only-program\n")
+
+    def test_procedural_subcommand_exits_zero_and_writes_a_new_run(self):
+        out = self.root / "procedural"
+        code, stdout, _ = run_script(
+            "procedural", "--catalog", str(FIXTURE), "--denylist", str(self.deny), "--seed", "5",
+            "--count", "1", "--timeout", "5", "--out", str(out),
+        )
+        self.assertEqual(code, 0)
+        summary = json.loads((out / cv.SUMMARY_FILENAME).read_text())
+        self.assertEqual(json.loads(stdout)["total"], summary["total"])
+        self.assertEqual(summary["inputs"]["proposals"]["origin"], "procedural")
+
+    def test_verify_subcommand_exits_zero_on_a_proposals_file(self):
+        rows = self.root / "rows.jsonl"
+        rows.write_text(json.dumps(
+            {"program_id": "eval-only-program", "replacement_text": "0", "original_text": "x"},
+        ) + "\n")
+        out = self.root / "verified"
+        code, _, _ = run_script(
+            "verify", "--catalog", str(FIXTURE), "--denylist", str(self.deny),
+            "--proposals", str(rows), "--out", str(out), "--timeout", "5",
+        )
+        self.assertEqual(code, 0)
+        verdicts = json.loads((out / cv.SUMMARY_FILENAME).read_text())["verdicts"]
+        self.assertEqual(verdicts[cv.VERDICT_DENYLISTED], 1)
+
+    def test_refusals_exit_two_name_the_code_and_write_nothing(self):
+        cases = {
+            cv.REFUSE_DENYLIST_MISSING: ["--seed", "5", "--count", "1"],
+            cv.REFUSE_DESTINATION_EXISTS: ["--seed", "5", "--count", "1", "--denylist", str(self.deny)],
+        }
+        for code_name, extra in cases.items():
+            out = self.root / f"refused-{code_name}"
+            if code_name == cv.REFUSE_DESTINATION_EXISTS:
+                out.mkdir()
+            with self.subTest(code=code_name):
+                code, _, stderr = run_script(
+                    "procedural", "--catalog", str(FIXTURE), "--out", str(out), *extra,
+                )
+                self.assertEqual(code, 2)
+                self.assertIn(f"refused: {code_name}", stderr)
+                self.assertEqual(sorted(out.iterdir()) if out.exists() else [], [])
+
+    def test_the_script_puts_pipelines_on_the_path_when_it_is_missing(self):
+        bare = [entry for entry in sys.path if Path(entry or ".").resolve() != PIPELINES]
+        code, _, stderr = run_script(
+            "procedural", "--catalog", str(FIXTURE), "--seed", "5", "--count", "1",
+            "--out", str(self.root / "bare"), path=bare,
+        )
+        self.assertEqual(code, 2)
+        self.assertIn(cv.REFUSE_DENYLIST_MISSING, stderr)
+
+    def test_importing_the_script_as_a_module_runs_nothing(self):
+        namespace = runpy.run_path(str(SCRIPT), run_name="task_gate_cli_imported")
+        self.assertTrue(callable(namespace["main"]))
+
+    def test_an_unreadable_proposals_file_is_a_coded_refusal(self):
+        code, _, stderr = run_script(
+            "verify", "--catalog", str(FIXTURE), "--denylist", str(self.deny),
+            "--proposals", str(self.root / "missing.jsonl"), "--out", str(self.root / "never"),
+        )
+        self.assertEqual(code, 2)
+        self.assertIn(cv.REFUSE_PROPOSALS_INVALID, stderr)
+        self.assertFalse((self.root / "never").exists())
+
+
+class PackageSpelling(unittest.TestCase):
+    """``pipelines.task_gate.*`` imported fresh binds to the same objects as ``task_gate.*``."""
+
+    @staticmethod
+    def forget_repository_modules():
+        for name, module in list(sys.modules.items()):
+            origin = str(getattr(module, "__file__", None) or "")
+            if name == "pipelines" or origin.startswith(str(PIPELINES)):
+                del sys.modules[name]
+
+    def import_fresh(self, *names):
+        with mock.patch.dict(sys.modules), mock.patch.object(sys, "path", [str(REPO), *sys.path]):
+            self.forget_repository_modules()
+            modules = [importlib.import_module(name) for name in names]
+            twins = [sys.modules[name.removeprefix("pipelines.")] for name in names]
+            return [(m.__name__, m is t) for m, t in zip(modules, twins)]
+
+    def test_contract_and_procedural_bind_their_flat_twins(self):
+        found = self.import_fresh("pipelines.task_gate._contract", "pipelines.task_gate.procedural")
+        self.assertEqual(
+            found,
+            [("pipelines.task_gate._contract", True), ("pipelines.task_gate.procedural", True)],
+        )
+
+    def test_the_flat_spelling_of_the_same_modules_is_untouched_afterwards(self):
+        before = sys.modules.get("task_gate._contract")
+        self.import_fresh("pipelines.task_gate._contract")
+        self.assertIs(sys.modules.get("task_gate._contract"), before)
+
+
+if __name__ == "__main__":
+    unittest.main()

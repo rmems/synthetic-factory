@@ -15,6 +15,7 @@ import shutil
 import tempfile
 from collections import Counter
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -23,7 +24,7 @@ from ._contract import bind_import_twin, dumps_exact_json, is_under_raw
 from .dedup_index import PriorIndex, index_bytes
 from .gate import Decision
 
-__all__ = ["check_destination", "summarize", "write_run"]
+__all__ = ["RunOutcome", "check_destination", "summarize", "write_run"]
 
 
 def check_destination(out: Path) -> None:
@@ -47,6 +48,23 @@ def _rate(count: int, total: int) -> str:
     return f"{count / total:.6f}" if total else "0.000000"
 
 
+def _details_by_verdict(decisions: Sequence[Decision]) -> dict[str, dict[str, int]]:
+    details: dict[str, Counter] = {verdict: Counter() for verdict in cv.VERDICTS}
+    for decision in decisions:
+        details[decision.verdict][decision.detail] += 1
+    return {verdict: dict(sorted(found.items())) for verdict, found in details.items() if found}
+
+
+def _counts_by_source(decisions: Sequence[Decision]) -> dict[str, dict[str, int]]:
+    by_source: dict[str, Counter] = {}
+    for decision in decisions:
+        by_source.setdefault(decision.source or "unknown", Counter())[decision.verdict] += 1
+    return {
+        source: {"total": sum(found.values()), **{v: found[v] for v in cv.VERDICTS}}
+        for source, found in sorted(by_source.items())
+    }
+
+
 def summarize(
     decisions: Sequence[Decision], meta: Mapping[str, Any], outputs: Mapping[str, Any],
 ) -> dict[str, Any]:
@@ -54,11 +72,6 @@ def summarize(
 
     total = len(decisions)
     counts = Counter(decision.verdict for decision in decisions)
-    details: dict[str, Counter] = {verdict: Counter() for verdict in cv.VERDICTS}
-    by_source: dict[str, Counter] = {}
-    for decision in decisions:
-        details[decision.verdict][decision.detail] += 1
-        by_source.setdefault(decision.source or "unknown", Counter())[decision.verdict] += 1
     return {
         "format": cv.SUMMARY_FORMAT,
         "gate": cv.GATE_FORMAT,
@@ -69,11 +82,8 @@ def summarize(
             verdict: _rate(counts[verdict], total) for verdict in cv.VERDICTS
             if verdict != cv.VERDICT_KEPT
         },
-        "details": {verdict: dict(sorted(found.items())) for verdict, found in details.items() if found},
-        "by_source": {
-            source: {"total": sum(found.values()), **{v: found[v] for v in cv.VERDICTS}}
-            for source, found in sorted(by_source.items())
-        },
+        "details": _details_by_verdict(decisions),
+        "by_source": _counts_by_source(decisions),
         "inputs": dict(meta),
         "outputs": dict(outputs),
     }
@@ -85,31 +95,53 @@ def _write_new(path: Path, data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
-def write_run(
-    out: Path, decisions: Sequence[Decision], kept_rows: Mapping[str, Mapping[str, Any]],
-    prior: PriorIndex, meta: Mapping[str, Any],
-) -> dict[str, Any]:
+@dataclass(frozen=True)
+class RunOutcome:
+    """What a finished gate run produced, ready to be written."""
+
+    decisions: Sequence[Decision]
+    kept_rows: Mapping[str, Mapping[str, Any]]
+    prior: PriorIndex
+    meta: Mapping[str, Any]
+
+    def cumulative_index(self) -> dict[str, dict[str, Any]]:
+        """Every prior key plus this run's kept keys."""
+
+        prior = {key: dict(row) for key, row in self.prior.rows.items()}
+        return {**prior, **{key: dict(row) for key, row in self.kept_rows.items()}}
+
+    def tasks_bytes(self) -> bytes:
+        return "".join(dumps_exact_json(d.as_row()) + "\n" for d in self.decisions).encode("utf-8")
+
+
+def _stage_files(stage: Path, outcome: RunOutcome) -> dict[str, Any]:
+    """Write the three files into the staging directory and return the summary."""
+
+    index = outcome.cumulative_index()
+    outputs = {
+        cv.TASKS_FILENAME: {
+            "sha256": _write_new(stage / cv.TASKS_FILENAME, outcome.tasks_bytes()),
+            "rows": len(outcome.decisions),
+        },
+        cv.INDEX_FILENAME: {
+            "sha256": _write_new(stage / cv.INDEX_FILENAME, index_bytes(index.values())),
+            "keys": len(index), "new_keys": len(outcome.kept_rows),
+        },
+    }
+    summary = summarize(outcome.decisions, outcome.meta, outputs)
+    _write_new(stage / cv.SUMMARY_FILENAME, (dumps_exact_json(summary, indent=2) + "\n").encode("utf-8"))
+    return summary
+
+
+def write_run(out: Path, outcome: RunOutcome) -> dict[str, Any]:
     """Write the three files into the new destination and return the summary."""
 
     destination = Path(out)
     check_destination(destination)
-    tasks = "".join(dumps_exact_json(d.as_row()) + "\n" for d in decisions).encode("utf-8")
-    cumulative = {**{k: dict(v) for k, v in prior.rows.items()}, **{k: dict(v) for k, v in kept_rows.items()}}
-    index = index_bytes(cumulative.values())
     stage = Path(tempfile.mkdtemp(prefix=".task-gate-stage-", dir=destination.resolve().parent))
     try:
-        outputs = {
-            cv.TASKS_FILENAME: {"sha256": _write_new(stage / cv.TASKS_FILENAME, tasks), "rows": len(decisions)},
-            cv.INDEX_FILENAME: {
-                "sha256": _write_new(stage / cv.INDEX_FILENAME, index), "keys": len(cumulative),
-                "new_keys": len(kept_rows),
-            },
-        }
-        summary = summarize(decisions, meta, outputs)
-        text = dumps_exact_json(summary, indent=2) + "\n"
-        _write_new(stage / cv.SUMMARY_FILENAME, text.encode("utf-8"))
+        summary = _stage_files(stage, outcome)
         check_destination(destination)
-        os.chmod(stage, 0o755)
         os.rename(stage, destination)
     except BaseException:
         shutil.rmtree(stage, ignore_errors=True)

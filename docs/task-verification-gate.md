@@ -36,7 +36,7 @@ The first failing rule wins.
 | Order | Verdict | Meaning |
 | --- | --- | --- |
 | 1 | `denylisted` | program id is on the eval denylist; nothing is parsed or executed for it |
-| 2 | `parse_error` | malformed row, unknown program, span not resolving to exactly one span of the target body (outside its docstring), mutant does not compile, does not load, or kills the interpreter without a report |
+| 2 | `parse_error` | malformed row, unknown program, span not resolving to exactly one span of the target body (outside its docstring), mutant does not compile, does not load, or kills the interpreter without a report, or the replacement changes anything outside the target body (`mutant_escapes_target_body`: another module statement, the target's header or docstring, or a new write to its own name, `__doc__` or `__test__`) |
 | 3 | `duplicate` | `sha256(program_id, span, replacement_text)` was kept in a prior run or earlier in this one |
 | 4 | `original_fails` | the unmodified program does not pass all its doctests, has none, does not load, or times out |
 | 5 | `timeout` | the mutant exceeded the wall-clock budget (rejected, never kept) |
@@ -64,8 +64,9 @@ its destination and renamed into place:
 
 Each program text runs in a child `python3 -P -s -S -B -X utf8 _child.py` in a throwaway working
 directory with an environment rebuilt from scratch (no proxy variables, no API keys), under a
-wall-clock timeout (process group killed), CPU, address-space and file-size limits, and with the
-socket entry points replaced before the program is imported. Neither the repository nor any
+wall-clock timeout (process group killed; the wait after the kill is itself bounded), CPU,
+address-space and file-size limits (a child that cannot apply them reports `crashed` and never imports
+the program), and with the socket entry points and `_socket` replaced before the program is imported. Neither the repository nor any
 site-packages is importable, so no solver module is reachable (#160). `-P -s -S` is used instead
 of `-I` because `-I` implies `-E`, which would discard `PYTHONHASHSEED=0` and make set and dict
 reprs differ between the original and the mutant run.

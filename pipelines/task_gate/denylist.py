@@ -18,15 +18,9 @@ from pathlib import Path
 
 from . import vocabulary as cv
 from ._contract import StrictJsonlError, bind_import_twin, strict_lf_jsonl_lines
+from .checks import is_identifier
 
 __all__ = ["Denylist", "load_denylist"]
-
-
-def _valid_id(value: object) -> bool:
-    return (
-        isinstance(value, str) and bool(value) and value == value.strip()
-        and value.isprintable()
-    )
 
 
 @dataclass(frozen=True)
@@ -46,7 +40,7 @@ class Denylist:
         cv.refuse_when(not ids, cv.REFUSE_DENYLIST_MALFORMED, "denylist has no entries")
         for item in ids:
             cv.refuse_when(
-                not _valid_id(item), cv.REFUSE_DENYLIST_MALFORMED,
+                not is_identifier(item), cv.REFUSE_DENYLIST_MALFORMED,
                 f"denylist entry is not a program id: {item!r}",
             )
         cv.refuse_when(len(set(ids)) != len(ids), cv.REFUSE_DENYLIST_MALFORMED, "denylist repeats an id")

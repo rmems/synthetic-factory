@@ -16,6 +16,7 @@ import ast
 from dataclasses import dataclass
 
 from . import vocabulary as cv
+from .checks import is_identifier, is_int, is_text
 from ._contract import (
     StrictJsonlError, bind_import_twin, load_strict_json, strict_lf_jsonl_lines,
 )
@@ -24,18 +25,49 @@ __all__ = [
     "GateProgram", "GateProposal", "MalformedProposal", "parse_proposals", "proposal_from_row",
 ]
 
+_TEXT_KEYS = ("proposal_id", "source", "original_text")
 _ROW_KEYS = frozenset({
     "proposal_id", "program_id", "source", "original_text", "replacement_text", "start_byte",
     "end_byte",
 })
 
 
-def _text(value: object) -> bool:
-    return isinstance(value, str)
+def _unusable(program_id: object, reason: str) -> cv.GateRefusal:
+    return cv.GateRefusal(cv.REFUSE_PROGRAM_INVALID, f"{program_id}: {reason}")
 
 
-def _nonempty_id(value: object) -> bool:
-    return isinstance(value, str) and bool(value) and value == value.strip() and value.isprintable()
+def _has_control_byte(text: str) -> bool:
+    return "\r" in text or "\x00" in text
+
+
+def _is_lf_text(text: object) -> bool:
+    return is_text(text) and not _has_control_byte(text)
+
+
+def _parsed(program: GateProgram) -> ast.Module:
+    """The program's tree; refuses text that is not LF-only, too large or does not parse."""
+
+    text = program.text
+    if not _is_lf_text(text):
+        raise _unusable(program.program_id, "text must be LF-only str")
+    try:
+        size = len(text.encode("utf-8"))
+        tree = ast.parse(text)
+    except (SyntaxError, ValueError, RecursionError) as exc:
+        raise _unusable(program.program_id, f"does not parse: {exc}") from exc
+    if size > cv.MAX_PROGRAM_BYTES:
+        raise _unusable(program.program_id, "text is too large")
+    return tree
+
+
+def _target_count(tree: ast.Module, function: str) -> int:
+    return sum(
+        isinstance(node, ast.FunctionDef) and node.name == function for node in tree.body
+    )
+
+
+def _has_identity(program: GateProgram) -> bool:
+    return is_identifier(program.program_id) and is_identifier(program.function)
 
 
 @dataclass(frozen=True)
@@ -47,27 +79,17 @@ class GateProgram:
     function: str
 
     def __post_init__(self) -> None:
-        bad = cv.GateRefusal
-        if not (_nonempty_id(self.program_id) and _nonempty_id(self.function)):
-            raise bad(cv.REFUSE_PROGRAM_INVALID, f"program id/function not usable: {self.program_id!r}")
-        if not _text(self.text) or "\r" in self.text or "\x00" in self.text:
-            raise bad(cv.REFUSE_PROGRAM_INVALID, f"{self.program_id}: text must be LF-only str")
-        try:
-            size = len(self.text.encode("utf-8"))
-            tree = ast.parse(self.text)
-        except (SyntaxError, ValueError, RecursionError, UnicodeEncodeError) as exc:
-            raise bad(cv.REFUSE_PROGRAM_INVALID, f"{self.program_id}: does not parse: {exc}") from exc
-        if size > cv.MAX_PROGRAM_BYTES:
-            raise bad(cv.REFUSE_PROGRAM_INVALID, f"{self.program_id}: text is too large")
-        defs = [
-            node for node in tree.body
-            if isinstance(node, ast.FunctionDef) and node.name == self.function
-        ]
-        if len(defs) != 1:
-            raise bad(
-                cv.REFUSE_PROGRAM_INVALID,
-                f"{self.program_id}: needs exactly one module-level def {self.function!r}",
+        if not _has_identity(self):
+            raise _unusable(self.program_id, "program id/function not usable")
+        tree = _parsed(self)
+        if _target_count(tree, self.function) != 1:
+            raise _unusable(
+                self.program_id, f"needs exactly one module-level def {self.function!r}",
             )
+
+
+def _has_offsets(start: object, end: object) -> bool:
+    return start is not None and end is not None
 
 
 @dataclass(frozen=True)
@@ -82,6 +104,13 @@ class GateProposal:
     start_byte: int | None = None
     end_byte: int | None = None
 
+    def __post_init__(self) -> None:
+        if not (_has_offsets(self.start_byte, self.end_byte) or self.original_text):
+            raise cv.GateRefusal(
+                cv.REFUSE_PROPOSALS_INVALID,
+                f"{self.proposal_id}: a span needs start_byte/end_byte or a non-empty original_text",
+            )
+
 
 @dataclass(frozen=True)
 class MalformedProposal:
@@ -92,29 +121,50 @@ class MalformedProposal:
     detail: str
 
 
-def _is_int(value: object) -> bool:
-    return isinstance(value, int) and not isinstance(value, bool)
+def _unknown_keys(row: dict) -> bool:
+    return not set(row) <= _ROW_KEYS
+
+
+def _required_missing(row: dict) -> bool:
+    return not is_identifier(row.get("program_id")) or not is_text(row.get("replacement_text"))
+
+
+def _optional_not_text(row: dict) -> bool:
+    return any(key in row and not is_text(row[key]) for key in _TEXT_KEYS)
+
+
+def _offsets(row: dict) -> list[object]:
+    return [row.get("start_byte"), row.get("end_byte")]
+
+
+def _offsets_unpaired(row: dict) -> bool:
+    given = [item is not None for item in _offsets(row)]
+    return any(given) and not all(given)
+
+
+def _offsets_not_int(row: dict) -> bool:
+    offsets = _offsets(row)
+    return all(item is not None for item in offsets) and not all(is_int(item) for item in offsets)
+
+
+def _span_missing(row: dict) -> bool:
+    return any(item is None for item in _offsets(row)) and not row.get("original_text")
+
+
+_ROW_CHECKS = (
+    (_unknown_keys, "unknown keys"),
+    (_required_missing, "program_id and replacement_text are required strings"),
+    (_optional_not_text, "proposal_id, source and original_text must be strings"),
+    (_offsets_unpaired, "start_byte and end_byte come together"),
+    (_offsets_not_int, "start_byte and end_byte must be integers"),
+    (_span_missing, "a span needs start_byte/end_byte or a non-empty original_text"),
+)
 
 
 def _row_problem(row: dict) -> str | None:
     """Why a decoded row is not a proposal, or None when its shape is sound."""
 
-    if not set(row) <= _ROW_KEYS:
-        return f"unknown keys: {sorted(set(row) - _ROW_KEYS)}"
-    if not _nonempty_id(row.get("program_id")) or not _text(row.get("replacement_text")):
-        return "program_id and replacement_text are required strings"
-    for key in ("proposal_id", "source", "original_text"):
-        if key in row and not _text(row[key]):
-            return f"{key} must be a string"
-    offsets = [row.get("start_byte"), row.get("end_byte")]
-    given = [item is not None for item in offsets]
-    if any(given) and not all(given):
-        return "start_byte and end_byte come together"
-    if all(given) and not all(_is_int(item) for item in offsets):
-        return "start_byte and end_byte must be integers"
-    if not all(given) and not row.get("original_text"):
-        return "a span needs start_byte/end_byte or a non-empty original_text"
-    return None
+    return next((reason for failed, reason in _ROW_CHECKS if failed(row)), None)
 
 
 def proposal_from_row(row: object, fallback_id: str) -> GateProposal | MalformedProposal:
@@ -123,8 +173,8 @@ def proposal_from_row(row: object, fallback_id: str) -> GateProposal | Malformed
     if not isinstance(row, dict):
         return MalformedProposal(fallback_id, None, cv.DETAIL_MALFORMED_ROW)
     problem = _row_problem(row)
-    program_id = row.get("program_id") if _nonempty_id(row.get("program_id")) else None
-    identity = row.get("proposal_id") if _text(row.get("proposal_id")) else fallback_id
+    program_id = row.get("program_id") if is_identifier(row.get("program_id")) else None
+    identity = row.get("proposal_id") if is_text(row.get("proposal_id")) else fallback_id
     if problem is not None:
         return MalformedProposal(str(identity), program_id, cv.DETAIL_MALFORMED_ROW)
     return GateProposal(
