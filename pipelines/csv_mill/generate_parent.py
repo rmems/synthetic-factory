@@ -37,7 +37,7 @@ def _require_outside_raw(anchor: Path) -> None:
 
 
 def _existing_parent(parent: Path) -> tuple[int, list[str]]:
-    missing = []
+    missing: list[str] = []
     while True:
         try:
             return os.open(parent, FLAGS), missing

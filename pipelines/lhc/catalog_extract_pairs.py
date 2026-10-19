@@ -83,7 +83,7 @@ def _lhc_pairs_elts(node: ast.AST) -> list[ast.expr] | None:
 
 
 def _rows_from_elts(
-    elts: Sequence[ast.AST],
+    elts: Sequence[ast.expr],
     plants: Mapping[str, Mapping[str, Any]],
     wrappers: Mapping[str, str],
     expand_plants: Mapping[str, Mapping[str, Any]],

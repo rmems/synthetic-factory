@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import ast
-import json
 import subprocess
 import sys
 import unittest
@@ -31,7 +30,6 @@ from pay._contract import (  # noqa: E402
     CATALOG_ID,
     FACTORY,
     FINDING_CATALOG_SHA256_MISMATCH,
-    FINDING_SLICE_A_OVERLAP,
     GENERATOR,
     PayRefusal,
     is_vendor_filename,

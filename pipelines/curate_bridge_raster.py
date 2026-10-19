@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 from fractions import Fraction
-from typing import Any
+from typing import Any, TypeGuard
 
 if __package__:
     # Import-twin helpers join the package import lock; import-order tests cover this edge.
@@ -142,6 +142,14 @@ def _mark_invalid(
     evidence[evidence_key] = False
 
 
+def _third_factor_fields_valid(
+    eligibility: Any, modulator: Any, tau: _PositiveAliases
+) -> TypeGuard[str]:
+    """Non-blank modulator and eligibility text with valid tau aliases; narrows eligibility."""
+
+    return all((_nonblank_text(modulator), _nonblank_text(eligibility), _alias_pair_valid(tau)))
+
+
 def _validate_third_factor(
     third_factor: Any, *, reason_codes: list[str], evidence: dict[str, Any]
 ) -> None:
@@ -164,8 +172,7 @@ def _validate_third_factor(
     if tau.primary_declared and tau.alias_declared:
         evidence["raster_third_factor_tau_consistent"] = tau.consistent
     eligibility = third_factor.get("eligibility")
-    valid = all((_nonblank_text(modulator), _nonblank_text(eligibility), _alias_pair_valid(tau)))
-    if not valid:
+    if not _third_factor_fields_valid(eligibility, modulator, tau):
         _mark_invalid(
             reason_codes, evidence, REASON_THIRD_FACTOR_INVALID, "raster_third_factor_valid"
         )

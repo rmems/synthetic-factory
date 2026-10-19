@@ -16,4 +16,9 @@ if str(PIPELINES) not in sys.path:
 
 from actf import ast_scan, cli, lineage, records  # noqa: E402
 from actf import vocabulary as cv  # noqa: E402
-from actf._contract import dumps_exact_json, load_strict_json  # noqa: E402
+from actf._contract import dumps_exact_json  # noqa: E402
+
+__all__ = [
+    "FAMILY_MODULES", "FIXTURE_TREE", "PIPELINES", "REPO",
+    "ast_scan", "cli", "cv", "dumps_exact_json", "lineage", "records",
+]

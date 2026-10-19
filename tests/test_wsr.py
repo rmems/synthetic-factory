@@ -29,8 +29,6 @@ from wsr._contract import (  # noqa: E402
     LEFTOVER3_N_ROUNDS,
     LEFTOVER3_START_ROUND,
     LEGACY_COMMIT,
-    LEGACY_MILL,
-    LEGACY_MILL_SHA256,
     LEGACY_PLANTS,
     LEGACY_PLANTS_SHA256,
     LLL_COMMIT,
@@ -49,7 +47,6 @@ from wsr.catalog import (  # noqa: E402
     ast_extract_catalog,
     ast_extract_mapping_pairs,
     ast_extract_mill_constants,
-    ast_extract_pairs,
     catalog_check,
     sha256_text,
 )

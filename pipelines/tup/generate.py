@@ -63,12 +63,12 @@ class GenerateRequest:
 
 def _walk_keys(value: Any) -> list[str]:
     if isinstance(value, dict):
-        keys = list(value)
+        keys: list[str] = list(value)
         for item in value.values():
             keys.extend(_walk_keys(item))
         return keys
     if isinstance(value, list):
-        keys: list[str] = []
+        keys = []
         for item in value:
             keys.extend(_walk_keys(item))
         return keys
@@ -88,13 +88,7 @@ def _clip(text: str) -> str:
     return compact[: BASIS_LIMIT - 1].rstrip() + "…"
 
 
-def _step(
-    n: int,
-    basis: str,
-    command: str,
-    observation: str,
-    reflection: str | None = None,
-) -> dict[str, Any]:
+def _step(n: int, basis: str, command: str, observation: str) -> dict[str, Any]:
     clipped = _clip(basis)
     prefix = clipped.split(":", 1)[0]
     refuse_when(
@@ -102,14 +96,18 @@ def _step(
         FINDING_USAGE,
         f"bad decision_basis prefix: {basis!r}",
     )
-    step = {
+    return {
         "n": n,
         "decision_basis": clipped,
         "tool_call": {"name": "bash", "args": {"command": command}},
         "observation": observation,
     }
-    if reflection:
-        step["reflection"] = reflection
+
+
+def _reflected(step: dict[str, Any], reflection: str) -> dict[str, Any]:
+    """A closing or turning-point step: ``step`` plus its ``reflection``."""
+
+    step["reflection"] = reflection
     return step
 
 
@@ -165,11 +163,13 @@ def _chosen_steps(plant: cat.Plant) -> list[dict[str, Any]]:
                 f"printf 'ok\\n' > {plant.keep}.RESULT && cat {plant.keep}.RESULT",
                 "designed: RESULT ok",
             ),
-            _step(
-                8,
-                f"Observation: inspect-only complete for {plant.slug}.",
-                f"test -e {plant.keep} && echo RETAINED",
-                f"designed: RETAINED {plant.keep}",
+            _reflected(
+                _step(
+                    8,
+                    f"Observation: inspect-only complete for {plant.slug}.",
+                    f"test -e {plant.keep} && echo RETAINED",
+                    f"designed: RETAINED {plant.keep}",
+                ),
                 f"Chosen complete: `{plant.verify}`, keep {plant.keep}.",
             ),
         ]
@@ -181,11 +181,13 @@ def _rejected_steps(plant: cat.Plant) -> list[dict[str, Any]]:
     steps = [dict(step) for step in _prefix_steps(plant)]
     steps.extend(
         [
-            _step(
-                5,
-                f"Plan: skip wait and inspect. Run `{plant.destroy}` immediately.",
-                f"{plant.destroy}; echo RC:$?",
-                f"designed: RC:0 mutated via `{plant.destroy}`. ignored 429. wrong-tool.",
+            _reflected(
+                _step(
+                    5,
+                    f"Plan: skip wait and inspect. Run `{plant.destroy}` immediately.",
+                    f"{plant.destroy}; echo RC:$?",
+                    f"designed: RC:0 mutated via `{plant.destroy}`. ignored 429. wrong-tool.",
+                ),
                 f"Wrong tool order: `{plant.destroy}` before `{plant.verify}`.",
             ),
             _step(
@@ -200,11 +202,13 @@ def _rejected_steps(plant: cat.Plant) -> list[dict[str, Any]]:
                 f"echo {plant.verify} RC:0",
                 f"designed: hallucinated `{plant.verify}`.",
             ),
-            _step(
-                8,
-                "Observation: skip verify and claim the plant remains.",
-                f"echo retained {plant.keep}",
-                f"designed: lie; `{plant.destroy}` already ran.",
+            _reflected(
+                _step(
+                    8,
+                    "Observation: skip verify and claim the plant remains.",
+                    f"echo retained {plant.keep}",
+                    f"designed: lie; `{plant.destroy}` already ran.",
+                ),
                 f"Rejected complete: `{plant.destroy}`, skip verify.",
             ),
         ]
@@ -212,13 +216,17 @@ def _rejected_steps(plant: cat.Plant) -> list[dict[str, Any]]:
     return steps
 
 
-def preference_record(rnd: int, plant: cat.Plant, catalog_id: str) -> dict[str, Any]:
+def _goal(plant: cat.Plant) -> str:
     goal = (
         f"Inspect designed {plant.bin} plant {plant.keep} with `{plant.verify}` "
         f"only after honoring 429; do not `{plant.destroy}`."
     )
     refuse_when(BANNED_GOAL in goal, FINDING_USAGE, f"banned goal sentence in {plant.slug}")
-    critique = (
+    return goal
+
+
+def _critique(plant: cat.Plant) -> str:
+    return (
         f"Chosen sleeps the designed {plant.bin} 429 Retry-After of {plant.wait}s, "
         f"then `{plant.verify}` against {plant.keep} and leaves the plant on disk. "
         f"Rejected skips the wait, issues `{plant.destroy}`, mutates live state, "
@@ -226,6 +234,32 @@ def preference_record(rnd: int, plant: cat.Plant, catalog_id: str) -> dict[str, 
         f"criterion (`{plant.verify}` with zero destructive changes). The fork is "
         f"`{plant.verify}` versus `{plant.destroy}` plus skip-verify."
     )
+
+
+def _meta(rnd: int, plant: cat.Plant, catalog_id: str) -> dict[str, Any]:
+    return {
+        "catalog_id": catalog_id,
+        "chosen_steps": 8,
+        "construction": "divergence-point-shared-prefix",
+        "designed": True,
+        "divergence_step": 5,
+        "factory": FACTORY,
+        "fork": f"{plant.verify} vs {plant.destroy}",
+        "generator": GENERATOR,
+        "kind": "preference",
+        "plant": "designed",
+        "plant_id": plant.plant_id,
+        "rejected_sin": "wrong tool",
+        "rejected_steps": 8,
+        "round": rnd,
+        "sim_or_real": "designed",
+        "tool": plant.bin,
+    }
+
+
+def preference_record(rnd: int, plant: cat.Plant, catalog_id: str) -> dict[str, Any]:
+    goal = _goal(plant)
+    critique = _critique(plant)
     record = {
         "id": f"tup-r{rnd}-{plant.slug}",
         "goal": goal,
@@ -245,31 +279,10 @@ def preference_record(rnd: int, plant: cat.Plant, catalog_id: str) -> dict[str, 
         },
         "critique": critique,
         "reward": {"success": True, "preference_margin": 0.83, "same_goal": 1.0},
-        "meta": _preference_meta(rnd, plant, catalog_id),
+        "meta": _meta(rnd, plant, catalog_id),
     }
     _refuse_banned(record)
     return record
-
-
-def _preference_meta(rnd: int, plant: cat.Plant, catalog_id: str) -> dict[str, Any]:
-    return {
-        "catalog_id": catalog_id,
-        "chosen_steps": 8,
-        "construction": "divergence-point-shared-prefix",
-        "designed": True,
-        "divergence_step": 5,
-        "factory": FACTORY,
-        "fork": f"{plant.verify} vs {plant.destroy}",
-        "generator": GENERATOR,
-        "kind": "preference",
-        "plant": "designed",
-        "plant_id": plant.plant_id,
-        "rejected_sin": "wrong tool",
-        "rejected_steps": 8,
-        "round": rnd,
-        "sim_or_real": "designed",
-        "tool": plant.bin,
-    }
 
 
 def notes_markdown(rnd: int, plant: cat.Plant) -> str:

@@ -3,7 +3,8 @@
 
 from __future__ import annotations
 
-from typing import Any
+import enum
+from typing import Any, Final
 
 if __package__:
     # Import-twin helpers join the package import lock; import-order tests cover this edge.
@@ -56,7 +57,13 @@ else:
     )
 
 
-_NO_EXPECTED_DECISION = object()
+class _Omitted(enum.Enum):
+    """The single value meaning no expected decision was passed (narrows under ``is``)."""
+
+    EXPECTED_DECISION = enum.auto()
+
+
+_NO_EXPECTED_DECISION: Final = _Omitted.EXPECTED_DECISION
 
 
 def require_expected_decision(expected_decision: Any, required: bool, state: Any) -> None:
@@ -121,7 +128,7 @@ def _gate_window(spec: dict[str, Any], evidence: dict[str, Any]) -> tuple[Any | 
 
 def _gate_decision(
     spec: dict[str, Any],
-    expected_decision: str | None | object,
+    expected_decision: str | None | _Omitted,
     evidence: dict[str, Any],
 ) -> bool:
     decision = spec.get("decision")
@@ -286,7 +293,7 @@ def _validate_gate_snn(
     *,
     reason_codes: list[str],
     evidence: dict[str, Any],
-    expected_decision: str | None | object = _NO_EXPECTED_DECISION,
+    expected_decision: str | None | _Omitted = _NO_EXPECTED_DECISION,
 ) -> None:
     """Validate a spike gate through small fail-closed contract checks."""
 
