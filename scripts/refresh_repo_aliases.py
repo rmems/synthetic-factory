@@ -69,27 +69,46 @@ def _gh_executable() -> str:
     raise RefreshError("gh is not on PATH")
 
 
-def gh_api_repo(name: str) -> Any:
-    """Return the decoded ``gh api repos/<name>`` document, failing closed."""
+def _gh_argv(name: str) -> tuple[list[str], str]:
+    """The fixed ``gh api repos/<owner>/<name>`` argv for a validated name, and that name."""
 
     try:
         repo = repo_identity.canonical_repo(name)
     except repo_identity.RepoNameError as exc:
         raise RefreshError(str(exc)) from exc
-    argv = [_gh_executable(), "api", f"repos/{repo}"]
+    return [_gh_executable(), "api", f"repos/{repo}"], repo
+
+
+def _run_gh(argv: list[str], repo: str) -> subprocess.CompletedProcess[str]:
     try:
         # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit.dangerous-subprocess-use-audit
-        completed = subprocess.run(  # nosec B603 -- absolute gh, fixed argv, validated owner/name, no shell
+        return subprocess.run(  # nosec B603 -- absolute gh, fixed argv, validated owner/name, no shell
             argv, capture_output=True, check=False, text=True, timeout=60,
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
         raise RefreshError(f"gh api repos/{repo} could not run: {exc}") from exc
+
+
+def _successful_output(completed: subprocess.CompletedProcess[str], repo: str) -> str:
+    """The answer of a zero exit; any other status refuses with gh's own stderr."""
+
     if completed.returncode != 0:
         raise RefreshError(f"gh api repos/{repo} failed: {completed.stderr.strip()}")
+    return completed.stdout
+
+
+def _decoded_answer(stdout: str, repo: str) -> Any:
     try:
-        return json.loads(completed.stdout)
+        return json.loads(stdout)
     except ValueError as exc:
         raise RefreshError(f"gh api repos/{repo} returned invalid JSON: {exc}") from exc
+
+
+def gh_api_repo(name: str) -> Any:
+    """Return the decoded ``gh api repos/<name>`` document, failing closed."""
+
+    argv, repo = _gh_argv(name)
+    return _decoded_answer(_successful_output(_run_gh(argv, repo), repo), repo)
 
 
 def _repository_object(name: str, document: Any) -> dict[str, Any]:
