@@ -110,6 +110,13 @@ class DirectScript(unittest.TestCase):
         self.assertFalse((self.root / "never").exists())
 
 
+# Literal module names only: each loader imports exactly one fixed package path.
+FRESH_LOADERS = {
+    "pipelines.task_gate._contract": lambda: importlib.import_module("pipelines.task_gate._contract"),
+    "pipelines.task_gate.procedural": lambda: importlib.import_module("pipelines.task_gate.procedural"),
+}
+
+
 class PackageSpelling(unittest.TestCase):
     """``pipelines.task_gate.*`` imported fresh binds to the same objects as ``task_gate.*``."""
 
@@ -123,7 +130,7 @@ class PackageSpelling(unittest.TestCase):
     def import_fresh(self, *names):
         with mock.patch.dict(sys.modules), mock.patch.object(sys, "path", [str(REPO), *sys.path]):
             self.forget_repository_modules()
-            modules = [importlib.import_module(name) for name in names]
+            modules = [FRESH_LOADERS[name]() for name in names]
             twins = [sys.modules[name.removeprefix("pipelines.")] for name in names]
             return [(m.__name__, m is t) for m, t in zip(modules, twins)]
 
