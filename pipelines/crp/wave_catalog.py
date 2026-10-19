@@ -127,7 +127,8 @@ def _sha256_bytes(payload: bytes) -> str:
 
 def _git_executable() -> str:
     found = shutil.which("git")
-    refuse_when(found is None, FINDING_AST_NOT_A_PLANT, "git executable not found on PATH")
+    if found is None:
+        refuse(FINDING_AST_NOT_A_PLANT, "git executable not found on PATH")
     return found
 
 

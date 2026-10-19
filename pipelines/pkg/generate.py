@@ -163,7 +163,7 @@ def episode(plant: cat.Plant) -> dict[str, Any]:
 
     rec: dict[str, Any] = {
         "id": plant.record_id,
-        "goal": designed_goal(plant),
+        "goal": (goal := designed_goal(plant)),
         "plan": designed_plan(plant),
         "steps": _steps(plant),
         "outcome": designed_outcome(plant),
@@ -183,7 +183,7 @@ def episode(plant: cat.Plant) -> dict[str, Any]:
             "source_name": plant.source_name,
         },
     }
-    refuse_when(not rec["goal"].strip(), FINDING_PAIR_INVALID, f"{plant.record_id} missing goal")
+    refuse_when(not goal.strip(), FINDING_PAIR_INVALID, f"{plant.record_id} missing goal")
     refuse_when(len(rec["steps"]) != 12, FINDING_PAIR_INVALID, f"{plant.record_id} needs 12 steps")
     assert_clean(rec)
     return rec

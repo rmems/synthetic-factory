@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 import ast
-from typing import Any, cast
+from typing import Any, TypeGuard, cast
 
 from ._contract import (
     FINDING_SOURCE_NOT_PARSEABLE,
@@ -39,9 +39,13 @@ def _assign_tuple(node: ast.AST) -> list[ast.expr] | None:
     return target.elts if isinstance(target, ast.Tuple) else None
 
 
+def _all_names(elts: list[ast.expr]) -> TypeGuard[list[ast.Name]]:
+    return all(isinstance(elt, ast.Name) for elt in elts)
+
+
 def _tuple_names(node: ast.AST) -> tuple[str, ...] | None:
     elts = _assign_tuple(node)
-    if elts is None or not all(isinstance(elt, ast.Name) for elt in elts):
+    if elts is None or not _all_names(elts):
         return None
     return tuple(elt.id for elt in elts)
 
@@ -51,9 +55,10 @@ def _is_str_quad(items: list[Any]) -> bool:
 
 
 def _fn_pair_args(node: ast.Assign) -> list[str] | None:
-    if _call_name(node.value) != "fn_pair":
+    call = node.value
+    if not isinstance(call, ast.Call) or _call_name(call) != "fn_pair":
         return None
-    head = [_literal(item) for item in node.value.args][:4]
+    head = [_literal(item) for item in call.args][:4]
     return cast(list[str], head) if _is_str_quad(head) else None
 
 

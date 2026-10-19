@@ -59,7 +59,7 @@ def _negative_number(node: ast.UnaryOp, bound: Mapping[str, Any]) -> Any:
 def _container_value(node: ast.AST | None, bound: Mapping[str, Any]) -> Any:
     constructors = {ast.Tuple: tuple, ast.List: list, ast.Set: set}
     constructor = constructors.get(type(node))
-    if constructor is not None:
+    if constructor is not None and isinstance(node, (ast.Tuple, ast.List, ast.Set)):
         return _sequence(node.elts, bound, constructor)
     if isinstance(node, ast.Dict):
         return _mapping(node, bound)

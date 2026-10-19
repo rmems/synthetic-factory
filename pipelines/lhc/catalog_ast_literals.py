@@ -13,13 +13,13 @@ from typing import Any
 UNSET = object()
 
 
-def _items(nodes: Sequence[ast.AST], env: Mapping[str, Any]) -> Any:
-    """The resolved items as a list, or ``UNSET`` when any item is not a literal."""
+def _items(nodes: Sequence[ast.expr], env: Mapping[str, Any]) -> list[Any] | None:
+    """Every element's literal, or None as soon as one is ``UNSET``."""
     resolved: list[Any] = []
     for node in nodes:
         item = literal_value(node, env)
         if item is UNSET:
-            return UNSET
+            return None
         resolved.append(item)
     return resolved
 
@@ -63,17 +63,17 @@ def _name(node: ast.Name, env: Mapping[str, Any]) -> Any:
 
 def _tuple_literal(node: ast.Tuple, env: Mapping[str, Any]) -> Any:
     items = _items(node.elts, env)
-    return UNSET if items is UNSET else tuple(items)
+    return UNSET if items is None else tuple(items)
 
 
 def _list_literal(node: ast.List, env: Mapping[str, Any]) -> Any:
     items = _items(node.elts, env)
-    return UNSET if items is UNSET else list(items)
+    return UNSET if items is None else list(items)
 
 
 def _set_literal(node: ast.Set, env: Mapping[str, Any]) -> Any:
     items = _items(node.elts, env)
-    return UNSET if items is UNSET else set(items)
+    return UNSET if items is None else set(items)
 
 
 def _unary(node: ast.UnaryOp, env: Mapping[str, Any]) -> Any:
@@ -92,7 +92,7 @@ def _add(node: ast.BinOp, env: Mapping[str, Any]) -> Any:
     return first + second if concat else UNSET
 
 
-_HANDLERS: dict[type[ast.AST], Callable[[Any, Mapping[str, Any]], Any]] = {
+_HANDLERS: dict[type[ast.AST | None], Callable[[Any, Mapping[str, Any]], Any]] = {
     ast.Constant: _constant,
     ast.Name: _name,
     ast.Tuple: _tuple_literal,
@@ -105,7 +105,7 @@ _HANDLERS: dict[type[ast.AST], Callable[[Any, Mapping[str, Any]], Any]] = {
 }
 
 
-def literal_value(node: ast.AST, env: Mapping[str, Any] | None = None) -> Any:
+def literal_value(node: ast.AST | None, env: Mapping[str, Any] | None = None) -> Any:
     """Resolve constants, names, containers, and constant f-strings; else ``UNSET``."""
 
     handler = _HANDLERS.get(type(node))
