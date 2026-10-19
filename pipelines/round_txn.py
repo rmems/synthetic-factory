@@ -608,6 +608,8 @@ def discover_legacy_frontier(factory_dir: Path):
             round_number = 1
         else:
             continue
+        if not round_in_range(round_number):
+            continue  # a round with no marker label can never be reserved, so it is not a frontier
         by_round[round_number] = by_round.get(round_number, 0) + valid_legacy_file(path)
     return _highest_round_meeting_quota(by_round, quota)
 
@@ -643,7 +645,7 @@ def discover_unmarked_legacy_frontier(factory_dir: Path):
         if match is None:
             continue
         round_number = int(match.group(1))
-        if _round_has_transaction_marker(factory_dir, round_number):
+        if not round_in_range(round_number) or _round_has_transaction_marker(factory_dir, round_number):
             continue
         records, problems = validate_legacy_payload(path, factory_dir, round_number)
         if not problems:
