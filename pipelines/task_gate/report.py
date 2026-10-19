@@ -25,7 +25,7 @@ from ._contract import bind_import_twin, dumps_exact_json, is_under_raw, rename_
 from .dedup_index import PriorIndex, index_bytes
 from .gate import Decision
 
-__all__ = ["RunOutcome", "check_destination", "summarize", "write_run"]
+__all__ = ["RunOutcome", "check_destination", "publish", "summarize", "write_new", "write_run"]
 
 
 def check_destination(out: Path) -> None:
@@ -90,7 +90,7 @@ def summarize(
     }
 
 
-def _write_new(path: Path, data: bytes) -> str:
+def write_new(path: Path, data: bytes) -> str:
     with path.open("xb") as handle:
         handle.write(data)
     return hashlib.sha256(data).hexdigest()
@@ -121,23 +121,23 @@ def _stage_files(stage: Path, outcome: RunOutcome) -> dict[str, Any]:
     index = outcome.cumulative_index()
     outputs = {
         cv.TASKS_FILENAME: {
-            "sha256": _write_new(stage / cv.TASKS_FILENAME, outcome.tasks_bytes()),
+            "sha256": write_new(stage / cv.TASKS_FILENAME, outcome.tasks_bytes()),
             "rows": len(outcome.decisions),
         },
         cv.INDEX_FILENAME: {
-            "sha256": _write_new(stage / cv.INDEX_FILENAME, index_bytes(index.values())),
+            "sha256": write_new(stage / cv.INDEX_FILENAME, index_bytes(index.values())),
             "keys": len(index), "new_keys": len(outcome.kept_rows),
         },
     }
     summary = summarize(outcome.decisions, outcome.meta, outputs)
-    _write_new(stage / cv.SUMMARY_FILENAME, (dumps_exact_json(summary, indent=2) + "\n").encode("utf-8"))
+    write_new(stage / cv.SUMMARY_FILENAME, (dumps_exact_json(summary, indent=2) + "\n").encode("utf-8"))
     return summary
 
 
 _EXISTING_ENTRY = frozenset({errno.EEXIST, errno.ENOTEMPTY})
 
 
-def _publish(stage: Path, destination: Path) -> None:
+def publish(stage: Path, destination: Path) -> None:
     """Move the stage onto the destination atomically, never replacing an existing entry.
 
     ``rename_noreplace`` (``renameat2`` with ``RENAME_NOREPLACE``) closes the window
@@ -166,7 +166,7 @@ def write_run(out: Path, outcome: RunOutcome) -> dict[str, Any]:
     stage = Path(tempfile.mkdtemp(prefix=".task-gate-stage-", dir=destination.resolve().parent))
     try:
         summary = _stage_files(stage, outcome)
-        _publish(stage, destination)
+        publish(stage, destination)
     except BaseException:
         shutil.rmtree(stage, ignore_errors=True)
         raise
