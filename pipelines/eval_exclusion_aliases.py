@@ -54,7 +54,7 @@ ENTRY_KEYS_BY_METHOD = MappingProxyType({
     METHOD_REVIEWED_SOURCE_PIN: _ENTRY_BASE_KEYS | {"evidence"},
 })
 TIMESTAMP_SHAPE = "YYYY-MM-DDTHH:MM:SSZ"
-_TIMESTAMP_RE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z", re.ASCII)
+_TIMESTAMP_RE = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z", re.ASCII)
 REASON_GITHUB_ID_MISMATCH = "alias_cache.github_id_mismatch"
 
 

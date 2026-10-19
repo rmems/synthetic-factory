@@ -234,6 +234,7 @@ class AliasCacheTests(unittest.TestCase):
             "sorted by unique name": lambda d: d["entries"].reverse(),
             "must match": lambda d: d.update(updated_at="2026-10-18"),
             "must match YYYY": lambda d: d.update(updated_at="2026-10-18T0:00:00Z"),
+            "must match YYYY-MM-DD": lambda d: d.update(updated_at="\uff12026-10-18T00:00:00Z"),
             "day 30 must be in range": lambda d: d.update(updated_at="2026-02-30T00:00:00Z"),
             "must be a UTC timestamp string": lambda d: d.update(updated_at=20261018),
             "postdates updated_at": lambda d: d.update(updated_at="2026-10-17T00:00:00Z"),
