@@ -1,0 +1,64 @@
+#!/usr/bin/env python3
+"""Adapt the procedural mutator to the gate's proposal shape; the gate itself is unchanged.
+
+``code_repair.planning.ProposalPlan`` draws seeded single-span sites from a pinned catalog.
+Each becomes a :class:`GateProposal` carrying the site's byte span, original text and
+replacement text, and then goes through the same :class:`Gate` as a model-backed proposal:
+nothing here pre-judges a proposal, and the gate never looks at ``source``.
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+from . import vocabulary as cv
+from ._contract import bind_import_twin
+from .proposal import GateProgram, GateProposal
+
+if __name__.startswith("pipelines."):
+    from ..code_repair import catalog as _catalog
+    from ..code_repair import planning as _planning
+else:
+    from code_repair import catalog as _catalog
+    from code_repair import planning as _planning
+
+SOURCE = "procedural"
+
+__all__ = ["SOURCE", "load_catalog", "programs_from_catalog", "proposals_from_plan"]
+
+
+def load_catalog(directory: Path) -> _catalog.Catalog:
+    return _catalog.load_catalog(Path(directory))
+
+
+def programs_from_catalog(catalog: _catalog.Catalog) -> dict[str, GateProgram]:
+    """Every catalog program as a gate program, keyed by program id."""
+
+    return {
+        program.program_id: GateProgram(program.program_id, program.text, program.function)
+        for program in catalog.programs
+    }
+
+
+def proposals_from_plan(
+    catalog: _catalog.Catalog, seed: int, count: int, per_program_cap: int = 3,
+) -> list[GateProposal]:
+    """The procedural mutator's seeded proposals, in draw order, as gate proposals."""
+
+    cv.refuse_when(
+        isinstance(count, bool) or not isinstance(count, int) or count < 1,
+        cv.REFUSE_INPUT_INVALID, "count must be a positive integer",
+    )
+    plan = _planning.ProposalPlan(catalog, seed, per_program_cap)
+    return [
+        GateProposal(
+            proposal_id=proposal.record_id, program_id=proposal.program.program_id,
+            replacement_text=proposal.mutation.site.replacement_text, source=SOURCE,
+            original_text=proposal.mutation.site.original_text,
+            start_byte=proposal.mutation.site.start, end_byte=proposal.mutation.site.end,
+        )
+        for proposal in plan.proposals(count)
+    ]
+
+
+bind_import_twin(__name__)
