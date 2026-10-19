@@ -160,6 +160,22 @@ def multi_agent():
     }
 
 
+PLAN_CHANGE_ERROR = "observably change the later coordination plan"
+
+
+def coordination_errors_for(resolution):
+    """Envelope errors for the fixture once its resolution and fourth turn both say `resolution`."""
+    with tempfile.TemporaryDirectory() as td:
+        factory = Path(td) / "multi-agent-coordination-factory"
+        factory.mkdir()
+        record = multi_agent()
+        record["resolution"] = resolution
+        record["transcript"][3]["content"] = resolution
+        batch = factory / "batch-r01.jsonl"
+        batch.write_text(json.dumps(record) + "\n")
+        return round_txn.validate_agentic_envelope(batch, factory, 1)
+
+
 def safety_case():
     return {
         "id": "saf-r01-creds",
@@ -2353,23 +2369,24 @@ class AgenticShapes(unittest.TestCase):
                 round_txn.publish(factory, 1, reservation["token"])
 
     def test_multi_agent_resolution_cannot_ignore_the_disagreement(self):
-        with tempfile.TemporaryDirectory() as td:
-            factory = Path(td) / "multi-agent-coordination-factory"
-            factory.mkdir()
-            record = multi_agent()
-            record["resolution"] = (
-                "TTL race coverage was ignored; proceed with the original plan unchanged"
-            )
-            record["transcript"][3]["content"] = record["resolution"]
-            batch = factory / "batch-r01.jsonl"
-            batch.write_text(json.dumps(record) + "\n")
+        errors = coordination_errors_for(
+            "TTL race coverage was ignored; proceed with the original plan unchanged"
+        )
+        self.assertTrue(any(PLAN_CHANGE_ERROR in error for error in errors), errors)
 
-            errors = round_txn.validate_agentic_envelope(batch, factory, 1)
+    def test_multi_agent_resolution_phrased_as_changing_the_plan_is_grounded(self):
+        errors = coordination_errors_for("we are changing the TTL race coverage plan")
+        self.assertFalse(any(PLAN_CHANGE_ERROR in error for error in errors), errors)
 
-            self.assertTrue(
-                any("observably change the later coordination plan" in error for error in errors),
-                errors,
-            )
+    def test_multi_agent_resolution_that_only_promises_to_address_is_not_a_plan_change(self):
+        errors = coordination_errors_for(
+            "the implementer will address the TTL race coverage later"
+        )
+        self.assertTrue(any(PLAN_CHANGE_ERROR in error for error in errors), errors)
+
+    def test_multi_agent_resolution_naming_a_coordinator_is_not_a_plan_change(self):
+        errors = coordination_errors_for("Chang will investigate the TTL race coverage")
+        self.assertTrue(any(PLAN_CHANGE_ERROR in error for error in errors), errors)
 
     def test_sparse_terminal_reward_must_match_the_outcome(self):
         with tempfile.TemporaryDirectory() as td:
