@@ -143,7 +143,7 @@ def forge_everywhere(then):
 
 
 # Forks at import and keeps rewriting the report so that the genuine pass reads as a failure:
-# the old nonce-echo report's count, and the observed text of a sealed record.
+# the old nonce-echo report's count, and a sealed record's base64 output ("1\n" -> "2\n").
 POLLER = r"""
 import os, sys
 fd = int(sys.argv[4])
@@ -152,9 +152,10 @@ if os.fork() == 0:
     while True:
         data = os.pread(fd, 1 << 20, 0)
         if data and data != seen:
-            seen = data.replace(b'"failed": 0', b'"failed": 1').replace(b'text\\":\\"1', b'text\\":\\"2')
+            seen = data.replace(b'"failed": 0', b'"failed": 1').replace(b'data\\":\\"MQo=', b'data\\":\\"Mgo=')
             os.pwrite(fd, seen, 0)
 """
+REWRITTEN = b'data\\":\\"Mgo='  # what the poller leaves in a report it reached
 
 
 @NEEDS_BWRAP
@@ -176,10 +177,29 @@ class Kernel(unittest.TestCase):
         self.assertEqual(self.sandbox.run(forged_pass, "f").outcome, cv.OUTCOME_FAILED)
 
     def test_a_forked_poller_rewriting_the_report_is_a_crash_never_a_verdict(self):
-        """The Blocks finding on #513: a poller that rewrites each record it sees."""
+        """The Blocks finding on #513: a poller that rewrites each record it sees.
 
-        result = self.sandbox.run(POLLER + base.probe("return 1", 1), "f")
-        self.assertIn(result.outcome, (cv.OUTCOME_PASSED, cv.OUTCOME_CRASHED), result)
+        The poller races the child, so the report is captured as the judge sees it: at least
+        one run must actually carry the rewrite, and every run that does is a crash.
+        """
+
+        reports = []
+        judge = sandboxed.judged
+
+        def capture(examples, body, key):
+            reports.append(body)
+            return judge(examples, body, key)
+
+        outcomes = []
+        with mock.patch.object(sandboxed, "judged", side_effect=capture):
+            for _ in range(5):
+                outcomes.append(self.sandbox.run(POLLER + base.probe("return 1", 1), "f"))
+                if REWRITTEN in reports[-1]:
+                    break
+        self.assertIn(REWRITTEN, reports[-1], "the poller never reached the report")
+        for result, body in zip(outcomes, reports, strict=True):
+            expected = cv.OUTCOME_CRASHED if REWRITTEN in body else cv.OUTCOME_PASSED
+            self.assertEqual(result.outcome, expected, result)
 
     def test_a_pass_cannot_be_forged_even_by_tampering_with_the_child(self):
         """The residual: a program can rebind the child's checker and seal what it likes.
