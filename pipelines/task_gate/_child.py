@@ -5,8 +5,11 @@ Standard library only; it imports nothing of this repository and is started by
 ``harness.py`` as ``python3 -P -s -S -B -X utf8 _child.py WORKDIR FUNCTION CPU_SECONDS`` with
 a scrubbed environment and ``WORKDIR`` as its working directory, so neither the repository
 nor any site-packages (solver modules included) is importable. ``WORKDIR/program.py`` is the
-module under test. The report is the single marker line written to the real stdout; the
-program under test never sees that stream. Failures are data, never exit codes.
+module under test. The report is the single marker line written to a duplicate of the real
+stdout taken before the program loads; fd 1 itself is then pointed at ``os.devnull``, so
+whatever the program prints (however much) never reaches the report file and cannot push the
+report out of the window the parent reads. A program that deliberately writes to the duplicate
+descriptor can still forge it (best effort, not a sandbox). Failures are data, never exit codes.
 """
 
 import doctest
@@ -98,9 +101,20 @@ def _doctests(module, function):
     return attempted, failed
 
 
+def _silence_stdout():
+    """Point fd 1 at ``os.devnull`` so the program's output never mixes with the report."""
+
+    sink = os.open(os.devnull, os.O_WRONLY)
+    try:
+        os.dup2(sink, 1)
+    finally:
+        os.close(sink)
+
+
 def main(argv):
     workdir, function, cpu_seconds = argv[1], argv[2], int(argv[3])
     report_stream = os.fdopen(os.dup(1), "w", encoding="utf-8")
+    _silence_stdout()
     if not _limit(cpu_seconds):
         _emit(report_stream, _report("crashed", detail="limits_not_applied"))
         return 0

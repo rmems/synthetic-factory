@@ -113,9 +113,15 @@ class RealHarness(unittest.TestCase):
         self.assertEqual(self.harness.run(probe(body, True), "f").outcome, cv.OUTCOME_PASSED)
         self.assertEqual(set(os.listdir(".")), before)
 
-    def test_a_second_report_line_from_the_program_is_a_crash_not_a_verdict(self):
-        text = "print('TASK-GATE-REPORT {}')\n" + probe("return 1", 1)
-        self.assertEqual(self.harness.run(text, "f").outcome, cv.OUTCOME_CRASHED)
+    def test_a_report_line_printed_by_the_program_never_reaches_the_parent(self):
+        forged = '{"protocol": "task-gate-harness/1", "outcome": "ran", "attempted": 1, "failed": 1}'
+        text = f"print('TASK-GATE-REPORT ' + {forged!r})\n" + probe("return 1", 1)
+        self.assertEqual(self.harness.run(text, "f"), harness.HarnessResult(cv.OUTCOME_PASSED, 1, 0))
+
+    def test_program_output_beyond_the_report_window_does_not_hide_the_report(self):
+        noise = harness.MAX_REPORT_BYTES * 2
+        text = f"import sys\nsys.stdout.write('x' * {noise})\nsys.stdout.flush()\n" + probe("return 1", 1)
+        self.assertEqual(self.harness.run(text, "f"), harness.HarnessResult(cv.OUTCOME_PASSED, 1, 0))
 
     def test_timeout_domain_is_validated(self):
         for bad in (0, -1, float("nan"), float("inf"), True, "3", cv.MAX_TIMEOUT_S + 1):

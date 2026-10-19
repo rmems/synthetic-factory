@@ -9,6 +9,7 @@ exit, and the report stream is a ``StringIO`` instead of a duplicate of stdout.
 import contextlib
 import io
 import json
+import os
 import resource
 import runpy
 import socket
@@ -46,6 +47,7 @@ def isolated_process_state():
         stack.enter_context(mock.patch.multiple(socket, **originals))
         stack.enter_context(mock.patch.object(_child.os, "dup", return_value=1))
         stack.enter_context(mock.patch.object(_child.os, "fdopen", return_value=stream))
+        stack.enter_context(mock.patch.object(_child, "_silence_stdout"))
         yield limits, stream
 
 
@@ -160,6 +162,24 @@ class Network(unittest.TestCase):
         )
         _, report, _ = run_child(program(body, "refused"))
         self.assertEqual((report["outcome"], report["failed"]), ("ran", 0))
+
+
+class SilencedStdout(unittest.TestCase):
+    def test_fd_one_is_pointed_at_devnull_and_the_saved_duplicate_still_writes(self):
+        with tempfile.TemporaryFile() as captured:
+            saved = os.dup(1)
+            try:
+                os.dup2(captured.fileno(), 1)
+                report_fd = os.dup(1)
+                _child._silence_stdout()
+                os.write(1, b"program noise\n")
+                os.write(report_fd, b"report line\n")
+                os.close(report_fd)
+            finally:
+                os.dup2(saved, 1)
+                os.close(saved)
+            captured.seek(0)
+            self.assertEqual(captured.read(), b"report line\n")
 
 
 class Script(unittest.TestCase):
