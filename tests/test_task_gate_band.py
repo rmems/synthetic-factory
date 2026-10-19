@@ -1,8 +1,10 @@
 """The difficulty-band stage (#497): contract, band edges, recorded attempts, seed_needed."""
 
+import json
 import sys
 import tempfile
 import unittest
+from fractions import Fraction
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -221,6 +223,19 @@ class ContractTests(TempRoot):
         self.assertEqual(contract.classify(10, 10), bv.BAND_TOO_EASY)
         self.assertEqual(contract.classify(1, 20), bv.BAND_TOO_HARD)
         self.assertEqual(contract.classify(19, 20), bv.BAND_TOO_EASY)
+
+    def test_bounds_keep_the_decimal_token_not_its_nearest_double(self):
+        # json.dumps cannot write this token (it is the double 0.1), so write the bytes directly.
+        document = contract_document()
+        key = '"pass_rate_min": ' + json.dumps(document["pass_rate_min"])
+        text = json.dumps(document)
+        self.assertEqual(text.count(key), 1)
+        text = text.replace(key, '"pass_rate_min": 0.10000000000000001')
+        path = Path(self.root) / "exact.json"
+        path.write_text(text, encoding="utf-8")
+        contract = band_contract.load_contract(path)
+        self.assertGreater(contract.pass_rate_min, Fraction(1, 10))
+        self.assertEqual(contract.classify(2, 20), bv.BAND_TOO_HARD)
 
     def test_each_malformed_contract_is_refused(self):
         bad = [

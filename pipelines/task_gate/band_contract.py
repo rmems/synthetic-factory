@@ -52,9 +52,9 @@ def _malformed(detail: str) -> cv.GateRefusal:
 
 
 def _bound(value: object, name: str) -> Fraction:
-    if type(value) not in (int, float):  # exact types: bool is not a JSON number here
+    if type(value) not in (int, Fraction):  # exact types: bool is not a JSON number here
         raise _malformed(f"{name} must be a JSON number")
-    bound = Fraction(str(value))
+    bound = Fraction(value)
     # Fraction keeps the denominator positive, so 0 < bound < 1 is 0 < numerator < denominator.
     if not 0 < bound.numerator < bound.denominator:
         raise _malformed(f"{name} must lie strictly between 0 and 1")
@@ -110,7 +110,7 @@ def load_contract(path: Path | str | None) -> BandContract:
 
     data = _read(path)
     try:
-        document = load_strict_json(data.decode("utf-8"))
+        document = load_strict_json(data.decode("utf-8"), parse_float=Fraction)  # exact decimal bounds
     except (ValueError, RecursionError) as exc:
         raise _malformed(f"{path}: {exc}") from exc
     return _validated(document, hashlib.sha256(data).hexdigest())
