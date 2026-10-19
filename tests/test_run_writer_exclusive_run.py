@@ -96,13 +96,25 @@ REPO = Path(__file__).resolve().parents[1]
 class PackageSpelling(unittest.TestCase):
     """Each family's ``generate`` finds the shared writer under its package spelling too."""
 
-    def test_family_generators_import_the_writer_as_package_children(self):
+    @staticmethod
+    def fresh_import(name):
+        """Import ``name`` with every cached copy of its family dropped, so its body runs."""
+
+        family = name.split(".")[-2]
+        with mock.patch.dict(sys.modules):
+            for key in [k for k in sys.modules if k.split(".")[:2] in ([family], ["pipelines", family])
+                        or k.startswith((f"{family}.", f"pipelines.{family}."))]:
+                del sys.modules[key]
+            return importlib.import_module(name)
+
+    def test_family_generators_import_the_writer_under_both_spellings(self):
         if str(REPO) not in sys.path:
             sys.path.append(str(REPO))
         for family in ("maos", "nelb", "pkg", "ttf"):
-            with self.subTest(family=family):
-                module = importlib.import_module(f"pipelines.{family}.generate")
-                self.assertIs(module._exclusive_run.write_run, exclusive_run.write_run)
+            for name in (f"pipelines.{family}.generate", f"{family}.generate"):
+                with self.subTest(module=name):
+                    module = self.fresh_import(name)
+                    self.assertIs(module._exclusive_run.write_run, exclusive_run.write_run)
 
 
 if __name__ == "__main__":
