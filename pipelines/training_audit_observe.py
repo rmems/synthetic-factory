@@ -138,7 +138,7 @@ class CorpusAudit(AuditAxes):
         self.totals["bytes"] += len(payload)
 
         try:
-            raw_lines = self.api._completion.audit_jsonl_records(
+            raw_lines = self.api.audit_jsonl_records(
                 rel, payload, self._completed_published_payload,
             )
         except self.api.StrictJsonlError as exc:
@@ -152,7 +152,7 @@ class CorpusAudit(AuditAxes):
 
     def _completed_published_payload(self, rel, payload) -> bool:
         source_root = self.completion_source or self.run_dir
-        return self.api._completion.completed_published_payload(source_root, rel, payload)
+        return self.api.completed_published_payload(source_root, rel, payload)
 
     def _observe_completed_procedural_file(self, rel, payload, previous_records):
         if self._completed_published_payload(rel, payload):

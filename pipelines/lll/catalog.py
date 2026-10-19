@@ -44,6 +44,7 @@ from ._contract import (
     bind_import_twin,
     dumps_exact_json,
     load_strict_json,
+    refuse,
     refuse_when,
     repo_root,
     shown,
@@ -275,11 +276,8 @@ def _mill_from_row(row: Mapping[str, Any]) -> Mill:
 def _registry_factories() -> set[str]:
     payload = load_strict_json((repo_root() / "config" / "FACTORY-REGISTRY.json").read_text())
     rows = payload.get("factories") if isinstance(payload, Mapping) else None
-    refuse_when(
-        not isinstance(rows, list),
-        FINDING_FACTORY_NOT_REGISTERED,
-        "factory registry is malformed",
-    )
+    if not isinstance(rows, list):
+        refuse(FINDING_FACTORY_NOT_REGISTERED, "factory registry is malformed")
     return {
         str(row["path_id"])
         for row in rows

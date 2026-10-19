@@ -146,7 +146,7 @@ def _group_plants(plants: tuple[Plant, ...]) -> dict[str, list[Plant]]:
     """Enforce global identity uniqueness while grouping plants by mill."""
 
     groups: dict[str, list[Plant]] = defaultdict(list)
-    seen = {key: set() for key in ("plant_id", "slug", "fail", "ticket")}
+    seen: dict[str, set[str]] = {key: set() for key in ("plant_id", "slug", "fail", "ticket")}
     for plant in plants:
         for key, values in seen.items():
             _claim_unique(values, getattr(plant, key), f"duplicate {key}")

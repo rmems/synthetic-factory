@@ -125,7 +125,7 @@ def _read_text(path: Path, where: str) -> str:
     except UnicodeDecodeError as exc:
         raise cv.ToolWorldRefusal(
             cv.FINDING_PACK_MEMBER_INVALID, f"{where}: {path.name} is not UTF-8 ({exc.reason})"
-        )
+        ) from exc
 
 
 def _read_json(path: Path, where: str) -> Any:
@@ -135,7 +135,7 @@ def _read_json(path: Path, where: str) -> Any:
     except ValueError as exc:
         raise cv.ToolWorldRefusal(
             cv.FINDING_PACK_MEMBER_INVALID, f"{where}: {path.name} is not strict JSON ({exc})"
-        )
+        ) from exc
 
 
 def _refuse_hidden_keys(value: Any, where: str, code: str) -> None:

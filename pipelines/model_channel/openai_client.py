@@ -5,7 +5,7 @@ import http.client
 import json
 import ssl
 from dataclasses import dataclass
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
 from urllib.parse import urlparse
 
 from ._contract import bind_import_twin, load_strict_json
@@ -41,7 +41,7 @@ class ClientOptions:
     timeout_s: float = DEFAULT_TIMEOUT_S
 
 
-def _request_body(model: str, messages: list[Mapping[str, str]], extra: Mapping | None) -> bytes:
+def _request_body(model: str, messages: Sequence[Mapping[str, str]], extra: Mapping | None) -> bytes:
     payload = {"model": model, "messages": list(messages)}
     if extra:
         payload.update(extra)
@@ -88,7 +88,7 @@ def _require_model(model: str) -> None:
         raise OpenAIClientError("model must be a non-empty exact tag; no silent rewrite")
 
 
-def chat_completions(base_url: str, model: str, messages: list[Mapping[str, str]], **kwargs) -> dict[str, Any]:
+def chat_completions(base_url: str, model: str, messages: Sequence[Mapping[str, str]], **kwargs) -> dict[str, Any]:
     """POST chat completions with keyword options described by ClientOptions."""
     options = ClientOptions(**kwargs)
     _require_model(model)

@@ -19,7 +19,10 @@ from . import catalog as cat
 from ._contract import VENDOR_PREFIX, refuse_vendor_paths
 
 UNSET = object()
+_ENV_TYPES = (str, int, bool)
 PLANT_CALLS = frozenset({"plant", "p", "ok", "bad"})
+# Calls that imply a ``success`` flag when the call does not pass one.
+_IMPLIED_SUCCESS = {"ok": True, "bad": False}
 PLANT_FIELDS = (
     "slug", "domain", "success", "name", "stack", "field", "old", "new",
     "fail_err", "plan", "residual", "vs", "fetch1", "fetch1_ok", "fetch2",
@@ -125,21 +128,29 @@ def module_env(tree: ast.AST) -> dict[str, Any]:
     """Collect module-level string/int/bool names used to join fetch URLs."""
 
     env: dict[str, Any] = {}
-    statements = list(getattr(tree, "body", ()))
-    for node in statements:
-        name, value = assignment_of(node)
-        if name is None or value is None:
-            continue
-        if isinstance(value, ast.Constant) and isinstance(value.value, (str, int, bool)):
+    assignments = _simple_assignments(tree)
+    for name, value in assignments:
+        if isinstance(value, ast.Constant) and isinstance(value.value, _ENV_TYPES):
             env[name] = value.value
-    for node in statements:
-        name, value = assignment_of(node)
-        if name is None or value is None or name in env:
+    for name, value in assignments:
+        if name in env:
             continue
+        # ``UNSET`` is never an ``_ENV_TYPES`` instance, so unresolved names stay out.
         resolved = literal_value(value, env)
-        if resolved is not UNSET and isinstance(resolved, (str, int, bool)):
+        if isinstance(resolved, _ENV_TYPES):
             env[name] = resolved
     return env
+
+
+def _simple_assignments(tree: ast.AST) -> list[tuple[str, ast.AST]]:
+    """``(name, value)`` of each module-level ``NAME = value`` with a value, in order."""
+
+    found: list[tuple[str, ast.AST]] = []
+    for node in getattr(tree, "body", ()):
+        name, value = assignment_of(node)
+        if name is not None and value is not None:
+            found.append((name, value))
+    return found
 
 
 def string_tuple(node: ast.AST, env: Mapping[str, Any]) -> tuple[str, ...]:
@@ -158,24 +169,35 @@ def string_tuple(node: ast.AST, env: Mapping[str, Any]) -> tuple[str, ...]:
 def plant_kwargs(node: ast.AST, env: Mapping[str, Any]) -> dict[str, Any] | None:
     """Keyword arguments of a ``plant`` / ``p`` / ``ok`` / ``bad`` call."""
 
-    if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Name):
+    found = _plant_call(node)
+    if found is None:
         return None
-    if node.func.id not in PLANT_CALLS:
-        return None
+    call, callee = found
     out: dict[str, Any] = {}
-    for keyword in node.keywords:
+    for keyword in call.keywords:
         if keyword.arg is None or keyword.arg not in PLANT_FIELDS:
             continue
         value = literal_value(keyword.value, env)
         if value is not UNSET:
             out[keyword.arg] = value
-    if node.func.id == "ok":
-        out.setdefault("success", True)
-    elif node.func.id == "bad":
-        out.setdefault("success", False)
-    if not isinstance(out.get("slug"), str) or not out["slug"]:
+    if callee in _IMPLIED_SUCCESS:
+        out.setdefault("success", _IMPLIED_SUCCESS[callee])
+    return out if _has_slug(out) else None
+
+
+def _plant_call(node: ast.AST) -> tuple[ast.Call, str] | None:
+    """``(call, callee)`` for a bare-name call to one of ``PLANT_CALLS``, else None."""
+
+    if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Name):
         return None
-    return out
+    if node.func.id not in PLANT_CALLS:
+        return None
+    return node, node.func.id
+
+
+def _has_slug(kwargs: Mapping[str, Any]) -> bool:
+    slug = kwargs.get("slug")
+    return isinstance(slug, str) and bool(slug)
 
 
 def pair_elts(
@@ -236,7 +258,7 @@ def _extract_file(
     catalog_id = _catalog_id_for(path.name)
     pairs: list[cat.Pair] = []
     if kind == KIND_MILL:
-        pairs.extend(_pairs_from_tree(tree, env, catalog_id, rel, KIND_PAIRS))
+        pairs.extend(_pairs_from_tree(tree, env, catalog_id, rel))
     elif kind == KIND_PLANTS:
         pairs.extend(_pairs_from_mills(tree, env, rel))
     source = {
@@ -256,32 +278,37 @@ def _extract_file(
 
 
 def _pairs_from_tree(
-    tree: ast.AST,
-    env: dict[str, Any],
-    catalog_id: str,
-    source: str,
-    kind: str,
+    tree: ast.AST, env: dict[str, Any], catalog_id: str, source: str
 ) -> list[cat.Pair]:
+    """Published mill pairs: every plant-call 2-tuple in a module-level ``PAIRS`` list."""
+
     found: list[cat.Pair] = []
+    for elt in _pairs_list_elts(tree):
+        raw = pair_elts(elt, env)
+        if raw is None:
+            continue
+        success, fail = raw
+        found.append(
+            cat.Pair(
+                catalog_id=catalog_id,
+                source=source,
+                kind=KIND_PAIRS,
+                success=cat.plant_from_mapping(success),
+                fail=cat.plant_from_mapping(fail),
+            )
+        )
+    return found
+
+
+def _pairs_list_elts(tree: ast.AST) -> list[ast.expr]:
+    """Elements of every module-level ``PAIRS = [...]`` list, in source order."""
+
+    elts: list[ast.expr] = []
     for node in getattr(tree, "body", ()):
         name, value = assignment_of(node)
-        if name != "PAIRS" or not isinstance(value, ast.List):
-            continue
-        for elt in value.elts:
-            raw = pair_elts(elt, env)
-            if raw is None:
-                continue
-            success, fail = raw
-            found.append(
-                cat.Pair(
-                    catalog_id=catalog_id,
-                    source=source,
-                    kind=kind,
-                    success=cat.plant_from_mapping(success),
-                    fail=cat.plant_from_mapping(fail),
-                )
-            )
-    return found
+        if name == "PAIRS" and isinstance(value, ast.List):
+            elts.extend(value.elts)
+    return elts
 
 
 def _pairs_from_mills(tree: ast.AST, env: dict[str, Any], source: str) -> list[cat.Pair]:
@@ -331,15 +358,25 @@ def _mills_tables(tree: ast.AST, env: dict[str, Any]) -> dict[int, list[tuple[st
         if name == "MILLS" and isinstance(value, ast.Dict):
             tables.update(_mills_dict(value, env))
             continue
-        if not isinstance(node, ast.Assign) or len(node.targets) != 1:
+        item = _subscript_list_assignment(node)
+        if item is None:
             continue
-        target = node.targets[0]
-        if not isinstance(target, ast.Subscript) or not isinstance(node.value, ast.List):
-            continue
+        target, rows = item
         key = literal_value(target.slice, env)
         if isinstance(key, int):
-            tables[key] = _mill_tuple_rows(node.value, env)
+            tables[key] = _mill_tuple_rows(rows, env)
     return tables
+
+
+def _subscript_list_assignment(node: ast.AST) -> tuple[ast.Subscript, ast.List] | None:
+    """``(target, value)`` of a single-target ``<expr>[key] = [...]`` statement, else None."""
+
+    if not isinstance(node, ast.Assign) or len(node.targets) != 1:
+        return None
+    target = node.targets[0]
+    if not isinstance(target, ast.Subscript) or not isinstance(node.value, ast.List):
+        return None
+    return target, node.value
 
 
 def _mills_dict(node: ast.Dict, env: dict[str, Any]) -> dict[int, list[tuple[str, ...]]]:
@@ -413,17 +450,19 @@ def _merge_rows(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     seen: set[tuple[str, str]] = set()
     for kind in (KIND_PAIRS, KIND_GEN):
-        for record in records:
-            for pair in record["pairs"]:
-                if pair.kind != kind:
-                    continue
-                key = (pair.success.slug, pair.fail.slug)
-                if key in seen:
-                    continue
+        for pair in _pairs_of_kind(records, kind):
+            key = (pair.success.slug, pair.fail.slug)
+            if key not in seen:
                 seen.add(key)
                 rows.append(cat.row_from_pair(pair))
     rows.sort(key=_row_sort_key)
     return rows
+
+
+def _pairs_of_kind(records: list[dict[str, Any]], kind: str) -> list[cat.Pair]:
+    """Every extracted pair of ``kind``, in record order then pair order."""
+
+    return [pair for record in records for pair in record["pairs"] if pair.kind == kind]
 
 
 def _row_sort_key(row: dict[str, Any]) -> tuple[int, int | str, str]:
