@@ -124,7 +124,7 @@ class RealHarness(unittest.TestCase):
         self.assertEqual(self.harness.run(text, "f"), harness.HarnessResult(cv.OUTCOME_PASSED, 1, 0))
 
     def test_timeout_domain_is_validated(self):
-        for bad in (0, -1, float("nan"), float("inf"), True, "3", cv.MAX_TIMEOUT_S + 1):
+        for bad in (0, -1, float("nan"), float("inf"), True, "3", cv.MAX_TIMEOUT_S + 1, 10**400):
             with self.subTest(bad=bad):
                 self.assertEqual(refused(harness.SubprocessHarness, bad), cv.REFUSE_TIMEOUT_DOMAIN)
 

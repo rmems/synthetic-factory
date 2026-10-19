@@ -6,9 +6,9 @@ Standard library only; started by ``sandboxed.py`` inside the ``code_repair`` bw
 workdir also holds ``_child.py`` (limits, loader, doctest runner), ``_sandbox.py`` and
 ``_sandbox_paths.py`` (the Landlock allowlist), all copied by the parent.
 
-Order of events, each before ``program.py`` is read: resource limits and the Landlock allowlist
-are applied and attested on the real stdout; the per-run nonce is consumed from stdin; fds 0, 1
-and 2 are pointed at ``os.devnull``. Only then is the program imported and its doctests run, and
+Order of events, each before ``program.py`` is read: the per-run nonce is consumed from stdin;
+fds 0, 1 and 2 are pointed at ``os.devnull``; resource limits and the Landlock allowlist are
+applied and attested on a duplicate of the real stdout. Only then is the program imported and its doctests run, and
 the single report (protocol, nonce, counts) is written to the inherited unlinked report file.
 The parent accepts a report only when it echoes the nonce, which no file, argument or
 environment variable ever carried, so a program that writes to the report descriptor cannot

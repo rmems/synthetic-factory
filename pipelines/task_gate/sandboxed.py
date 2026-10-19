@@ -111,7 +111,8 @@ def _result_of_body(body: bytes, nonce: str) -> HarnessResult:
         return _crashed("report_oversize")
     report = _parsed(body)
     echoed = report.get("nonce") if isinstance(report, dict) else None
-    if not isinstance(echoed, str) or not hmac.compare_digest(echoed, nonce):
+    if not isinstance(echoed, str) or not echoed.isascii() \
+            or not hmac.compare_digest(echoed.encode("ascii"), nonce.encode("ascii")):
         return _crashed("report_nonce")
     return report_result(report)
 
@@ -179,11 +180,12 @@ class SandboxedHarness:
                 code = self._spawn(confined, _Run(workdir, env, nonce, out, report))
             finally:
                 confined.close()
-            if code is None:
-                return HarnessResult(cv.OUTCOME_TIMEOUT, detail="wall_clock")
             out.seek(0)
             report.seek(0)
             stdout, body = out.read(MAX_REPORT_BYTES), report.read(MAX_REPORT_BYTES + 1)
+            if code is None:
+                _require_attested(stdout)  # unattested means the program never ran
+                return HarnessResult(cv.OUTCOME_TIMEOUT, detail="wall_clock")
             return self._judged(code, stdout, body, nonce)
 
     def _spawn(self, confined: Any, run: _Run) -> int | None:

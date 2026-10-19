@@ -23,7 +23,7 @@ from task_gate_test_support import (
 from task_gate import _executor_contract as ec
 from task_gate import procedural, sandboxed
 
-AVAILABLE = ec.sandbox.os_boundary_available()
+AVAILABLE = ec.sandbox.os_boundary_available() and ec.landlock.available()
 NEEDS_BWRAP = unittest.skipUnless(AVAILABLE, "bwrap/Landlock isolation is not available here")
 NONCE = "ab" * 32
 GOOD_REPORT = {"protocol": cv.HARNESS_PROTOCOL, "outcome": "ran", "attempted": 2, "failed": 0,
@@ -62,7 +62,7 @@ class Refusals(unittest.TestCase):
                          cv.REFUSE_HARNESS_UNAVAILABLE)
 
     def test_timeout_domain_is_validated(self):
-        for bad in (0, -1, float("nan"), float("inf"), True, "3", cv.MAX_TIMEOUT_S + 1):
+        for bad in (0, -1, float("nan"), float("inf"), True, "3", cv.MAX_TIMEOUT_S + 1, 10**400):
             with self.subTest(bad=bad):
                 self.assertEqual(refused(sandboxed.SandboxedHarness, bad, None, FakeIsolation([])),
                                  cv.REFUSE_TIMEOUT_DOMAIN)
@@ -79,6 +79,26 @@ class Refusals(unittest.TestCase):
             with self.subTest(argv=argv[-1]):
                 fake = sandboxed.SandboxedHarness(5, isolation=FakeIsolation(argv))
                 self.assertEqual(refused(fake.run, ADD, "add"), cv.REFUSE_HARNESS_UNAVAILABLE)
+
+    def test_a_non_ascii_or_surrogate_nonce_is_a_crash_not_an_exception(self):
+        for echoed in ("caf\u00e9" * 16, "\ud800" * 64):
+            with self.subTest(echoed=echoed):
+                body = json.dumps({**GOOD_REPORT, "nonce": echoed}).encode()
+                self.assertEqual(sandboxed._result_of_body(body, NONCE).detail, "report_nonce")
+
+    def test_a_timeout_is_a_timeout_only_when_the_program_was_attested_to_run(self):
+        hang = [sys.executable, "-c", "import time; time.sleep(30)"]
+        unattested = sandboxed.SandboxedHarness(0.3, isolation=FakeIsolation(hang))
+        self.assertEqual(refused(unattested.run, ADD, "add"), cv.REFUSE_HARNESS_UNAVAILABLE)
+        script = (
+            "import sys, time\nsys.stdout.write('code-repair-limits-attestation/1 true\\n"
+            "code-repair-landlock-attestation/1 landlock-abi7\\n')\nsys.stdout.flush()\n"
+            "time.sleep(30)"
+        )
+        attested = sandboxed.SandboxedHarness(
+            0.5, isolation=FakeIsolation([sys.executable, "-c", script]),
+        )
+        self.assertEqual(attested.run(ADD, "add").outcome, cv.OUTCOME_TIMEOUT)
 
     def test_an_unstartable_sandbox_refuses(self):
         fake = sandboxed.SandboxedHarness(5, isolation=FakeIsolation(["/nonexistent/bwrap"]))

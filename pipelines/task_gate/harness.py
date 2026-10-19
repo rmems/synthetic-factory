@@ -178,13 +178,20 @@ class SubprocessHarness:
         selfcheck(self)
 
 
+def _timeout_in_domain(timeout_s: object) -> bool:
+    if isinstance(timeout_s, bool) or not isinstance(timeout_s, (int, float)):
+        return False
+    try:
+        return math.isfinite(timeout_s) and 0 < timeout_s <= cv.MAX_TIMEOUT_S
+    except OverflowError:  # an int too large for a float is out of domain, not a crash
+        return False
+
+
 def checked_timeout(timeout_s: object) -> float:
     """The wall-clock budget as a float, or a coded refusal when it is outside the domain."""
 
     cv.refuse_when(
-        isinstance(timeout_s, bool) or not isinstance(timeout_s, (int, float))
-        or not math.isfinite(timeout_s) or not 0 < timeout_s <= cv.MAX_TIMEOUT_S,
-        cv.REFUSE_TIMEOUT_DOMAIN, f"timeout must be in (0, {cv.MAX_TIMEOUT_S}] seconds",
+        not _timeout_in_domain(timeout_s), cv.REFUSE_TIMEOUT_DOMAIN, f"timeout must be in (0, {cv.MAX_TIMEOUT_S}] seconds",
     )
     return float(timeout_s)
 
