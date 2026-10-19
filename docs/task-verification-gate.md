@@ -11,7 +11,7 @@ python3 pipelines/task_gate_cli.py verify --catalog <catalog_dir> --proposals pr
 # Gate the procedural mutator's seeded proposals through the same code path
 python3 pipelines/task_gate_cli.py procedural --catalog <catalog_dir> --seed 1 --count 200 \
   --denylist <denylist.txt> --out <new_dir>
-python3 -m unittest tests.test_task_gate tests.test_task_gate_harness -q -b
+python3 -m unittest tests.test_task_gate tests.test_task_gate_harness tests.test_task_gate_sandboxed -q -b
 ```
 
 ## Inputs
@@ -73,6 +73,18 @@ site-packages is importable, so no solver module is reachable (#160). `-P -s -S`
 of `-I` because `-I` implies `-E`, which would discard `PYTHONHASHSEED=0` and make set and dict
 reprs differ between the original and the mutant run.
 
-This is a harness, not a security sandbox: the network block is in-process and best effort, and
-a hostile program can forge the report line. For untrusted catalogs use the bwrap/Landlock
-executor in `code_repair`; `Gate` accepts any object with `run(program_text, function)`.
+`SubprocessHarness` is a harness, not a security sandbox: the network block is in-process and
+best effort, and a hostile program can forge the report line.
+
+For untrusted mutants (the model-backed proposer) pass `--sandbox`, which runs the same doctests
+through `SandboxedHarness` on `code_repair`'s OS boundary (`bwrap-ro-netns-v1`: read-only root,
+unshared user/net/pid namespaces, private tmp, seccomp, unprivileged uid) plus the Landlock
+allowlist. The network is denied by the kernel (empty network namespace and EPERM on `connect`),
+not by patching `socket`. A per-run nonce reaches the child only on stdin and must be echoed in
+its report, so a program that writes to the report descriptor cannot forge a verdict. A program
+that reflectively reads the nonce out of the child's own frames is the same hostile-introspection
+class as the AST tamper check and is not claimed closed. The flag never falls back: when bwrap or
+Landlock is unavailable, or a run's resource-limit and Landlock attestations are missing, the run
+is refused (`TASK_GATE_HARNESS_UNAVAILABLE`). `summary.json` records the harness in
+`inputs.harness` (`kind`: `subprocess` or `sandboxed`, plus the isolation identity). `Gate`
+accepts any object with `run(program_text, function)`.

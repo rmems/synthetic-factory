@@ -24,6 +24,7 @@ import sys
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from . import vocabulary as cv
 from ._contract import bind_import_twin, load_strict_json
@@ -35,7 +36,10 @@ MARKER = "TASK-GATE-REPORT "
 MAX_REPORT_BYTES = 64 * 1024
 KILL_GRACE_S = 5
 
-__all__ = ["HarnessResult", "SubprocessHarness", "child_environment"]
+__all__ = [
+    "HarnessResult", "SubprocessHarness", "checked_timeout", "child_environment",
+    "report_result", "selfcheck",
+]
 
 
 @dataclass(frozen=True)
@@ -80,6 +84,12 @@ def _report_of(raw: bytes) -> HarnessResult:
     return _result_of(report)
 
 
+def report_result(report: object) -> HarnessResult:
+    """The result a child's parsed report stands for; a malformed report is ``crashed``."""
+
+    return _result_of(report)
+
+
 def _both_counts(attempted: object, failed: object) -> bool:
     return is_count(attempted) and is_count(failed)
 
@@ -115,17 +125,12 @@ class SubprocessHarness:
     """Run a program's target-function doctests under a wall-clock timeout."""
 
     def __init__(self, timeout_s: float = cv.DEFAULT_TIMEOUT_S, python: str | None = None) -> None:
-        cv.refuse_when(
-            isinstance(timeout_s, bool) or not isinstance(timeout_s, (int, float))
-            or not math.isfinite(timeout_s) or not 0 < timeout_s <= cv.MAX_TIMEOUT_S,
-            cv.REFUSE_TIMEOUT_DOMAIN, f"timeout must be in (0, {cv.MAX_TIMEOUT_S}] seconds",
-        )
-        self.timeout_s = float(timeout_s)
+        self.timeout_s = checked_timeout(timeout_s)
         self.python = python or sys.executable
 
     def describe(self) -> dict[str, object]:
         return {
-            "protocol": cv.HARNESS_PROTOCOL, "interpreter_flags": list(INTERPRETER_FLAGS),
+            "protocol": cv.HARNESS_PROTOCOL, "kind": "subprocess", "interpreter_flags": list(INTERPRETER_FLAGS),
             "timeout_s": self.timeout_s, "environment": sorted(child_environment("")),
         }
 
@@ -170,16 +175,31 @@ class SubprocessHarness:
     def selfcheck(self) -> None:
         """Refuse unless the harness separates a passing program from a failing one."""
 
-        template = (
-            "def f(x):\n    '''\n    >>> f(1)\n    {want}\n    '''\n    return x\n"
-        )
-        good = self.run(template.format(want="1"), "f")
-        bad = self.run(template.format(want="2"), "f")
-        cv.refuse_when(
-            good != HarnessResult(cv.OUTCOME_PASSED, 1, 0)
-            or bad.outcome != cv.OUTCOME_FAILED or bad.failed != 1,
-            cv.REFUSE_HARNESS_UNAVAILABLE, f"harness self-check failed: {good} / {bad}",
-        )
+        selfcheck(self)
+
+
+def checked_timeout(timeout_s: object) -> float:
+    """The wall-clock budget as a float, or a coded refusal when it is outside the domain."""
+
+    cv.refuse_when(
+        isinstance(timeout_s, bool) or not isinstance(timeout_s, (int, float))
+        or not math.isfinite(timeout_s) or not 0 < timeout_s <= cv.MAX_TIMEOUT_S,
+        cv.REFUSE_TIMEOUT_DOMAIN, f"timeout must be in (0, {cv.MAX_TIMEOUT_S}] seconds",
+    )
+    return float(timeout_s)
+
+
+def selfcheck(harness: Any) -> None:
+    """Refuse unless ``harness`` separates a passing program from a failing one."""
+
+    template = "def f(x):\n    '''\n    >>> f(1)\n    {want}\n    '''\n    return x\n"
+    good = harness.run(template.format(want="1"), "f")
+    bad = harness.run(template.format(want="2"), "f")
+    cv.refuse_when(
+        good != HarnessResult(cv.OUTCOME_PASSED, 1, 0)
+        or bad.outcome != cv.OUTCOME_FAILED or bad.failed != 1,
+        cv.REFUSE_HARNESS_UNAVAILABLE, f"harness self-check failed: {good} / {bad}",
+    )
 
 
 bind_import_twin(__name__)
