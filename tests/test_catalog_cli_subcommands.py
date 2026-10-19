@@ -12,9 +12,11 @@ from __future__ import annotations
 
 import ast
 import contextlib
+import importlib
 import io
 import json
 import multiprocessing
+import pickle
 import shutil
 import sys
 import tempfile
@@ -317,7 +319,7 @@ class ImportForms(unittest.TestCase):
             with self.subTest(package=name):
                 self.assertIs(flat[name], packaged[name])
                 self.assertEqual(flat[name].__all__, ["build_parser", "run"])
-                self.assertIsInstance(flat[name].run.__self__, shape)
+                self.assertIsInstance(flat[name].run.__wrapped__.__self__, shape)
                 self.assertEqual(flat[name].build_parser().prog, f"{name}.cli")
         for name in GENERATE_PACKAGES:
             self.assertTrue(callable(flat[name].main))
@@ -478,6 +480,30 @@ class SourceConstTests(unittest.TestCase):
         self.assertEqual(catalog.__name__, "flk.catalog")
         self.assertEqual(generate.__name__, "flk.generate")
         self.assertEqual(contract.__name__, "mac._contract")
+
+
+class PublicCallables(unittest.TestCase):
+    """``run``, ``build_parser`` and ``main`` stay module-level names."""
+
+    def _cli(self, key: str) -> ModuleType:
+        return importlib.import_module(f"pipelines.{key}.cli")
+
+    def test_each_public_callable_pickles_by_reference(self):
+        for key in GENERATE_PACKAGES + EXTRACT_PACKAGES:
+            cli = self._cli(key)
+            names = ("build_parser", "run", "main") if key in GENERATE_PACKAGES else ("build_parser", "run")
+            for name in names:
+                with self.subTest(package=key, name=name):
+                    function = getattr(cli, name)
+                    self.assertIs(pickle.loads(pickle.dumps(function)), function)
+
+    def test_main_calls_the_current_run(self):
+        for key in GENERATE_PACKAGES:
+            cli = self._cli(key)
+            with self.subTest(package=key), mock.patch.object(cli, "run", return_value=7):
+                with self.assertRaises(SystemExit) as raised:
+                    cli.main()
+                self.assertEqual(raised.exception.code, 7)
 
 
 if __name__ == "__main__":

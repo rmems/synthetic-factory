@@ -7,6 +7,7 @@ CLIs still carry their own module docstring.
 
 from __future__ import annotations
 
+import functools
 import importlib
 from pathlib import Path
 from types import ModuleType
@@ -80,6 +81,37 @@ def _import_sibling(module_globals: dict[str, Any], name: str) -> ModuleType:
     raise ImportError(f"unknown mill module {name}")
 
 
+def _module_level(module_globals: dict[str, Any], name: str, function: Any) -> Any:
+    """Name ``function`` as ``<module>.<name>`` so pickle finds it by reference."""
+
+    function.__module__ = module_globals["__name__"]
+    function.__name__ = name
+    function.__qualname__ = name
+    module_globals[name] = function
+    return function
+
+
+def _publish(module_globals: dict[str, Any], commands: Any) -> None:
+    """Bind ``build_parser`` and ``run`` as module-level forwards to ``commands``.
+
+    Forwards, not bound methods: a bound method carries the commands object,
+    which holds module references and so cannot be pickled for a worker pool.
+    ``__wrapped__`` still names the bound method.
+    """
+
+    @functools.wraps(commands.build_parser)
+    def build_parser() -> Any:
+        return commands.build_parser()
+
+    @functools.wraps(commands.run)
+    def run(argv: list[str] | None = None) -> int:
+        return commands.run(argv)
+
+    module_globals["__all__"] = ["build_parser", "run"]
+    _module_level(module_globals, "build_parser", build_parser)
+    _module_level(module_globals, "run", run)
+
+
 def install_generate(module_globals: dict[str, Any]) -> None:
     """Bind the generate-shape CLI (``flk``, ``gql``, ``msd``, ``rag``, ``saf``)."""
 
@@ -95,14 +127,13 @@ def install_generate(module_globals: dict[str, Any]) -> None:
         refusal=getattr(catalog, _REFUSAL_ATTRIBUTE[key]),
         **(_SAF_GENERATE if key == "saf" else {}),
     )
-    module_globals["__all__"] = ["build_parser", "run"]
-    module_globals["build_parser"] = commands.build_parser
-    module_globals["run"] = commands.run
+    _publish(module_globals, commands)
 
     def main() -> None:
-        raise SystemExit(commands.run())
+        # Resolve ``run`` at call time so a replaced ``cli.run`` controls ``main``.
+        raise SystemExit(module_globals["run"]())
 
-    module_globals["main"] = main
+    _module_level(module_globals, "main", main)
     if module_globals.get("__name__") == "__main__":
         main()
     elif module_globals.get("__package__"):
@@ -122,12 +153,10 @@ def install_extract(module_globals: dict[str, Any], catalog: ModuleType) -> None
         generate=generate,
         refusal=contract.envelope.ContractError,
     )
-    module_globals["__all__"] = ["build_parser", "run"]
-    module_globals["build_parser"] = commands.build_parser
-    module_globals["run"] = commands.run
+    _publish(module_globals, commands)
     catalog.bind_import_twin(module_globals["__name__"])
     if module_globals.get("__name__") == "__main__":
-        raise SystemExit(commands.run())
+        raise SystemExit(module_globals["run"]())
 
 
 bind_import_twin(__name__)
