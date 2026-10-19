@@ -8,8 +8,16 @@ TESTS = Path(__file__).resolve().parent
 REPO = TESTS.parent
 sys.path[:0] = [str(REPO / "pipelines")]
 
-from task_gate import denylist, dedup_index, gate, harness, mutation, procedural, proposal, report
-from task_gate import runner
+# Re-exported for the test modules (``name as name`` marks an explicit re-export).
+from task_gate import dedup_index as dedup_index
+from task_gate import denylist as denylist
+from task_gate import gate as gate
+from task_gate import harness as harness
+from task_gate import mutation as mutation
+from task_gate import procedural as procedural
+from task_gate import proposal as proposal
+from task_gate import report as report
+from task_gate import runner as runner
 from task_gate import vocabulary as cv
 
 ADD = '''def add(a, b):
@@ -30,12 +38,6 @@ PROGRAMS = {"prog-add": PROGRAM, "prog-eval": EVAL_PROGRAM}
 DENY = denylist.Denylist.of(["prog-eval"])
 PASSED = harness.HarnessResult(cv.OUTCOME_PASSED, 2, 0)
 FAILED = harness.HarnessResult(cv.OUTCOME_FAILED, 2, 1)
-
-__all__ = [
-    "ADD", "BROKEN", "DENY", "EVAL_PROGRAM", "FAILED", "FakeHarness", "NO_DOCTESTS", "PASSED", "PROGRAM",
-    "PROGRAMS", "REPO", "TESTS", "cv", "dedup_index", "denylist", "gate", "harness", "mutation",
-    "procedural", "proposal", "proposal_for", "refused", "report", "rules", "runner", "span_of",
-]
 
 
 def rules(deny=DENY, prior=None):
