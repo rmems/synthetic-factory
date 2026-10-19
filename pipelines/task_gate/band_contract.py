@@ -60,30 +60,45 @@ def _bound(value: object, name: str) -> Fraction:
     return bound
 
 
-def _validated(document: object, digest: str) -> BandContract:
+def _shape(document: object) -> dict:
     if not isinstance(document, dict) or set(document) != _KEYS:
         raise _malformed(f"contract must be an object with exactly {sorted(_KEYS)}")
     if document["format"] != bv.CONTRACT_FORMAT:
         raise _malformed(f"format must be {bv.CONTRACT_FORMAT}")
-    attempts = document["attempts_per_task"]
-    if not is_int(attempts) or not bv.MIN_ATTEMPTS <= attempts <= bv.MAX_ATTEMPTS:
+    return document
+
+
+def _attempts(value: object) -> int:
+    if not is_int(value) or not bv.MIN_ATTEMPTS <= value <= bv.MAX_ATTEMPTS:
         raise _malformed(f"attempts_per_task must be an integer in [{bv.MIN_ATTEMPTS}, {bv.MAX_ATTEMPTS}]")
-    low, high = _bound(document["pass_rate_min"], "pass_rate_min"), _bound(document["pass_rate_max"], "pass_rate_max")
+    return value
+
+
+def _validated(document: object, digest: str) -> BandContract:
+    fields = _shape(document)
+    attempts = _attempts(fields["attempts_per_task"])
+    low, high = _bound(fields["pass_rate_min"], "pass_rate_min"), _bound(fields["pass_rate_max"], "pass_rate_max")
     if low > high:
         raise _malformed("pass_rate_min exceeds pass_rate_max")
     return BandContract(attempts, low, high, digest)
 
 
-def _read(path: Path | str | None) -> bytes:
-    if path is None:
-        raise cv.GateRefusal(bv.REFUSE_CONTRACT_MISSING, "the band needs an experiment contract")
+def _regular_file_head(path: Path | str) -> bytes:
+    """Up to one byte past the size cap from ``path``, which must be a regular file."""
+
     try:
         if not stat.S_ISREG(os.stat(path).st_mode):
             raise cv.GateRefusal(bv.REFUSE_CONTRACT_MISSING, f"{path} is not a regular file")
         with Path(path).open("rb") as handle:
-            data = handle.read(bv.MAX_CONTRACT_BYTES + 1)
+            return handle.read(bv.MAX_CONTRACT_BYTES + 1)
     except OSError as exc:
         raise cv.GateRefusal(bv.REFUSE_CONTRACT_MISSING, f"{path}: {exc}") from exc
+
+
+def _read(path: Path | str | None) -> bytes:
+    if path is None:
+        raise cv.GateRefusal(bv.REFUSE_CONTRACT_MISSING, "the band needs an experiment contract")
+    data = _regular_file_head(path)
     if len(data) > bv.MAX_CONTRACT_BYTES:
         raise _malformed(f"{path} is too large")
     return data

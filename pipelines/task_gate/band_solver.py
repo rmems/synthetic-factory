@@ -46,15 +46,24 @@ class Scorer:
         self.program, self.harness = program, harness
 
     def passes(self, candidate: object) -> bool:
-        if not isinstance(candidate, str) or "\x00" in candidate or "\r" in candidate:
-            return False
-        try:
-            if mutation.candidate_problem(self.program, candidate) is not None:
-                return False
-        except (SyntaxError, ValueError, RecursionError):
+        if not self._legal(candidate):
             return False
         result = self.harness.run(candidate, self.program.function)
         return result.outcome == cv.OUTCOME_PASSED and result.attempted > 0
+
+    def _legal(self, candidate: object) -> bool:
+        """A module text that is a legal rewrite of the target body and nothing else."""
+
+        if not _is_module_text(candidate):
+            return False
+        try:
+            return mutation.candidate_problem(self.program, candidate) is None
+        except (SyntaxError, ValueError, RecursionError):
+            return False
+
+
+def _is_module_text(candidate: object) -> bool:
+    return isinstance(candidate, str) and not any(mark in candidate for mark in ("\x00", "\r"))
 
 
 def _one(solver: Solver, task: BandTask, attempt: int) -> object:
