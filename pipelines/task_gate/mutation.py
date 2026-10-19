@@ -221,15 +221,27 @@ def _tamper_global(node: ast.Global | ast.Nonlocal, protected: frozenset[str]) -
     return None if named is None else f"{type(node).__name__}:{named}"
 
 
+_REFLECTIVE_CALLS = frozenset({
+    "globals", "vars", "setattr", "delattr", "exec", "eval", "compile", "__import__",
+})
+
+
+def _tamper_call(node: ast.Call) -> str | None:
+    """A call that can rebind names or code without an AST store (``globals().update`` …)."""
+
+    name = node.func.id if isinstance(node.func, ast.Name) else None
+    return f"Call:{name}" if name in _REFLECTIVE_CALLS else None
+
+
 def _tamper_of(node: ast.AST, function: str) -> str | None:
     protected = _PROTECTED_ATTRS | {function}
-    if isinstance(node, ast.Name):
-        return _tamper_name(node, protected)
-    if isinstance(node, (ast.Attribute, ast.Subscript)):
-        return _tamper_through(node, function)
-    if isinstance(node, (ast.Global, ast.Nonlocal)):
-        return _tamper_global(node, protected)
-    return None
+    checks = (
+        (ast.Name, lambda found: _tamper_name(found, protected)),
+        ((ast.Attribute, ast.Subscript), lambda found: _tamper_through(found, function)),
+        ((ast.Global, ast.Nonlocal), lambda found: _tamper_global(found, protected)),
+        (ast.Call, _tamper_call),
+    )
+    return next((check(node) for kinds, check in checks if isinstance(node, kinds)), None)
 
 
 def _tampering(function: ast.FunctionDef) -> Counter:

@@ -13,14 +13,17 @@ from pathlib import Path
 
 from . import vocabulary as cv
 from ._contract import bind_import_twin
+from .checks import is_count
 from .proposal import GateProgram, GateProposal
 
 if __name__.startswith("pipelines."):
     from ..code_repair import catalog as _catalog
     from ..code_repair import planning as _planning
+    from ..code_repair import vocabulary as _repair_vocabulary
 else:
     from code_repair import catalog as _catalog
     from code_repair import planning as _planning
+    from code_repair import vocabulary as _repair_vocabulary
 
 SOURCE = "procedural"
 
@@ -28,7 +31,12 @@ __all__ = ["SOURCE", "load_catalog", "programs_from_catalog", "proposals_from_pl
 
 
 def load_catalog(directory: Path) -> _catalog.Catalog:
-    return _catalog.load_catalog(Path(directory))
+    """The ``code_repair`` catalog; its own refusals become the gate's coded refusal."""
+
+    try:
+        return _catalog.load_catalog(Path(directory))
+    except _repair_vocabulary.RepairRefusal as exc:
+        raise cv.GateRefusal(cv.REFUSE_PROGRAM_INVALID, f"{directory}: {exc}") from exc
 
 
 def programs_from_catalog(catalog: _catalog.Catalog) -> dict[str, GateProgram]:
@@ -45,10 +53,10 @@ def proposals_from_plan(
 ) -> list[GateProposal]:
     """The procedural mutator's seeded proposals, in draw order, as gate proposals."""
 
-    cv.refuse_when(
-        isinstance(count, bool) or not isinstance(count, int) or count < 1,
-        cv.REFUSE_INPUT_INVALID, "count must be a positive integer",
-    )
+    cv.refuse_when(not is_count(count) or count < 1, cv.REFUSE_INPUT_INVALID,
+                   "count must be a positive integer")
+    cv.refuse_when(not is_count(per_program_cap) or per_program_cap < 1, cv.REFUSE_INPUT_INVALID,
+                   "per_program_cap must be a positive integer")
     plan = _planning.ProposalPlan(catalog, seed, per_program_cap)
     return [
         GateProposal(

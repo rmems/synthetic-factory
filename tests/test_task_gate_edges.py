@@ -13,7 +13,7 @@ from task_gate_test_support import (
     ADD, DENY, PASSED, PROGRAM, FakeHarness, cv, denylist, gate, harness, proposal, proposal_for,
     refused, rules,
 )
-from task_gate import mutation, report, runner
+from task_gate import mutation, procedural, report, runner
 
 DOC_ONLY = 'def f():\n    """\n    >>> 1\n    1\n    """\n'
 
@@ -103,7 +103,40 @@ def _run_into(tmp):
     return lambda: runner.run(request, FakeHarness({ADD: PASSED}))
 
 
+class ProceduralInputs(unittest.TestCase):
+    def test_a_catalog_that_cannot_load_is_a_coded_refusal(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            for directory in (Path(tmp) / "missing", Path(tmp)):
+                with self.subTest(directory=directory.name):
+                    self.assertEqual(refused(procedural.load_catalog, directory),
+                                     cv.REFUSE_PROGRAM_INVALID)
+
+    def test_per_program_cap_must_be_a_positive_integer(self):
+        for cap in (0, -1, True, 1.5):
+            with self.subTest(cap=cap):
+                self.assertEqual(refused(procedural.proposals_from_plan, None, 1, 1, cap),
+                                 cv.REFUSE_INPUT_INVALID)
+
+
 class FailedWrites(unittest.TestCase):
+    def test_an_unopenable_staging_parent_is_a_coded_refusal_with_no_leftovers(self):
+        real_open = report.os.open
+        calls = []
+
+        def open_fails_once(*args, **kwargs):  # only the publish step's open; cleanup must work
+            calls.append(args)
+            if len(calls) == 1:
+                raise OSError(errno.EACCES, "Permission denied")
+            return real_open(*args, **kwargs)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            run = _run_into(tmp)
+            with mock.patch.object(report.os, "open", side_effect=open_fails_once):
+                code = refused(run)
+            leftover = sorted(path.name for path in Path(tmp).iterdir())
+        self.assertEqual(code, cv.REFUSE_INPUT_INVALID)
+        self.assertEqual(leftover, [])
+
     def test_a_failure_while_publishing_leaves_no_destination_and_no_stage(self):
         failure = OSError(errno.ENOSPC, "No space left on device")
         with tempfile.TemporaryDirectory() as tmp:

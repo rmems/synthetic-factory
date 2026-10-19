@@ -145,7 +145,10 @@ def _publish(stage: Path, destination: Path) -> None:
     writer meanwhile is refused rather than overwritten.
     """
 
-    parent = os.open(stage.parent, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        parent = os.open(stage.parent, os.O_RDONLY | os.O_DIRECTORY)
+    except OSError as exc:
+        raise cv.GateRefusal(cv.REFUSE_INPUT_INVALID, f"cannot open {stage.parent}: {exc}") from exc
     try:
         rename_noreplace(parent, stage.name, destination.name)
     except OSError as exc:

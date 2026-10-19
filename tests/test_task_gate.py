@@ -201,6 +201,9 @@ class ParseErrors(unittest.TestCase):
             "name rebinding": "global add\n    add = len\n    return a",
             "item store": "add.__dict__['k'] = 1\n    return a",
             "attribute delete": "del add.__doc__\n    return a",
+            "globals update": "globals().update(add=lambda a, b: 99)\n    return a",
+            "setattr": "setattr(add, '__doc__', 'x')\n    return a",
+            "exec": "exec('add = len')\n    return a",
         }
         for name, replacement in inside.items():
             with self.subTest(name=name):
@@ -212,6 +215,12 @@ class ParseErrors(unittest.TestCase):
             with self.subTest(replacement=replacement):
                 resolved = mutation.resolve(PROGRAM, proposal_for(replacement, "return a + b"))
                 self.assertIsInstance(resolved, mutation.Resolved)
+
+    def test_a_target_that_already_calls_globals_is_not_blamed_on_the_proposal(self):
+        text = ADD.replace("return a + b", "seen = globals()\n    return a + b")
+        program = proposal.GateProgram("prog-reflective", text, "add")
+        item = proposal_for("a - b", "a + b", program)
+        self.assertIsInstance(mutation.resolve(program, item), mutation.Resolved)
 
     def test_a_target_that_already_writes_to_itself_is_not_blamed_on_the_proposal(self):
         text = ADD.replace("return a + b", "add.calls = 1\n    return a + b")
