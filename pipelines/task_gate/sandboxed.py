@@ -104,6 +104,14 @@ def _parsed(body: bytes) -> object:
         return None
 
 
+def _nonce_matches(echoed: object, nonce: str) -> bool:
+    """True only for an ASCII string equal to the nonce; never raises on a hostile value."""
+
+    if not isinstance(echoed, str) or not echoed.isascii():
+        return False
+    return hmac.compare_digest(echoed.encode("ascii"), nonce.encode("ascii"))
+
+
 def _result_of_body(body: bytes, nonce: str) -> HarnessResult:
     """The result of a report that echoes the nonce; anything else is ``crashed``."""
 
@@ -111,8 +119,7 @@ def _result_of_body(body: bytes, nonce: str) -> HarnessResult:
         return _crashed("report_oversize")
     report = _parsed(body)
     echoed = report.get("nonce") if isinstance(report, dict) else None
-    if not isinstance(echoed, str) or not echoed.isascii() \
-            or not hmac.compare_digest(echoed.encode("ascii"), nonce.encode("ascii")):
+    if not _nonce_matches(echoed, nonce):
         return _crashed("report_nonce")
     return report_result(report)
 
