@@ -25,14 +25,17 @@ if __package__:
     from . import _assert_direct_sibling, _expose_package_sibling
 
     _assert_direct_sibling("mill_evidence")
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "mill_evidence"
+    )
+
+if __package__:
     from .mill_reviewed_vocabulary import (
         REVIEWED_GOAL_STRONG_ANCHORS,
         REVIEWED_GOAL_TOKEN_HOMES,
     )
 else:
-    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
-        "mill_evidence"
-    )
     from mill_reviewed_vocabulary import (
         REVIEWED_GOAL_STRONG_ANCHORS,
         REVIEWED_GOAL_TOKEN_HOMES,

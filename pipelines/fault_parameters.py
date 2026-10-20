@@ -25,11 +25,14 @@ if __package__:
     from . import _assert_direct_sibling, _expose_package_sibling
 
     _assert_direct_sibling("fault_parameters")
-    from .fault_types import MALFORMED_KINDS, PARAMETER_SPEC
 else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
         "fault_parameters"
     )
+
+if __package__:
+    from .fault_types import MALFORMED_KINDS, PARAMETER_SPEC
+else:
     from fault_types import MALFORMED_KINDS, PARAMETER_SPEC
 
 

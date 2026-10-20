@@ -25,11 +25,14 @@ if __package__:
     from . import _assert_direct_sibling, _expose_package_sibling
 
     _assert_direct_sibling("distill_records")
-    from .distill_manifest import _manifest_findings, jsonl_paths
 else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
         "distill_records"
     )
+
+if __package__:
+    from .distill_manifest import _manifest_findings, jsonl_paths
+else:
     from distill_manifest import _manifest_findings, jsonl_paths
 
 VALIDATOR_NAME = "validate_distill"

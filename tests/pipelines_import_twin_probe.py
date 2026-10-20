@@ -22,6 +22,7 @@ order, the module names, and the report.
 
 from __future__ import annotations
 
+import importlib
 import multiprocessing
 import sys
 from collections.abc import Callable, Mapping, Sequence
@@ -70,7 +71,7 @@ def split_modules(order: str, names: Sequence[str]) -> dict[str, Any]:
     spellings = ORDERS[order]
     _put_first(REPO)
     _put_first(PIPELINES)
-    import pipelines  # noqa: F401 - both orders start with the package imported
+    importlib.import_module("pipelines")  # both orders start with the package imported
 
     for name in names:
         for spelling in spellings(name):

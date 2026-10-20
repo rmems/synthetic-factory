@@ -25,11 +25,14 @@ if __package__:
     from . import _assert_direct_sibling, _expose_package_sibling
 
     _assert_direct_sibling("energy_meter_rapl")
-    from .energy_meter_types import EnergyOracle, MeterReading
 else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
         "energy_meter_rapl"
     )
+
+if __package__:
+    from .energy_meter_types import EnergyOracle, MeterReading
+else:
     from energy_meter_types import EnergyOracle, MeterReading
 
 

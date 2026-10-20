@@ -24,11 +24,14 @@ if __package__:
     from . import _assert_direct_sibling, _expose_package_sibling
 
     _assert_direct_sibling("moe_oracle_types")
-    from .moe_layers import LayerRouting, RouterObservation
 else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
         "moe_oracle_types"
     )
+
+if __package__:
+    from .moe_layers import LayerRouting, RouterObservation
+else:
     from moe_layers import LayerRouting, RouterObservation
 
 
