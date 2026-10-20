@@ -57,10 +57,9 @@ SEALED_UNTIL_RESEAL = frozenset(
 )
 
 # Modules left to open pull requests that change the same lines or pin them.
-# ``verify_hf_release`` gains the prelude in #424, together with its rights
-# import. ``tag_regex_domain`` is left for the tag family after #436, whose probe
-# pins exactly which ``tag_*`` modules carry the finalizer.
-LEFT_TO_OPEN_PRS = frozenset({"tag_regex_domain", "verify_hf_release"})
+# ``tag_regex_domain`` is left for the tag family after #436, whose probe pins
+# exactly which ``tag_*`` modules carry the finalizer.
+LEFT_TO_OPEN_PRS = frozenset({"tag_regex_domain"})
 
 # Thin CLI shims, by the subpackage they front: each only re-exports its
 # subpackage's ``cli`` module, which ``bind_import_twin`` already makes one object

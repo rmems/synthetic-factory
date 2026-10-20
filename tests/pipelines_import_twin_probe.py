@@ -113,4 +113,8 @@ def in_fresh_interpreter(report: Callable[..., dict[str, Any]], *args: Any) -> d
     context = multiprocessing.get_context("spawn")
     with ProcessPoolExecutor(max_workers=1, mp_context=context) as pool:
         future = pool.submit(report, *args)
-        return future.result(timeout=FRESH_INTERPRETER_TIMEOUT_SECONDS)
+        try:
+            return future.result(timeout=FRESH_INTERPRETER_TIMEOUT_SECONDS)
+        except TimeoutError:
+            pool.terminate_workers()
+            raise
