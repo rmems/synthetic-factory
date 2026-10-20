@@ -7,7 +7,15 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from tests.code_repair_admission_test_support import restamp, validate_captured_run
+from tests.code_repair_admission_test_support import (
+    PROCEDURAL_FACTORY,
+    RAW_RUN,
+    REAL_CATALOG,
+    REAL_COUNT,
+    REAL_PRODUCED_AT,
+    restamp,
+    validate_captured_run,
+)
 from tests.code_repair_test_support import (
     FIXTURE_CATALOG,
     PINNED_AT,
@@ -20,7 +28,10 @@ from tests.code_repair_test_support import (
     records,
     smoke_run,
 )
-from code_repair import planning, validation
+import compose_curated
+import training_audit
+from code_repair import planning, publication, validation
+from pipelines import eval_exclusion_policy as policy
 from tests.code_repair_test_support import required_item
 
 
@@ -115,11 +126,11 @@ class PlanningEquivalence(unittest.TestCase):
     def test_duplicate_draws_preserve_original_indexes(self):
         plan = planning.ProposalPlan(fixture(), SEED, 3)
         proposals = list(plan.proposals(12))
-        self.assertEqual([p.index for p in proposals], [0, 1, 2, 3, 5, 6, 7, 8, 9, 10])
+        self.assertEqual([p.index for p in proposals], [0, 1, 2, 3, 4, 5, 6, 9, 10, 11])
         self.assertEqual(plan.skips, {"MUTATION_NO_SITES": 0, "DUPLICATE_MUTANT_IN_RUN": 2})
 
     def test_real_cap_exhaustion_and_no_site_inventory_match_plan(self):
-        cases = ((FIXTURE_CATALOG, 40, 1, 6, {"MUTATION_NO_SITES": 0, "PROGRAM_CAP_EXHAUSTED": 34}),
+        cases = ((FIXTURE_CATALOG, 40, 1, 4, {"MUTATION_NO_SITES": 0, "PROGRAM_CAP_EXHAUSTED": 36}),
                  (REPO / "catalogs/python-repair-v1", 2, 3, 2, {"MUTATION_NO_SITES": 4}))
         for catalog_dir, count, cap, wanted_records, wanted_skips in cases:
             with self.subTest(catalog=catalog_dir.name), tempfile.TemporaryDirectory() as scratch:
@@ -134,6 +145,33 @@ class PlanningEquivalence(unittest.TestCase):
                     run, candidates, catalog=catalog.load_catalog(catalog_dir),
                     candidates_sha256=run["candidates_sha256"],
                 ), [])
+
+    def test_real_catalog_seed_20260908_draws_train_only_and_stays_training_ready(self):
+        """Regression: held-out ids must not be generated (#508) or compose drops the round."""
+
+        seed = 20260908
+        deny = policy.ACTIVE_POLICY.denylist.program_ids
+        with tempfile.TemporaryDirectory() as scratch:
+            root = Path(scratch)
+            run_dir = root / "generated"
+            generate.run(generate.RunRequest(
+                REAL_CATALOG, run_dir, seed, REAL_COUNT, REAL_PRODUCED_AT, per_program_cap=3,
+            ))
+            for _, record in oc.read_jsonl(run_dir / generate.CANDIDATES_FILENAME):
+                lineage = record["provenance"]["split_lineage"]
+                self.assertEqual(lineage["split"], "train")
+                self.assertNotIn(lineage["lineage_id"], deny)
+            factory = root / RAW_RUN / PROCEDURAL_FACTORY
+            factory.mkdir(parents=True)
+            publication.publish_run(publication.PublishRequest(run_dir, factory, 1))
+            source = factory.parent
+            before = training_audit.audit_run(source)
+            self.assertTrue(before["training_ready"], before["blockers"])
+            curated = root / "curated"
+            summary = compose_curated.compose_run(
+                compose_curated.ComposeRunContext(source, curated),
+            )
+            self.assertTrue(summary["audit"]["training_ready"], summary["audit"]["blockers"])
 
     def test_real_abstention_requires_empty_measurements(self):
         with tempfile.TemporaryDirectory() as scratch:

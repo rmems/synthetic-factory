@@ -40,8 +40,12 @@ class ProposalPlan:
         self.seen: set[tuple[str, str]] = set()
 
     def _draw_program(self) -> cat.Program | None:
-        eligible = [p for p in self.catalog.programs
-                    if self.sites[p.program_id] and self.per_program[p.program_id] < self.cap]
+        eligible = [
+            program for program in self.catalog.programs
+            if program.split == "train"
+            and self.sites[program.program_id]
+            and self.per_program[program.program_id] < self.cap
+        ]
         return self.stream.choice(eligible) if eligible else None
 
     def _proposal(self, program: cat.Program, index: int) -> Proposal | str:

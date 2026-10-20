@@ -14,7 +14,7 @@ from tests.test_curate_identity import identity as ci
 from code_repair import catalog, records, validation, verify
 
 REAL_CATALOG = REPO / "catalogs/python-repair-v1"
-REAL_SEED, REAL_COUNT, REAL_PRODUCED_AT = 20260907, 12, "2026-09-09T00:00:00.000Z"
+REAL_SEED, REAL_COUNT, REAL_PRODUCED_AT = 20260908, 12, "2026-09-09T00:00:00.000Z"
 PROCEDURAL_FACTORY = "python-function-repair-factory"
 RAW_RUN = Path("outputs/raw/2099-01-01")
 
