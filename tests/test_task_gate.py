@@ -10,10 +10,10 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from task_gate_test_support import (
-    ADD, DENY, FAILED, NO_DOCTESTS, PASSED, PROGRAM, PROGRAMS, FakeHarness, cv, dedup_index,
-    denylist, gate, harness, proposal, proposal_for, refused, rules, span_of,
+    ADD, DENY, FAILED, NO_DOCTESTS, PASSED, PROGRAM, PROGRAMS, REPO, FakeHarness, cv, dedup_index,
+    denylist, gate, harness, proposal, proposal_for, refused, rules, span_of, write_denylist_json,
 )
-from task_gate import mutation, report, runner
+from task_gate import mutation, procedural, report, runner
 
 
 def decide(item, fake=None, rule_set=None, programs=None):
@@ -89,6 +89,9 @@ class Denylist(unittest.TestCase):
     def test_loader_fails_closed_on_absent_or_malformed_files(self):
         cases = {
             "absent": (None, cv.REFUSE_DENYLIST_MISSING),
+            "empty json program_ids with repos": (
+                b'{"program_ids": [], "repos": ["clap-rs/clap"]}\n', cv.REFUSE_DENYLIST_MALFORMED,
+            ),
             "empty": (b"", cv.REFUSE_DENYLIST_MALFORMED),
             "no trailing newline": (b"a", cv.REFUSE_DENYLIST_MALFORMED),
             "blank line": (b"a\n\nb\n", cv.REFUSE_DENYLIST_MALFORMED),
@@ -118,6 +121,36 @@ class Denylist(unittest.TestCase):
         self.assertEqual(loaded.program_ids, frozenset({"prog-eval", "other"}))
         self.assertEqual(loaded.sha256, hashlib.sha256(b"prog-eval\nother\n").hexdigest())
 
+    def test_json_loader_reads_program_ids_and_binds_the_file_digest(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "deny.json"
+            payload = b'{\n  "program_ids": ["prog-eval", "other"],\n  "repos": []\n}\n'
+            path.write_bytes(payload)
+            loaded = denylist.load_denylist(path)
+        self.assertEqual(loaded.program_ids, frozenset({"prog-eval", "other"}))
+        self.assertEqual(loaded.sha256, hashlib.sha256(payload).hexdigest())
+
+    def test_vendored_held_out_program_ids_are_all_denylisted(self):
+        loaded = denylist.load_denylist(REPO / "config/eval-exclusion/eval-denylist.json")
+        self.assertEqual(len(loaded.program_ids), 19)
+        gate_rules = rules(deny=loaded)
+        for program_id in loaded.program_ids:
+            with self.subTest(program_id=program_id):
+                item = proposal.MalformedProposal("held-out", program_id, cv.DETAIL_MALFORMED_ROW)
+                decision, fake = decide(item, rule_set=gate_rules)
+                self.assertEqual(decision.verdict, cv.VERDICT_DENYLISTED)
+                self.assertEqual(fake.calls, [])
+
+    def test_run_summary_records_the_denylist_file_digest(self):
+        path = REPO / "config/eval-exclusion/eval-denylist.json"
+        loaded = denylist.load_denylist(path)
+        with tempfile.TemporaryDirectory() as tmp:
+            summary = runner.run(
+                runner.GateRequest(PROGRAMS, [proposal_for()], loaded, Path(tmp) / "out"),
+                FakeHarness({ADD: PASSED}),
+            )
+        self.assertEqual(summary["inputs"]["denylist"]["sha256"], loaded.sha256)
+
     def test_run_without_a_denylist_refuses_and_writes_nothing(self):
         with tempfile.TemporaryDirectory() as tmp:
             out = Path(tmp) / "out"
@@ -126,6 +159,21 @@ class Denylist(unittest.TestCase):
             self.assertEqual(code, cv.REFUSE_DENYLIST_MISSING)
             self.assertFalse(out.exists())
             self.assertEqual(list(Path(tmp).iterdir()), [])
+
+
+class ProceduralTrainSplit(unittest.TestCase):
+    FIXTURE = REPO / "tests" / "fixtures" / "code-repair"
+
+    def test_procedural_draws_only_train_split_programs(self):
+        catalog = procedural.load_catalog(self.FIXTURE)
+        non_train = {
+            program.program_id for program in catalog.programs if program.split != "train"
+        }
+        self.assertTrue(non_train, "fixture must include non-train programs")
+        proposals = procedural.proposals_from_plan(catalog, seed=7, count=400)
+        self.assertTrue(proposals, "expected at least one procedural proposal")
+        drawn = {item.program_id for item in proposals}
+        self.assertFalse(drawn & non_train)
 
 
 class ParseErrors(unittest.TestCase):

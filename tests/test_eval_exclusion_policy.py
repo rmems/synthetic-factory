@@ -62,8 +62,13 @@ class CommittedPolicyTests(unittest.TestCase):
             with self.subTest(slot=listed.slot):
                 self.assertEqual(listed.status, lists.STATUS_REVIEWED)
                 self.assertEqual(len(listed.repos), expected_counts[listed.slot])
-                self.assertEqual((listed.program_ids, listed.task_ids),
-                                 (frozenset(), frozenset()))
+                if listed.slot == lists.LIST_EVAL_DENYLIST:
+                    self.assertEqual(len(listed.program_ids), 19)
+                    self.assertTrue(all(item.startswith("tap-") for item in listed.program_ids))
+                    self.assertEqual(listed.task_ids, frozenset())
+                else:
+                    self.assertEqual((listed.program_ids, listed.task_ids),
+                                     (frozenset(), frozenset()))
         self.assertEqual(active.aliases.updated_at, "2026-10-19T01:28:28Z")
         self.assertEqual(len(active.aliases.canonical_by_name), 381)
         self.assertEqual(

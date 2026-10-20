@@ -13,7 +13,7 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from task_gate_test_support import REPO, cv
+from task_gate_test_support import REPO, cv, write_denylist_json
 
 SCRIPT = REPO / "pipelines" / "task_gate_cli.py"
 FIXTURE = REPO / "tests" / "fixtures" / "code-repair"
@@ -42,8 +42,8 @@ class DirectScript(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name)
-        self.deny = self.root / "deny.txt"
-        self.deny.write_text("eval-only-program\n")
+        self.deny = self.root / "deny.json"
+        write_denylist_json(self.deny, ["eval-only-program"])
 
     def test_procedural_subcommand_exits_zero_and_writes_a_new_run(self):
         out = self.root / "procedural"

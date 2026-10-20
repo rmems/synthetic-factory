@@ -9,6 +9,7 @@ nothing here pre-judges a proposal, and the gate never looks at ``source``.
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 
 from . import vocabulary as cv
@@ -26,8 +27,18 @@ else:
     from code_repair import vocabulary as _repair_vocabulary
 
 SOURCE = "procedural"
+_TRAIN_SPLIT = "train"
 
 __all__ = ["SOURCE", "load_catalog", "programs_from_catalog", "proposals_from_plan"]
+
+
+def _train_catalog(catalog: _catalog.Catalog) -> _catalog.Catalog:
+    """Only train-split programs may feed the procedural mutator (#508)."""
+
+    return replace(
+        catalog,
+        programs=tuple(program for program in catalog.programs if program.split == _TRAIN_SPLIT),
+    )
 
 
 def load_catalog(directory: Path) -> _catalog.Catalog:
@@ -57,7 +68,7 @@ def proposals_from_plan(
                    "count must be a positive integer")
     cv.refuse_when(not is_count(per_program_cap) or per_program_cap < 1, cv.REFUSE_INPUT_INVALID,
                    "per_program_cap must be a positive integer")
-    plan = _planning.ProposalPlan(catalog, seed, per_program_cap)
+    plan = _planning.ProposalPlan(_train_catalog(catalog), seed, per_program_cap)
     return [
         GateProposal(
             proposal_id=proposal.record_id, program_id=proposal.program.program_id,

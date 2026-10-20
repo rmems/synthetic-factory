@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Shared fixtures for the ``test_task_gate*`` modules: programs, proposals and a fake harness."""
 
+import json
 import sys
 from pathlib import Path
 
@@ -29,6 +30,13 @@ PROGRAMS = {"prog-add": PROGRAM, "prog-eval": EVAL_PROGRAM}
 DENY = denylist.Denylist.of(["prog-eval"])
 PASSED = harness.HarnessResult(cv.OUTCOME_PASSED, 2, 0)
 FAILED = harness.HarnessResult(cv.OUTCOME_FAILED, 2, 1)
+
+
+def write_denylist_json(path: Path, program_ids: list[str], *, repos: list[str] | None = None) -> None:
+    """A minimal eval-exclusion JSON denylist for loader and CLI tests."""
+
+    document = {"program_ids": program_ids, "repos": repos if repos is not None else []}
+    path.write_text(json.dumps(document, indent=2) + "\n", encoding="utf-8")
 
 
 def rules(deny=DENY, prior=None):

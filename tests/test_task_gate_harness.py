@@ -16,7 +16,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from task_gate_test_support import (
     ADD, BROKEN, DENY, NO_DOCTESTS, PROGRAMS, REPO, FakeHarness, cv, gate, harness, denylist,
-    proposal, proposal_for, refused, rules,
+    proposal, proposal_for, refused, rules, write_denylist_json,
 )
 from task_gate import procedural, runner
 
@@ -255,8 +255,8 @@ class Cli(unittest.TestCase):
 
     def test_procedural_subcommand_writes_summary_and_requires_the_denylist(self):
         with tempfile.TemporaryDirectory() as tmp:
-            deny = Path(tmp) / "deny.txt"
-            deny.write_text("eval-only-program\n")
+            deny = Path(tmp) / "deny.json"
+            write_denylist_json(deny, ["eval-only-program"])
             out = Path(tmp) / "run"
             code, stdout, _ = self.invoke(
                 "procedural", "--catalog", str(FIXTURE), "--denylist", str(deny), "--seed", "3",
@@ -281,8 +281,8 @@ class Cli(unittest.TestCase):
     def test_verify_subcommand_reads_model_style_rows(self):
         program = next(iter(procedural.programs_from_catalog(procedural.load_catalog(FIXTURE)).values()))
         with tempfile.TemporaryDirectory() as tmp:
-            deny = Path(tmp) / "deny.txt"
-            deny.write_text("eval-only-program\n")
+            deny = Path(tmp) / "deny.json"
+            write_denylist_json(deny, ["eval-only-program"])
             rows = Path(tmp) / "rows.jsonl"
             rows.write_text(
                 json.dumps({"program_id": program.program_id, "replacement_text": "0",
