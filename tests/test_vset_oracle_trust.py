@@ -24,6 +24,7 @@ from vset_testutil import (  # noqa: E402
     load_record as _load,
     vset,
 )
+import vset_oracle_exec as runner  # noqa: E402
 
 
 def _passing_suite(name: str = "tests.reference") -> str:
@@ -33,6 +34,40 @@ def _passing_suite(name: str = "tests.reference") -> str:
         "    def test_trivial(self) -> None:\n"
         "        self.assertTrue(True)\n"
     )
+
+
+# No ``sub``. The hook calls the original ``__init_subclass__`` and then
+# replaces every test method; a check that the hook was swapped is not enough.
+_FORGED_COUNTER_WITHOUT_SUB = '''\
+"""Tiny hardware-independent counter used by VSET oracle fixtures."""
+
+
+class Counter:
+    def __init__(self, value: int = 0) -> None:
+        self._value = int(value)
+
+    def add(self, delta: int) -> int:
+        self._value += int(delta)
+        return self._value
+
+    def get(self) -> int:
+        return self._value
+
+import unittest as _ut
+
+_orig = _ut.TestCase.__init_subclass__
+
+def _ok(self, _n=None):
+    return None
+
+def _init_subclass(cls, **kwargs):
+    _orig.__func__(cls, **kwargs)
+    for name, value in list(cls.__dict__.items()):
+        if name.startswith("test") and callable(value):
+            setattr(cls, name, _ok)
+
+_ut.TestCase.__init_subclass__ = classmethod(_init_subclass)
+'''
 
 
 class OracleTrustBoundaryTests(unittest.TestCase):
@@ -82,6 +117,107 @@ class OracleTrustBoundaryTests(unittest.TestCase):
         self.assertNotIn("validated-forged", _codes(errors))
         if execution is not None:
             self.assertFalse(execution["reference"]["ok"])
+
+    def test_init_subclass_hook_cannot_neuter_hidden_suite(self) -> None:
+        hook = unittest.TestCase.__init_subclass__.__func__
+        record = _load(ACCEPT / "issue-patch-validated.json")
+        record["payload"]["patch"] = {"files": {"src/counter.py": _FORGED_COUNTER_WITHOUT_SUB}}
+        errors, execution = vset.validate_record_with_oracle(record, PACK)
+        self.assertIs(unittest.TestCase.__init_subclass__.__func__, hook)
+        self.assertIn("vset.oracle_execution_mismatch", _codes(errors))
+        self.assertIsNotNone(execution)
+        self.assertTrue(execution["reference"]["ok"])
+        self.assertFalse(execution["hidden"]["ok"])
+        self.assertNotIn(
+            "__init_subclass__",
+            (PACK / "src" / "counter.py").read_text(encoding="utf-8"),
+        )
+
+    def test_child_cannot_drop_a_declared_test_and_still_pass(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            pack = Path(tmp)
+            (pack / "src").mkdir()
+            (pack / "tests").mkdir()
+            (pack / "tests" / "partial.py").write_text(
+                "import unittest\n"
+                "from unittest import TestCase\n"
+                "class NotATest:\n"
+                "    def test_ignored(self):\n"
+                "        pass\n"
+                "class Real(TestCase):\n"
+                "    helper = 1\n"
+                "    def not_a_test(self):\n"
+                "        return 1\n"
+                "    def test_visible(self):\n"
+                "        print('oracle-capture')\n"
+                "        self.assertTrue(True)\n"
+                "    def test_hidden_failure(self):\n"
+                "        self.assertTrue(False)\n"
+                "def load_tests(loader, tests, pattern):\n"
+                "    return unittest.TestSuite([Real('test_visible')])\n",
+                encoding="utf-8",
+            )
+            report = vset.run_oracle(pack, reference_tests=["tests/partial.py"])
+        self.assertFalse(report["reference"]["ok"])
+        self.assertEqual(
+            [row["id"] for row in report["reference"]["tests"]],
+            ["vset_oracle_tests_partial.Real.test_visible"],
+        )
+        self.assertIn("oracle-capture", report["reference"]["captured_output"])
+
+    def test_missing_or_unparseable_suite_fails_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            pack = Path(tmp)
+            (pack / "src").mkdir()
+            (pack / "tests").mkdir()
+            with self.assertRaises(vset.VSetValidationError) as missing:
+                vset.run_oracle(pack, reference_tests=["tests/missing.py"])
+            self.assertIn("missing test module", str(missing.exception))
+            (pack / "tests" / "bad.py").write_text("def (\n", encoding="utf-8")
+            with self.assertRaises(vset.VSetValidationError) as broken:
+                vset.run_oracle(pack, reference_tests=["tests/bad.py"])
+            self.assertIn("failed to load", str(broken.exception))
+
+    def test_bad_child_report_fails_closed(self) -> None:
+        cases = (
+            ("not-json", "x" * 600, 1),
+            ("", "", 1),
+            ("[]", "", 0),
+            ('{"tests":[1]}', "", 0),
+            ('{"tests":[],"captured_output":1}', "", 0),
+            ('{"tests":[]}', "", 2),
+            ('{"tests":[]}', "runner broke", 2),
+        )
+        for stdout, stderr, code in cases:
+            with self.subTest(stdout=stdout[:24], code=code):
+                with self.assertRaises(vset.VSetValidationError) as ctx:
+                    runner._parse_runner_stdout(stdout, stderr, code)
+                self.assertEqual(ctx.exception.code, "vset.oracle_execution_mismatch")
+
+    def test_runner_spawn_failure_fails_closed(self) -> None:
+        original = runner.subprocess.run
+
+        def boom(*_args: object, **_kwargs: object) -> None:
+            raise OSError("spawn failed")
+
+        runner.subprocess.run = boom
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                pack = Path(tmp)
+                (pack / "src").mkdir()
+                (pack / "tests").mkdir()
+                (pack / "tests" / "ok.py").write_text(
+                    "import unittest\n"
+                    "class T(unittest.TestCase):\n"
+                    "    def test_ok(self):\n"
+                    "        self.assertTrue(True)\n",
+                    encoding="utf-8",
+                )
+                with self.assertRaises(vset.VSetValidationError) as ctx:
+                    vset.run_oracle(pack, reference_tests=["tests/ok.py"])
+            self.assertIn("spawn failed", str(ctx.exception))
+        finally:
+            runner.subprocess.run = original
 
     def test_root_module_cannot_shadow_src(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
