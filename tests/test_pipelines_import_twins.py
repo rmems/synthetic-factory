@@ -100,20 +100,6 @@ def assert_only_allowlisted_modules_split(case, report):
     case.assertEqual(sorted(ALLOWED_TO_SPLIT - split), [], _STALE_ALLOWLIST)
 
 
-def assert_thin_shim_report(case, report: dict) -> None:
-    """Fail ``case`` when a thin shim exposes a second ``cli`` or defines extra names."""
-
-    case.assertEqual(sorted(report), sorted(THIN_CLI_SHIMS))
-    split_cli = sorted(shim for shim, facts in report.items() if not facts["one_cli"])
-    case.assertEqual(split_cli, [], "these shims expose a second cli object")
-    extra = {
-        shim: sorted(set(facts["names"]) - THIN_SHIM_NAMES)
-        for shim, facts in report.items()
-        if not THIN_SHIM_NAMES.issuperset(facts["names"])
-    }
-    case.assertEqual(extra, {}, _THICK_SHIM)
-
-
 class FreshInterpreter(unittest.TestCase):
     """Import-twin contract in child interpreters (spawn), both load orders."""
 
@@ -140,15 +126,7 @@ class FreshInterpreter(unittest.TestCase):
                 report = probe.in_fresh_interpreter(
                     probe.isolated_shim_report, order, THIN_CLI_SHIMS
                 )
-                self.assertEqual(sorted(report), sorted(THIN_CLI_SHIMS))
-                split_cli = sorted(shim for shim, facts in report.items() if not facts["one_cli"])
-                self.assertEqual(split_cli, [], "these shims expose a second cli object")
-                extra = {
-                    shim: sorted(set(facts["names"]) - THIN_SHIM_NAMES)
-                    for shim, facts in report.items()
-                    if not THIN_SHIM_NAMES.issuperset(facts["names"])
-                }
-                self.assertEqual(extra, {}, _THICK_SHIM)
+                assert_thin_shim_report(self, report)
 
 
 class InProcess(unittest.TestCase):
