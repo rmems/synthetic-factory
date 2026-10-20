@@ -22,7 +22,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-import pipelines_import_twin_probe as probe
+import pipelines_import_twin_probe as probe  # pylint: disable=wrong-import-position
 
 # The only modules allowed to split, in three named sets. Converting one to the
 # binding prelude makes it one object, and this contract then fails until its
@@ -100,14 +100,32 @@ def assert_only_allowlisted_modules_split(case, report):
     case.assertEqual(sorted(ALLOWED_TO_SPLIT - split), [], _STALE_ALLOWLIST)
 
 
+def assert_thin_shim_report(case, report: dict) -> None:
+    """Fail ``case`` when a thin shim exposes a second ``cli`` or defines extra names."""
+
+    case.assertEqual(sorted(report), sorted(THIN_CLI_SHIMS))
+    split_cli = sorted(shim for shim, facts in report.items() if not facts["one_cli"])
+    case.assertEqual(split_cli, [], "these shims expose a second cli object")
+    extra = {
+        shim: sorted(set(facts["names"]) - THIN_SHIM_NAMES)
+        for shim, facts in report.items()
+        if not THIN_SHIM_NAMES.issuperset(facts["names"])
+    }
+    case.assertEqual(extra, {}, _THICK_SHIM)
+
+
 class FreshInterpreter(unittest.TestCase):
+    """Import-twin contract in child interpreters (spawn), both load orders."""
+
     def test_the_allowlists_name_existing_flat_modules_once(self):
+        """Every allowlisted name is a real flat module and the sets partition."""
         modules = probe.flat_modules()
         self.assertEqual(sorted(ALLOWED_TO_SPLIT - set(modules)), [])
         self.assertEqual(sum(map(len, ALLOWLISTS)), len(ALLOWED_TO_SPLIT))
         self.assertIn("preference_model", modules)
 
     def test_only_allowlisted_modules_split_in_either_order(self):
+        """Only sealed/left-open/thin-shim modules may still split, in each order."""
         for order in probe.ORDERS:
             with self.subTest(order=order):
                 report = probe.in_fresh_interpreter(
@@ -116,6 +134,7 @@ class FreshInterpreter(unittest.TestCase):
                 assert_only_allowlisted_modules_split(self, report)
 
     def test_each_thin_shim_only_re_exports_its_one_cli(self):
+        """Thin shims expose one ``pipelines.<pkg>.cli`` object and no extra names."""
         for order in probe.ORDERS:
             with self.subTest(order=order):
                 report = probe.in_fresh_interpreter(
@@ -141,6 +160,7 @@ class InProcess(unittest.TestCase):
     """
 
     def test_only_allowlisted_modules_split_in_process(self):
+        """Same contract in-process so coverage sees every prelude branch."""
         report = probe.isolated_report("direct_first", probe.flat_modules())
         assert_only_allowlisted_modules_split(self, report)
 
