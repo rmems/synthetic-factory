@@ -4,17 +4,23 @@ The worktree under test is a temporary copy: candidate patches may write
 anything except declared oracle test files, and every declared suite file
 is recopied from the pristine pack before it is loaded, so candidate code
 can never rewrite the evidence that judges it.
+
+Reference and hidden suites run in a child interpreter. The candidate is
+imported only there, so a patched module cannot rewrite this process's
+``unittest`` harness. ``ok`` is decided from the test ids in the files this
+process restored, not from a child that reports nothing or all skips.
 """
 
 from __future__ import annotations
 
-import contextlib
+import ast
 import importlib.util
-import io
-import os
+import json
 import shutil
+import subprocess  # nosec B404
 import sys
 import tempfile
+import textwrap
 import unittest
 from pathlib import Path
 from typing import Any, Iterable, Mapping
@@ -47,36 +53,134 @@ else:
     from vset_patch import apply_patch, escapes_work, illegal_work_relative
 
 _CAPTURE_LIMIT = 4000
+_INTERPRETER_FLAGS = ("-I", "-B", "-X", "utf8")
+
+# The child re-binds every test callable captured from the class body after
+# ``type`` finishes constructing the class. The forge calls the original
+# ``TestCase.__init_subclass__`` and then replaces each ``test*`` method, so
+# noticing that the hook was swapped would not run the real assertions.
+_RUNNER_SOURCE = textwrap.dedent(
+    """\
+    import importlib.util
+    import io
+    import json
+    import os
+    import sys
+    import unittest
+    from pathlib import Path
 
 
-class _OracleResult(unittest.TestResult):
-    def __init__(self) -> None:
-        super().__init__()
-        self.rows: list[dict[str, str]] = []
+    def _install_body_preserving_case() -> None:
+        original = unittest.case.TestCase
 
-    def addSuccess(self, test: unittest.TestCase) -> None:
-        super().addSuccess(test)
-        self.rows.append({"id": test.id(), "status": "ok"})
+        class _KeepMeta(type(original)):
+            def __new__(mcs, name, bases, namespace, **kwargs):
+                saved = {
+                    key: value
+                    for key, value in namespace.items()
+                    if key.startswith("test") and callable(value)
+                }
+                cls = super().__new__(mcs, name, bases, namespace, **kwargs)
+                for key, value in saved.items():
+                    if cls.__dict__.get(key) is not value:
+                        setattr(cls, key, value)
+                return cls
 
-    def addFailure(self, test: unittest.TestCase, err: Any) -> None:
-        super().addFailure(test, err)
-        self.rows.append({"id": test.id(), "status": "FAIL"})
+        class _KeepCase(original, metaclass=_KeepMeta):
+            pass
 
-    def addError(self, test: unittest.TestCase, err: Any) -> None:
-        super().addError(test, err)
-        self.rows.append({"id": test.id(), "status": "ERROR"})
+        unittest.case.TestCase = _KeepCase
+        unittest.TestCase = _KeepCase
 
-    def addSkip(self, test: unittest.TestCase, reason: str) -> None:
-        super().addSkip(test, reason)
-        self.rows.append({"id": test.id(), "status": "SKIP"})
 
-    def addExpectedFailure(self, test: unittest.TestCase, err: Any) -> None:
-        super().addExpectedFailure(test, err)
-        self.rows.append({"id": test.id(), "status": "expectedFailure"})
+    class _Result(unittest.TestResult):
+        def __init__(self) -> None:
+            super().__init__()
+            self.rows = []
 
-    def addUnexpectedSuccess(self, test: unittest.TestCase) -> None:
-        super().addUnexpectedSuccess(test)
-        self.rows.append({"id": test.id(), "status": "unexpectedSuccess"})
+        def addSuccess(self, test):
+            super().addSuccess(test)
+            self.rows.append({"id": test.id(), "status": "ok"})
+
+        def addFailure(self, test, err):
+            super().addFailure(test, err)
+            self.rows.append({"id": test.id(), "status": "FAIL"})
+
+        def addError(self, test, err):
+            super().addError(test, err)
+            self.rows.append({"id": test.id(), "status": "ERROR"})
+
+        def addSkip(self, test, reason):
+            super().addSkip(test, reason)
+            self.rows.append({"id": test.id(), "status": "SKIP"})
+
+        def addExpectedFailure(self, test, err):
+            super().addExpectedFailure(test, err)
+            self.rows.append({"id": test.id(), "status": "expectedFailure"})
+
+        def addUnexpectedSuccess(self, test):
+            super().addUnexpectedSuccess(test)
+            self.rows.append({"id": test.id(), "status": "unexpectedSuccess"})
+
+
+    def _emit(stream, payload) -> None:
+        stream.write(json.dumps(payload))
+        stream.flush()
+
+
+    def _load(path, module_name):
+        spec = importlib.util.spec_from_file_location(module_name, path)
+        if spec is None or spec.loader is None:
+            raise ImportError(f"cannot load {path}")
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[module_name] = module
+        spec.loader.exec_module(module)
+        return unittest.defaultTestLoader.loadTestsFromModule(module)
+
+
+    def main() -> int:
+        stdout = sys.stdout
+        try:
+            job = json.loads(sys.argv[1])
+            work = Path(job["work"])
+            os.chdir(work)
+            sys.path.insert(0, str(work / "src"))
+            _install_body_preserving_case()
+            captured = io.StringIO()
+            sys.stdout = captured
+            sys.stderr = captured
+            suite = unittest.TestSuite()
+            for item in job["modules"]:
+                try:
+                    suite.addTests(_load(item["path"], item["module"]))
+                except Exception as exc:
+                    sys.stdout = stdout
+                    relative = item["relative"]
+                    _emit(stdout, {
+                        "load_error": f"test module {relative} failed to load: {exc}",
+                    })
+                    return 1
+            result = _Result()
+            suite.run(result)
+            sys.stdout = stdout
+            _emit(stdout, {
+                "tests": result.rows,
+                "captured_output": captured.getvalue(),
+            })
+            return 0
+        except Exception as exc:
+            sys.stdout = stdout
+            _emit(stdout, {"load_error": f"oracle runner failed: {exc}"})
+            return 1
+
+
+    raise SystemExit(main())
+    """
+)
+
+
+def _oracle_module_name(relative: str) -> str:
+    return "vset_oracle_" + relative.replace("/", "_").removesuffix(".py")
 
 
 def _resolve_under_work(work: Path, relative: str, *, code: str) -> Path:
@@ -135,83 +239,122 @@ def _load_suite(path: Path, relative: str) -> unittest.TestSuite:
         ) from exc
 
 
-def _restore_sys_modules(snapshot: dict[str, Any]) -> None:
-    for name in list(sys.modules):
-        if name not in snapshot:
-            del sys.modules[name]
-    for name, module in snapshot.items():
-        sys.modules[name] = module
+def _base_tail(node: ast.expr) -> str:
+    if isinstance(node, ast.Attribute):
+        return node.attr
+    return getattr(node, "id", "")
 
 
-def _suite_ok(result: _OracleResult) -> bool:
+def _declared_test_ids(path: Path, module_name: str) -> list[str]:
+    """Test ids this process counts from a suite file it restored.
+
+    Only class-body ``test*`` methods on a ``TestCase`` subclass count.
+    The child may not shrink or skip that set and still be treated as a pass.
+    """
+
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    ids: list[str] = []
+    for node in tree.body:
+        if not isinstance(node, ast.ClassDef):
+            continue
+        if not any(_base_tail(base) == "TestCase" for base in node.bases):
+            continue
+        for item in node.body:
+            if not isinstance(item, ast.FunctionDef):
+                continue
+            if item.name.startswith("test"):
+                ids.append(f"{module_name}.{node.name}.{item.name}")
+    return ids
+
+
+def _suite_ok(rows: list[dict[str, str]], expected: list[str]) -> bool:
     """A passing suite is evidence only if every declared test ran clean.
 
-    Skips, expected failures, and unexpected successes are not oracle
-    evidence: an empty or dodged suite can never certify a record.
+    Skips, expected failures, unexpected successes, and a child report that
+    drops a declared id are not oracle evidence.
     """
 
-    if not result.wasSuccessful():
+    reported = sorted(row["id"] for row in rows)
+    declared = sorted(expected)
+    if reported != declared or not declared:
         return False
-    if result.expectedFailures or result.unexpectedSuccesses:
+    return all(row["status"] == "ok" for row in rows)
+
+
+def _is_test_row(item: Any) -> bool:
+    if not isinstance(item, Mapping):
         return False
-    return bool(result.rows) and all(row["status"] == "ok" for row in result.rows)
+    return isinstance(item.get("id"), str) and isinstance(item.get("status"), str)
 
 
-def _drop_preloaded_pack_modules(work: Path) -> None:
-    """Drop cached modules that would shadow the pack's ``src/`` tree."""
-
-    src = work / "src"
-    if not src.is_dir():
-        return
-    names = {path.stem for path in src.glob("*.py")}
-    names |= {path.name for path in src.iterdir() if path.is_dir()}
-    for name in names:
-        sys.modules.pop(name, None)
+def _rows_from_report(report: Mapping[str, Any]) -> list[dict[str, str]]:
+    raw = report.get("tests")
+    if not isinstance(raw, list) or any(not _is_test_row(item) for item in raw):
+        raise VSetValidationError(
+            ERR_ORACLE_EXECUTION_MISMATCH, "oracle runner failed: bad test report"
+        )
+    return [{"id": item["id"], "status": item["status"]} for item in raw]
 
 
-def _push_pack_path(work: Path) -> list[str]:
-    """Expose ``src/`` only.
-
-    A root-level module of the same name as a package under ``src/`` must
-    not shadow the hashed application code. The worktree is the process
-    cwd, so relative file reads still resolve there.
-    """
-
-    inserted: list[str] = []
-    entry = str(work / "src")
-    if entry not in sys.path:
-        sys.path.insert(0, entry)
-        inserted.append(entry)
-    return inserted
+def _runner_failure(detail: str) -> VSetValidationError:
+    text = " ".join(detail.split())
+    if len(text) > 500:
+        text = text[:500]
+    return VSetValidationError(ERR_ORACLE_EXECUTION_MISMATCH, f"oracle runner failed: {text}")
 
 
-def _pop_pack_path(inserted: list[str]) -> None:
-    for entry in inserted:
-        if entry in sys.path:
-            sys.path.remove(entry)
-
-
-def _execute_suite(work: Path, pack_dir: Path, relatives: Iterable[str]) -> _OracleResult:
-    suite = unittest.TestSuite()
-    for relative in relatives:
-        suite.addTests(load_tests(work, pack_dir, relative))
-    result = _OracleResult()
-    cwd = os.getcwd()
+def _parse_runner_stdout(
+    stdout: str, stderr: str, returncode: int
+) -> tuple[list[dict[str, str]], str]:
     try:
-        os.chdir(work)
-        suite.run(result)
-    finally:
-        os.chdir(cwd)
-    return result
+        report = json.loads(stdout)
+    except json.JSONDecodeError as exc:
+        detail = stderr.strip() or stdout.strip() or str(exc)
+        raise _runner_failure(detail) from exc
+    if not isinstance(report, dict):
+        raise _runner_failure("report is not an object")
+    load_error = report.get("load_error")
+    if isinstance(load_error, str) and load_error:
+        raise VSetValidationError(ERR_ORACLE_EXECUTION_MISMATCH, load_error)
+    if returncode != 0:
+        raise _runner_failure(stderr.strip() or "non-zero exit")
+    captured = report.get("captured_output") or ""
+    if not isinstance(captured, str):
+        raise _runner_failure("captured output is not text")
+    return _rows_from_report(report), captured
 
 
-def _suite_report(result: _OracleResult, captured: str = "") -> dict[str, Any]:
-    rows = sorted(result.rows, key=lambda item: item["id"])
-    report = {
-        "tests": rows,
-        "failures": len(result.failures),
-        "errors": len(result.errors),
-        "ok": _suite_ok(result),
+def _execute_in_subprocess(
+    work: Path, modules: list[dict[str, str]]
+) -> tuple[list[dict[str, str]], str]:
+    payload = json.dumps({"work": str(work), "modules": modules})
+    argv = [sys.executable, *_INTERPRETER_FLAGS, "-c", _RUNNER_SOURCE, payload]
+    try:
+        # Literal argv: this interpreter and the runner constant. No shell.
+        # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit.dangerous-subprocess-use-audit
+        completed = subprocess.run(  # nosec B603
+            argv,
+            cwd=work,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except OSError as exc:
+        raise VSetValidationError(
+            ERR_ORACLE_EXECUTION_MISMATCH, f"oracle runner failed: {exc}"
+        ) from exc
+    return _parse_runner_stdout(completed.stdout, completed.stderr, completed.returncode)
+
+
+def _suite_report(
+    rows: list[dict[str, str]], expected: list[str], captured: str = ""
+) -> dict[str, Any]:
+    ordered = sorted(rows, key=lambda item: item["id"])
+    report: dict[str, Any] = {
+        "tests": ordered,
+        "failures": sum(item["status"] == "FAIL" for item in ordered),
+        "errors": sum(item["status"] == "ERROR" for item in ordered),
+        "ok": _suite_ok(ordered, expected),
     }
     report["result_hash"] = _sha256_text(_canonical_json(report["tests"]))
     if captured.strip():
@@ -219,20 +362,38 @@ def _suite_report(result: _OracleResult, captured: str = "") -> dict[str, Any]:
     return report
 
 
-def _run_modules(
-    work: Path, pack_dir: Path, relatives: Iterable[str]
-) -> dict[str, Any]:
-    snapshot = sys.modules.copy()
-    _drop_preloaded_pack_modules(work)
-    inserted = _push_pack_path(work)
-    captured = io.StringIO()
+def _prepare_module(work: Path, pack_dir: Path, relative: str) -> tuple[dict[str, str], list[str]]:
+    _restore_oracle_file(pack_dir, work, relative)
+    path = _resolve_under_work(work, relative, code=ERR_ORACLE_EXECUTION_MISMATCH)
+    if not path.is_file():
+        raise VSetValidationError(ERR_ORACLE_EXECUTION_MISMATCH, f"missing test module {relative}")
+    module_name = _oracle_module_name(relative)
     try:
-        with contextlib.redirect_stdout(captured), contextlib.redirect_stderr(captured):
-            result = _execute_suite(work, pack_dir, relatives)
-    finally:
-        _pop_pack_path(inserted)
-        _restore_sys_modules(snapshot)
-    return _suite_report(result, captured.getvalue())
+        expected = _declared_test_ids(path, module_name)
+    except (OSError, SyntaxError) as exc:
+        raise VSetValidationError(
+            ERR_ORACLE_EXECUTION_MISMATCH,
+            f"test module {relative} failed to load: {exc}",
+        ) from exc
+    spec = {"path": str(path), "module": module_name, "relative": relative}
+    return spec, expected
+
+
+def _run_modules(work: Path, pack_dir: Path, relatives: Iterable[str]) -> dict[str, Any]:
+    """Grade one suite list in a child interpreter.
+
+    Declared ids are counted here, from the recopied test files, before the
+    child result is trusted.
+    """
+
+    modules: list[dict[str, str]] = []
+    expected: list[str] = []
+    for relative in relatives:
+        spec, ids = _prepare_module(work, pack_dir, relative)
+        modules.append(spec)
+        expected.extend(ids)
+    rows, captured = _execute_in_subprocess(work, modules)
+    return _suite_report(rows, expected, captured)
 
 
 def _ignore_pack_member(directory: str, names: list[str], root: Path) -> set[str]:
