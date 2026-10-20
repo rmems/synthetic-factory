@@ -532,6 +532,78 @@ def _package_compose_trajectory_goals() -> ModuleType:
     return module
 
 
+def _direct_compose_eval_gate() -> ModuleType:
+    import compose_eval_gate as module
+
+    return module
+
+
+def _package_compose_eval_gate() -> ModuleType:
+    import pipelines.compose_eval_gate as module
+
+    return module
+
+
+def _direct_eval_exclusion_aliases() -> ModuleType:
+    import eval_exclusion_aliases as module
+
+    return module
+
+
+def _package_eval_exclusion_aliases() -> ModuleType:
+    import pipelines.eval_exclusion_aliases as module
+
+    return module
+
+
+def _direct_eval_exclusion_lists() -> ModuleType:
+    import eval_exclusion_lists as module
+
+    return module
+
+
+def _package_eval_exclusion_lists() -> ModuleType:
+    import pipelines.eval_exclusion_lists as module
+
+    return module
+
+
+def _direct_eval_exclusion_policy() -> ModuleType:
+    import eval_exclusion_policy as module
+
+    return module
+
+
+def _package_eval_exclusion_policy() -> ModuleType:
+    import pipelines.eval_exclusion_policy as module
+
+    return module
+
+
+def _direct_eval_exclusion_subject() -> ModuleType:
+    import eval_exclusion_subject as module
+
+    return module
+
+
+def _package_eval_exclusion_subject() -> ModuleType:
+    import pipelines.eval_exclusion_subject as module
+
+    return module
+
+
+def _direct_repo_identity() -> ModuleType:
+    import repo_identity as module
+
+    return module
+
+
+def _package_repo_identity() -> ModuleType:
+    import pipelines.repo_identity as module
+
+    return module
+
+
 Loader = Callable[[], ModuleType]
 LOADER_PAIRS: dict[str, tuple[Loader, Loader]] = {
     "compose_contract": (_direct_compose_contract, _package_compose_contract),
@@ -689,6 +761,12 @@ LOADER_PAIRS: dict[str, tuple[Loader, Loader]] = {
         _direct_compose_trajectory_goals,
         _package_compose_trajectory_goals,
     ),
+    "compose_eval_gate": (_direct_compose_eval_gate, _package_compose_eval_gate),
+    "eval_exclusion_aliases": (_direct_eval_exclusion_aliases, _package_eval_exclusion_aliases),
+    "eval_exclusion_lists": (_direct_eval_exclusion_lists, _package_eval_exclusion_lists),
+    "eval_exclusion_policy": (_direct_eval_exclusion_policy, _package_eval_exclusion_policy),
+    "eval_exclusion_subject": (_direct_eval_exclusion_subject, _package_eval_exclusion_subject),
+    "repo_identity": (_direct_repo_identity, _package_repo_identity),
 }
 DIRECT_LOADERS = {name: loaders[0] for name, loaders in LOADER_PAIRS.items()}
 PACKAGE_LOADERS = {name: loaders[1] for name, loaders in LOADER_PAIRS.items()}

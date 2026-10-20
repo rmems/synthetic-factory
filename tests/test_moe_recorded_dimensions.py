@@ -29,3 +29,14 @@ class RecordedDimensions(unittest.TestCase):
         recording = recording_from_reference([text])
         result = mr.RecordedTeacherRouter(recording).route(text)
         self.assertEqual(len(result.layers), recording["teacher"]["num_layers"])
+
+    def test_malformed_layer_data_chains_the_original_error(self):
+        text = "malformed recorded layer"
+        recording = recording_from_reference([text])
+        router = mr.RecordedTeacherRouter(recording)
+        layer = copy.deepcopy(recording["observations"][router.key_for(text)]["layers"][0])
+        del layer["routing_entropy"]
+        with self.assertRaisesRegex(oc.OracleUnavailable, "malformed layer data") as caught:
+            router._routing_from_recorded(layer, layer["layer"])
+        self.assertIsInstance(caught.exception.__cause__, KeyError)
+        self.assertEqual(caught.exception.__cause__.args, ("routing_entropy",))

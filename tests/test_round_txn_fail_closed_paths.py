@@ -327,6 +327,28 @@ class AgenticPredicateTests(unittest.TestCase):
         self.assertFalse(round_txn_agentic._names_plan_change("we keep going"))
         self.assertTrue(round_txn_agentic._names_plan_change("we adopt the queue design"))
 
+    def test_plan_change_terms_match_whole_words_and_their_inflections(self):
+        for text in (
+            "we added a failing test",
+            "the reviewer is escalating to the owner",
+            "deferred the migration to the next release",
+            "rollbacks are gated on the checkpoint",
+            "we are changing the ttl race coverage plan",
+            "revising the rollout order",
+            "the second revision removes the flag",
+        ):
+            with self.subTest(text=text):
+                self.assertTrue(round_txn_agentic._names_plan_change(text))
+        for text in (
+            "the reviewer will address the race later",
+            "padding the buffer hides the race",
+            "the additional test is unchanged",
+            "proceed with the original plan",
+            "chang and revis will investigate",
+        ):
+            with self.subTest(text=text):
+                self.assertFalse(round_txn_agentic._names_plan_change(text))
+
     def test_plan_change_must_follow_the_disagreement(self):
         contents = ["we disagree", "we adopt the queue design"]
         self.assertTrue(

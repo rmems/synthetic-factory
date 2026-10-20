@@ -1,0 +1,2673 @@
+{
+  "entries": [
+    {
+      "canonical": "1password/typeshare",
+      "github_id": 540976791,
+      "method": "github_api",
+      "name": "1password/typeshare",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "3hren/msgpack-rust",
+      "github_id": 32579343,
+      "method": "github_api",
+      "name": "3hren/msgpack-rust",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "a-scie/jump",
+      "github_id": 557726096,
+      "method": "github_api",
+      "name": "a-scie/jump",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "actix/actix-web",
+      "github_id": 105379569,
+      "method": "github_api",
+      "name": "actix/actix-web",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "agnesoft/agdb",
+      "github_id": 525920583,
+      "method": "github_api",
+      "name": "agnesoft/agdb",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "aleph-alpha/ts-rs",
+      "github_id": 321690304,
+      "method": "github_api",
+      "name": "aleph-alpha/ts-rs",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "rust-lang/futures-rs",
+      "github_id": 55077261,
+      "method": "github_api",
+      "name": "alexcrichton/futures-rs",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "dtolnay/proc-macro2",
+      "github_id": 91860126,
+      "method": "github_api",
+      "name": "alexcrichton/proc-macro2",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "toml-rs/toml-rs",
+      "github_id": 21056223,
+      "method": "github_api",
+      "name": "alexcrichton/toml-rs",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "algesten/ureq",
+      "github_id": 136835450,
+      "method": "github_api",
+      "name": "algesten/ureq",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "andrewdavidmackenzie/pigg",
+      "github_id": 798662592,
+      "method": "github_api",
+      "name": "andrewdavidmackenzie/pigg",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "apache/arrow-rs",
+      "github_id": 358917250,
+      "method": "github_api",
+      "name": "apache/arrow-rs",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "apache/datafusion",
+      "github_id": 358917318,
+      "method": "github_api",
+      "name": "apache/datafusion",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "apache/datafusion-sqlparser-rs",
+      "github_id": 120538653,
+      "method": "github_api",
+      "name": "apache/datafusion-sqlparser-rs",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "apollographql/apollo-rs",
+      "github_id": 359915803,
+      "method": "github_api",
+      "name": "apollographql/apollo-rs",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "artichoke/artichoke",
+      "github_id": 199196552,
+      "method": "github_api",
+      "name": "artichoke/artichoke",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "cargo-generate/cargo-generate",
+      "github_id": 135293548,
+      "method": "github_api",
+      "name": "ashleygwilliams/cargo-generate",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "ashleygwilliams/wasm-pack",
+      "github_id": 658971320,
+      "method": "github_api",
+      "name": "ashleygwilliams/wasm-pack",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "askama-rs/askama",
+      "github_id": 816314127,
+      "method": "github_api",
+      "name": "askama-rs/askama",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "askama-rs/askama-old",
+      "github_id": 77144276,
+      "method": "github_api",
+      "name": "askama-rs/askama-old",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "ast-grep/ast-grep",
+      "github_id": 509566212,
+      "method": "github_api",
+      "name": "ast-grep/ast-grep",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "asterinas/asterinas",
+      "github_id": 493375250,
+      "method": "github_api",
+      "name": "asterinas/asterinas",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "auto-impl-rs/auto_impl",
+      "github_id": 98291013,
+      "method": "github_api",
+      "name": "auto-impl-rs/auto_impl",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "awslabs/tough",
+      "github_id": 217150169,
+      "method": "github_api",
+      "name": "awslabs/tough",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "axodotdev/cargo-dist",
+      "github_id": 551088529,
+      "method": "github_api",
+      "name": "axodotdev/cargo-dist",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "azure/azure-sdk-for-rust",
+      "github_id": 295810364,
+      "method": "github_api",
+      "name": "azure/azure-sdk-for-rust",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "bacpop/ska.rust",
+      "github_id": 563462890,
+      "method": "github_api",
+      "name": "bacpop/ska.rust",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "deadpool-rs/deadpool",
+      "github_id": 221692205,
+      "method": "github_api",
+      "name": "bikeshedder/deadpool",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "biomejs/gritql",
+      "github_id": 769376380,
+      "method": "github_api",
+      "name": "biomejs/gritql",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "bitflags/bitflags",
+      "github_id": 29287955,
+      "method": "github_api",
+      "name": "bitflags/bitflags",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "bitshifter/glam-rs",
+      "github_id": 152246072,
+      "method": "github_api",
+      "name": "bitshifter/glam-rs",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "bluss/arrayvec",
+      "github_id": 35889751,
+      "method": "github_api",
+      "name": "bluss/arrayvec",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "rust-itertools/itertools",
+      "github_id": 22360263,
+      "method": "github_api",
+      "name": "bluss/rust-itertools",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "rust-ndarray/ndarray",
+      "github_id": 22598813,
+      "method": "github_api",
+      "name": "bluss/rust-ndarray",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "boa-dev/boa",
+      "github_id": 144073539,
+      "method": "github_api",
+      "name": "boa-dev/boa",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "brendanzab/codespan",
+      "github_id": 122145662,
+      "method": "github_api",
+      "name": "brendanzab/codespan",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "burntsushi/ripgrep",
+      "github_id": 53631945,
+      "method": "github_api",
+      "name": "burntsushi/ripgrep",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "bytecodealliance/wasm-tools",
+      "github_id": 265302687,
+      "method": "github_api",
+      "name": "bytecodealliance/wasm-tools",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "bytecodealliance/wasmtime",
+      "github_id": 101767772,
+      "method": "github_api",
+      "name": "bytecodealliance/wasmtime",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "cachix/devenv",
+      "github_id": 555988330,
+      "method": "github_api",
+      "name": "cachix/devenv",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "cargo-generate/cargo-generate",
+      "github_id": 135293548,
+      "method": "github_api",
+      "name": "cargo-generate/cargo-generate",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "casey/just",
+      "github_id": 61349723,
+      "method": "github_api",
+      "name": "casey/just",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "cberner/redb",
+      "github_id": 150013328,
+      "method": "github_api",
+      "name": "cberner/redb",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "cedar-policy/cedar",
+      "github_id": 632518057,
+      "method": "github_api",
+      "name": "cedar-policy/cedar",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "chipsalliance/caliptra-sw",
+      "github_id": 601752769,
+      "method": "github_api",
+      "name": "chipsalliance/caliptra-sw",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "chronotope/chrono",
+      "github_id": 18210201,
+      "method": "github_api",
+      "name": "chronotope/chrono",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "clap-rs/clap",
+      "github_id": 31315121,
+      "method": "github_api",
+      "name": "clap-rs/clap",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "cloudflare/daphne",
+      "github_id": 503908496,
+      "method": "github_api",
+      "name": "cloudflare/daphne",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "cloudflare/wrangler-legacy",
+      "github_id": 175043545,
+      "method": "github_api",
+      "name": "cloudflare/wrangler",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "cloudflare/wrangler-legacy",
+      "github_id": 175043545,
+      "method": "github_api",
+      "name": "cloudflare/wrangler-legacy",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "cobalt-org/cobalt.rs",
+      "github_id": 25877885,
+      "method": "github_api",
+      "name": "cobalt-org/cobalt.rs",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "cobalt-org/liquid-rust",
+      "github_id": 26390085,
+      "method": "github_api",
+      "name": "cobalt-org/liquid-rust",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "cocogitto/cocogitto",
+      "github_id": 293570349,
+      "method": "github_api",
+      "name": "cocogitto/cocogitto",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "cosmwasm/cosmwasm",
+      "github_id": 212116761,
+      "method": "github_api",
+      "name": "cosmwasm/cosmwasm",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "cosmwasm/cw-multi-test",
+      "github_id": 553051640,
+      "method": "github_api",
+      "name": "cosmwasm/cw-multi-test",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "hashedone/sylvia",
+      "github_id": 495431586,
+      "method": "github_api",
+      "name": "cosmwasm/sylvia",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "crate-ci/typos",
+      "github_id": 181782286,
+      "method": "github_api",
+      "name": "crate-ci/typos",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "cross-rs/cross",
+      "github_id": 77338532,
+      "method": "github_api",
+      "name": "cross-rs/cross",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "crossbeam-rs/crossbeam",
+      "github_id": 35566048,
+      "method": "github_api",
+      "name": "crossbeam-rs/crossbeam",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "crustio/crust",
+      "github_id": 232014927,
+      "method": "github_api",
+      "name": "crustio/crust",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "csml-by-clevy/csml-engine",
+      "github_id": 245127811,
+      "method": "github_api",
+      "name": "csml-by-clevy/csml-engine",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "da0-da0/dao-contracts",
+      "github_id": 402992355,
+      "method": "github_api",
+      "name": "da0-da0/dao-contracts",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "veryl-lang/veryl",
+      "github_id": 575770340,
+      "method": "github_api",
+      "name": "dalance/veryl",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "dandavison/delta",
+      "github_id": 193526915,
+      "method": "github_api",
+      "name": "dandavison/delta",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "wild-linker/wild",
+      "github_id": 752839399,
+      "method": "github_api",
+      "name": "davidlattimore/wild",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "tealdeer-rs/tealdeer",
+      "github_id": 48739367,
+      "method": "github_api",
+      "name": "dbrgn/tealdeer",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "z-galaxy/zbus",
+      "github_id": 639304056,
+      "method": "github_api",
+      "name": "dbus2/zbus",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "deadpool-rs/deadpool",
+      "github_id": 221692205,
+      "method": "github_api",
+      "name": "deadpool-rs/deadpool",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "denoland/deno_core",
+      "github_id": 660311778,
+      "method": "github_api",
+      "name": "denoland/deno_core",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "denoland/deno_lint",
+      "github_id": 250790125,
+      "method": "github_api",
+      "name": "denoland/deno_lint",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "dfinity/sdk",
+      "github_id": 198344153,
+      "method": "github_api",
+      "name": "dfinity/sdk",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "askama-rs/askama-old",
+      "github_id": 77144276,
+      "method": "github_api",
+      "name": "djc/askama",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "dotenv-linter/dotenv-linter",
+      "github_id": 225030271,
+      "method": "github_api",
+      "name": "dotenv-linter/dotenv-linter",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "dprint/dprint-plugin-typescript",
+      "github_id": 269703043,
+      "method": "github_api",
+      "name": "dprint/dprint-plugin-typescript",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "dtolnay/anyhow",
+      "github_id": 212936374,
+      "method": "github_api",
+      "name": "dtolnay/anyhow",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "dtolnay/async-trait",
+      "github_id": 198288319,
+      "method": "github_api",
+      "name": "dtolnay/async-trait",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "dtolnay/cxx",
+      "github_id": 230383021,
+      "method": "github_api",
+      "name": "dtolnay/cxx",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "dtolnay/paste",
+      "github_id": 155652490,
+      "method": "github_api",
+      "name": "dtolnay/paste",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "dtolnay/proc-macro2",
+      "github_id": 91860126,
+      "method": "github_api",
+      "name": "dtolnay/proc-macro2",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "dtolnay/syn",
+      "github_id": 67305738,
+      "method": "github_api",
+      "name": "dtolnay/syn",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "dtolnay/thiserror",
+      "github_id": 213836768,
+      "method": "github_api",
+      "name": "dtolnay/thiserror",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "ducaale/xh",
+      "github_id": 294521053,
+      "method": "github_api",
+      "name": "ducaale/xh",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "eclipse-zenoh/zenoh",
+      "github_id": 235377467,
+      "method": "github_api",
+      "name": "eclipse-zenoh/zenoh",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "geldata/gel-cli",
+      "github_id": 249466377,
+      "method": "github_api",
+      "name": "edgedb/edgedb-cli",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "embassy-rs/embassy",
+      "github_id": 297701481,
+      "method": "github_api",
+      "name": "embassy-rs/embassy",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "emit-rs/emit",
+      "github_id": 54075284,
+      "method": "github_api",
+      "name": "emit-rs/emit",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "enselic/cargo-public-api",
+      "github_id": 1092552319,
+      "method": "github_api",
+      "name": "enselic/cargo-public-api",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "typstyle-rs/typstyle",
+      "github_id": 769440884,
+      "method": "github_api",
+      "name": "enter-tainer/typstyle",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "epi052/feroxbuster",
+      "github_id": 289516116,
+      "method": "github_api",
+      "name": "epi052/feroxbuster",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "equilibriumco/beerus",
+      "github_id": 563865519,
+      "method": "github_api",
+      "name": "equilibriumco/beerus",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "esp-rs/esp-hal",
+      "github_id": 429554022,
+      "method": "github_api",
+      "name": "esp-rs/esp-hal",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "extendr/extendr",
+      "github_id": 254169150,
+      "method": "github_api",
+      "name": "extendr/extendr",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "facebook/opaque-ke",
+      "github_id": 269256421,
+      "method": "github_api",
+      "name": "facebook/opaque-ke",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "farcaster-project/farcaster-node",
+      "github_id": 339364296,
+      "method": "github_api",
+      "name": "farcaster-project/farcaster-node",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "feed-rs/feed-rs",
+      "github_id": 90976281,
+      "method": "github_api",
+      "name": "feed-rs/feed-rs",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "spinframework/spin",
+      "github_id": 423679664,
+      "method": "github_api",
+      "name": "fermyon/spin",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "filecoin-project/builtin-actors",
+      "github_id": 458311001,
+      "method": "github_api",
+      "name": "filecoin-project/builtin-actors",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "filecoin-project/ref-fvm",
+      "github_id": 426716366,
+      "method": "github_api",
+      "name": "filecoin-project/ref-fvm",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "fitzgen/bumpalo",
+      "github_id": 158310651,
+      "method": "github_api",
+      "name": "fitzgen/bumpalo",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "fuellabs/fuel-vm",
+      "github_id": 373013401,
+      "method": "github_api",
+      "name": "fuellabs/fuel-vm",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "fuellabs/fuelup",
+      "github_id": 494179928,
+      "method": "github_api",
+      "name": "fuellabs/fuelup",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "fujiapple852/trippy",
+      "github_id": 474961035,
+      "method": "github_api",
+      "name": "fujiapple852/trippy",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "gakonst/ethers-rs",
+      "github_id": 266602341,
+      "method": "github_api",
+      "name": "gakonst/ethers-rs",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "rust-bakery/nom",
+      "github_id": 27029984,
+      "method": "github_api",
+      "name": "geal/nom",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "geldata/gel-cli",
+      "github_id": 249466377,
+      "method": "github_api",
+      "name": "geldata/gel-cli",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "georust/geo",
+      "github_id": 29326047,
+      "method": "github_api",
+      "name": "georust/geo",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "biomejs/gritql",
+      "github_id": 769376380,
+      "method": "github_api",
+      "name": "getgrit/gritql",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "getsentry/sentry-cli",
+      "github_id": 51176043,
+      "method": "github_api",
+      "name": "getsentry/sentry-cli",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "getsentry/sentry-rust",
+      "github_id": 59312827,
+      "method": "github_api",
+      "name": "getsentry/sentry-rust",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "getsentry/symbolic",
+      "github_id": 102011536,
+      "method": "github_api",
+      "name": "getsentry/symbolic",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "gfx-rs/naga",
+      "github_id": 148563979,
+      "method": "github_api",
+      "name": "gfx-rs/naga",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "gfx-rs/wgpu",
+      "github_id": 148686316,
+      "method": "github_api",
+      "name": "gfx-rs/wgpu",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "gimli-rs/addr2line",
+      "github_id": 75500718,
+      "method": "github_api",
+      "name": "gimli-rs/addr2line",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "gimli-rs/object",
+      "github_id": 66110995,
+      "method": "github_api",
+      "name": "gimli-rs/object",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "gleam-lang/gleam",
+      "github_id": 62341543,
+      "method": "github_api",
+      "name": "gleam-lang/gleam",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "gleecbtc/komodo-defi-framework",
+      "github_id": 119973711,
+      "method": "github_api",
+      "name": "gleecbtc/komodo-defi-framework",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "gluesql/gluesql",
+      "github_id": 227265548,
+      "method": "github_api",
+      "name": "gluesql/gluesql",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "gluon-lang/gluon",
+      "github_id": 40078838,
+      "method": "github_api",
+      "name": "gluon-lang/gluon",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "godot-rust/gdnative",
+      "github_id": 87864150,
+      "method": "github_api",
+      "name": "godot-rust/gdnative",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "godot-rust/gdnative",
+      "github_id": 87864150,
+      "method": "github_api",
+      "name": "godot-rust/godot-rust",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "google/argh",
+      "github_id": 237297802,
+      "method": "github_api",
+      "name": "google/argh",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "google/autocxx",
+      "github_id": 287187657,
+      "method": "github_api",
+      "name": "google/autocxx",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "googlefonts/fontations",
+      "github_id": 455581993,
+      "method": "github_api",
+      "name": "googlefonts/fontations",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "googlefonts/fontc",
+      "github_id": 564099683,
+      "method": "github_api",
+      "name": "googlefonts/fontc",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "gresau/schemars",
+      "github_id": 200511807,
+      "method": "github_api",
+      "name": "gresau/schemars",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "grpc/grpc-rust",
+      "github_id": 201517171,
+      "method": "github_api",
+      "name": "grpc/grpc-rust",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "guillaumegomez/sysinfo",
+      "github_id": 31986253,
+      "method": "github_api",
+      "name": "guillaumegomez/sysinfo",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "hashedone/sylvia",
+      "github_id": 495431586,
+      "method": "github_api",
+      "name": "hashedone/sylvia",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "hatoo/oha",
+      "github_id": 244377430,
+      "method": "github_api",
+      "name": "hatoo/oha",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "huff-language/huff-rs",
+      "github_id": 498320188,
+      "method": "github_api",
+      "name": "huff-language/huff-rs",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "hyperium/hyper",
+      "github_id": 23500865,
+      "method": "github_api",
+      "name": "hyperium/hyper",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "grpc/grpc-rust",
+      "github_id": 201517171,
+      "method": "github_api",
+      "name": "hyperium/tonic",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "image-rs/image-tiff",
+      "github_id": 124887608,
+      "method": "github_api",
+      "name": "image-rs/image-tiff",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "immunant/c2rust",
+      "github_id": 130285553,
+      "method": "github_api",
+      "name": "immunant/c2rust",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "intersectmbo/mithril",
+      "github_id": 403852780,
+      "method": "github_api",
+      "name": "input-output-hk/mithril",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "intersectmbo/mithril",
+      "github_id": 403852780,
+      "method": "github_api",
+      "name": "intersectmbo/mithril",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "rust-lang/libm",
+      "github_id": 140666750,
+      "method": "github_api",
+      "name": "japaric/libm",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "jeltef/derive_more",
+      "github_id": 54630945,
+      "method": "github_api",
+      "name": "jeltef/derive_more",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "jhugman/uniffi-bindgen-react-native",
+      "github_id": 788037964,
+      "method": "github_api",
+      "name": "jhugman/uniffi-bindgen-react-native",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "jiangzhe/doradb",
+      "github_id": 447489475,
+      "method": "github_api",
+      "name": "jiangzhe/doradb",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "jiangzhe/doradb",
+      "github_id": 447489475,
+      "method": "github_api",
+      "name": "jiangzhe/xngin",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "jonasbb/serde_with",
+      "github_id": 100649664,
+      "method": "github_api",
+      "name": "jonasbb/serde_with",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "jorgecarleitao/arrow2",
+      "github_id": 336739753,
+      "method": "github_api",
+      "name": "jorgecarleitao/arrow2",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "jugglerchris/rust-html2text",
+      "github_id": 77090471,
+      "method": "github_api",
+      "name": "jugglerchris/rust-html2text",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "juhaku/utoipa",
+      "github_id": 412240914,
+      "method": "github_api",
+      "name": "juhaku/utoipa",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "clap-rs/clap",
+      "github_id": 31315121,
+      "method": "github_api",
+      "name": "kbknapp/clap-rs",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "kdr-aus/ogma",
+      "github_id": 402002681,
+      "method": "github_api",
+      "name": "kdr-aus/ogma",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "keats/tera",
+      "github_id": 39272160,
+      "method": "github_api",
+      "name": "keats/tera",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "keats/validator",
+      "github_id": 77428506,
+      "method": "github_api",
+      "name": "keats/validator",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "equilibriumco/beerus",
+      "github_id": 563865519,
+      "method": "github_api",
+      "name": "keep-starknet-strange/beerus",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "kivikakk/comrak",
+      "github_id": 73984862,
+      "method": "github_api",
+      "name": "kivikakk/comrak",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "kkawakam/rustyline",
+      "github_id": 32559774,
+      "method": "github_api",
+      "name": "kkawakam/rustyline",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "knope-dev/knope",
+      "github_id": 306664606,
+      "method": "github_api",
+      "name": "knope-dev/knope",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "knurling-rs/defmt",
+      "github_id": 282262730,
+      "method": "github_api",
+      "name": "knurling-rs/defmt",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "gleecbtc/komodo-defi-framework",
+      "github_id": 119973711,
+      "method": "github_api",
+      "name": "komodoplatform/atomicdex-api",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "lambda-fairy/maud",
+      "github_id": 28127585,
+      "method": "github_api",
+      "name": "lambda-fairy/maud",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "lambdaclass/ethrex",
+      "github_id": 808266543,
+      "method": "github_api",
+      "name": "lambdaclass/ethrex",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "leafwing-studios/emergence",
+      "github_id": 307518299,
+      "method": "github_api",
+      "name": "leafwing-studios/emergence",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "leafwing-studios/leafwing-input-manager",
+      "github_id": 441520029,
+      "method": "github_api",
+      "name": "leafwing-studios/leafwing-input-manager",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "leptos-rs/leptos",
+      "github_id": 519882617,
+      "method": "github_api",
+      "name": "leptos-rs/leptos",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "libbpf/libbpf-rs",
+      "github_id": 255181569,
+      "method": "github_api",
+      "name": "libbpf/libbpf-rs",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "limen-neural/axon-encoder",
+      "github_id": 1190034490,
+      "method": "github_api",
+      "name": "limen-neural/axon-encoder",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "limen-neural/brainstem-daemon",
+      "github_id": 1194029745,
+      "method": "github_api",
+      "name": "limen-neural/brainstem-daemon",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "limen-neural/limbic-critic",
+      "github_id": 1189607377,
+      "method": "github_api",
+      "name": "limen-neural/limbic-critic",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "limen-neural/myelin-accelerator",
+      "github_id": 1194029718,
+      "method": "github_api",
+      "name": "limen-neural/myelin-accelerator",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "limen-neural/neuromod",
+      "github_id": 1189262467,
+      "method": "github_api",
+      "name": "limen-neural/neuromod",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "limen-neural/nir-rs",
+      "github_id": 1308193326,
+      "method": "github_api",
+      "name": "limen-neural/nir-rs",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "limen-neural/plasticity-lab",
+      "github_id": 1203405997,
+      "method": "github_api",
+      "name": "limen-neural/plasticity-lab",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "limen-neural/synaptic-wiring",
+      "github_id": 1190012253,
+      "method": "github_api",
+      "name": "limen-neural/synaptic-mesh",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "limen-neural/synaptic-wiring",
+      "github_id": 1190012253,
+      "method": "github_api",
+      "name": "limen-neural/synaptic-wiring",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "linebender/vello",
+      "github_id": 255966443,
+      "method": "github_api",
+      "name": "linebender/vello",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "livesplit/livesplit-core",
+      "github_id": 77308259,
+      "method": "github_api",
+      "name": "livesplit/livesplit-core",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "lokathor/bytemuck",
+      "github_id": 209673558,
+      "method": "github_api",
+      "name": "lokathor/bytemuck",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "rust-minidump/rust-minidump",
+      "github_id": 38209299,
+      "method": "github_api",
+      "name": "luser/rust-minidump",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "maciejhirsz/json-rust",
+      "github_id": 60961783,
+      "method": "github_api",
+      "name": "maciejhirsz/json-rust",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "manevillef/hexx",
+      "github_id": 450800670,
+      "method": "github_api",
+      "name": "manevillef/hexx",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "release-plz/release-plz",
+      "github_id": 439941981,
+      "method": "github_api",
+      "name": "marcoieni/release-plz",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "martinohmann/hcl-rs",
+      "github_id": 460095848,
+      "method": "github_api",
+      "name": "martinohmann/hcl-rs",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "matrix-org/matrix-rust-sdk",
+      "github_id": 242174446,
+      "method": "github_api",
+      "name": "matrix-org/matrix-rust-sdk",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "matter-labs/era-test-node",
+      "github_id": 899527976,
+      "method": "github_api",
+      "name": "matter-labs/era-test-node",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "rust-cli/config-rs",
+      "github_id": 79874569,
+      "method": "github_api",
+      "name": "mehcode/config-rs",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "meilisearch/meilisearch",
+      "github_id": 130688011,
+      "method": "github_api",
+      "name": "meilisearch/meilisearch",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "trifectatechfoundation/sudo-rs",
+      "github_id": 577397570,
+      "method": "github_api",
+      "name": "memorysafety/sudo-rs",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "microsoft/qdk",
+      "github_id": 593773927,
+      "method": "github_api",
+      "name": "microsoft/qdk",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "microsoft/qdk",
+      "github_id": 593773927,
+      "method": "github_api",
+      "name": "microsoft/qsharp",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "migorithm/duva",
+      "github_id": 876884925,
+      "method": "github_api",
+      "name": "migorithm/duva",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "mintlayer/mintlayer-core",
+      "github_id": 431390511,
+      "method": "github_api",
+      "name": "mintlayer/mintlayer-core",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "misawa/xq",
+      "github_id": 410231992,
+      "method": "github_api",
+      "name": "misawa/xq",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "mitsuhiko/insta",
+      "github_id": 165561258,
+      "method": "github_api",
+      "name": "mitsuhiko/insta",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "mitsuhiko/minijinja",
+      "github_id": 406663386,
+      "method": "github_api",
+      "name": "mitsuhiko/minijinja",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "redis-rs/redis-rs",
+      "github_id": 15510677,
+      "method": "github_api",
+      "name": "mitsuhiko/redis-rs",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "mockiato/mockiato",
+      "github_id": 146013346,
+      "method": "github_api",
+      "name": "mockiato/mockiato",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "mozilla/cargo-vet",
+      "github_id": 469920647,
+      "method": "github_api",
+      "name": "mozilla/cargo-vet",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "mockiato/mockiato",
+      "github_id": 146013346,
+      "method": "github_api",
+      "name": "myelin-ai/mockiato",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "near/borsh-rs",
+      "github_id": 315885410,
+      "method": "github_api",
+      "name": "near/borsh-rs",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "netwo-io/apistos",
+      "github_id": 691100358,
+      "method": "github_api",
+      "name": "netwo-io/apistos",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "nickel-lang/nickel",
+      "github_id": 164738063,
+      "method": "github_api",
+      "name": "nickel-lang/nickel",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "niklasei/bevy_asset_loader",
+      "github_id": 367979587,
+      "method": "github_api",
+      "name": "niklasei/bevy_asset_loader",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "nix-community/nixpkgs-fmt",
+      "github_id": 184640864,
+      "method": "github_api",
+      "name": "nix-community/nixpkgs-fmt",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "not-fl3/nanoserde",
+      "github_id": 273762076,
+      "method": "github_api",
+      "name": "not-fl3/nanoserde",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "facebook/opaque-ke",
+      "github_id": 269256421,
+      "method": "github_api",
+      "name": "novifinancial/opaque-ke",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "nukesor/comfy-table",
+      "github_id": 230310173,
+      "method": "github_api",
+      "name": "nukesor/comfy-table",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "nushell/engine-q",
+      "github_id": 381543643,
+      "method": "github_api",
+      "name": "nushell/engine-q",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "nushell/nushell",
+      "github_id": 186024298,
+      "method": "github_api",
+      "name": "nushell/nushell",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "oasisprotocol/oasis-sdk",
+      "github_id": 337024465,
+      "method": "github_api",
+      "name": "oasisprotocol/oasis-sdk",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "oli-obk/cargo_metadata",
+      "github_id": 79900360,
+      "method": "github_api",
+      "name": "oli-obk/cargo_metadata",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "openmls/openmls",
+      "github_id": 264469890,
+      "method": "github_api",
+      "name": "openmls/openmls",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "openzeppelin/rust-contracts-stylus",
+      "github_id": 755091517,
+      "method": "github_api",
+      "name": "openzeppelin/rust-contracts-stylus",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "ordinals/ord",
+      "github_id": 437485701,
+      "method": "github_api",
+      "name": "ordinals/ord",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "orhun/git-cliff",
+      "github_id": 372193147,
+      "method": "github_api",
+      "name": "orhun/git-cliff",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "osmosis-labs/mesh-security",
+      "github_id": 629121972,
+      "method": "github_api",
+      "name": "osmosis-labs/mesh-security",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "ouch-org/ouch",
+      "github_id": 349334268,
+      "method": "github_api",
+      "name": "ouch-org/ouch",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "oxc-project/oxc-resolver",
+      "github_id": 728015366,
+      "method": "github_api",
+      "name": "oxc-project/oxc-resolver",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "oxidecomputer/typify",
+      "github_id": 409876755,
+      "method": "github_api",
+      "name": "oxidecomputer/typify",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "oxipng/oxipng",
+      "github_id": 49436331,
+      "method": "github_api",
+      "name": "oxipng/oxipng",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "pacak/bpaf",
+      "github_id": 428894500,
+      "method": "github_api",
+      "name": "pacak/bpaf",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "paperclip-rs/paperclip",
+      "github_id": 187155079,
+      "method": "github_api",
+      "name": "paperclip-rs/paperclip",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "use-ink/ink",
+      "github_id": 161224066,
+      "method": "github_api",
+      "name": "paritytech/ink",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "paritytech/parity-common",
+      "github_id": 139124943,
+      "method": "github_api",
+      "name": "paritytech/parity-common",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "paritytech/substrate",
+      "github_id": 109872620,
+      "method": "github_api",
+      "name": "paritytech/substrate",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "parkmycar/compact_str",
+      "github_id": 405427689,
+      "method": "github_api",
+      "name": "parkmycar/compact_str",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "payjoin/rust-payjoin",
+      "github_id": 510640751,
+      "method": "github_api",
+      "name": "payjoin/rust-payjoin",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "pest-parser/pest",
+      "github_id": 56964647,
+      "method": "github_api",
+      "name": "pest-parser/pest",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "peternator7/strum",
+      "github_id": 80964373,
+      "method": "github_api",
+      "name": "peternator7/strum",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "polarity-lang/polarity",
+      "github_id": 520882355,
+      "method": "github_api",
+      "name": "polarity-lang/polarity",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "posit-dev/air",
+      "github_id": 879017093,
+      "method": "github_api",
+      "name": "posit-dev/air",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "prefix-dev/rattler-build",
+      "github_id": 532922814,
+      "method": "github_api",
+      "name": "prefix-dev/rattler-build",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "probe-rs/probe-rs",
+      "github_id": 170021740,
+      "method": "github_api",
+      "name": "probe-rs/probe-rs",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "project-oak/oak",
+      "github_id": 173796172,
+      "method": "github_api",
+      "name": "project-oak/oak",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "projectfluent/fluent-rs",
+      "github_id": 77560730,
+      "method": "github_api",
+      "name": "projectfluent/fluent-rs",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "prql/prql",
+      "github_id": 449091292,
+      "method": "github_api",
+      "name": "prql/prql",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "public-awesome/launchpad",
+      "github_id": 462151818,
+      "method": "github_api",
+      "name": "public-awesome/launchpad",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "pulldown-cmark/pulldown-cmark",
+      "github_id": 36815297,
+      "method": "github_api",
+      "name": "pulldown-cmark/pulldown-cmark",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "pyfisch/cbor",
+      "github_id": 42398450,
+      "method": "github_api",
+      "name": "pyfisch/cbor",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "quartiq/minimq",
+      "github_id": 274078228,
+      "method": "github_api",
+      "name": "quartiq/minimq",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "quinn-rs/quinn",
+      "github_id": 127870944,
+      "method": "github_api",
+      "name": "quinn-rs/quinn",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "radicle-dev/heartwood",
+      "github_id": 536024589,
+      "method": "github_api",
+      "name": "radicle-dev/heartwood",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "railwayapp/nixpacks",
+      "github_id": 474540881,
+      "method": "github_api",
+      "name": "railwayapp/nixpacks",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "ralith/hecs",
+      "github_id": 226764114,
+      "method": "github_api",
+      "name": "ralith/hecs",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "pulldown-cmark/pulldown-cmark",
+      "github_id": 36815297,
+      "method": "github_api",
+      "name": "raphlinus/pulldown-cmark",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "rayon-rs/rayon",
+      "github_id": 24725038,
+      "method": "github_api",
+      "name": "rayon-rs/rayon",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "rcoh/angle-grinder",
+      "github_id": 123365228,
+      "method": "github_api",
+      "name": "rcoh/angle-grinder",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "redis-rs/redis-rs",
+      "github_id": 15510677,
+      "method": "github_api",
+      "name": "redis-rs/redis-rs",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "release-plz/release-plz",
+      "github_id": 439941981,
+      "method": "github_api",
+      "name": "release-plz/release-plz",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "reubeno/brush",
+      "github_id": 798617823,
+      "method": "github_api",
+      "name": "reubeno/brush",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "askama-rs/askama",
+      "github_id": 816314127,
+      "method": "github_api",
+      "name": "rinja-rs/rinja",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "rmems/agoge-forger",
+      "github_id": 1242959395,
+      "method": "github_api",
+      "name": "rmems/agoge-forger",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "rmems/blackwell-kernel-lab",
+      "github_id": 1311552919,
+      "method": "github_api",
+      "name": "rmems/blackwell-kernel-lab",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "rmems/corinth-canal",
+      "github_id": 1206238066,
+      "method": "github_api",
+      "name": "rmems/corinth-canal",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "rmems/engram-parser",
+      "github_id": 1211933186,
+      "method": "github_api",
+      "name": "rmems/engram-parser",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "rmems/grok-ozempic",
+      "github_id": 1206422065,
+      "method": "github_api",
+      "name": "rmems/grok-ozempic",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "rmems/hybrid-fusion",
+      "github_id": 1202395347,
+      "method": "github_api",
+      "name": "rmems/hybrid-fusion",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "rmems/kinetic-signals",
+      "github_id": 1205619497,
+      "method": "github_api",
+      "name": "rmems/kinetic-signals",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "limen-neural/limbic-critic",
+      "github_id": 1189607377,
+      "method": "github_api",
+      "name": "rmems/limbic-critic",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "rmems/liquidcortex.jl",
+      "github_id": 1189591057,
+      "method": "github_api",
+      "name": "rmems/liquidcortex.jl",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "limen-neural/myelin-accelerator",
+      "github_id": 1194029718,
+      "method": "github_api",
+      "name": "rmems/myelin-accelerator",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "rmems/silicon-hdl",
+      "github_id": 1201195897,
+      "method": "github_api",
+      "name": "rmems/silicon-hdl",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "rmems/spike-viz",
+      "github_id": 1310750897,
+      "method": "github_api",
+      "name": "rmems/spike-viz",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "rmems/spikestream.jl",
+      "github_id": 1189611315,
+      "method": "github_api",
+      "name": "rmems/spikestream.jl",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "rmems/surrogate_viz.jl",
+      "github_id": 1210904761,
+      "method": "github_api",
+      "name": "rmems/surrogate_viz.jl",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "rmems/vahtisiru",
+      "github_id": 1203603040,
+      "method": "github_api",
+      "name": "rmems/thalamic-relay",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "rmems/theseus-quarry",
+      "github_id": 1315649781,
+      "method": "github_api",
+      "name": "rmems/theseus-quarry",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "rmems/vahtisiru",
+      "github_id": 1203603040,
+      "method": "github_api",
+      "name": "rmems/vahtisiru",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "rmems/writ",
+      "github_id": 1295963000,
+      "method": "github_api",
+      "name": "rmems/worktrees-hives",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "rmems/writ",
+      "github_id": 1295963000,
+      "method": "github_api",
+      "name": "rmems/writ",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "rmems/xai-dissect",
+      "github_id": 1218614846,
+      "method": "github_api",
+      "name": "rmems/xai-dissect",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "rmems/xaidissect_viz.jl",
+      "github_id": 1228247002,
+      "method": "github_api",
+      "name": "rmems/xaidissect_viz.jl",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "rojo-rbx/rbx-dom",
+      "github_id": 155936419,
+      "method": "github_api",
+      "name": "rojo-rbx/rbx-dom",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "ron-rs/ron",
+      "github_id": 34287127,
+      "method": "github_api",
+      "name": "ron-rs/ron",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "ruffle-rs/ruffle",
+      "github_id": 183483988,
+      "method": "github_api",
+      "name": "ruffle-rs/ruffle",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "ruma/ruma",
+      "github_id": 269077514,
+      "method": "github_api",
+      "name": "ruma/ruma",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "rust-lang/rust-analyzer",
+      "github_id": 115039706,
+      "method": "github_api",
+      "name": "rust-analyzer/rust-analyzer",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "rust-bakery/nom",
+      "github_id": 27029984,
+      "method": "github_api",
+      "name": "rust-bakery/nom",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "rust-bitcoin/rust-bitcoin",
+      "github_id": 21982089,
+      "method": "github_api",
+      "name": "rust-bitcoin/rust-bitcoin",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "rust-cli/config-rs",
+      "github_id": 79874569,
+      "method": "github_api",
+      "name": "rust-cli/config-rs",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "rust-itertools/itertools",
+      "github_id": 22360263,
+      "method": "github_api",
+      "name": "rust-itertools/itertools",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "rust-lang/futures-rs",
+      "github_id": 55077261,
+      "method": "github_api",
+      "name": "rust-lang-nursery/futures-rs",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "rust-lang/annotate-snippets-rs",
+      "github_id": 124958286,
+      "method": "github_api",
+      "name": "rust-lang/annotate-snippets-rs",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "rust-lang/cargo",
+      "github_id": 17420913,
+      "method": "github_api",
+      "name": "rust-lang/cargo",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "rust-lang/cc-rs",
+      "github_id": 26039547,
+      "method": "github_api",
+      "name": "rust-lang/cc-rs",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "rust-lang/chalk",
+      "github_id": 39721486,
+      "method": "github_api",
+      "name": "rust-lang/chalk",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "rust-lang/futures-rs",
+      "github_id": 55077261,
+      "method": "github_api",
+      "name": "rust-lang/futures-rs",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "rust-lang/libm",
+      "github_id": 140666750,
+      "method": "github_api",
+      "name": "rust-lang/libm",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "rust-lang/regex",
+      "github_id": 27890669,
+      "method": "github_api",
+      "name": "rust-lang/regex",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "rust-lang/rust-analyzer",
+      "github_id": 115039706,
+      "method": "github_api",
+      "name": "rust-lang/rust-analyzer",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "rust-lang/rust-bindgen",
+      "github_id": 61728459,
+      "method": "github_api",
+      "name": "rust-lang/rust-bindgen",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "rust-lang/rustfmt",
+      "github_id": 31830551,
+      "method": "github_api",
+      "name": "rust-lang/rustfmt",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "rust-lang/socket2",
+      "github_id": 90821930,
+      "method": "github_api",
+      "name": "rust-lang/socket2",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "rust-minidump/rust-minidump",
+      "github_id": 38209299,
+      "method": "github_api",
+      "name": "rust-minidump/rust-minidump",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "rust-ndarray/ndarray",
+      "github_id": 22598813,
+      "method": "github_api",
+      "name": "rust-ndarray/ndarray",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "rust-openssl/rust-openssl",
+      "github_id": 15500883,
+      "method": "github_api",
+      "name": "rust-openssl/rust-openssl",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "rust-phf/rust-phf",
+      "github_id": 15992970,
+      "method": "github_api",
+      "name": "rust-phf/rust-phf",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "rust-postgres/rust-postgres",
+      "github_id": 11599760,
+      "method": "github_api",
+      "name": "rust-postgres/rust-postgres",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "rust-random/getrandom",
+      "github_id": 166545969,
+      "method": "github_api",
+      "name": "rust-random/getrandom",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "rustcrypto/formats",
+      "github_id": 406051759,
+      "method": "github_api",
+      "name": "rustcrypto/formats",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "rustcrypto/utils",
+      "github_id": 77307442,
+      "method": "github_api",
+      "name": "rustcrypto/utils",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "rustls/rustls",
+      "github_id": 57920736,
+      "method": "github_api",
+      "name": "rustls/rustls",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "rustls/rustls-ffi",
+      "github_id": 320029760,
+      "method": "github_api",
+      "name": "rustls/rustls-ffi",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "wasm-bindgen/wasm-bindgen",
+      "github_id": 114685405,
+      "method": "github_api",
+      "name": "rustwasm/wasm-bindgen",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "wasm-bindgen/wasm-pack",
+      "github_id": 121253762,
+      "method": "github_api",
+      "name": "rustwasm/wasm-pack",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "sagebind/isahc",
+      "github_id": 106773441,
+      "method": "github_api",
+      "name": "sagebind/isahc",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "sagiegurari/cargo-make",
+      "github_id": 95217595,
+      "method": "github_api",
+      "name": "sagiegurari/cargo-make",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "salsa-rs/salsa",
+      "github_id": 150756173,
+      "method": "github_api",
+      "name": "salsa-rs/salsa",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "scylladb/scylla-rust-driver",
+      "github_id": 305989099,
+      "method": "github_api",
+      "name": "scylladb/scylla-rust-driver",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "seanmonstar/reqwest",
+      "github_id": 62350380,
+      "method": "github_api",
+      "name": "seanmonstar/reqwest",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "seanmonstar/warp",
+      "github_id": 140609832,
+      "method": "github_api",
+      "name": "seanmonstar/warp",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "seaofvoices/darklua",
+      "github_id": 561588556,
+      "method": "github_api",
+      "name": "seaofvoices/darklua",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "seaql/sea-orm",
+      "github_id": 337322967,
+      "method": "github_api",
+      "name": "seaql/sea-orm",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "seaql/sea-query",
+      "github_id": 321860000,
+      "method": "github_api",
+      "name": "seaql/sea-query",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "serde-rs/serde",
+      "github_id": 14367737,
+      "method": "github_api",
+      "name": "serde-rs/serde",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "servo/html5ever",
+      "github_id": 17691231,
+      "method": "github_api",
+      "name": "servo/html5ever",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "servo/rust-url",
+      "github_id": 14934771,
+      "method": "github_api",
+      "name": "servo/rust-url",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "rust-openssl/rust-openssl",
+      "github_id": 15500883,
+      "method": "github_api",
+      "name": "sfackler/rust-openssl",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "rust-postgres/rust-postgres",
+      "github_id": 11599760,
+      "method": "github_api",
+      "name": "sfackler/rust-postgres",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "sharkdp/bat",
+      "github_id": 130464961,
+      "method": "github_api",
+      "name": "sharkdp/bat",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "sharkdp/fd",
+      "github_id": 90793418,
+      "method": "github_api",
+      "name": "sharkdp/fd",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "sharkdp/numbat",
+      "github_id": 517024127,
+      "method": "github_api",
+      "name": "sharkdp/numbat",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "sharksforarms/deku",
+      "github_id": 248276860,
+      "method": "github_api",
+      "name": "sharksforarms/deku",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "shell-pool/shpool",
+      "github_id": 764840732,
+      "method": "github_api",
+      "name": "shell-pool/shpool",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "shepmaster/snafu",
+      "github_id": 167827177,
+      "method": "github_api",
+      "name": "shepmaster/snafu",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "shiika-lang/shiika",
+      "github_id": 112225642,
+      "method": "github_api",
+      "name": "shiika-lang/shiika",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "oxipng/oxipng",
+      "github_id": 49436331,
+      "method": "github_api",
+      "name": "shssoichiro/oxipng",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "sigoden/dufs",
+      "github_id": 496605552,
+      "method": "github_api",
+      "name": "sigoden/dufs",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "slawlor/ractor",
+      "github_id": 584833604,
+      "method": "github_api",
+      "name": "slawlor/ractor",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "solana-labs/solana-program-library",
+      "github_id": 267940560,
+      "method": "github_api",
+      "name": "solana-labs/solana-program-library",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "sourcefrog/cargo-mutants",
+      "github_id": 404409118,
+      "method": "github_api",
+      "name": "sourcefrog/cargo-mutants",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "spinframework/spin",
+      "github_id": 423679664,
+      "method": "github_api",
+      "name": "spinframework/spin",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "starship/starship",
+      "github_id": 178991158,
+      "method": "github_api",
+      "name": "starship/starship",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "static-web-server/static-web-server",
+      "github_id": 205869004,
+      "method": "github_api",
+      "name": "static-web-server/static-web-server",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "stebalien/tempfile",
+      "github_id": 33832372,
+      "method": "github_api",
+      "name": "stebalien/tempfile",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "stellar/rs-soroban-env",
+      "github_id": 485615821,
+      "method": "github_api",
+      "name": "stellar/rs-soroban-env",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "sunng87/handlebars-rust",
+      "github_id": 28298785,
+      "method": "github_api",
+      "name": "sunng87/handlebars-rust",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "svenstaro/miniserve",
+      "github_id": 131135585,
+      "method": "github_api",
+      "name": "svenstaro/miniserve",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "swc-project/swc",
+      "github_id": 115110181,
+      "method": "github_api",
+      "name": "swc-project/swc",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "swellaby/rusty-hook",
+      "github_id": 163228329,
+      "method": "github_api",
+      "name": "swellaby/rusty-hook",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "tafia/quick-xml",
+      "github_id": 50503287,
+      "method": "github_api",
+      "name": "tafia/quick-xml",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "taiki-e/cargo-hack",
+      "github_id": 218368572,
+      "method": "github_api",
+      "name": "taiki-e/cargo-hack",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "taiki-e/cargo-llvm-cov",
+      "github_id": 330211847,
+      "method": "github_api",
+      "name": "taiki-e/cargo-llvm-cov",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "tauri-apps/tauri",
+      "github_id": 196701619,
+      "method": "github_api",
+      "name": "tauri-apps/tauri",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "tealdeer-rs/tealdeer",
+      "github_id": 48739367,
+      "method": "github_api",
+      "name": "tealdeer-rs/tealdeer",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "teddriggs/darling",
+      "github_id": 89984100,
+      "method": "github_api",
+      "name": "teddriggs/darling",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "thealgorithms/python",
+      "github_id": 63476337,
+      "method": "github_api",
+      "name": "thealgorithms/python",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "thomasdezeeuw/a10",
+      "github_id": 386929179,
+      "method": "github_api",
+      "name": "thomasdezeeuw/a10",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "tokio-rs/bytes",
+      "github_id": 30062547,
+      "method": "github_api",
+      "name": "tokio-rs/bytes",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "tokio-rs/mio",
+      "github_id": 23138984,
+      "method": "github_api",
+      "name": "tokio-rs/mio",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "tokio-rs/tokio",
+      "github_id": 67836789,
+      "method": "github_api",
+      "name": "tokio-rs/tokio",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "tokio-rs/tracing",
+      "github_id": 165289175,
+      "method": "github_api",
+      "name": "tokio-rs/tracing",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "tomekpiotrowski/lets_expect",
+      "github_id": 552731047,
+      "method": "github_api",
+      "name": "tomekpiotrowski/lets_expect",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "toml-rs/toml",
+      "github_id": 95902102,
+      "method": "github_api",
+      "name": "toml-rs/toml",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "toml-rs/toml-rs",
+      "github_id": 21056223,
+      "method": "github_api",
+      "name": "toml-rs/toml-rs",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "tower-rs/tower",
+      "github_id": 98244646,
+      "method": "github_api",
+      "name": "tower-rs/tower",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "trifectatechfoundation/sudo-rs",
+      "github_id": 577397570,
+      "method": "github_api",
+      "name": "trifectatechfoundation/sudo-rs",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "tursodatabase/turso",
+      "github_id": 683347556,
+      "method": "github_api",
+      "name": "tursodatabase/limbo",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "tursodatabase/turso",
+      "github_id": 683347556,
+      "method": "github_api",
+      "name": "tursodatabase/turso",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "nickel-lang/nickel",
+      "github_id": 164738063,
+      "method": "github_api",
+      "name": "tweag/nickel",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "typst/hayagriva",
+      "github_id": 299312912,
+      "method": "github_api",
+      "name": "typst/hayagriva",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "typstyle-rs/typstyle",
+      "github_id": 769440884,
+      "method": "github_api",
+      "name": "typstyle-rs/typstyle",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "use-ink/ink",
+      "github_id": 161224066,
+      "method": "github_api",
+      "name": "use-ink/ink",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "uutils/procps",
+      "github_id": 743744937,
+      "method": "github_api",
+      "name": "uutils/procps",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "veryl-lang/veryl",
+      "github_id": 575770340,
+      "method": "github_api",
+      "name": "veryl-lang/veryl",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "vhdl-ls/rust_hdl",
+      "github_id": 156651214,
+      "method": "github_api",
+      "name": "vhdl-ls/rust_hdl",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "volta-cli/volta",
+      "github_id": 104796770,
+      "method": "github_api",
+      "name": "volta-cli/volta",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "paperclip-rs/paperclip",
+      "github_id": 187155079,
+      "method": "github_api",
+      "name": "wafflespeanut/paperclip",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "wasm-bindgen/wasm-bindgen",
+      "github_id": 114685405,
+      "method": "github_api",
+      "name": "wasm-bindgen/wasm-bindgen",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "wasm-bindgen/wasm-pack",
+      "github_id": 121253762,
+      "method": "github_api",
+      "name": "wasm-bindgen/wasm-pack",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "wild-linker/wild",
+      "github_id": 752839399,
+      "method": "github_api",
+      "name": "wild-linker/wild",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "winnow-rs/winnow",
+      "github_id": 549624941,
+      "method": "github_api",
+      "name": "winnow-rs/winnow",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "wizardsardine/liana",
+      "github_id": 516003390,
+      "method": "github_api",
+      "name": "wizardsardine/liana",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "zizmorcore/zizmor",
+      "github_id": 844670429,
+      "method": "github_api",
+      "name": "woodruffw/zizmor",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "worksapplications/sudachi.rs",
+      "github_id": 223582157,
+      "method": "github_api",
+      "name": "worksapplications/sudachi.rs",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "xampprocky/tokei",
+      "github_id": 36323226,
+      "method": "github_api",
+      "name": "xampprocky/tokei",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "xd009642/tarpaulin",
+      "github_id": 87561381,
+      "method": "github_api",
+      "name": "xd009642/tarpaulin",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "y2z/monolith",
+      "github_id": 82530909,
+      "method": "github_api",
+      "name": "y2z/monolith",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "yshavit/mdq",
+      "github_id": 805931732,
+      "method": "github_api",
+      "name": "yshavit/mdq",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "z-galaxy/zbus",
+      "github_id": 639304056,
+      "method": "github_api",
+      "name": "z-galaxy/zbus",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "zcash/librustzcash",
+      "github_id": 85334928,
+      "method": "github_api",
+      "name": "zcash/librustzcash",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "zcashfoundation/frost",
+      "github_id": 437862440,
+      "method": "github_api",
+      "name": "zcashfoundation/frost",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "zcashfoundation/zebra",
+      "github_id": 205255683,
+      "method": "github_api",
+      "name": "zcashfoundation/zebra",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "zhiburt/tabled",
+      "github_id": 242960969,
+      "method": "github_api",
+      "name": "zhiburt/tabled",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "zizmorcore/zizmor",
+      "github_id": 844670429,
+      "method": "github_api",
+      "name": "zizmorcore/zizmor",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    },
+    {
+      "canonical": "zkat/miette",
+      "github_id": 392161911,
+      "method": "github_api",
+      "name": "zkat/miette",
+      "resolved_at": "2026-10-19T01:28:28Z"
+    }
+  ],
+  "schema_version": "repo-alias-cache-v1",
+  "updated_at": "2026-10-19T01:28:28Z"
+}

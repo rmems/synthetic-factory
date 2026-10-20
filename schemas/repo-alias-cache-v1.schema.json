@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "repo-alias-cache-v1.schema.json",
+  "title": "Synthetic Factory Repository Alias Cache v1",
+  "description": "Shape of config/eval-exclusion/repo-aliases.json (#494): the offline, timestamped record of where each repository name resolved, so compose canonicalizes renames and transfers without touching the network. pipelines/eval_exclusion_aliases.py is the authoritative loader: it also requires canonical exact-JSON bytes, entries sorted by unique name, every resolved_at no later than updated_at, and a closed cache in which every canonical target has its own self-entry. scripts/refresh_repo_aliases.py writes github_api entries through gh api repos/<owner>/<name>.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "updated_at", "entries"],
+  "$defs": {
+    "repo": { "$ref": "actor-provenance-v1.schema.json#/$defs/canonicalRepo" },
+    "timestamp": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+    }
+  },
+  "properties": {
+    "schema_version": { "const": "repo-alias-cache-v1" },
+    "updated_at": { "$ref": "#/$defs/timestamp" },
+    "entries": {
+      "type": "array",
+      "items": {
+        "oneOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "canonical", "method", "resolved_at", "github_id"],
+            "properties": {
+              "name": { "$ref": "#/$defs/repo" },
+              "canonical": { "$ref": "#/$defs/repo" },
+              "method": { "const": "github_api" },
+              "resolved_at": { "$ref": "#/$defs/timestamp" },
+              "github_id": { "type": "integer", "minimum": 1 }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "canonical", "method", "resolved_at", "evidence"],
+            "properties": {
+              "name": { "$ref": "#/$defs/repo" },
+              "canonical": { "$ref": "#/$defs/repo" },
+              "method": {
+                "const": "reviewed_source_pin",
+                "description": "The canonical name is asserted by a committed, reviewed source catalog named in evidence; no GitHub API call was made."
+              },
+              "resolved_at": { "$ref": "#/$defs/timestamp" },
+              "evidence": { "type": "string", "minLength": 1 }
+            }
+          }
+        ]
+      }
+    }
+  }
+}

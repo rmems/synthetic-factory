@@ -34,13 +34,14 @@ def run(argv: list[str] | None = None) -> int:
         except PlanValidationError as exc:
             print(str(exc), file=sys.stderr)
             return 2
+        counts = loaded.counts()
         payload: dict[str, Any] = {
             "family_prefix": loaded.family_prefix,
             "factory": loaded.factory,
             "slice": loaded.slice,
             "label": loaded.label,
             "run_label": loaded.run_label,
-            "counts": loaded.counts(),
+            "counts": counts,
             "mills": [
                 {
                     "id": m.mill_id,
@@ -57,7 +58,6 @@ def run(argv: list[str] | None = None) -> int:
         if args.json:
             print(json.dumps(payload, indent=2, sort_keys=True))
         else:
-            counts = payload["counts"]
             print(
                 f"slice {loaded.slice} {loaded.label}: "
                 f"{counts['mills']} mills, {counts['rounds']} rounds, "

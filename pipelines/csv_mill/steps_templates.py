@@ -1,5 +1,7 @@
 """Declarative episode steps preserved from the reviewed CSV mill templates."""
 
+from typing import TypedDict
+
 from ._contract import bind_import_twin
 
 TEST_COMMAND = "{test} -q --tb=short"
@@ -7,7 +9,17 @@ SOURCE_PATH = "{src}"
 PRIMARY_DOCUMENT = "{doc}"
 SECONDARY_DOCUMENT = "{doc2}"
 
-EPISODES = {
+
+class EpisodeTemplate(TypedDict):
+    """One arm's prose templates and its fixed reward components."""
+
+    goal: str
+    plan: str
+    outcome: str
+    reward: dict[str, bool | int]
+
+
+EPISODES: dict[bool, EpisodeTemplate] = {
     True: {
         "goal": "Honor leftover leftover leftover {keep}; {naive} is not the index.",
         "plan": "Read {short}, try first patch, then leftover leftover leftover {keep}.",

@@ -608,6 +608,8 @@ def discover_legacy_frontier(factory_dir: Path):
             round_number = 1
         else:
             continue
+        if not round_in_range(round_number):
+            continue  # a round with no marker label can never be reserved, so it is not a frontier
         by_round[round_number] = by_round.get(round_number, 0) + valid_legacy_file(path)
     return _highest_round_meeting_quota(by_round, quota)
 
@@ -618,7 +620,13 @@ def _highest_round_meeting_quota(by_round: dict[int, int], quota: int) -> int:
 
 
 def _round_has_transaction_marker(factory_dir: Path, round_number: int) -> bool:
-    """True when a regular publishing or completion marker owns the round."""
+    """True when a regular publishing or completion marker owns the round.
+
+    Read-only scanners meet any ``batch-r<digits>`` name; a round with no marker
+    label cannot have a marker, so it is unowned rather than an error.
+    """
+    if not round_in_range(round_number):
+        return False
     markers = marker_paths(factory_dir, round_number)
     return any(
         _is_regular_file(marker) for marker in (markers["publishing"], markers["complete"])
@@ -637,7 +645,7 @@ def discover_unmarked_legacy_frontier(factory_dir: Path):
         if match is None:
             continue
         round_number = int(match.group(1))
-        if _round_has_transaction_marker(factory_dir, round_number):
+        if not round_in_range(round_number) or _round_has_transaction_marker(factory_dir, round_number):
             continue
         records, problems = validate_legacy_payload(path, factory_dir, round_number)
         if not problems:
@@ -847,8 +855,29 @@ def legacy_baseline_jsonl_paths(factory_dir: Path, baseline: int):
     ]
 
 
+MAX_ROUND_NUMBER = 9999
+_EXACT_INT = (int,)  # exact type: bool and every other int subclass are refused
+# Fixed allowlist of marker labels: a marker filename never embeds caller text, only one of
+# these constants, so a caller-supplied round can select a label but cannot shape a path.
+_ROUND_LABELS = tuple(f"{number:02d}" for number in range(MAX_ROUND_NUMBER + 1))
+
+
+def round_in_range(round_number: int) -> bool:
+    """True for an exact integer round that has a marker label."""
+    return type(round_number) in _EXACT_INT and 0 <= round_number <= MAX_ROUND_NUMBER
+
+
+def round_label(round_number: int) -> str:
+    """Return the zero-padded marker label for an exact in-range round integer."""
+    if not round_in_range(round_number):
+        raise TransactionError(
+            f"round must be an integer between 0 and {MAX_ROUND_NUMBER}: {round_number!r}"
+        )
+    return _ROUND_LABELS[round_number]
+
+
 def marker_paths(factory_dir: Path, round_number: int):
-    rr = f"{round_number:02d}"
+    rr = round_label(round_number)
     return {
         "reservation": factory_dir / f"ROUND-r{rr}.reserved.json",
         "publishing": factory_dir / f"ROUND-r{rr}.publishing.json",

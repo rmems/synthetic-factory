@@ -28,6 +28,7 @@ if str(_PIPELINES) not in sys.path:
     sys.path.insert(0, str(_PIPELINES))
 
 import compose_curated  # noqa: E402
+import compose_eval_gate  # noqa: E402
 from dataclasses import dataclass  # noqa: E402
 from export_compose_manifest import (  # noqa: E402
     _authenticate_compose_manifest,
@@ -114,6 +115,10 @@ def _require_compose_contract(summary: dict[str, Any], curated_root: Path) -> No
         str(curated_root.resolve()),
         "COMPOSE.json: destination does not name this curated root",
     )
+    try:
+        compose_eval_gate.require_published(summary)
+    except compose_curated.ComposeError as exc:
+        raise ExportError(str(exc)) from exc
 
 
 def _authenticated_compose_summary(
@@ -431,6 +436,7 @@ def _exported_compose_metadata(
 
     if "oracle_selection" in authenticated.summary:
         metadata["oracle_selection"] = authenticated.summary["oracle_selection"]
+    metadata[compose_eval_gate.SUMMARY_KEY] = authenticated.summary[compose_eval_gate.SUMMARY_KEY]
     return metadata
 
 

@@ -81,6 +81,31 @@ The contract every new generator must meet is the "Generator rule"
 (formerly `AGENTS.md`, retired in [#184]; preserved
 [at the tag](https://github.com/rmems/synthetic-factory/blob/legacy-prompt-factory-v0.2/AGENTS.md)).
 
+A public dataset can ship a machine-readable `rights.json` sidecar, validated
+by `pipelines/rights_document.py` (strict JSON, exact field set, closed
+vocabularies; anything else raises at load). Schema `0.1.0` is the
+hosted-frontier route: provider, channel, model, terms evidence, and a
+decision that must equal the sealed hosted authorization. Schema `0.2.0` adds
+the procedural route (`source_type: procedural`,
+`pipelines/rights_document_procedural.py`) for a dataset produced by a
+procedural registry row (`python-function-repair-factory`, `oracle-grounded`):
+the document names the row (`path_id`, `payload_factory`, `generator`,
+`generator_version`), repeats its `intended_use`, `project_training_policy`,
+`source_license_evidence`, catalog pins (`catalog_id`, `catalog_sha256`,
+`programs_sha256`) and `procedural_policy_sha256` exactly as the loaded
+registry states them, and declares `release_license: apache-2.0` and
+`training_ready: false`. Hosted documents stay at `0.1.0`, and a `0.2.0`
+document that is not procedural is refused. When `release-status.json`
+declares `rights_record: "rights.json"`, `pipelines/verify_hf_release.py`
+fetches the sidecar and requires it to validate, name the repository, and
+agree with the `intended_use` / `project_training_policy` that
+`release-status.json` restates; a procedural sidecar must also match the
+card's `license`, the `LICENSE` text, and `release-status.json` on the release
+license and `training_ready`. A release whose `rights_record` is null keeps
+the earlier contract. The sidecar grants nothing: training eligibility remains
+the registry row plus the fresh replay and completed-round gates, and
+publication authority is separate.
+
 ## Public dataset family
 
 Dataset payloads are published separately on Hugging Face. This code repository
@@ -401,7 +426,28 @@ Compose writes a brand-new destination:
 | `records/<factory>/<file>.jsonl` | curated payload — the only subtree the audit reads |
 | `manifest/compose-manifest.jsonl` | one entry per source record: source hashes, per-lane transform name/version, action, reason codes, output hash |
 | `manifest/reward-sidecars.jsonl` | reversible copies of every source reward |
-| `COMPOSE.json` | counts, exclusions by reason code, output digests, audit result |
+| `COMPOSE.json` | counts, exclusions by reason code, output digests, audit result, and the `eval_exclusion` block (sha256 of both exclusion lists and of the alias cache) |
+
+**Eval denylist / do-not-train gate (#494).** After the lanes decide a line,
+compose runs `pipelines/compose_eval_gate.py` over it, and export replays the
+same gate. A retained record that names a public source repository
+(`code_repair` upstream at `scenario.source.upstream.repository`, or a
+`real_public_engineering` record's `environment.source_repo`) is canonicalized
+offline: lowercased, then resolved through the committed, timestamped alias
+cache `config/eval-exclusion/repo-aliases.json` (renames and transfers; compose
+never calls GitHub). The canonical `owner/name`, `program_id`, and `task_id` are
+then matched as whole values against `config/eval-exclusion/eval-denylist.json`
+and `config/eval-exclusion/do-not-train.json`. A match is excluded with
+`compose.eval_denylisted` or `compose.do_not_train_listed`; a repository that is
+missing, malformed, or absent from the cache is excluded with
+`compose.source_repo_unresolved` or `compose.source_repo_invalid`. An invalid
+list or cache raises at import. `COMPOSE.json` and export `provenance.json`
+record all three file digests, and export refuses a compose made under
+different lists. `scripts/refresh_repo_aliases.py` is the operator step that
+resolves names through `gh api repos/<owner>/<name>` into a new cache file for
+review. The committed lists are reviewed: the eval denylist names 23 canonical
+repositories and the do-not-train list names 19. `repo-aliases.json` is a
+381-entry cache resolved through the GitHub API on 2026-10-19T01:28:28Z.
 
 Export writes `data/curated/…` (byte-identical payload),
 `data/viewer/records.parquet` (`{source_file, source_line, record_json}`,

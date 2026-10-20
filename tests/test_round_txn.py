@@ -315,35 +315,39 @@ class RoundTransaction(unittest.TestCase):
             ("version", 3),
             ("commit_point", "ROUND-r99.complete.json"),
         ):
-            with self.subTest(field=field), tempfile.TemporaryDirectory() as td:
-                factory = self.factory(td)
-                reservation = round_txn.reserve(factory, 1, 1)
-                self.fill_stage(reservation, [thalamic(f"resume-{field}")])
-                real_link = round_txn.os.link
-                calls = {"count": 0}
+            with self.subTest(field=field):
+                self._assert_resume_rejects_corrupted_field(field, value)
 
-                def interrupt_completion_link(*args, **kwargs):
-                    calls["count"] += 1
-                    if calls["count"] == 3:
-                        raise OSError("simulated interruption")
-                    return real_link(*args, **kwargs)
+    def _assert_resume_rejects_corrupted_field(self, field, value):
+        with tempfile.TemporaryDirectory() as td:
+            factory = self.factory(td)
+            reservation = round_txn.reserve(factory, 1, 1)
+            self.fill_stage(reservation, [thalamic(f"resume-{field}")])
+            real_link = round_txn.os.link
+            calls = {"count": 0}
 
-                with (
-                    mock.patch.object(round_txn.os, "link", side_effect=interrupt_completion_link),
-                    self.assertRaisesRegex(OSError, "simulated interruption"),
-                ):
-                    round_txn.publish(factory, 1, reservation["token"])
+            def interrupt_completion_link(*args, **kwargs):
+                calls["count"] += 1
+                if calls["count"] == 3:
+                    raise OSError("simulated interruption")
+                return real_link(*args, **kwargs)
 
-                publishing = factory / "ROUND-r01.publishing.json"
-                payload = json.loads(publishing.read_text())
-                payload[field] = value
-                publishing.write_text(json.dumps(payload) + "\n")
+            with (
+                mock.patch.object(round_txn.os, "link", side_effect=interrupt_completion_link),
+                self.assertRaisesRegex(OSError, "simulated interruption"),
+            ):
+                round_txn.publish(factory, 1, reservation["token"])
 
-                with self.assertRaisesRegex(
-                    round_txn.TransactionError, "publishing plan conflicts"
-                ):
-                    round_txn.publish(factory, 1, reservation["token"])
-                self.assertFalse((factory / "ROUND-r01.complete.json").exists())
+            publishing = factory / "ROUND-r01.publishing.json"
+            payload = json.loads(publishing.read_text())
+            payload[field] = value
+            publishing.write_text(json.dumps(payload) + "\n")
+
+            with self.assertRaisesRegex(
+                round_txn.TransactionError, "publishing plan conflicts"
+            ):
+                round_txn.publish(factory, 1, reservation["token"])
+            self.assertFalse((factory / "ROUND-r01.complete.json").exists())
 
     def test_abort_waits_for_inflight_publish_before_cleaning_stage(self):
         with tempfile.TemporaryDirectory() as td:
@@ -1394,6 +1398,40 @@ class RoundTransaction(unittest.TestCase):
 
             with self.assertRaisesRegex(round_txn.TransactionError, "identity mismatch"):
                 round_txn.reserve(factory, 2, 1)
+
+
+class RefusalCauses(unittest.TestCase):
+    """A refusal raised while handling an OS error keeps that error as its cause."""
+
+    def test_publication_race_chains_the_link_collision(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source = root / "staged.jsonl"
+            source.write_bytes(b"staged\n")
+            destination = root / "published.jsonl"
+            destination.write_bytes(b"other writer\n")
+            expected = round_txn.file_sha256(source)
+            with self.assertRaisesRegex(round_txn.TransactionError, "publication race") as caught:
+                round_txn.copy_verified_exclusive(source, destination, expected)
+            self.assertIsInstance(caught.exception.__cause__, FileExistsError)
+            self.assertEqual(destination.read_bytes(), b"other writer\n")
+            # The temporary publishing copy is removed, and nothing else is left behind.
+            self.assertEqual(
+                sorted(p.name for p in root.iterdir()), ["published.jsonl", "staged.jsonl"]
+            )
+
+    def test_vanished_marker_mode_chains_the_exclusive_create_collision(self):
+        with tempfile.TemporaryDirectory() as td:
+            factory = Path(td) / "factory"
+            factory.mkdir()
+            collision = FileExistsError("mode file created concurrently")
+            with (
+                mock.patch.object(round_txn, "write_exclusive_json", side_effect=collision),
+                self.assertRaisesRegex(round_txn.TransactionError, "disappeared") as caught,
+            ):
+                round_txn.ensure_marker_mode(factory)
+            self.assertIs(caught.exception.__cause__, collision)
+            self.assertEqual(list(factory.iterdir()), [])
 
 
 if __name__ == "__main__":

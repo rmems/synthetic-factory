@@ -10,7 +10,6 @@ refuse an existing destination and any path that names or aliases
 
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -18,14 +17,17 @@ from typing import Any
 from . import catalog as cat
 from ._contract import (
     FINDING_CRITIQUE_TOO_SHORT,
-    FINDING_DESTINATION_EXISTS,
-    FINDING_DESTINATION_UNDER_RAW,
     bind_import_twin,
     dumps_exact_json,
     is_under_raw,
     refuse,
     refuse_when,
 )
+
+if __package__ and __package__.startswith("pipelines."):
+    from ..run_writer import exclusive_run as _exclusive_run
+else:
+    from run_writer import exclusive_run as _exclusive_run
 
 if __package__ and __package__.startswith("pipelines."):
     from .. import code_review_preference_tail as crp_tail
@@ -55,118 +57,9 @@ class RunRequest:
     out_dir: Path
 
 
-def _check_destination(out_dir: Path) -> None:
-    refuse_when(
-        is_under_raw(out_dir),
-        FINDING_DESTINATION_UNDER_RAW,
-        f"{out_dir} names or aliases the raw tree",
-    )
-    refuse_when(out_dir.exists(), FINDING_DESTINATION_EXISTS, f"{out_dir} already exists")
-
-
-@dataclass(frozen=True)
-class _CreatedFile:
-    """A file this invocation created, addressed by its pinned parent."""
-
-    parent_fd: int
-    name: str
-
-
-def _opened_path(fd: int, fallback: Path) -> Path:
-    try:
-        return Path(os.readlink(f"/proc/self/fd/{fd}"))
-    except OSError:
-        return fallback
-
-
-def _refuse_raw_path(path: Path, origin: Path) -> None:
-    refuse_when(
-        is_under_raw(path),
-        FINDING_DESTINATION_UNDER_RAW,
-        f"{origin} names or aliases the raw tree",
-    )
-
-
-def _open_destination_parent(path: Path) -> int:
-    flags = os.O_RDONLY | os.O_DIRECTORY | getattr(os, "O_NOFOLLOW", 0)
-    return os.open(path.parent, flags)
-
-
-def _refuse_opened_parent(parent_fd: int, destination: Path) -> None:
-    opened = _opened_path(parent_fd, destination.parent)
-    _refuse_raw_path(opened, destination)
-    _refuse_raw_path(opened / destination.name, destination)
-
-
-def _create_exclusive_file(
-    parent_fd: int, name: str, payload: str, created: list[_CreatedFile]
-) -> None:
-    descriptor = os.open(
-        name,
-        os.O_WRONLY | os.O_CREAT | os.O_EXCL,
-        0o644,
-        dir_fd=parent_fd,
-    )
-    created.append(_CreatedFile(parent_fd, name))
-    with os.fdopen(descriptor, "w", encoding="utf-8", newline="\n") as handle:
-        handle.write(payload)
-        handle.flush()
-        os.fsync(handle.fileno())
-
-
-def _fsync_destination(dest_fd: int, parent_fd: int) -> None:
-    os.fsync(dest_fd)
-    os.fsync(parent_fd)
-
-
-def _unlink_created(created: list[_CreatedFile]) -> None:
-    for entry in created:
-        try:
-            os.unlink(entry.name, dir_fd=entry.parent_fd)
-        except FileNotFoundError:
-            pass
-
-
-def _rmdir_created(parent_fd: int, name: str) -> None:
-    try:
-        os.rmdir(name, dir_fd=parent_fd)
-    except OSError:
-        pass
-
-
-def _write_run(out_dir: Path, files: tuple[tuple[str, str], ...]) -> None:
-    """Create ``out_dir`` and its files exclusively; unlink a partial tree."""
-
-    out_dir.parent.mkdir(parents=True, exist_ok=True)
-    parent_fd = _open_destination_parent(out_dir)
-    dest_fd = -1
-    created: list[_CreatedFile] = []
-    created_dir = False
-    try:
-        _refuse_opened_parent(parent_fd, out_dir)
-        try:
-            os.mkdir(out_dir.name, dir_fd=parent_fd)
-        except FileExistsError:
-            refuse(FINDING_DESTINATION_EXISTS, f"{out_dir} already exists")
-        created_dir = True
-        dest_fd = os.open(
-            out_dir.name,
-            os.O_RDONLY | os.O_DIRECTORY | getattr(os, "O_NOFOLLOW", 0),
-            dir_fd=parent_fd,
-        )
-        _refuse_raw_path(_opened_path(dest_fd, out_dir), out_dir)
-        for name, payload in files:
-            _create_exclusive_file(dest_fd, name, payload, created)
-        _fsync_destination(dest_fd, parent_fd)
-    except BaseException:
-        _unlink_created(created)
-        if created_dir:
-            _rmdir_created(parent_fd, out_dir.name)
-        raise
-    finally:
-        if dest_fd >= 0:
-            os.close(dest_fd)
-        os.close(parent_fd)
+_check_destination, _write_run, _fsync_destination = _exclusive_run.bind(
+    globals(), _exclusive_run.Guards(refuse, refuse_when, is_under_raw)
+)
 
 
 def _step(

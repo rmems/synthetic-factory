@@ -18,6 +18,35 @@ permissions:
   contents: read
 
 jobs:
+  lint:
+    name: ruff correctness gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.14"
+
+      - name: Install ruff
+        run: python -m pip install --only-binary ':all:' ruff==0.16.8
+
+      # Correctness rules only: pyflakes, syntax errors, pylint errors and bugbear. The default
+      # rule set still reports thousands of style findings and is not gated. Ignored here:
+      # PLE0605 (the `"...".split()` __all__ idiom), B007 (flags a for/else loop variable
+      # read after `break`), B008 (frozen-dataclass defaults), B009/B010 (style) and B905
+      # (strict= would change zip() behaviour).
+      - name: Lint correctness rules
+        run: >-
+          ruff check --no-cache --output-format=github
+          --select F,E9,PLE,B --ignore PLE0605,B007,B008,B009,B010,B905
+          pipelines scripts tests .claude/skills/run-synthetic-factory/driver.py
+
   oracle:
     name: crate-backed oracle
     runs-on: ubuntu-latest
@@ -109,21 +138,29 @@ jobs:
 
   test:
     name: unittest (Python 3.14)
-    needs: [shard, oracle]
-    # A failed or cancelled prerequisite would otherwise skip this job, and a
-    # skipped required check reads as passing to branch protection.
-    if: always()
+    needs: [lint, shard, oracle]
+    # A failed prerequisite would otherwise skip this job, and a skipped required
+    # check reads as passing to branch protection, so it runs unless the whole run
+    # was cancelled (a superseded push), in which case it is skipped with the rest.
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     # Gate, coverage combine and Codecov upload take about a minute.
     timeout-minutes: 10
     steps:
-      - name: Require every shard and the oracle job to have succeeded
+      # Strict on purpose: a shard that hits timeout-minutes, or one cancelled from the
+      # UI while the run continues, reports `cancelled` here and must keep this job red.
+      # One comparison per command, so each failing result stops the step under `bash -e`
+      # on its own, independent of where it sits in the script.
+      - name: Require the lint gate, every shard and the oracle job to have succeeded
         env:
+          LINT_RESULT: ${{ needs.lint.result }}
           SHARD_RESULT: ${{ needs.shard.result }}
           ORACLE_RESULT: ${{ needs.oracle.result }}
         run: |
-          echo "shard=$SHARD_RESULT oracle=$ORACLE_RESULT"
-          test "$SHARD_RESULT" = success && test "$ORACLE_RESULT" = success
+          echo "lint=$LINT_RESULT shard=$SHARD_RESULT oracle=$ORACLE_RESULT"
+          test "$LINT_RESULT" = success
+          test "$SHARD_RESULT" = success
+          test "$ORACLE_RESULT" = success
 
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

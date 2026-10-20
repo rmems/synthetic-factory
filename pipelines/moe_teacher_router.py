@@ -259,7 +259,7 @@ class RecordedTeacherRouter(RouterOracle):
                 routing_entropy=float(layer["routing_entropy"]),
             )
         except (KeyError, TypeError, ValueError) as exc:
-            raise oc.OracleUnavailable(self.name, f"malformed layer data: {exc}")
+            raise oc.OracleUnavailable(self.name, f"malformed layer data: {exc}") from exc
 
     def _require_recorded_dimensions(self, layers: list[Any]) -> None:
         problem = self._teacher_identity_problem()

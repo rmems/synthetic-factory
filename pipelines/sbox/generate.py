@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import ast
 from collections.abc import Callable, Mapping, Sequence
-from typing import Any
+from typing import Any, cast
 
 from ._contract import (
     FINDING_AST_NOT_A_PLANT,
@@ -167,7 +167,7 @@ def _require_str(values: Mapping[str, Any], field: str, where: str) -> str:
         FINDING_FIELD_INVALID,
         f"{where}.{field} must be a non-empty string, got {shown(value)}",
     )
-    return value
+    return cast(str, value)
 
 
 def _require_int(values: Mapping[str, Any], field: str, where: str) -> int:
@@ -182,7 +182,7 @@ def _require_int(values: Mapping[str, Any], field: str, where: str) -> int:
         FINDING_FIELD_INVALID,
         f"{where}.{field} must be an int, got {shown(value)}",
     )
-    return value
+    return cast(int, value)
 
 
 def _runtime_identity(values: Mapping[str, Any], where: str) -> dict[str, Any]:

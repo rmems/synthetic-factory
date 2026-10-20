@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import html
 import json
+import re
 import sys
 from pathlib import Path
 from typing import Any, Mapping
@@ -84,13 +85,13 @@ _MARKDOWN_SYNTAX_ESCAPES = (
     ("_", "&#95;"),
 )
 
-_BARE_URL_PREFIXES = ("http://", "https://")
+_BARE_URL_PREFIX = re.compile(r"https?://")
 
 
 def _is_plain_url(text: str) -> bool:
     """Return whether a scalar would activate GFM's bare-URL autolinker."""
     lowered = text.lower()
-    return lowered.startswith(_BARE_URL_PREFIXES) and not any(
+    return _BARE_URL_PREFIX.match(lowered) is not None and not any(
         marker in text for marker in ("`", "|", "\r", "\n")
     )
 

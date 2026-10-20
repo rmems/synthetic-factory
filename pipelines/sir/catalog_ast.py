@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import ast
 import hashlib
+from collections.abc import Iterable
 from itertools import takewhile
 from typing import Any
 
@@ -94,18 +95,18 @@ def _require_import_name(name: str | None) -> None:
 def assignment_of(node: ast.stmt) -> tuple[str | None, ast.AST | None]:
     """Return ``(name, value)`` for a simple ``NAME = value`` statement."""
 
-    targets = _assignment_targets(node)
+    targets, value = _assignment_parts(node)
     if len(targets) == 1 and isinstance(targets[0], ast.Name):
-        return targets[0].id, node.value
+        return targets[0].id, value
     return None, None
 
 
-def _assignment_targets(node: ast.stmt) -> list[ast.expr]:
+def _assignment_parts(node: ast.stmt) -> tuple[list[ast.expr], ast.expr | None]:
     if isinstance(node, ast.AnnAssign):
-        return [node.target]
+        return [node.target], node.value
     if isinstance(node, ast.Assign):
-        return node.targets
-    return []
+        return node.targets, node.value
+    return [], None
 
 
 def _evaluated_scope_nodes(node: ast.AST) -> list[ast.AST] | None:
@@ -125,7 +126,7 @@ def _evaluated_scope_nodes(node: ast.AST) -> list[ast.AST] | None:
 def module_evaluation_nodes(node: ast.AST):
     """Walk import-time syntax, excluding deferred bodies and exact script guards."""
     yield node
-    children = _evaluated_scope_nodes(node)
+    children: Iterable[ast.AST] | None = _evaluated_scope_nodes(node)
     if children is None:
         children = ast.iter_child_nodes(node)
     for child in _catalog_statements(children):

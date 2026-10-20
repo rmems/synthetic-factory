@@ -54,7 +54,7 @@ def _candidate_lines(run_dir: Path, summary: Mapping[str, Any]) -> list[str]:
     except UnicodeDecodeError as exc:
         raise cv.ToolWorldRefusal(
             cv.FINDING_RECORD_MALFORMED, f"{CANDIDATES_FILENAME} is not UTF-8 ({exc.reason})"
-        )
+        ) from exc
 
 
 def _parse_record(line: str, number: int) -> Mapping[str, Any]:

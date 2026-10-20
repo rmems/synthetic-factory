@@ -1,0 +1,48 @@
+{
+  "entries": [
+    {
+      "canonical": "clap-rs/clap",
+      "evidence": "test fixture: asserted for the gate tests, not resolved through the GitHub API",
+      "method": "reviewed_source_pin",
+      "name": "clap-rs/clap",
+      "resolved_at": "2026-10-18T00:00:00Z"
+    },
+    {
+      "canonical": "fixture-owner/do-not-train",
+      "evidence": "test fixture: asserted for the gate tests, not resolved through the GitHub API",
+      "method": "reviewed_source_pin",
+      "name": "fixture-owner/do-not-train",
+      "resolved_at": "2026-10-18T00:00:00Z"
+    },
+    {
+      "canonical": "clap-rs/clap",
+      "evidence": "test fixture: asserted for the gate tests, not resolved through the GitHub API",
+      "method": "reviewed_source_pin",
+      "name": "kbknapp/clap-rs",
+      "resolved_at": "2026-10-18T00:00:00Z"
+    },
+    {
+      "canonical": "rmems/thalamic-relay",
+      "evidence": "test fixture: asserted for the gate tests, not resolved through the GitHub API",
+      "method": "reviewed_source_pin",
+      "name": "rmems/thalamic-relay",
+      "resolved_at": "2026-10-18T00:00:00Z"
+    },
+    {
+      "canonical": "rmems/thalamic-relay-trajectories",
+      "evidence": "test fixture: asserted for the gate tests, not resolved through the GitHub API",
+      "method": "reviewed_source_pin",
+      "name": "rmems/thalamic-relay-trajectories",
+      "resolved_at": "2026-10-18T00:00:00Z"
+    },
+    {
+      "canonical": "thealgorithms/python",
+      "evidence": "test fixture: asserted for the gate tests, not resolved through the GitHub API",
+      "method": "reviewed_source_pin",
+      "name": "thealgorithms/python",
+      "resolved_at": "2026-10-18T00:00:00Z"
+    }
+  ],
+  "schema_version": "repo-alias-cache-v1",
+  "updated_at": "2026-10-18T00:00:00Z"
+}
