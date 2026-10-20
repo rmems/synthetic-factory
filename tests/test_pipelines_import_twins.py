@@ -126,7 +126,15 @@ class FreshInterpreter(unittest.TestCase):
                 report = probe.in_fresh_interpreter(
                     probe.isolated_shim_report, order, THIN_CLI_SHIMS
                 )
-                assert_thin_shim_report(self, report)
+                self.assertEqual(sorted(report), sorted(THIN_CLI_SHIMS))
+                split_cli = sorted(shim for shim, facts in report.items() if not facts["one_cli"])
+                self.assertEqual(split_cli, [], "these shims expose a second cli object")
+                extra = {
+                    shim: sorted(set(facts["names"]) - THIN_SHIM_NAMES)
+                    for shim, facts in report.items()
+                    if not THIN_SHIM_NAMES.issuperset(facts["names"])
+                }
+                self.assertEqual(extra, {}, _THICK_SHIM)
 
 
 class InProcess(unittest.TestCase):
