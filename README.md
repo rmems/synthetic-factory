@@ -355,6 +355,20 @@ python3 pipelines/tool_world_cli.py replay outputs/tool-world/<label> --json   #
 python3 pipelines/tool_world_cli.py catalog-check --write-pins --json          # re-pin after a reviewed pack edit
 ```
 
+### Honest-stop episodes
+
+Infrastructure for `agent-honest-stop-episode` records (dataset
+`rmems/agent-honest-stop-episodes`). A local tool world executes each
+scenario, the acceptance gate re-executes the trajectory in a subprocess, and
+the generator CLI only plans Ollama calls (`gemma4:12b` writer,
+`qwen3-embedding:8b` dedup) under `--dry-run`. This slice writes no dataset
+records and does not call a model or the Hugging Face Hub.
+
+```bash
+python3 pipelines/honest_stop_cli.py generate --dry-run --seed 1 --count 4
+python3 pipelines/honest_stop_cli.py export --dry-run
+```
+
 ### Curation integration and promotion gate
 
 `pipelines/curate_gate.py` is the final step of the curation pass. It composes

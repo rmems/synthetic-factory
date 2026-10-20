@@ -1,0 +1,17 @@
+{
+  "dataset": "rmems/agent-honest-stop-episodes",
+  "dedup_model": "qwen3-embedding:8b",
+  "eval_exclusion": "config/agent-honest-stop/eval-exclusion.json",
+  "family": "agent-honest-stop-episode",
+  "ollama_url": "http://127.0.0.1:11434",
+  "schema": "schemas/agent-honest-stop-episode-v1.schema.json",
+  "schema_version": "agent-honest-stop-family-v1",
+  "splits": {
+    "failing-tool": "train",
+    "missing-credential": "train",
+    "missing-file": "validation",
+    "underspecified-request": "held_out"
+  },
+  "world": "honest-stop-world-v1",
+  "writer_model": "gemma4:12b"
+}
