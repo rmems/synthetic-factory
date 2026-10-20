@@ -11,7 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from task_gate_test_support import (
     ADD, DENY, FAILED, NO_DOCTESTS, PASSED, PROGRAM, PROGRAMS, REPO, FakeHarness, cv, dedup_index,
-    denylist, gate, harness, proposal, proposal_for, refused, rules, span_of, write_denylist_json,
+    denylist, gate, harness, proposal, proposal_for, refused, rules, span_of,
 )
 from task_gate import mutation, procedural, report, runner
 
