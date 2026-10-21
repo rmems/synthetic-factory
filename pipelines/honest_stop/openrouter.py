@@ -159,7 +159,11 @@ def _headers() -> dict[str, str]:
 
 def _authorized(url: str, body: dict) -> urllib.request.Request:
     payload = dumps_exact_json(body).encode("utf-8")
-    return urllib.request.Request(url, data=payload, method="POST", headers=_headers())
+    headers = _headers()
+    unredirected = headers.pop("Authorization")
+    http = urllib.request.Request(url, data=payload, method="POST", headers=headers)
+    http.add_unredirected_header("Authorization", unredirected)
+    return http
 
 
 def transport():

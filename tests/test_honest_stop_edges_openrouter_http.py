@@ -117,6 +117,11 @@ class OpenRouterHttpTests(unittest.TestCase):
         self.assertEqual(parsed, {"id": "cmpl"})
         self.assertEqual(timeout, cv.OPENROUTER_TIMEOUT_S)
         self.assertEqual(header, "Bearer " + marker)
+        self.assertNotIn("Authorization", http.headers)
+        redirected = urllib.request.HTTPRedirectHandler().redirect_request(
+            http, None, 302, "found", HTTPMessage(), "https://example.invalid/next"
+        )
+        self.assertIsNone(redirected.get_header("Authorization"))
         self.assertEqual(body["model"], cv.WRITER_MODEL)
         self.assertEqual(body["reasoning"], {"effort": "high"})
         self.assertEqual(body["seed"], 1)
