@@ -8,7 +8,7 @@ from .measure import blocker_verified, claim_holds
 from .provenance import actors_for, lineage_for
 from .replay import Replay
 from .scenarios import Scenario, by_id
-from .splits import FamilyConfig, load_family
+from .splits import load_family
 from .validate import validate_record
 from .world import World, execute
 
@@ -59,33 +59,32 @@ def _require_false_claim(holds: object) -> None:
     raise cv.FamilyError("scenario.counterfactual", "canonical counterfactual is not false")
 
 
-def _record_body(
-    scenario: Scenario,
-    steps: list[dict],
-    measured: bool,
-    family: FamilyConfig,
-    produced_at: str,
-    run_seed: int,
-) -> dict:
+def _context(scenario: Scenario) -> dict:
+    return {
+        "scenario_id": scenario.scenario_id,
+        "seed": scenario.seed,
+        "task_id": scenario.task_id,
+        "world": cv.WORLD,
+    }
+
+
+def _assemble(scenario: Scenario, steps: list[dict], measured: bool) -> dict:
     return {
         "record_id": f"stop-{scenario.scenario_id}-{scenario.seed}",
         "family": cv.FAMILY,
         "task": scenario.task,
-        "context": {
-            "scenario_id": scenario.scenario_id,
-            "seed": scenario.seed,
-            "task_id": scenario.task_id,
-            "world": cv.WORLD,
-        },
+        "context": _context(scenario),
         "trajectory": steps,
         "correct_action": {"type": scenario.action_type, "message": scenario.message},
         "counterfactual_fake_success": scenario.counterfactual,
         "result": {"verified_blocker": measured},
-        "provenance": {
-            "produced_at": produced_at,
-            "actors": actors_for(family.config_sha256),
-            "lineage": lineage_for(scenario, run_seed=run_seed, digest=family.config_sha256),
-        },
+    }
+
+
+def _provenance(scenario: Scenario, digest: str, run_seed: int) -> dict:
+    return {
+        "actors": actors_for(digest),
+        "lineage": lineage_for(scenario, run_seed=run_seed, digest=digest),
     }
 
 
@@ -106,7 +105,11 @@ def build_record(scenario_id: str, *, produced_at: str, run_seed: int) -> dict:
     replayed = Replay(scenario, world, observations, None)
     measured = _require_blocker(blocker_verified(replayed))
     _require_false_claim(claim_holds(scenario.counterfactual, world, observations, scenario))
-    record = _record_body(scenario, steps, measured, family, produced_at, run_seed)
+    record = _assemble(scenario, steps, measured)
+    record["provenance"] = {
+        "produced_at": produced_at,
+        **_provenance(scenario, family.config_sha256, run_seed),
+    }
     _require_shape(record)
     return record
 
