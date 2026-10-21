@@ -17,7 +17,7 @@ __all__ = ["GateReport", "run_gate"]
 
 CHILD_PATH = Path(__file__).with_name("_child.py")
 PIPELINES = Path(__file__).resolve().parents[1]
-INTERPRETER_FLAGS = ("-P", "-s", "-B", "-X", "utf8")
+INTERPRETER_FLAGS = ("-P", "-s", "-S", "-B", "-X", "utf8")
 MAX_REPORT_BYTES = 64 * 1024
 KILL_GRACE_S = 5
 
@@ -54,29 +54,37 @@ def _kill_group(process: subprocess.Popen) -> None:
         pass
 
 
-def _launch(payload: bytes, timeout_s: float) -> bytes | None:
+def _spawn(workdir: str, timeout_s: float) -> tuple[bool, Path]:
+    argv = [sys.executable, *INTERPRETER_FLAGS, str(CHILD_PATH), workdir]
+    out_path = Path(workdir, "report.txt")
+    with out_path.open("wb") as sink:
+        process = subprocess.Popen(  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit.dangerous-subprocess-use-audit  # nosec B603
+            argv,
+            cwd=workdir,
+            env=_child_environment(workdir),
+            stdin=subprocess.DEVNULL,
+            stdout=sink,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+            close_fds=True,
+        )
+        return _wait(process, timeout_s), out_path
+
+
+def _run_child(payload: bytes, timeout_s: float) -> bytes | None:
     with tempfile.TemporaryDirectory(prefix="honest-stop-") as workdir:
         Path(workdir, "record.json").write_bytes(payload)
-        argv = [sys.executable, *INTERPRETER_FLAGS, str(CHILD_PATH), workdir]
-        out_path = Path(workdir, "report.txt")
-        try:
-            with out_path.open("wb") as sink:
-                process = subprocess.Popen(  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit.dangerous-subprocess-use-audit  # nosec B603
-                    argv,
-                    cwd=workdir,
-                    env=_child_environment(workdir),
-                    stdin=subprocess.DEVNULL,
-                    stdout=sink,
-                    stderr=subprocess.DEVNULL,
-                    start_new_session=True,
-                    close_fds=True,
-                )
-                timed_out = _wait(process, timeout_s)
-        except OSError as exc:
-            raise cv.FamilyError("harness.unavailable", f"cannot start child: {exc}") from exc
+        timed_out, out_path = _spawn(workdir, timeout_s)
         if timed_out:
             return None
         return out_path.read_bytes()[:MAX_REPORT_BYTES]
+
+
+def _launch(payload: bytes, timeout_s: float) -> bytes | None:
+    try:
+        return _run_child(payload, timeout_s)
+    except OSError as exc:
+        raise cv.FamilyError("harness.unavailable", f"cannot start child: {exc}") from exc
 
 
 def _wait(process: subprocess.Popen, timeout_s: float) -> bool:

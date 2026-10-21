@@ -9,7 +9,7 @@ from . import vocabulary as cv
 from ._contract import bind_import_twin
 from .replay import Replay, replay_record
 from .scenarios import Scenario
-from .splits import config_digest
+from .splits import load_family
 from .validate import validate_record
 from .world import (
     MISSING_CREDENTIALS,
@@ -222,13 +222,23 @@ def _verdict(record: dict, replayed: Replay, digest: str) -> dict:
     return _measurement(record, replayed, scenario, world)
 
 
-def judge(record: dict) -> dict:
-    """Validate, replay, and decide. The digest is read from the family file here."""
+def _registration_digest() -> tuple[str | None, str | None]:
+    try:
+        return load_family().config_sha256, None
+    except cv.FamilyError as exc:
+        return None, exc.code
 
+
+def judge(record: dict) -> dict:
+    """Validate, replay, and decide. The digest comes from the checked registration."""
+
+    digest, failure = _registration_digest()
+    if failure is not None or digest is None:
+        return _reject(failure or "config.unreadable")
     replayed, code = _prepare(record)
     if code or replayed is None:
         return _reject(code or "record.type")
-    return _verdict(record, replayed, config_digest())
+    return _verdict(record, replayed, digest)
 
 
 bind_import_twin(__name__)
