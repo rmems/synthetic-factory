@@ -42,7 +42,7 @@ def main(argv: list[str]) -> int:
         return 0
     try:
         record = load_strict_json(payload.decode("utf-8"))
-    except UnicodeError, ValueError, RecursionError:
+    except ValueError, RecursionError:
         _reject("record.json")
         return 0
     _emit(judge(record))

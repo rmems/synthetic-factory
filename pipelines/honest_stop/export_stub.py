@@ -29,13 +29,13 @@ def _rows(family) -> list[dict]:
 
 
 def export_plan() -> dict:
-    """The export contract: zero records, no token, publish left off."""
+    """The export contract: zero records, Hub upload left off."""
 
     family = load_family()
     return {
         "dataset": family.dataset,
         "publish": False,
-        "huggingface_token": None,
+        "hub_upload": False,
         "records": 0,
         "config_sha256": family.config_sha256,
         "exclusion_sha256": family.exclusion_sha256,

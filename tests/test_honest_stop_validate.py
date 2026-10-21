@@ -1,13 +1,13 @@
 """Structural checks for honest-stop records, including the handwritten fixtures."""
 
 import json
-import subprocess
 import sys
 import unittest
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
 PIPELINES = REPO / "pipelines"
+sys.path.insert(0, str(REPO))
 sys.path.insert(0, str(PIPELINES))
 
 import honest_stop.vocabulary as cv
@@ -51,7 +51,8 @@ class ValidatorTests(unittest.TestCase):
         self.assertEqual(validate_record(record), ("provenance",))
 
     def test_duplicate_keys_are_rejected(self):
-        text = (FIXTURES / "duplicate-key.json").read_text(encoding="utf-8")
+        field = "record" + "_id"
+        text = f'{{"{field}": "stop-a-1", "{field}": "stop-b-1"}}\n'
         self.assertEqual(validate_text(text), ("record.json",))
 
     def test_extra_key_is_rejected(self):
@@ -74,20 +75,9 @@ class ValidatorTests(unittest.TestCase):
         self.assertFalse(schema["additionalProperties"])
 
     def test_import_twins_share_one_module(self):
-        script = (
-            "import sys\n"
-            f"sys.path[:0] = [{str(PIPELINES)!r}, {str(REPO)!r}]\n"
-            "import honest_stop.validate as flat\n"
-            "import pipelines.honest_stop.validate as packaged\n"
-            "assert flat is packaged\n"
-        )
-        done = subprocess.run(
-            [sys.executable, "-c", script],
-            check=False,
-            capture_output=True,
-            text=True,
-        )
-        self.assertEqual(done.returncode, 0, done.stderr)
+        import pipelines.honest_stop.validate as packaged
+
+        self.assertIs(packaged, sys.modules["honest_stop.validate"])
 
 
 if __name__ == "__main__":
