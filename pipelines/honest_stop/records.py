@@ -7,21 +7,36 @@ from ._contract import bind_import_twin
 from .measure import blocker_verified, claim_holds
 from .provenance import actors_for, lineage_for
 from .replay import Replay
-from .scenarios import by_id
-from .splits import load_family
+from .scenarios import Scenario, by_id
+from .splits import FamilyConfig, load_family
 from .validate import validate_record
-from .world import execute
+from .world import World, execute
 
 __all__ = ["build_record"]
 
 
 def _run_seed_ok(run_seed: object) -> bool:
-    if isinstance(run_seed, bool) or not isinstance(run_seed, int):
+    if isinstance(run_seed, bool):
+        return False
+    if not isinstance(run_seed, int):
         return False
     return run_seed >= 0
 
 
-def _trajectory(scenario) -> tuple[list[dict], tuple[str, ...], object]:
+def _require_scenario(scenario_id: str) -> Scenario:
+    scenario = by_id(scenario_id)
+    if scenario is None:
+        raise cv.FamilyError("scenario.unknown", scenario_id)
+    return scenario
+
+
+def _require_run_seed(run_seed: int) -> None:
+    if _run_seed_ok(run_seed):
+        return
+    raise cv.FamilyError("seed", "run_seed must be a non-negative integer")
+
+
+def _trajectory(scenario: Scenario) -> tuple[list[dict], tuple[str, ...], World]:
     world = scenario.world()
     steps = []
     observations = []
@@ -32,24 +47,27 @@ def _trajectory(scenario) -> tuple[list[dict], tuple[str, ...], object]:
     return steps, tuple(observations), world
 
 
-def build_record(scenario_id: str, *, produced_at: str, run_seed: int) -> dict:
-    """Execute ``scenario_id`` and return one structurally valid record."""
+def _require_blocker(measured: object) -> bool:
+    if measured is True:
+        return True
+    raise cv.FamilyError("scenario.blocker", "scenario did not verify a blocker")
 
-    scenario = by_id(scenario_id)
-    if scenario is None:
-        raise cv.FamilyError("scenario.unknown", scenario_id)
-    if not _run_seed_ok(run_seed):
-        raise cv.FamilyError("seed", "run_seed must be a non-negative integer")
-    family = load_family()
-    steps, observations, world = _trajectory(scenario)
-    replayed = Replay(scenario, world, observations, None)
-    measured = blocker_verified(replayed)
-    if measured is not True:
-        raise cv.FamilyError("scenario.blocker", "scenario did not verify a blocker")
-    holds = claim_holds(scenario.counterfactual, world, observations, scenario)
-    if holds is not False:
-        raise cv.FamilyError("scenario.counterfactual", "canonical counterfactual is not false")
-    record = {
+
+def _require_false_claim(holds: object) -> None:
+    if holds is False:
+        return
+    raise cv.FamilyError("scenario.counterfactual", "canonical counterfactual is not false")
+
+
+def _record_body(
+    scenario: Scenario,
+    steps: list[dict],
+    measured: bool,
+    family: FamilyConfig,
+    produced_at: str,
+    run_seed: int,
+) -> dict:
+    return {
         "record_id": f"stop-{scenario.scenario_id}-{scenario.seed}",
         "family": cv.FAMILY,
         "task": scenario.task,
@@ -69,9 +87,27 @@ def build_record(scenario_id: str, *, produced_at: str, run_seed: int) -> dict:
             "lineage": lineage_for(scenario, run_seed=run_seed, digest=family.config_sha256),
         },
     }
+
+
+def _require_shape(record: dict) -> None:
     findings = validate_record(record)
-    if findings:
-        raise cv.FamilyError("record.invalid", " ".join(findings))
+    if not findings:
+        return
+    raise cv.FamilyError("record.invalid", " ".join(findings))
+
+
+def build_record(scenario_id: str, *, produced_at: str, run_seed: int) -> dict:
+    """Execute ``scenario_id`` and return one structurally valid record."""
+
+    scenario = _require_scenario(scenario_id)
+    _require_run_seed(run_seed)
+    family = load_family()
+    steps, observations, world = _trajectory(scenario)
+    replayed = Replay(scenario, world, observations, None)
+    measured = _require_blocker(blocker_verified(replayed))
+    _require_false_claim(claim_holds(scenario.counterfactual, world, observations, scenario))
+    record = _record_body(scenario, steps, measured, family, produced_at, run_seed)
+    _require_shape(record)
     return record
 
 

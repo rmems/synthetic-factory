@@ -8,7 +8,7 @@ from pathlib import Path
 
 from . import vocabulary as cv
 from ._contract import bind_import_twin, load_strict_json
-from .scenarios import catalog
+from .scenarios import Scenario, catalog
 
 __all__ = ["FamilyConfig", "config_digest", "load_family"]
 
@@ -28,6 +28,10 @@ _FAMILY_KEYS = (
     "writer_model",
 )
 _EXCLUSION_KEYS = ("list", "note", "schema_version", "task_ids")
+_EXCLUSION_CODE = "config.exclusion"
+_SPLITS_CODE = "config.splits"
+_PIN_CODE = "config.pin"
+_JSON_CODE = "config.json"
 
 
 @dataclass(frozen=True)
@@ -48,27 +52,43 @@ def _sha(payload: bytes) -> str:
     return "sha256:" + hashlib.sha256(payload).hexdigest()
 
 
-def _read(path: Path) -> tuple[dict, str]:
+def _read_bytes(path: Path) -> bytes:
     try:
-        payload = path.read_bytes()
+        return path.read_bytes()
     except OSError as exc:
         raise cv.FamilyError("config.unreadable", f"{path}: {exc}") from exc
+
+
+def _decode(path: Path, payload: bytes) -> object:
     try:
-        document = load_strict_json(payload.decode("utf-8"))
-    except (UnicodeError, ValueError, RecursionError) as exc:
-        raise cv.FamilyError("config.json", f"{path}: {exc}") from exc
-    if not isinstance(document, dict):
-        raise cv.FamilyError("config.json", f"{path}: expected an object")
-    return document, _sha(payload)
+        return load_strict_json(payload.decode("utf-8"))
+    except (ValueError, RecursionError) as exc:
+        raise cv.FamilyError(_JSON_CODE, f"{path}: {exc}") from exc
+
+
+def _as_object(path: Path, document: object) -> dict:
+    if isinstance(document, dict):
+        return document
+    raise cv.FamilyError(_JSON_CODE, f"{path}: expected an object")
+
+
+def _read(path: Path) -> tuple[dict, str]:
+    payload = _read_bytes(path)
+    return _as_object(path, _decode(path, payload)), _sha(payload)
+
+
+def _same_keys(document: dict, keys: tuple[str, ...]) -> bool:
+    return set(document) == set(keys)
 
 
 def _require_keys(document: dict, keys: tuple[str, ...], code: str) -> None:
-    if set(document) != set(keys):
-        raise cv.FamilyError(code, "unexpected keys")
+    if _same_keys(document, keys):
+        return
+    raise cv.FamilyError(code, "unexpected keys")
 
 
-def _pins(document: dict) -> None:
-    expected = {
+def _expected_pins() -> dict[str, str]:
+    return {
         "schema_version": cv.FAMILY_SCHEMA,
         "family": cv.FAMILY,
         "dataset": cv.DATASET,
@@ -79,62 +99,167 @@ def _pins(document: dict) -> None:
         "schema": cv.SCHEMA_RELATIVE,
         "eval_exclusion": "config/agent-honest-stop/eval-exclusion.json",
     }
-    for key, value in expected.items():
-        if document.get(key) != value:
-            raise cv.FamilyError("config.pin", f"{key} does not match the family pin")
-    if not (REPO_ROOT / cv.SCHEMA_RELATIVE).is_file():
-        raise cv.FamilyError("config.schema", "schema file is missing")
 
 
-def _splits(document: dict) -> dict[str, str]:
-    raw = document["splits"]
-    if not isinstance(raw, dict):
-        raise cv.FamilyError("config.splits", "splits must be an object")
-    scenario_ids = {item.scenario_id for item in catalog()}
-    if set(raw) != scenario_ids:
-        raise cv.FamilyError("config.splits", "splits must name each scenario once")
-    splits = {}
+def _pin_matches(document: dict, key: str, value: str) -> None:
+    if document.get(key) == value:
+        return
+    raise cv.FamilyError(_PIN_CODE, f"{key} does not match the family pin")
+
+
+def _pins(document: dict) -> None:
+    for key, value in _expected_pins().items():
+        _pin_matches(document, key, value)
+
+
+def _require_schema_file() -> None:
+    if (REPO_ROOT / cv.SCHEMA_RELATIVE).is_file():
+        return
+    raise cv.FamilyError("config.schema", "schema file is missing")
+
+
+def _require_mapping(raw: object) -> dict:
+    if isinstance(raw, dict):
+        return raw
+    raise cv.FamilyError(_SPLITS_CODE, "splits must be an object")
+
+
+def _scenario_ids() -> set[str]:
+    return {item.scenario_id for item in catalog()}
+
+
+def _require_scenario_keys(raw: dict, scenario_ids: set[str]) -> None:
+    if set(raw) == scenario_ids:
+        return
+    raise cv.FamilyError(_SPLITS_CODE, "splits must name each scenario once")
+
+
+def _known_split(split: object) -> bool:
+    if not isinstance(split, str):
+        return False
+    return split in cv.SPLITS
+
+
+def _require_known_split(scenario_id: str, split: object) -> str:
+    if _known_split(split):
+        return str(split)
+    raise cv.FamilyError(_SPLITS_CODE, f"unknown split for {scenario_id}")
+
+
+def _collect_splits(raw: dict) -> dict[str, str]:
+    splits: dict[str, str] = {}
     for scenario_id, split in raw.items():
-        if split not in cv.SPLITS:
-            raise cv.FamilyError("config.splits", f"unknown split for {scenario_id}")
-        splits[scenario_id] = split
+        splits[scenario_id] = _require_known_split(scenario_id, split)
     return splits
 
 
+def _splits(document: dict) -> dict[str, str]:
+    raw = _require_mapping(document["splits"])
+    _require_scenario_keys(raw, _scenario_ids())
+    return _collect_splits(raw)
+
+
+def _as_list(value: object) -> list:
+    if isinstance(value, list):
+        return value
+    raise cv.FamilyError(_EXCLUSION_CODE, "task_ids must be a non-empty list")
+
+
+def _nonempty(value: list) -> None:
+    if value:
+        return
+    raise cv.FamilyError(_EXCLUSION_CODE, "task_ids must be a non-empty list")
+
+
+def _text_item(item: object) -> bool:
+    if not isinstance(item, str):
+        return False
+    return bool(item.strip())
+
+
+def _all_text(value: list) -> None:
+    if all(_text_item(item) for item in value):
+        return
+    raise cv.FamilyError(_EXCLUSION_CODE, "task ids must be text")
+
+
+def _unique(value: list) -> bool:
+    return len(value) == len(set(value))
+
+
+def _sorted_rows(value: list) -> bool:
+    return value == sorted(value)
+
+
+def _unique_sorted(value: list) -> bool:
+    if not _unique(value):
+        return False
+    return _sorted_rows(value)
+
+
+def _require_unique_sorted(value: list) -> None:
+    if _unique_sorted(value):
+        return
+    raise cv.FamilyError(_EXCLUSION_CODE, "task_ids must be sorted unique text")
+
+
 def _task_ids(value: object) -> frozenset[str]:
-    if not isinstance(value, list) or not value:
-        raise cv.FamilyError("config.exclusion", "task_ids must be a non-empty list")
-    if not all(isinstance(item, str) and item.strip() for item in value):
-        raise cv.FamilyError("config.exclusion", "task ids must be text")
-    if len(value) != len(set(value)) or value != sorted(value):
-        raise cv.FamilyError("config.exclusion", "task_ids must be sorted unique text")
-    return frozenset(value)
+    rows = _as_list(value)
+    _nonempty(rows)
+    _all_text(rows)
+    _require_unique_sorted(rows)
+    return frozenset(rows)
+
+
+def _version_ok(document: dict) -> bool:
+    if document["schema_version"] != cv.EXCLUSION_SCHEMA:
+        return False
+    return document["list"] == cv.EXCLUSION_LIST
+
+
+def _require_version(document: dict) -> None:
+    if _version_ok(document):
+        return
+    raise cv.FamilyError(_EXCLUSION_CODE, "exclusion list is not the held-out list")
+
+
+def _note_ok(value: object) -> bool:
+    if not isinstance(value, str):
+        return False
+    return bool(value.strip())
+
+
+def _require_note(document: dict) -> None:
+    if _note_ok(document["note"]):
+        return
+    raise cv.FamilyError(_EXCLUSION_CODE, "note must be text")
 
 
 def _exclusion(document: dict) -> frozenset[str]:
-    _require_keys(document, _EXCLUSION_KEYS, "config.exclusion")
-    version_ok = document["schema_version"] == cv.EXCLUSION_SCHEMA
-    if not version_ok or document["list"] != cv.EXCLUSION_LIST:
-        raise cv.FamilyError("config.exclusion", "exclusion list is not the held-out list")
-    if not isinstance(document["note"], str) or not document["note"].strip():
-        raise cv.FamilyError("config.exclusion", "note must be text")
+    _require_keys(document, _EXCLUSION_KEYS, _EXCLUSION_CODE)
+    _require_version(document)
+    _require_note(document)
     return _task_ids(document["task_ids"])
 
 
+def _is_held_out(scenario: Scenario, splits: dict[str, str]) -> bool:
+    return splits[scenario.scenario_id] == cv.HELD_OUT
+
+
+def _held_ids(splits: dict[str, str]) -> set[str]:
+    return {item.task_id for item in catalog() if _is_held_out(item, splits)}
+
+
 def _held_out_agrees(splits: dict[str, str], excluded: frozenset[str]) -> None:
-    held = {item.task_id for item in catalog() if splits[item.scenario_id] == cv.HELD_OUT}
-    if held != excluded:
-        raise cv.FamilyError("config.exclusion", "held-out splits and task ids disagree")
+    if _held_ids(splits) == excluded:
+        return
+    raise cv.FamilyError(_EXCLUSION_CODE, "held-out splits and task ids disagree")
 
 
 def config_digest() -> str:
     """SHA-256 of the family registration bytes."""
 
-    try:
-        payload = FAMILY_PATH.read_bytes()
-    except OSError as exc:
-        raise cv.FamilyError("config.unreadable", str(exc)) from exc
-    return _sha(payload)
+    return _sha(_read_bytes(FAMILY_PATH))
 
 
 def load_family() -> FamilyConfig:
@@ -143,6 +268,7 @@ def load_family() -> FamilyConfig:
     document, digest = _read(FAMILY_PATH)
     _require_keys(document, _FAMILY_KEYS, "config.keys")
     _pins(document)
+    _require_schema_file()
     splits = _splits(document)
     exclusion, exclusion_digest = _read(EXCLUSION_PATH)
     excluded = _exclusion(exclusion)

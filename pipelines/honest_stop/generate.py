@@ -18,11 +18,19 @@ def _nonneg(value: object) -> bool:
     return value >= 0
 
 
+def _in_range(count: int, limit: int) -> bool:
+    if not _nonneg(count):
+        return False
+    if count < 1:
+        return False
+    return count <= limit
+
+
 def _choose(count: int) -> tuple[Scenario, ...]:
     rows = catalog()
-    if not _nonneg(count) or count < 1 or count > len(rows):
-        raise cv.FamilyError("count", f"count must be in 1..{len(rows)}")
-    return rows[:count]
+    if _in_range(count, len(rows)):
+        return rows[:count]
+    raise cv.FamilyError("count", f"count must be in 1..{len(rows)}")
 
 
 def _models() -> list[dict]:
