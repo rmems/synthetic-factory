@@ -66,8 +66,16 @@ def _generate(args: argparse.Namespace) -> int:
     return _emit(plan)
 
 
+def _record_text(path: Path) -> tuple[str, ...]:
+    try:
+        text = path.read_bytes().decode("utf-8")
+    except UnicodeDecodeError:
+        return ("record.json",)
+    return validate_text(text)
+
+
 def _validate(args: argparse.Namespace) -> int:
-    codes = validate_text(args.record.read_text(encoding="utf-8"))
+    codes = _record_text(args.record)
     _emit({"ok": not codes, "codes": list(codes)})
     return 0 if not codes else 1
 

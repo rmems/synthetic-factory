@@ -1,6 +1,6 @@
 """Child interpreter for the acceptance gate.
 
-Started as ``python -P -s -B -X utf8 _child.py WORKDIR`` with ``PYTHONPATH`` set
+Started as ``python -P -s -S -B -X utf8 _child.py WORKDIR`` with ``PYTHONPATH`` set
 to ``pipelines/`` and a scrubbed environment. It imports this package itself, so
 a patch in the parent process does not apply.
 """

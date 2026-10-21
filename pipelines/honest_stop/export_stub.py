@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import shutil
 from pathlib import Path
 
 from . import vocabulary as cv
@@ -50,6 +51,11 @@ def publish(*_args: object, **_kwargs: object) -> None:
     raise cv.FamilyError("export.publish_disabled", "Hugging Face publish is disabled")
 
 
+def _write_plan(out: Path, plan: dict) -> None:
+    target = out / "EXPORT.json"
+    target.write_text(dumps_exact_json(plan, indent=2) + "\n", encoding="utf-8")
+
+
 def write_stub(out: Path) -> dict:
     """Write ``EXPORT.json`` into a new directory. The file lists zero records."""
 
@@ -59,8 +65,11 @@ def write_stub(out: Path) -> dict:
         raise cv.FamilyError("export.raw", "refusing outputs/raw")
     plan = export_plan()
     out.mkdir(parents=True)
-    target = out / "EXPORT.json"
-    target.write_text(dumps_exact_json(plan, indent=2) + "\n", encoding="utf-8")
+    try:
+        _write_plan(out, plan)
+    except OSError:
+        shutil.rmtree(out, ignore_errors=True)
+        raise
     return plan
 
 
