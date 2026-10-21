@@ -1,7 +1,8 @@
 """CLI for the honest-stop family.
 
-``generate`` requires ``--dry-run`` and does not call a model. ``export`` refuses
-``--publish`` and any token. Exit 0 is success, 1 is a failed check, 2 is a refusal.
+``generate --dry-run`` plans the OpenRouter writer and records zero network calls.
+``export`` refuses ``--publish`` and any token. Exit 0 is success, 1 is a failed
+check, 2 is a refusal.
 """
 
 from __future__ import annotations
@@ -15,6 +16,7 @@ from ._contract import bind_import_twin, dumps_exact_json
 from .export_stub import export_plan, write_stub
 from .gate import check_bytes
 from .generate import dry_run_plan
+from .openrouter import Choice
 from .validate import validate_text
 
 __all__ = ["main", "run"]
@@ -36,6 +38,9 @@ def _add_generate(commands: argparse._SubParsersAction) -> None:
     generate.add_argument("--seed", type=int, required=True)
     generate.add_argument("--count", type=int, required=True)
     generate.add_argument("--produced-at", default=None)
+    generate.add_argument("--model", default=cv.WRITER_MODEL)
+    generate.add_argument("--reasoning-effort", default=cv.REASONING_EFFORT)
+    generate.add_argument("--secondary-writer", action="store_true")
 
 
 def _add_record_command(commands: argparse._SubParsersAction, name: str, help_text: str) -> None:
@@ -56,13 +61,22 @@ def _emit(payload: dict) -> int:
     return 0
 
 
+def _choice_from(args: argparse.Namespace) -> Choice:
+    return Choice(args.model, args.reasoning_effort, args.seed, args.secondary_writer)
+
+
 def _generate(args: argparse.Namespace) -> int:
     if not args.dry_run:
         raise cv.FamilyError(
             "live_generation_disabled",
             "pass --dry-run; this slice does not call a model or write records",
         )
-    plan = dry_run_plan(seed=args.seed, count=args.count, produced_at=args.produced_at)
+    plan = dry_run_plan(
+        seed=args.seed,
+        count=args.count,
+        produced_at=args.produced_at,
+        choice=_choice_from(args),
+    )
     return _emit(plan)
 
 
