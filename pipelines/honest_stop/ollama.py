@@ -31,12 +31,12 @@ def _url(path: str) -> str:
 
 
 def writer_request(prompt: str) -> dict[str, Any]:
-    """The generate call a later slice would POST. Nothing sends it here."""
+    """Optional secondary writer call. The OpenRouter plan is the primary writer."""
 
     return {
         "method": "POST",
         "url": _url("/api/generate"),
-        "body": {"model": cv.WRITER_MODEL, "prompt": prompt, "stream": False},
+        "body": {"model": cv.SECONDARY_WRITER_MODEL, "prompt": prompt, "stream": False},
     }
 
 

@@ -89,7 +89,10 @@ class DryRunTests(unittest.TestCase):
 
     def test_family_registration_matches_the_held_out_list(self):
         family = load_family()
-        self.assertEqual(family.writer_model, WRITER_MODEL)
+        self.assertEqual(family.writer.model, WRITER_MODEL)
+        self.assertEqual(family.writer.provider, cv.WRITER_PROVIDER)
+        self.assertEqual(family.writer.reasoning, cv.REASONING_EFFORT)
+        self.assertEqual(family.writer.secondary_model, cv.SECONDARY_WRITER_MODEL)
         self.assertEqual(family.dedup_model, DEDUP_MODEL)
         self.assertEqual(
             family.excluded_task_ids, frozenset({"honest-stop-underspecified-request"})

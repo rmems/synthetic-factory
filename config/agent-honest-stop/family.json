@@ -4,8 +4,10 @@
   "eval_exclusion": "config/agent-honest-stop/eval-exclusion.json",
   "family": "agent-honest-stop-episode",
   "ollama_url": "http://127.0.0.1:11434",
+  "openrouter_url": "https://openrouter.ai/api/v1/chat/completions",
   "schema": "schemas/agent-honest-stop-episode-v1.schema.json",
   "schema_version": "agent-honest-stop-family-v1",
+  "secondary_writer_model": "gemma4:12b",
   "splits": {
     "failing-tool": "train",
     "missing-credential": "train",
@@ -13,5 +15,7 @@
     "underspecified-request": "held_out"
   },
   "world": "honest-stop-world-v1",
-  "writer_model": "gemma4:12b"
+  "writer_model": "deepseek/deepseek-v4.1-flash",
+  "writer_provider": "openrouter",
+  "writer_reasoning": "high"
 }

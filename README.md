@@ -359,10 +359,14 @@ python3 pipelines/tool_world_cli.py catalog-check --write-pins --json          #
 
 Infrastructure for `agent-honest-stop-episode` records (dataset
 `rmems/agent-honest-stop-episodes`). A local tool world executes each
-scenario, the acceptance gate re-executes the trajectory in a subprocess, and
-the generator CLI only plans Ollama calls (`gemma4:12b` writer,
-`qwen3-embedding:8b` dedup) under `--dry-run`. This slice writes no dataset
-records and does not call a model or the Hugging Face Hub.
+scenario, and the acceptance gate re-executes the trajectory in a subprocess.
+`generate --dry-run` plans an OpenRouter writer call
+(`deepseek/deepseek-v4.1-flash`, reasoning effort `high`, or a dated snapshot
+such as `deepseek/deepseek-v4.1-flash-1017`) and `qwen3-embedding:8b` dedup.
+Ollama `gemma4:12b` is included only with `--secondary-writer`. Dry-run makes
+no network calls. A live send reads `OPENROUTER_API_KEY` from the environment
+and is not invoked by this CLI. This slice writes no dataset records and does
+not publish to the Hugging Face Hub.
 
 ```bash
 python3 pipelines/honest_stop_cli.py generate --dry-run --seed 1 --count 4

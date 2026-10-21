@@ -41,7 +41,7 @@ class PlanTests(unittest.TestCase):
                 with self.assertRaises(cv.FamilyError) as caught:
                     dry_run_plan(seed=1, count=count)
                 self.assertEqual(caught.exception.code, "count")
-        self.assertEqual(writer_request("plan")["body"]["model"], cv.WRITER_MODEL)
+        self.assertEqual(writer_request("plan")["body"]["model"], cv.SECONDARY_WRITER_MODEL)
         self.assertEqual(embedding_request("task")["body"]["model"], cv.DEDUP_MODEL)
         self.assertIs(transport(), urllib.request.urlopen)
         with self.assertRaises(cv.FamilyError) as caught:

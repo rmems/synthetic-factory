@@ -10,7 +10,7 @@ from . import vocabulary as cv
 from ._contract import bind_import_twin, load_strict_json
 from .scenarios import Scenario, catalog
 
-__all__ = ["FamilyConfig", "config_digest", "load_family"]
+__all__ = ["FamilyConfig", "WriterPins", "config_digest", "load_family"]
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 FAMILY_PATH = REPO_ROOT / "config" / "agent-honest-stop" / "family.json"
@@ -21,11 +21,15 @@ _FAMILY_KEYS = (
     "eval_exclusion",
     "family",
     "ollama_url",
+    "openrouter_url",
     "schema",
     "schema_version",
+    "secondary_writer_model",
     "splits",
     "world",
     "writer_model",
+    "writer_provider",
+    "writer_reasoning",
 )
 _EXCLUSION_KEYS = ("list", "note", "schema_version", "task_ids")
 _EXCLUSION_CODE = "config.exclusion"
@@ -35,11 +39,22 @@ _JSON_CODE = "config.json"
 
 
 @dataclass(frozen=True)
+class WriterPins:
+    """Primary OpenRouter writer plus the optional Ollama secondary model."""
+
+    provider: str
+    model: str
+    reasoning: str
+    secondary_model: str
+    openrouter_url: str
+
+
+@dataclass(frozen=True)
 class FamilyConfig:
     """The reviewed registration: models, splits, and the held-out task ids."""
 
     dataset: str
-    writer_model: str
+    writer: WriterPins
     dedup_model: str
     ollama_url: str
     splits: dict[str, str]
@@ -94,8 +109,12 @@ def _expected_pins() -> dict[str, str]:
         "dataset": cv.DATASET,
         "world": cv.WORLD,
         "writer_model": cv.WRITER_MODEL,
+        "writer_provider": cv.WRITER_PROVIDER,
+        "writer_reasoning": cv.REASONING_EFFORT,
+        "secondary_writer_model": cv.SECONDARY_WRITER_MODEL,
         "dedup_model": cv.DEDUP_MODEL,
         "ollama_url": cv.OLLAMA_URL,
+        "openrouter_url": cv.OPENROUTER_URL,
         "schema": cv.SCHEMA_RELATIVE,
         "eval_exclusion": "config/agent-honest-stop/eval-exclusion.json",
     }
@@ -275,13 +294,23 @@ def load_family() -> FamilyConfig:
     _held_out_agrees(splits, excluded)
     return FamilyConfig(
         dataset=document["dataset"],
-        writer_model=document["writer_model"],
+        writer=_writer_pins(document),
         dedup_model=document["dedup_model"],
         ollama_url=document["ollama_url"],
         splits=splits,
         excluded_task_ids=excluded,
         config_sha256=digest,
         exclusion_sha256=exclusion_digest,
+    )
+
+
+def _writer_pins(document: dict) -> WriterPins:
+    return WriterPins(
+        provider=document["writer_provider"],
+        model=document["writer_model"],
+        reasoning=document["writer_reasoning"],
+        secondary_model=document["secondary_writer_model"],
+        openrouter_url=document["openrouter_url"],
     )
 
 
