@@ -83,13 +83,22 @@ _WORKER_SOURCE = textwrap.dedent(
             return False
 
 
-    def exc_base(value):
-        for base in value.__mro__:
-            if base.__module__ != "builtins":
+    def exc_chain(value):
+        names = []
+        for base in value.__mro__[1:]:
+            if base is BaseException or base is object:
+                break
+            names.append(base.__name__)
+        return names
+
+
+    def describe_class(cls):
+        bases = []
+        for base in cls.__bases__:
+            if base is object:
                 continue
-            if issubclass(base, Exception):
-                return base.__name__
-        return "Exception"
+            bases.append(describe_class(base))
+        return {"oid": remember(cls), "name": cls.__name__, "bases": bases}
 
 
     def put(value):
@@ -120,15 +129,12 @@ _WORKER_SOURCE = textwrap.dedent(
         if isinstance(value, date):
             return {"kind": "date", "data": value.isoformat()}
         if is_exception(value):
-            return {"kind": "exc_type", "name": value.__name__, "base": exc_base(value)}
+            return {"kind": "exc_type", "name": value.__name__, "chain": exc_chain(value)}
         if isinstance(value, type):
-            return {"kind": "class", "oid": remember(value), "name": value.__name__}
-        return {
-            "kind": "obj",
-            "oid": remember(value),
-            "cls": remember(type(value)),
-            "name": type(value).__name__,
-        }
+            info = describe_class(value)
+            info["kind"] = "class"
+            return info
+        return {"kind": "obj", "oid": remember(value), "cls": describe_class(type(value))}
 
 
     def decode(value):
@@ -187,14 +193,14 @@ _WORKER_SOURCE = textwrap.dedent(
                 out = {
                     "kind": "error",
                     "type": "RuntimeError",
-                    "base": "Exception",
+                    "chain": ["Exception"],
                     "message": "bad op",
                 }
         except Exception as exc:
             out = {
                 "kind": "error",
                 "type": type(exc).__name__,
-                "base": exc_base(type(exc)),
+                "chain": exc_chain(type(exc)),
                 "message": str(exc),
             }
         reply(out)

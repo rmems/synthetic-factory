@@ -161,6 +161,37 @@ _Path("tests/counter.py").write_text(
 _FORGED_COUNTER_PLANTED_GRADER = _COUNTER_WITHOUT_SUB + _PLANTED_GRADER
 
 
+_HIERARCHY_PACK = {
+    "src/counter.py": (
+        "class Base:\n"
+        "    def size(self):\n"
+        "        return 1\n"
+        "class Counter(Base):\n"
+        "    def __init__(self, value):\n"
+        "        self.value = value\n"
+        "    def sub(self, delta):\n"
+        "        if delta > self.value:\n"
+        "            raise NegativeError('neg')\n"
+        "        return self.value - delta\n"
+        "class CounterError(ValueError):\n"
+        "    pass\n"
+        "class NegativeError(CounterError):\n"
+        "    pass\n"
+    ),
+    "tests/use.py": (
+        "import unittest\n"
+        "from counter import Base, Counter, CounterError\n"
+        "class T(unittest.TestCase):\n"
+        "    def test_hierarchy(self):\n"
+        "        self.assertIsInstance(Counter(1), Base)\n"
+        "        self.assertEqual(Counter(1).size(), 1)\n"
+        "        self.assertEqual(Counter(3).sub(1), 2)\n"
+        "        with self.assertRaises(CounterError):\n"
+        "            Counter(0).sub(1)\n"
+    ),
+}
+
+
 class OracleTrustBoundaryTests(unittest.TestCase):
     def test_patch_rejects_suite_pack_and_escape_paths(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -455,6 +486,9 @@ class OracleTrustBoundaryTests(unittest.TestCase):
                 ),
             },
         )
+
+    def test_candidate_hierarchy_is_preserved(self) -> None:
+        self._ok_files("use.py", _HIERARCHY_PACK)
 
     def test_candidate_base_exception_does_not_escape(self) -> None:
         report = self._run_reference_files(

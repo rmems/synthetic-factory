@@ -35,6 +35,12 @@ if __package__:  # pragma: no cover - package-child import path
 )
     from .vset_oracle_grade import grade_suite as _grade_suite
     from .vset_oracle_ids import declared_test_ids as _declared_test_ids
+    from .vset_oracle_layout import (
+        drop_added_src as _drop_added_src,
+        pack_sources as _pack_sources,
+        restore_suite_dir as _restore_suite_dir,
+        src_names as _src_names,
+    )
     from .vset_patch import apply_patch, escapes_work, illegal_work_relative
 else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
@@ -50,6 +56,12 @@ else:
 )
     from vset_oracle_grade import grade_suite as _grade_suite
     from vset_oracle_ids import declared_test_ids as _declared_test_ids
+    from vset_oracle_layout import (
+        drop_added_src as _drop_added_src,
+        pack_sources as _pack_sources,
+        restore_suite_dir as _restore_suite_dir,
+        src_names as _src_names,
+    )
     from vset_patch import apply_patch, escapes_work, illegal_work_relative
 
 def _oracle_module_name(relative: str) -> str:
@@ -63,85 +75,6 @@ def _resolve_under_work(work: Path, relative: str, *, code: str) -> Path:
     if escapes_work(work, dest):
         raise VSetValidationError(code, f"path escapes worktree {relative!r}")
     return dest
-
-
-def _restore_suite_dir(pack_dir: Path, work: Path, relative: str) -> None:
-    """Recopy every suite-folder module from the pristine pack.
-
-    Helpers next to a declared test are grader code. A candidate must not
-    be able to replace them between rounds.
-    """
-
-    folder = Path(relative).parent
-    source_dir = pack_dir / folder
-    dest_dir = work / folder
-    if not source_dir.is_dir():
-        return
-    dest_dir.mkdir(parents=True, exist_ok=True)
-    keep = {path.name for path in source_dir.glob("*.py")}
-    cache = dest_dir / "__pycache__"
-    if cache.is_dir():
-        shutil.rmtree(cache)
-    for path in dest_dir.glob("*.py"):
-        if path.name not in keep:
-            path.unlink()
-    for path in source_dir.glob("*.py"):
-        shutil.copyfile(path, dest_dir / path.name)
-
-
-def _src_names(work: Path) -> frozenset[str]:
-    folder = work / "src"
-    names: set[str] = set()
-    if not folder.is_dir():
-        return frozenset()
-    for path in folder.glob("*.py"):
-        names.add(path.stem)
-    for path in folder.iterdir():
-        if not path.is_dir():
-            continue
-        init = path / "__init__.py"
-        if not init.is_file():
-            continue
-        names.add(path.name)
-    return frozenset(names)
-
-
-def _drop_added_modules(folder: Path, keep: frozenset[str]) -> None:
-    for path in folder.glob("*.py"):
-        if path.stem not in keep:
-            path.unlink()
-
-
-def _drop_added_packages(folder: Path, keep: frozenset[str]) -> None:
-    for path in list(folder.iterdir()):
-        if not path.is_dir():
-            continue
-        if path.name in keep:
-            continue
-        init = path / "__init__.py"
-        if not init.is_file():
-            continue
-        shutil.rmtree(path)
-
-
-def _drop_added_src(work: Path, keep: frozenset[str]) -> None:
-    folder = work / "src"
-    if not folder.is_dir():
-        return
-    _drop_added_modules(folder, keep)
-    _drop_added_packages(folder, keep)
-
-
-def _pack_sources(pack_dir: Path, folder: str) -> dict[str, str]:
-    """Suite text from the pristine pack, never from the candidate worktree."""
-
-    source_dir = pack_dir / folder
-    found: dict[str, str] = {}
-    if not source_dir.is_dir():
-        return found
-    for path in sorted(source_dir.glob("*.py")):
-        found[path.name] = path.read_text(encoding="utf-8")
-    return found
 
 
 def _restore_oracle_file(pack_dir: Path, work: Path, relative: str) -> None:

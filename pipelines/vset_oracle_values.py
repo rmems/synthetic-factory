@@ -42,32 +42,35 @@ def _builtin_exception(name: str) -> type[Exception] | None:
     return found
 
 
-def _exception_base(name: str) -> type[Exception]:
-    found = _builtin_exception(name)
-    if found is None:
+def _exception_parent(chain: tuple[str, ...]) -> type[Exception]:
+    if not chain:
         return Exception
-    return found
+    builtin = _builtin_exception(chain[0])
+    if builtin is not None:
+        if len(chain) == 1:
+            return builtin
+    return exception_type(chain[0], chain[1:])
 
 
-def exception_type(name: str, base_name: str) -> type[Exception]:
-    """Return one real exception class for a candidate exception type."""
+def exception_type(name: str, chain: tuple[str, ...]) -> type[Exception]:
+    """Return one real exception class, preserving the candidate MRO."""
 
-    key = (name, base_name)
+    key = (name, chain)
     found = _EXC_TYPES.get(key)
     if found is not None:
         return found
-    created = type(name, (_exception_base(base_name),), {})
+    created = type(name, (_exception_parent(chain),), {})
     _EXC_TYPES[key] = created
     return created
 
 
-def raise_remote(name: str, base_name: str, message: str) -> None:
+def raise_remote(name: str, chain: tuple[str, ...], message: str) -> None:
     """Raise a candidate error without ever raising BaseException."""
 
     builtin = _builtin_exception(name)
     if builtin is not None:
         raise builtin(message)
-    raise exception_type(name, base_name)(message)
+    raise exception_type(name, chain)(message)
 
 
 class RemoteObject:
@@ -123,16 +126,23 @@ def _truth(obj: RemoteObject) -> bool:
     return bool(func())
 
 
-def _class_for(client: object, oid: int, name: str) -> type:
+def _class_from(client: object, info: dict[str, object]) -> type:
+    oid = int(info["oid"])
     key = (id(client), oid)
     found = _CLASSES.get(key)
     if found is not None:
         return found
+    raw_bases = info.get("bases")
+    if raw_bases is None:
+        raw_bases = []
+    parents = [_class_from(client, base) for base in raw_bases]  # type: ignore[union-attr]
+    if not parents:
+        parents = [RemoteObject]
 
     def new(cls, *args, **kwargs):
         return client.call(oid, args, kwargs)  # type: ignore[attr-defined]
 
-    created = type(name, (RemoteObject,), {"__new__": new})
+    created = type(str(info["name"]), tuple(parents), {"__new__": new})
     _CLASSES[key] = created
     return created
 
@@ -150,7 +160,7 @@ def _wrap(client: object, payload: dict[str, object]) -> RemoteObject:
     found = _OBJECTS.get(key)
     if found is not None:
         return found
-    cls = _class_for(client, int(payload["cls"]), str(payload["name"]))
+    cls = _class_from(client, payload["cls"])  # type: ignore[arg-type]
     obj = object.__new__(cls)
     object.__setattr__(obj, "client", client)
     object.__setattr__(obj, "oid", oid)
@@ -207,26 +217,22 @@ def _date(_client: object, payload: dict[str, object]) -> date:
 
 
 def _class(client: object, payload: dict[str, object]) -> type:
-    return _class_for(client, int(payload["oid"]), str(payload["name"]))
+    return _class_from(client, payload)
+
+
+def _chain(payload: dict[str, object]) -> tuple[str, ...]:
+    raw = payload.get("chain")
+    if not raw:
+        return ("Exception",)
+    return tuple(str(item) for item in raw)  # type: ignore[union-attr]
 
 
 def _exc_type(_client: object, payload: dict[str, object]) -> type[Exception]:
-    return exception_type(str(payload.get("name")), str(payload.get("base")))
-
-
-def _base_name(payload: dict[str, object]) -> str:
-    base = payload.get("base")
-    if base:
-        return str(base)
-    return "Exception"
+    return exception_type(str(payload.get("name")), _chain(payload))
 
 
 def _error(_client: object, payload: dict[str, object]) -> None:
-    raise_remote(
-        str(payload.get("type")),
-        _base_name(payload),
-        str(payload.get("message")),
-    )
+    raise_remote(str(payload.get("type")), _chain(payload), str(payload.get("message")))
 
 
 _KINDS = {
