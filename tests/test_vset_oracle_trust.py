@@ -8,7 +8,6 @@ and a forged result hash must not become validated evidence.
 from __future__ import annotations
 
 import shutil
-import subprocess  # nosec B404
 import sys
 import tempfile
 import unittest
@@ -21,6 +20,7 @@ if str(_TESTS) not in sys.path:
 from vset_testutil import (  # noqa: E402
     ACCEPT,
     PACK,
+    cli,
     codes as _codes,
     load_record as _load,
     vset,
@@ -254,16 +254,8 @@ class OracleTrustBoundaryTests(unittest.TestCase):
         self._rejected_without_sub(_FORGED_COUNTER_STACK_NONCE)
 
     def test_accept_fixture_passes_in_a_fresh_process(self) -> None:
-        repo = PACK.parents[3]
-        validator = repo / "pipelines" / "validate_vset.py"
         record = ACCEPT / "issue-patch-validated.json"
-        proc = subprocess.run(
-            [sys.executable, str(validator), "--oracle", "--pack", str(PACK), str(record)],
-            cwd=repo,
-            capture_output=True,
-            text=True,
-            check=False,
-        )
+        proc = cli("--oracle", "--pack", str(PACK), str(record))
         self.assertEqual(proc.returncode, 0, proc.stderr + proc.stdout)
 
     def test_aliased_and_inherited_cases_are_counted(self) -> None:
