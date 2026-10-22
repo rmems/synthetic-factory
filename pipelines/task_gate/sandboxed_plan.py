@@ -76,10 +76,27 @@ def _docstring_node(module: ast.Module | None, function: str) -> ast.Expr | None
 
 
 # Names bound inside these belong to their own scope, not the module's.
-_INNER_SCOPES = (
-    ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda,
-    ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp,
-)
+_INNER_SCOPES = (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda)
+_COMPREHENSIONS = (ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp)
+
+
+def _comprehension_parts(node: ast.AST) -> list[ast.AST]:
+    """What a comprehension evaluates, minus its iteration targets (which are its own).
+
+    A ``:=`` inside the result, a condition or an iterable still binds in the enclosing scope.
+    """
+
+    results = [node.key, node.value] if isinstance(node, ast.DictComp) else [node.elt]
+    loops = [part for generator in node.generators for part in (generator.iter, *generator.ifs)]
+    return [*results, *loops]
+
+
+def _scope_children(node: ast.AST) -> list[ast.AST]:
+    if isinstance(node, _INNER_SCOPES):
+        return []
+    if isinstance(node, _COMPREHENSIONS):
+        return _comprehension_parts(node)
+    return list(ast.iter_child_nodes(node))
 
 
 def _module_scope(module: ast.Module, skip: ast.AST) -> list[ast.AST]:
@@ -89,12 +106,14 @@ def _module_scope(module: ast.Module, skip: ast.AST) -> list[ast.AST]:
     while stack:
         node = stack.pop()
         found.append(node)
-        if not isinstance(node, _INNER_SCOPES):
-            stack.extend(ast.iter_child_nodes(node))
+        stack.extend(_scope_children(node))
     return found
 
 
-_BINDING_NODES = (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.MatchAs, ast.MatchStar)
+_BINDING_NODES = (
+    ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.MatchAs, ast.MatchStar,
+    ast.ExceptHandler,
+)
 
 
 def _bound_name(node: ast.AST) -> str | None:
@@ -104,14 +123,17 @@ def _bound_name(node: ast.AST) -> str | None:
         return node.id
     if isinstance(node, ast.alias):
         return node.asname or node.name.split(".")[0]
+    if isinstance(node, ast.MatchMapping):  # case {**rest}
+        return node.rest
     return getattr(node, "name", None) if isinstance(node, _BINDING_NODES) else None
 
 
 def _rebinds(module: ast.Module, target: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
     """True when ``getattr(module, name)`` may not be the ``def`` the plan reads.
 
-    A decorator, any other module-level binding of the name (assignment, import, another
-    ``def``, a star import) or a ``global`` declaration of it anywhere means the doctests the
+    A decorator, any other module-level binding of the name (assignment, ``:=``, import,
+    another ``def``, ``except ... as``, a match capture, a star import) or a ``global``
+    declaration of it anywhere means the doctests the
     plan would read are not necessarily those of the object the child runs.
     """
 

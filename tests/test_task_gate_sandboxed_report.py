@@ -268,6 +268,11 @@ class Planning(unittest.TestCase):
             "loop target": body + "for f in range(2):\n    pass\n",
             "declared global": body + "def g():\n    global f\n    f = 2\n",
             "class": body + "class f:\n    pass\n",
+            "except alias": body + "try:\n    pass\nexcept Exception as f:\n    pass\n",
+            "match mapping rest": body + "match {}:\n    case {**f}:\n        pass\n",
+            "match capture": body + "match 1:\n    case f:\n        pass\n",
+            "walrus in a comprehension": body + "VALUES = [(f := 1) for _ in range(1)]\n",
+            "walrus in a dict comprehension": body + "D = {k: (f := k) for k in range(1)}\n",
         }
         for name, text in refused.items():
             with self.subTest(name):
@@ -276,6 +281,7 @@ class Planning(unittest.TestCase):
         kept = {
             "a local of another function": body + "def g():\n    f = 2\n    return f\n",
             "a comprehension variable": body + "SQUARES = [f * f for f in range(3)]\n",
+            "a dict comprehension variable": body + "D = {f: 1 for f in range(3)}\n",
             "a lambda parameter": body + "G = lambda f: f\n",
             "a read of the name": body + "ALIAS = f\n",
         }

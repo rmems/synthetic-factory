@@ -37,7 +37,7 @@ The first failing rule wins.
 | Order | Verdict | Meaning |
 | --- | --- | --- |
 | 1 | `denylisted` | program id is on the eval denylist; nothing is parsed or executed for it |
-| 2 | `parse_error` | malformed row, unknown program, span not resolving to exactly one span of the target body (outside its docstring), mutant does not compile, does not load, or kills the interpreter without a report, or the replacement changes anything outside the target body (`mutant_escapes_target_body`: another module statement, the target's header or docstring, or a new write to its own name, `__doc__` or `__test__`) |
+| 2 | `parse_error` | malformed row, unknown program, span not resolving to exactly one span of the target body (outside its docstring), mutant does not compile, does not load, or kills the interpreter without a report, or the replacement changes anything outside the target body (`mutant_escapes_target_body`: another module statement, the target's header or docstring, a new write to its own name, `__doc__` or `__test__`, or a new read of a docstring, code object or source: `.__doc__`, `.__code__`, a `"__doc__"`/`"__code__"` literal, or `inspect.getsource`/`getdoc` and the like) |
 | 3 | `duplicate` | `sha256(program_id, span, replacement_text)` of the canonical (minimal) edit, bound to the program's sha256, was kept in a prior run or earlier in this one; proposals that produce the same mutant share a key |
 | 4 | `original_fails` | the unmodified program does not pass all its doctests, has none, does not load, or times out |
 | 5 | `timeout` | the mutant exceeded the wall-clock budget (rejected, never kept) |
@@ -112,7 +112,7 @@ match `DocTestFinder`'s; examples marked `+SKIP` are neither sent nor counted, a
 budget. The other difference is the emptied docstring itself: a program that reads its target's
 docstring or source can tell. The gate refuses a mutant whose body newly reads `__doc__`,
 `__code__`, a `"__doc__"`/`"__code__"` string literal (so `getattr`, `__getattribute__`,
-`attrgetter` and the like) or `inspect.getsource`/`getdoc` (`mutant_escapes_body`),
+`attrgetter` and the like) or `inspect.getsource`/`getdoc` (`mutant_escapes_target_body`),
 so a mutant cannot pass under one harness and be kept under the other that way; reading its own
 source text by other means is the same best-effort class as the rest of the AST tamper check. The flag never falls back: when
 bwrap or Landlock is unavailable, or a run's resource-limit and Landlock attestations are
