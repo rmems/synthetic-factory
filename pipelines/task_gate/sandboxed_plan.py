@@ -75,7 +75,7 @@ def _docstring_node(module: ast.Module | None, function: str) -> ast.Expr | None
     return _docstring_of(None if module is None else _target(module, function))
 
 
-# Names bound inside these belong to their own scope, not the module's.
+# Names bound inside these bodies belong to their own scope, not the module's.
 _INNER_SCOPES = (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda)
 _COMPREHENSIONS = (ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp)
 
@@ -91,9 +91,29 @@ def _comprehension_parts(node: ast.AST) -> list[ast.AST]:
     return [*results, *loops]
 
 
+def _arguments_header(args: ast.arguments) -> list[ast.AST]:
+    """Default values, which are evaluated where the ``def`` or ``lambda`` is."""
+
+    return [*args.defaults, *(value for value in args.kw_defaults if value is not None)]
+
+
+def _header_parts(node: ast.AST) -> list[ast.AST]:
+    """What an inner scope's header evaluates in the enclosing scope; its body is its own.
+
+    Decorators, defaults, class bases and keywords run where the statement runs, so a ``:=``
+    there binds in the module (``def g(y=(f := ...))``, ``class C(f := object)``).
+    """
+
+    if isinstance(node, ast.Lambda):
+        return _arguments_header(node.args)
+    if isinstance(node, ast.ClassDef):
+        return [*node.decorator_list, *node.bases, *node.keywords]
+    return [*node.decorator_list, *_arguments_header(node.args)]
+
+
 def _scope_children(node: ast.AST) -> list[ast.AST]:
     if isinstance(node, _INNER_SCOPES):
-        return []
+        return _header_parts(node)
     if isinstance(node, _COMPREHENSIONS):
         return _comprehension_parts(node)
     return list(ast.iter_child_nodes(node))

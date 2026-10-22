@@ -273,6 +273,12 @@ class Planning(unittest.TestCase):
             "match capture": body + "match 1:\n    case f:\n        pass\n",
             "walrus in a comprehension": body + "VALUES = [(f := 1) for _ in range(1)]\n",
             "walrus in a dict comprehension": body + "D = {k: (f := k) for k in range(1)}\n",
+            "walrus in a def default": body + "def g(y=(f := lambda x: x + 1)):\n    pass\n",
+            "walrus in a keyword-only default": body + "def g(*, y=(f := 1)):\n    pass\n",
+            "walrus in a decorator": body + "@(f := (lambda fn: fn))\ndef g():\n    pass\n",
+            "walrus in a class base": body + "class C(f := object):\n    pass\n",
+            "walrus in a class keyword": body + "class C(metaclass=(f := type)):\n    pass\n",
+            "walrus in a lambda default": body + "H = lambda y=(f := lambda x: x + 1): y\n",
         }
         for name, text in refused.items():
             with self.subTest(name):
@@ -283,6 +289,9 @@ class Planning(unittest.TestCase):
             "a comprehension variable": body + "SQUARES = [f * f for f in range(3)]\n",
             "a dict comprehension variable": body + "D = {f: 1 for f in range(3)}\n",
             "a lambda parameter": body + "G = lambda f: f\n",
+            "a parameter with a default": body + "def g(f=1, *, k=2):\n    return f\n",
+            "a walrus in another function's body": body + "def g():\n    return (f := 2)\n",
+            "a class attribute": body + "class C:\n    f = 2\n",
             "a read of the name": body + "ALIAS = f\n",
         }
         for name, text in kept.items():
