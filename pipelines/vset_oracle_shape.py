@@ -7,7 +7,9 @@ so the two files do not import each other at module scope.
 from __future__ import annotations
 
 import builtins
+import os
 import sys
+import unittest.mock
 
 if __package__:  # pragma: no cover - package-child import path
     from . import _assert_direct_sibling, _expose_package_sibling
@@ -134,6 +136,67 @@ def blank_instance(cls: type) -> object:
         if issubclass(cls, base):
             return maker(cls)
     return object.__new__(cls)
+
+
+def _targets_environ(patcher: object) -> bool:
+    target = getattr(patcher, "in_dict", None)
+    if target is os.environ:
+        return True
+    if target == "os.environ":
+        return True
+    return False
+
+
+def _environ_delta(before: dict[str, str], after: dict[str, str]) -> tuple[dict[str, str], list[str]]:
+    changed: dict[str, str] = {}
+    for key, value in after.items():
+        if before.get(key) != value:
+            changed[key] = value
+    dropped = [key for key in before if key not in after]
+    return changed, dropped
+
+
+def install_dict_patches(client: object) -> tuple[object, object]:
+    """Mirror ``patch.dict(os.environ)`` into the child."""
+
+    patch_cls = unittest.mock._patch_dict
+    saved = (patch_cls.__enter__, patch_cls.__exit__)
+
+    def enter(self: object) -> object:
+        before = None
+        if _targets_environ(self):
+            before = dict(os.environ)
+        entered = saved[0](self)
+        if before is None:
+            return entered
+        if getattr(self, "in_dict", None) is not os.environ:
+            return entered
+        changed, dropped = _environ_delta(before, dict(os.environ))
+        client.shift_environ(changed, dropped)  # type: ignore[attr-defined]
+        return entered
+
+    def leave(self: object, *args: object) -> object:
+        before = None
+        if getattr(self, "in_dict", None) is os.environ:
+            before = dict(os.environ)
+        result = saved[1](self, *args)
+        if before is None:
+            return result
+        changed, dropped = _environ_delta(before, dict(os.environ))
+        try:
+            client.shift_environ(changed, dropped)  # type: ignore[attr-defined]
+        except Exception:
+            return result
+        return result
+
+    patch_cls.__enter__ = enter  # type: ignore[method-assign]
+    patch_cls.__exit__ = leave  # type: ignore[method-assign]
+    return saved
+
+
+def restore_dict_patches(saved: tuple[object, object]) -> None:
+    unittest.mock._patch_dict.__enter__ = saved[0]  # type: ignore[method-assign]
+    unittest.mock._patch_dict.__exit__ = saved[1]  # type: ignore[method-assign]
 
 
 def remote_hash(obj: object) -> int:

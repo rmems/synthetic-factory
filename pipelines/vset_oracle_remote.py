@@ -75,6 +75,9 @@ class _Client:
     def unpatch_module(self) -> None:
         self.exchange({"op": "unpatch"})
 
+    def shift_environ(self, changed: dict[str, str], dropped: list[str]) -> None:
+        self.exchange({"op": "environ", "set": changed, "drop": dropped})
+
     def call(self, oid: int, args: tuple[object, ...], kwargs: dict[str, object]) -> object:
         return self.exchange(
             {

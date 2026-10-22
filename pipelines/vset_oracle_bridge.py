@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import importlib.machinery
 import json
+import logging
 import sys
 import types
 import unittest.mock
@@ -18,13 +19,15 @@ if __package__:  # pragma: no cover - package-child import path
     from . import _assert_direct_sibling, _expose_package_sibling
 
     _assert_direct_sibling("vset_oracle_bridge")
-    from .vset_oracle_codec import encode as _encode
+    from .vset_oracle_codec import plain_callback_result as _plain_callback_result
+    from . import vset_oracle_shape as shape
     from . import vset_oracle_values as values
 else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
         "vset_oracle_bridge"
     )
-    from vset_oracle_codec import encode as _encode
+    from vset_oracle_codec import plain_callback_result as _plain_callback_result
+    import vset_oracle_shape as shape
     import vset_oracle_values as values
 
 _REPLY_LIMIT = 1_000_000
@@ -92,36 +95,34 @@ def exchange(client: object, payload: dict[str, object]) -> object:
     return _receive(client, proc)
 
 
+def _relay(reply: dict[str, object]) -> bool:
+    kind = reply.get("kind")
+    if kind == "stdout":
+        sys.stdout.write(str(reply.get("text", "")))
+        return True
+    if kind == "log":
+        logging.getLogger(str(reply.get("name", ""))).log(
+            int(reply.get("level", 0)),  # type: ignore[arg-type]
+            str(reply.get("msg", "")),
+        )
+        return True
+    return False
+
+
 def _receive(client: object, proc: object) -> object:
     stdout = proc.stdout  # type: ignore[attr-defined]
     if stdout is None:
         raise EOFError("oracle worker exited")
-    reply = _read_reply(stdout)
-    if isinstance(reply, dict):
+    while True:
+        reply = _read_reply(stdout)
+        if not isinstance(reply, dict):
+            return values.interpret(client, reply)
+        if _relay(reply):
+            continue
         if reply.get("kind") == "callback":
             _send(proc, _answer(client, reply))
-            return _receive(client, proc)
-    return values.interpret(client, reply)
-
-
-def _embeds_callback(value: object) -> bool:
-    pending = [value]
-    while pending:
-        item = pending.pop()
-        if isinstance(item, dict):
-            if "cb" in item:
-                return True
-            pending.extend(item.values())
-        elif isinstance(item, list):
-            pending.extend(item)
-    return False
-
-
-def _plain_callback_result(value: object) -> object:
-    encoded = _encode(value)
-    if _embeds_callback(encoded):
-        raise TypeError("callback result is not plain data")
-    return encoded
+            continue
+        return values.interpret(client, reply)
 
 
 def _answer(client: object, message: dict[str, object]) -> dict[str, object]:
@@ -184,18 +185,24 @@ def install_patches(client: object) -> tuple[object, object]:
 
     patch_cls.__enter__ = enter  # type: ignore[method-assign]
     patch_cls.__exit__ = leave  # type: ignore[method-assign]
-    return saved
+    return saved, shape.install_dict_patches(client)
 
 
 def restore_patches(saved: tuple[object, object]) -> None:
-    unittest.mock._patch.__enter__ = saved[0]  # type: ignore[method-assign]
-    unittest.mock._patch.__exit__ = saved[1]  # type: ignore[method-assign]
+    attr, mapping = saved
+    unittest.mock._patch.__enter__ = attr[0]  # type: ignore[index]
+    unittest.mock._patch.__exit__ = attr[1]  # type: ignore[index]
+    shape.restore_dict_patches(mapping)
 
 
 def _mirror(client: object, patcher: object, install: bool) -> None:
     name = _module_name(patcher)
     if name is None:
         return
+    # Prints already relay to the parent's current sys.stdout.
+    if name == "sys":
+        if patcher.attribute in {"stdout", "stderr"}:  # type: ignore[attr-defined]
+            return
     if not install:
         client.unpatch_module()  # type: ignore[attr-defined]
         return
