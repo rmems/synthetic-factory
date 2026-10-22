@@ -24,6 +24,7 @@ WORKER_SOURCE = textwrap.dedent(
     import builtins
     import importlib
     import json
+    import logging
     import os
     import sys
     from datetime import date, datetime
@@ -268,6 +269,11 @@ WORKER_SOURCE = textwrap.dedent(
             else:
                 setattr(mod, attr, old)
             return {"kind": "value", "value": None}
+        if op == "environ":
+            for key in req["drop"]:
+                os.environ.pop(key, None)
+            os.environ.update(req["set"])
+            return {"kind": "value", "value": None}
         if op == "call":
             args = [decode(arg) for arg in req["args"]]
             kwargs = {key: decode(val) for key, val in req["kwargs"].items()}
@@ -284,6 +290,29 @@ WORKER_SOURCE = textwrap.dedent(
             "message": "bad op",
         }
 
+
+    class _Out:
+        def write(self, text):
+            if text:
+                reply({"kind": "stdout", "text": text})
+            return len(text or "")
+
+        def flush(self):
+            return None
+
+
+    class _Log(logging.Handler):
+        def emit(self, record):
+            reply({
+                "kind": "log",
+                "name": record.name,
+                "level": record.levelno,
+                "msg": record.getMessage(),
+            })
+
+
+    sys.stdout = _Out()
+    logging.getLogger().addHandler(_Log())
 
     while True:
         line = sys.stdin.readline()

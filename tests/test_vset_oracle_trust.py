@@ -356,6 +356,42 @@ class OracleTrustBoundaryTests(unittest.TestCase):
             )
         self.assertIn("do not match unittest collection", str(ctx.exception))
 
+    def test_parent_captures_output_logs_and_environ(self) -> None:
+        self._ok_files(
+            "use.py",
+            {
+                "src/c.py": (
+                    "import logging\nimport os\n"
+                    "def hello():\n    print('hi')\n"
+                    "def env(name):\n    return os.environ.get(name)\n"
+                    "def shout():\n    logging.getLogger('c').warning('boom')\n"
+                ),
+                "tests/use.py": (
+                    "import contextlib\nimport io\nimport os\nimport unittest\n"
+                    "from unittest import mock\nimport c\n"
+                    "class T(unittest.TestCase):\n"
+                    "    def test_redirect(self):\n"
+                    "        buf = io.StringIO()\n"
+                    "        with contextlib.redirect_stdout(buf):\n"
+                    "            c.hello()\n"
+                    "        self.assertEqual(buf.getvalue(), 'hi\\n')\n"
+                    "    def test_stdout_patch(self):\n"
+                    "        buf = io.StringIO()\n"
+                    "        with mock.patch('sys.stdout', buf):\n"
+                    "            c.hello()\n"
+                    "        self.assertEqual(buf.getvalue(), 'hi\\n')\n"
+                    "    def test_logs(self):\n"
+                    "        with self.assertLogs('c', level='WARNING') as caught:\n"
+                    "            c.shout()\n"
+                    "        self.assertIn('boom', caught.output[0])\n"
+                    "    def test_env(self):\n"
+                    "        with mock.patch.dict(os.environ, {'VSET_ORACLE_FLAG': '1'}):\n"
+                    "            self.assertEqual(c.env('VSET_ORACLE_FLAG'), '1')\n"
+                    "        self.assertIsNone(c.env('VSET_ORACLE_FLAG'))\n"
+                ),
+            },
+        )
+
     def test_suite_path_reads_a_sibling_file(self) -> None:
         self._ok_files(
             "use.py",
