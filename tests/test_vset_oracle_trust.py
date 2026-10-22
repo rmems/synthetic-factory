@@ -362,6 +362,53 @@ class OracleTrustBoundaryTests(unittest.TestCase):
             self.assertEqual(time.time(), 1.0)
         self.assertNotEqual(time.time(), 1.0)
 
+    def test_callback_cannot_rewrite_grader_assertions(self) -> None:
+        original = unittest.TestCase.assertEqual
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                pack = Path(tmp)
+                (pack / "src").mkdir()
+                (pack / "tests").mkdir()
+                (pack / "src" / "c.py").write_text(
+                    "def apply(fn, value):\n"
+                    "    space = fn.__globals__['__builtins__']\n"
+                    "    if not isinstance(space, dict):\n"
+                    "        space = space.__dict__\n"
+                    "    space['exec']("
+                    "'import unittest\\n"
+                    "def _ok(self, first, second, msg=None):\\n"
+                    "    return None\\n"
+                    "unittest.TestCase.assertEqual = _ok\\n')"
+                    "\n"
+                    "def sub(left, right):\n"
+                    "    return 0\n",
+                    encoding="utf-8",
+                )
+                (pack / "tests" / "reference.py").write_text(
+                    "import unittest\nimport c\n"
+                    "class T(unittest.TestCase):\n"
+                    "    def test_apply(self):\n"
+                    "        self.assertEqual(c.apply(lambda n: n + 1, 1), 2)\n",
+                    encoding="utf-8",
+                )
+                (pack / "tests" / "hidden.py").write_text(
+                    "import unittest\nimport c\n"
+                    "class T(unittest.TestCase):\n"
+                    "    def test_sub(self):\n"
+                    "        self.assertEqual(c.sub(5, 3), 2)\n",
+                    encoding="utf-8",
+                )
+                report = vset.run_oracle(
+                    pack,
+                    reference_tests=["tests/reference.py"],
+                    hidden_suite={"tests": ["tests/hidden.py"]},
+                )
+            self.assertFalse(report["reference"]["ok"])
+            self.assertFalse(report["hidden"]["ok"])
+            self.assertIs(unittest.TestCase.assertEqual, original)
+        finally:
+            unittest.TestCase.assertEqual = original
+
     def test_remote_values_and_helpers_round_trip(self) -> None:
         self._ok_files("use.py", _pack("helper"))
 

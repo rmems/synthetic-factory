@@ -104,9 +104,29 @@ def _receive(client: object, proc: object) -> object:
     return values.interpret(client, reply)
 
 
+def _embeds_callback(value: object) -> bool:
+    pending = [value]
+    while pending:
+        item = pending.pop()
+        if isinstance(item, dict):
+            if "cb" in item:
+                return True
+            pending.extend(item.values())
+        elif isinstance(item, list):
+            pending.extend(item)
+    return False
+
+
+def _plain_callback_result(value: object) -> object:
+    encoded = _encode(value)
+    if _embeds_callback(encoded):
+        raise TypeError("callback result is not plain data")
+    return encoded
+
+
 def _answer(client: object, message: dict[str, object]) -> dict[str, object]:
     try:
-        value = _invoke(client, message)
+        encoded = _plain_callback_result(_invoke(client, message))
     except Exception as exc:
         return {
             "cb_result": True,
@@ -114,7 +134,7 @@ def _answer(client: object, message: dict[str, object]) -> dict[str, object]:
             "type": type(exc).__name__,
             "message": str(exc),
         }
-    return {"cb_result": True, "ok": True, "value": _encode(value)}
+    return {"cb_result": True, "ok": True, "value": encoded}
 
 
 def _positional(client: object, message: dict[str, object]) -> list[object]:
@@ -133,13 +153,11 @@ def _named(client: object, message: dict[str, object]) -> dict[str, object]:
 
 def _invoke(client: object, message: dict[str, object]) -> object:
     target = values.take_callback(int(message["cb"]))  # type: ignore[arg-type]
-    op = message.get("op")
-    if op == "get":
-        return getattr(target, str(message.get("attr")))
-    if op == "set":
-        setattr(target, str(message.get("attr")), values.interpret(client, message.get("value")))
-        return None
-    return target(*_positional(client, message), **_named(client, message))
+    if message.get("op") != "call":
+        raise TypeError("oracle callback is not readable")
+    args = _positional(client, message)
+    kwargs = _named(client, message)
+    return target(*args, **kwargs)
 
 
 def install_patches(client: object) -> tuple[object, object]:
