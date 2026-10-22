@@ -8,6 +8,7 @@ make a suite ok.
 
 from __future__ import annotations
 
+import importlib.abc
 import importlib.util
 import io
 import os
@@ -216,32 +217,34 @@ def _drop_new(before: set[str]) -> None:
             sys.modules.pop(name, None)
 
 
+class _FrozenLoader(importlib.abc.ExecutionLoader):
+    """Load suite text from memory so a leftover process cannot plant bytecode."""
+
+    def __init__(self, source: str, origin: str) -> None:
+        self._source = source
+        self._origin = origin
+
+    def get_source(self, fullname: str) -> str:
+        return self._source
+
+    def get_filename(self, fullname: str) -> str:
+        return self._origin
+
+
 def _load_saved(spec: dict[str, str], suffix: str, folder: Path) -> types.ModuleType:
     name = spec["module"] + suffix
-    path = folder / f"{name}.py"
-    path.write_text(spec["source"], encoding="utf-8")
-    module_spec = importlib.util.spec_from_file_location(name, path)
+    origin = str(Path(spec["relative"]).resolve())
+    loader = _FrozenLoader(spec["source"], origin)
+    module_spec = importlib.util.spec_from_loader(name, loader, origin=origin)
     if module_spec is None:
         raise EOFError("cannot load suite")
+    module = importlib.util.module_from_spec(module_spec)
+    module.__file__ = origin
+    sys.modules[name] = module
     if module_spec.loader is None:
         raise EOFError("cannot load suite")
-    module = importlib.util.module_from_spec(module_spec)
-    sys.modules[name] = module
-    _point_at_work(module, spec["relative"])
     module_spec.loader.exec_module(module)
-    _point_at_work(module, spec["relative"])
     return module
-
-
-def _point_at_work(module: types.ModuleType, relative: str) -> None:
-    """Point ``__file__`` at the worktree copy so sibling data files resolve."""
-
-    origin = str(Path(relative).resolve())
-    module.__file__ = origin
-    loaded = getattr(module, "__spec__", None)
-    if loaded is None:
-        return
-    loaded.origin = origin
 
 
 def _problem_status(result: unittest.TestResult) -> str:
