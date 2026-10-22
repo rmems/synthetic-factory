@@ -1,0 +1,152 @@
+"""Defensive paths of the band stage: bad tasks files, cleanup, injected contract, odd candidates."""
+
+import json
+from fractions import Fraction
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+from unittest import mock
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from band_test_support import (
+    ADD, PROGRAMS, STUDENT_PASSES, ScriptedSolver, band_run, bv, cv, gate_tasks, read_rows,
+    write_contract,
+)
+from task_gate import mutation
+from task_gate import band_contract, band_report, band_solver, band_tasks
+from task_gate_test_support import PROGRAM, FakeHarness, refused
+
+
+class TasksFile(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        self.tasks = gate_tasks(self.root)
+
+    def code(self, path):
+        return refused(band_tasks.load_kept, path)
+
+    def test_unreadable_directory_and_oversized_files_are_refused(self):
+        self.assertEqual(self.code(self.root / "absent.jsonl"), bv.REFUSE_TASKS_INVALID)
+        self.assertEqual(self.code(self.root), bv.REFUSE_TASKS_INVALID)
+        with mock.patch.object(bv, "MAX_TASKS_BYTES", 10):
+            self.assertEqual(self.code(self.tasks), bv.REFUSE_TASKS_INVALID)
+
+    def test_unframed_and_unknown_rows_are_refused(self):
+        bad = self.root / "bad.jsonl"
+        bad.write_bytes(b'{"format": "task-gate-tasks/1"')
+        self.assertEqual(self.code(bad), bv.REFUSE_TASKS_INVALID)
+        row = read_rows(self.tasks)[0]
+        for fields in ({"verdict": "maybe"}, {"proposal_id": ""}, {"start_byte": -1}, {"program_id": 3}):
+            bad.write_text(json.dumps({**row, **fields}) + "\n")
+            with self.subTest(fields=fields):
+                self.assertEqual(self.code(bad), bv.REFUSE_TASKS_INVALID)
+
+    def test_a_repeated_proposal_id_is_refused(self):
+        row = json.dumps(read_rows(self.tasks)[0]) + "\n"
+        bad = self.root / "bad.jsonl"
+        bad.write_text(row + row)
+        self.assertEqual(self.code(bad), bv.REFUSE_TASKS_INVALID)
+
+    def test_rows_the_gate_did_not_keep_are_skipped_whatever_their_proposal_id(self):
+        # The gate takes any text as a proposal_id and does not require uniqueness, so only the
+        # kept rows (which become tasks keyed by that id) are held to the stricter rule.
+        rows = read_rows(self.tasks)
+        kept = [row for row in rows if row["verdict"] == cv.VERDICT_KEPT]
+        odd = {**rows[0], "verdict": cv.VERDICT_MUTANT_PASSES, "proposal_id": "a b"}
+        path = self.root / "odd.jsonl"
+        path.write_text("".join(json.dumps(row) + "\n" for row in [*kept, odd, odd]))
+        loaded = band_tasks.load_kept(path)
+        self.assertEqual((len(loaded.kept), loaded.skipped), (len(kept), 2))
+
+    def test_a_mutant_that_no_longer_rebuilds_is_refused(self):
+        loaded = band_tasks.load_kept(self.tasks)
+        row = band_tasks.KeptTask({**loaded.kept[0], "mutant_sha256": "0" * 64})
+        self.assertEqual(refused(band_tasks.rebuild, row, PROGRAMS), bv.REFUSE_TASK_PROGRAM_MISMATCH)
+
+
+class RunCleanup(unittest.TestCase):
+    def test_a_failed_publish_leaves_no_stage_and_no_destination(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            tasks = gate_tasks(root)
+            contract = band_contract.load_contract(write_contract(root))
+            request = band_run.BandRequest(PROGRAMS, tasks, contract, root / "band", "self")
+            with mock.patch.object(band_report, "publish", side_effect=cv.GateRefusal("X", "boom")):
+                code = refused(band_run.run, request, ScriptedSolver({}), STUDENT_PASSES)
+            self.assertEqual(code, "X")
+            self.assertEqual(sorted(p.name for p in root.iterdir()), ["contract.json", "gate"])
+
+
+class OddCandidates(unittest.TestCase):
+    def test_candidates_that_do_not_parse_as_modules_fail_without_raising(self):
+        scorer = band_solver.Scorer(PROGRAM, FakeHarness())
+        for candidate in ("def (:", "\x00", ADD.replace("\n", "\r\n"), b"bytes", 3):
+            with self.subTest(candidate=candidate):
+                self.assertFalse(scorer.passes(candidate))
+
+    def test_a_candidate_that_parses_but_drops_the_target_fails(self):
+        self.assertFalse(band_solver.Scorer(PROGRAM, FakeHarness()).passes("x = 1\n"))
+
+    def test_a_legality_check_that_raises_fails_the_attempt_without_running_it(self):
+        fake = FakeHarness()
+        scorer = band_solver.Scorer(PROGRAM, fake)
+        for error in (SyntaxError("bad"), ValueError("bad"), RecursionError("deep")):
+            with self.subTest(error=type(error).__name__):
+                with mock.patch.object(band_solver.mutation, "candidate_problem", side_effect=error):
+                    self.assertFalse(scorer.passes(ADD))
+        self.assertEqual(fake.calls, [])
+
+    def test_an_oversized_candidate_fails_before_it_is_parsed_or_run(self):
+        fake = FakeHarness()
+        padded = ADD + "#" * cv.MAX_PROGRAM_BYTES
+        with mock.patch.object(mutation.ast, "parse", side_effect=AssertionError("parsed")):
+            self.assertFalse(band_solver.Scorer(PROGRAM, fake).passes(padded))
+        self.assertEqual(fake.calls, [])
+        self.assertEqual(mutation.candidate_problem(PROGRAM, padded), cv.DETAIL_MUTANT_ESCAPES_BODY)
+
+    def test_a_harness_that_raises_is_a_coded_refusal_not_a_failed_attempt(self):
+        class Broken(FakeHarness):
+            def run(self, program_text, function):
+                raise OSError("sandbox gone")
+
+        self.assertEqual(refused(band_solver.Scorer(PROGRAM, Broken()).passes, ADD), bv.REFUSE_HARNESS_FAILED)
+
+    def test_a_harness_refusal_passes_through_with_its_own_code(self):
+        class Refusing(FakeHarness):
+            def run(self, program_text, function):
+                raise cv.GateRefusal("OTHER_CODE", "x")
+
+        self.assertEqual(refused(band_solver.Scorer(PROGRAM, Refusing()).passes, ADD), "OTHER_CODE")
+
+
+class InjectedContract(unittest.TestCase):
+    def test_a_hand_built_contract_obeys_the_loaded_contract_rules(self):
+        good = (10, Fraction(1, 10), Fraction(9, 10), "0" * 64)
+        bad = {
+            "one attempt": (1, *good[1:]),
+            "bool attempts": (True, *good[1:]),
+            "zero bound": (10, Fraction(0), good[2], good[3]),
+            "float bound": (10, 0.1, good[2], good[3]),
+            "inverted": (10, Fraction(9, 10), Fraction(1, 10), good[3]),
+        }
+        band_contract.BandContract(*good)
+        for name, fields in bad.items():
+            with self.subTest(name=name):
+                self.assertEqual(refused(band_contract.BandContract, *fields), bv.REFUSE_CONTRACT_MALFORMED)
+
+
+class RowsFile(unittest.TestCase):
+    def test_every_band_is_in_the_rows_file_and_the_vocabulary_is_exhaustive(self):
+        contract = band_contract.BandContract(10, Fraction(1, 5), Fraction(9, 10), "0" * 64)
+        seen = {contract.classify(n, 10) for n in range(11)}
+        self.assertEqual(seen, set(bv.BANDS))
+        rows = [band_report.BandRow({"proposal_id": str(n)}, "self", 10, n, contract.classify(n, 10)) for n in range(11)]
+        self.assertEqual(len(band_report.BandOutcome(rows, contract, {}).all_rows()), 11)
+
+
+if __name__ == "__main__":
+    unittest.main()

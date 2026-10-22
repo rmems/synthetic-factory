@@ -258,8 +258,35 @@ class ParseErrors(unittest.TestCase):
                 item = proposal_for(replacement, "return a + b")
                 self.assert_parse_error(item, cv.DETAIL_MUTANT_ESCAPES_BODY)
 
+    def test_replacement_that_reads_a_docstring_or_source_is_not_kept(self):
+        """Blocks on #513: ``--sandbox`` empties the target's docstring, so a body that reads it
+        could pass under ``SubprocessHarness`` and fail only in the sandbox (and be kept)."""
+
+        reads = {
+            "own docstring": "return a if add.__doc__ else b",
+            "any docstring": "return a if len.__doc__ else b",
+            "code object": "return a if add.__code__.co_consts else b",
+            "getattr literal": "return a if getattr(add, '__doc__') else b",
+            "__getattribute__": "return a if add.__getattribute__('__doc__') else b",
+            "attrgetter": "import operator\n    return a if operator.attrgetter('__code__')(add) else b",
+            "vars lookup": "return a if type(add).__dict__.get('__doc__') else b",
+            "inspect.getsource": "import inspect\n    return a if inspect.getsource(add) else b",
+            "bare getdoc": "from inspect import getdoc\n    return a if getdoc(add) else b",
+        }
+        for name, replacement in reads.items():
+            with self.subTest(name=name):
+                item = proposal_for(replacement, "return a + b")
+                self.assert_parse_error(item, cv.DETAIL_MUTANT_ESCAPES_BODY)
+
+    def test_a_target_that_already_reads_its_docstring_is_not_blamed_on_the_proposal(self):
+        text = ADD.replace("return a + b", "doc = add.__doc__\n    return a + b")
+        program = proposal.GateProgram("prog-doc-reader", text, "add")
+        item = proposal_for("a - b", "a + b", program)
+        self.assertIsInstance(mutation.resolve(program, item), mutation.Resolved)
+
     def test_ordinary_body_edits_still_pass_the_escape_check(self):
-        for replacement in ("return a - b", "x = a\n    return x + b", "return add_one(a) + b"):
+        for replacement in ("return a - b", "x = a\n    return x + b", "return add_one(a) + b",
+                            "return getattr(a, 'real') + b"):
             with self.subTest(replacement=replacement):
                 resolved = mutation.resolve(PROGRAM, proposal_for(replacement, "return a + b"))
                 self.assertIsInstance(resolved, mutation.Resolved)

@@ -124,7 +124,7 @@ class RealHarness(unittest.TestCase):
         self.assertEqual(self.harness.run(text, "f"), harness.HarnessResult(cv.OUTCOME_PASSED, 1, 0))
 
     def test_timeout_domain_is_validated(self):
-        for bad in (0, -1, float("nan"), float("inf"), True, "3", cv.MAX_TIMEOUT_S + 1):
+        for bad in (0, -1, float("nan"), float("inf"), True, "3", cv.MAX_TIMEOUT_S + 1, 10**400):
             with self.subTest(bad=bad):
                 self.assertEqual(refused(harness.SubprocessHarness, bad), cv.REFUSE_TIMEOUT_DOMAIN)
 
@@ -155,11 +155,11 @@ class RealHarness(unittest.TestCase):
 
         stream = io.StringIO()
         with mock.patch.dict(sys.modules, {"resource": None}):
-            self.assertFalse(_child._limit(5))
-        with mock.patch.object(_child, "_limit", return_value=False), \
-                mock.patch.object(_child, "_load", side_effect=AssertionError("program imported")), \
+            self.assertFalse(_child.apply_limits(5))
+        with mock.patch.object(_child, "apply_limits", return_value=False), \
+                mock.patch.object(_child, "load_program", side_effect=AssertionError("program imported")), \
                 mock.patch.object(_child.os, "dup", return_value=1), \
-                mock.patch.object(_child, "_silence_stdout"), \
+                mock.patch.object(_child, "silence_stdout"), \
                 mock.patch.object(_child.os, "fdopen", return_value=stream):
             self.assertEqual(_child.main(["child", ".", "f", "5"]), 0)
         report = json.loads(stream.getvalue().removeprefix(_child.MARKER))
