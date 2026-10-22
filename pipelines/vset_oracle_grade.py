@@ -10,10 +10,12 @@ command line or in the environment.
 
 from __future__ import annotations
 
+import fcntl
 import os
 import secrets
 import select
 import signal
+import subprocess  # nosec B404
 import sys
 import textwrap
 import time
@@ -45,8 +47,6 @@ _CAPTURE_LIMIT = 4000
 _NONCE_LEN = 16
 _INTERPRETER_FLAGS = ("-I", "-B", "-X", "utf8")
 _CHILD_TIMEOUT_S = 30.0
-_NONCE_FD = 3
-_STATUS_FD = 4
 _MARKER_STATUS = {
     b"F": "FAIL",
     b"E": "ERROR",
@@ -68,8 +68,6 @@ _RUNNER_SOURCE = textwrap.dedent(
     from pathlib import Path
 
     KEEP = "_vset_kept_"
-    NONCE_FD = 3
-    STATUS_FD = 4
 
 
     def _install():
@@ -113,15 +111,17 @@ _RUNNER_SOURCE = textwrap.dedent(
         return module
 
 
-    def _take_nonce() -> bytes:
-        nonce = b""
-        while len(nonce) < 16:
-            part = os.read(NONCE_FD, 16 - len(nonce))
-            if not part:
-                break
-            nonce += part
-        os.close(NONCE_FD)
-        return nonce
+    def _pipe_fds():
+        found = []
+        for fd in range(3, 64):
+            try:
+                os.fstat(fd)
+            except OSError:
+                continue
+            found.append(fd)
+        if len(found) < 2:
+            raise OSError("missing oracle pipes")
+        return found[0], found[1]
 
 
     def _kept(cls, method_name):
@@ -157,9 +157,10 @@ _RUNNER_SOURCE = textwrap.dedent(
 
 
     def main() -> int:
-        # Read the nonce and close its fd before src/ is imported. The numbers
-        # are not on sys.argv, so candidate code cannot replay this handshake.
-        nonce = _take_nonce()
+        # The two inherited pipes are the nonce read end, then the status
+        # write end. The nonce is not read until the test call returns, and
+        # neither number is on sys.argv.
+        nonce_fd, status_fd = _pipe_fds()
         work, path, module_name, class_name, method_name = sys.argv[1:6]
         os.chdir(work)
         sys.path.insert(0, str(Path(work) / "src"))
@@ -182,16 +183,24 @@ _RUNNER_SOURCE = textwrap.dedent(
         except Exception as exc:
             sys.stdout = real_out
             sys.stderr = real_out
-            os.write(STATUS_FD, b"L" + str(exc).encode("utf-8", "replace"))
+            os.write(status_fd, b"L" + str(exc).encode("utf-8", "replace"))
             _write_capture(real_out, buf)
             return 1
         sys.stdout = real_out
         sys.stderr = real_out
         if marker != "P":
-            os.write(STATUS_FD, marker.encode("ascii"))
+            os.write(status_fd, marker.encode("ascii"))
             _write_capture(real_out, buf)
             return 1
-        os.write(STATUS_FD, b"P" + nonce)
+        os.write(status_fd, b"D")
+        nonce = b""
+        while len(nonce) < 16:
+            part = os.read(nonce_fd, 16 - len(nonce))
+            if not part:
+                break
+            nonce += part
+        os.close(nonce_fd)
+        os.write(status_fd, nonce)
         _write_capture(real_out, buf)
         return 0
 
@@ -236,11 +245,11 @@ def _echo_matches(echo: bytes, nonce: bytes, returncode: int) -> bool:
 def _status_for(marker: bytes, echo: bytes, nonce: bytes, returncode: int) -> str:
     """Map a child marker to a suite status.
 
-    ``P`` is a pass only when the echoed nonce is the one this parent issued
-    and the child exited 0.
+    ``D`` is a pass only when the echoed nonce is the one this parent issued
+    and the child exited 0. The parent writes that nonce only after ``D``.
     """
 
-    if marker != b"P":
+    if marker != b"D":
         return _MARKER_STATUS.get(marker, "ERROR")
     if _echo_matches(echo, nonce, returncode):
         return "ok"
@@ -293,13 +302,6 @@ def _close_fd(fd: int) -> None:
         return
 
 
-def _read_result(status_r: int, pid: int, deadline: float) -> tuple[bytes, bytes]:
-    marker = _read_exact(status_r, 1, pid, deadline)
-    if marker != b"P":
-        return marker, b""
-    return marker, _read_exact(status_r, _NONCE_LEN, pid, deadline)
-
-
 def _load_error(relative: str, detail: str) -> VSetValidationError:
     text = " ".join(detail.split())
     if len(text) > 500:
@@ -315,28 +317,24 @@ def _read_load_error(status_r: int, pid: int, deadline: float) -> str:
     return raw.decode("utf-8", "replace")
 
 
-def _queue_dup(actions: list[tuple], src: int, dst: int) -> None:
-    if src != dst:
-        actions.append((os.POSIX_SPAWN_DUP2, src, dst))
+def _raise_fd(fd: int, floor: int) -> int:
+    if fd > floor:
+        os.set_inheritable(fd, True)
+        return fd
+    moved = fcntl.fcntl(fd, fcntl.F_DUPFD, floor + 1)
+    os.close(fd)
+    os.set_inheritable(moved, True)
+    return moved
 
 
-def _queue_close(actions: list[tuple], src: int) -> None:
-    if src > _STATUS_FD:
-        actions.append((os.POSIX_SPAWN_CLOSE, src))
+def _ordered_ends() -> tuple[int, int, int, int]:
+    """Return nonce_r, nonce_w, status_r, status_w with nonce_r < status_w."""
 
-
-def _file_actions(nonce_r: int, status_w: int, capture_fd: int, devnull: int) -> list[tuple]:
-    actions: list[tuple] = []
-    _queue_dup(actions, nonce_r, _NONCE_FD)
-    _queue_dup(actions, status_w, _STATUS_FD)
-    _queue_dup(actions, devnull, 0)
-    _queue_dup(actions, capture_fd, 1)
-    _queue_dup(actions, capture_fd, 2)
-    _queue_close(actions, nonce_r)
-    _queue_close(actions, status_w)
-    _queue_close(actions, devnull)
-    _queue_close(actions, capture_fd)
-    return actions
+    nonce_r, nonce_w = os.pipe()
+    status_r, status_w = os.pipe()
+    nonce_r = _raise_fd(nonce_r, 4)
+    status_w = _raise_fd(status_w, nonce_r)
+    return nonce_r, nonce_w, status_r, status_w
 
 
 def _child_argv(runner: Path, work: Path, spec: dict[str, str], names: tuple[str, str]) -> list[str]:
@@ -353,8 +351,19 @@ def _child_argv(runner: Path, work: Path, spec: dict[str, str], names: tuple[str
     ]
 
 
-def _posix_spawn(argv: list[str], actions: list[tuple]) -> int:
-    return os.posix_spawn(argv[0], argv, dict(os.environ), file_actions=actions)
+def _start_child(argv: list[str], nonce_r: int, status_w: int, capture):
+    os.set_inheritable(nonce_r, True)
+    os.set_inheritable(status_w, True)
+    # Literal interpreter flags. The runner path and test id are parent-owned.
+    # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit.dangerous-subprocess-use-audit
+    return subprocess.Popen(  # nosec B603
+        argv,
+        cwd=argv[6],
+        stdin=subprocess.DEVNULL,
+        stdout=capture,
+        stderr=subprocess.STDOUT,
+        pass_fds=(nonce_r, status_w),
+    )
 
 
 def _runner_file(work: Path) -> Path:
@@ -365,66 +374,67 @@ def _runner_file(work: Path) -> Path:
     return path
 
 
-def _exit_code(status: int) -> int:
-    return os.waitstatus_to_exitcode(status)
-
-
-def _wait_pid(pid: int, deadline: float) -> int:
-    while True:
-        done, status = os.waitpid(pid, os.WNOHANG)
-        if done == pid:
-            return _exit_code(status)
-        if _time_left(deadline) <= 0:
-            _kill_pid(pid)
-            raise VSetValidationError(
-                ERR_ORACLE_EXECUTION_MISMATCH, "oracle runner failed: timed out"
-            )
-        time.sleep(0.05)
-
-
-def _spawn(argv: list[str], nonce_r: int, status_w: int, capture_fd: int) -> int:
-    devnull = os.open(os.devnull, os.O_RDONLY)
-    try:
-        actions = _file_actions(nonce_r, status_w, capture_fd, devnull)
-        return _posix_spawn(argv, actions)
-    finally:
-        _close_fd(devnull)
-
-
 def _capture_path(work: Path, spec: dict[str, str], names: tuple[str, str]) -> Path:
     class_name, method_name = names
     return work.parent / f"vset-cap-{spec['module']}-{class_name}-{method_name}.txt"
 
 
+def _wait_child(proc: subprocess.Popen[bytes], deadline: float) -> int:
+    timeout = _time_left(deadline)
+    if timeout <= 0:
+        proc.kill()
+        proc.wait()
+        raise VSetValidationError(
+            ERR_ORACLE_EXECUTION_MISMATCH, "oracle runner failed: timed out"
+        )
+    try:
+        return proc.wait(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        proc.wait()
+        raise VSetValidationError(
+            ERR_ORACLE_EXECUTION_MISMATCH, "oracle runner failed: timed out"
+        ) from None
+
+
+def _echo_after_done(
+    status_r: int, reply: tuple[int, bytes], proc: subprocess.Popen[bytes], deadline: float
+) -> tuple[bytes, bytes]:
+    nonce_w, nonce = reply
+    marker = _read_exact(status_r, 1, proc.pid, deadline)
+    if marker != b"D":
+        return marker, b""
+    os.write(nonce_w, nonce)
+    return marker, _read_exact(status_r, _NONCE_LEN, proc.pid, deadline)
+
+
 def _grade_one(work: Path, spec: dict[str, str], names: tuple[str, str], nonce: bytes) -> str:
     capture_path = _capture_path(work, spec, names)
-    nonce_r, nonce_w = os.pipe()
-    status_r, status_w = os.pipe()
-    capture_fd = os.open(capture_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    pid = 0
+    nonce_r, nonce_w, status_r, status_w = _ordered_ends()
+    capture = capture_path.open("wb")
+    proc: subprocess.Popen[bytes] | None = None
     deadline = time.monotonic() + _CHILD_TIMEOUT_S
     try:
-        os.write(nonce_w, nonce)
-        _close_fd(nonce_w)
-        nonce_w = -1
-        pid = _spawn(
+        proc = _start_child(
             _child_argv(_runner_file(work), work, spec, names),
             nonce_r,
             status_w,
-            capture_fd,
+            capture,
         )
         _close_fd(nonce_r)
         nonce_r = -1
         _close_fd(status_w)
         status_w = -1
-        marker, echo = _read_result(status_r, pid, deadline)
+        marker, echo = _echo_after_done(status_r, (nonce_w, nonce), proc, deadline)
         if marker == b"L":
-            detail = _read_load_error(status_r, pid, deadline)
-            _wait_pid(pid, deadline)
+            detail = _read_load_error(status_r, proc.pid, deadline)
+            _wait_child(proc, deadline)
             raise _load_error(spec["relative"], detail)
-        return _status_for(marker, echo, nonce, _wait_pid(pid, deadline))
+        return _status_for(marker, echo, nonce, _wait_child(proc, deadline))
     except OSError as exc:
-        _kill_pid(pid)
+        if proc is not None:
+            proc.kill()
+            proc.wait()
         raise VSetValidationError(
             ERR_ORACLE_EXECUTION_MISMATCH, f"oracle runner failed: {exc}"
         ) from exc
@@ -433,7 +443,7 @@ def _grade_one(work: Path, spec: dict[str, str], names: tuple[str, str], nonce: 
         _close_fd(nonce_w)
         _close_fd(status_r)
         _close_fd(status_w)
-        _close_fd(capture_fd)
+        capture.close()
 
 
 def _spec_for(test_id: str, modules: list[dict[str, str]]) -> dict[str, str]:
