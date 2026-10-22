@@ -40,7 +40,7 @@
     "factory_contract_version": "factory-registry-v0.4",
     "schema_version": "vset-record-v1",
     "manifest_hash": "sha256:e5b8e5ff691ae48b94343b00df7aa560d720dae905871d192cbb6242a36d61ba",
-    "factory_registry_sha256": "sha256:196e636fcbf07d80013fded6562d72f2ea353f172dd6f7cbae07bd3639d716a8"
+    "factory_registry_sha256": "sha256:649b09cb4eddb70bffbadde72c4f607b9e5f4fa2efa98b580eab03bf53e10a2f"
   },
   "payload": {
     "task_specification": "Implement Counter.decides_halts(fn) as a total function that decides whether an arbitrary Python callable would halt.",
