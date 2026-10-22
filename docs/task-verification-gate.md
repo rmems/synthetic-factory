@@ -111,7 +111,8 @@ match `DocTestFinder`'s; examples marked `+SKIP` are neither sent nor counted, a
 (`output_truncated`), never `failed`, because a prefix cannot be judged. `SubprocessHarness` has no such
 budget. The other difference is the emptied docstring itself: a program that reads its target's
 docstring or source can tell. The gate refuses a mutant whose body newly reads `__doc__`,
-`__code__`, `getattr(..., "__doc__")` or `inspect.getsource`/`getdoc` (`mutant_escapes_body`),
+`__code__`, a `"__doc__"`/`"__code__"` string literal (so `getattr`, `__getattribute__`,
+`attrgetter` and the like) or `inspect.getsource`/`getdoc` (`mutant_escapes_body`),
 so a mutant cannot pass under one harness and be kept under the other that way; reading its own
 source text by other means is the same best-effort class as the rest of the AST tamper check. The flag never falls back: when
 bwrap or Landlock is unavailable, or a run's resource-limit and Landlock attestations are

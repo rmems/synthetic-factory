@@ -219,6 +219,9 @@ class ParseErrors(unittest.TestCase):
             "any docstring": "return a if len.__doc__ else b",
             "code object": "return a if add.__code__.co_consts else b",
             "getattr literal": "return a if getattr(add, '__doc__') else b",
+            "__getattribute__": "return a if add.__getattribute__('__doc__') else b",
+            "attrgetter": "import operator\n    return a if operator.attrgetter('__code__')(add) else b",
+            "vars lookup": "return a if type(add).__dict__.get('__doc__') else b",
             "inspect.getsource": "import inspect\n    return a if inspect.getsource(add) else b",
             "bare getdoc": "from inspect import getdoc\n    return a if getdoc(add) else b",
         }

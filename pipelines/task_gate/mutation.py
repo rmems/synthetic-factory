@@ -237,21 +237,20 @@ def _called_name(node: ast.Call) -> str | None:
     return func.id if isinstance(func, ast.Name) else getattr(func, "attr", None)
 
 
-def _getattr_of_source(node: ast.Call, name: str | None) -> bool:
-    """``getattr(x, "__doc__")`` and the like: the attribute named by a literal."""
+def _tamper_literal(node: ast.Constant) -> str | None:
+    """A ``"__doc__"``/``"__code__"`` string literal: whatever reads by name (``getattr``,
+    ``__getattribute__``, ``operator.attrgetter``, ``vars(x)[...]``) has to spell it."""
 
-    named = node.args[1] if name == "getattr" and len(node.args) > 1 else None
-    return isinstance(named, ast.Constant) and named.value in _SOURCE_ATTRS
+    return f"Literal:{node.value}" if node.value in _SOURCE_ATTRS else None
 
 
 def _tamper_call(node: ast.Call) -> str | None:
     """A call that can rebind names or code without an AST store (``globals().update`` …), or
-    one that reads source text or a docstring (``inspect.getsource``, ``getattr(f, "__doc__")``)."""
+    one that reads source text or a docstring (``inspect.getsource`` …)."""
 
     name = _called_name(node)
     reflective = isinstance(node.func, ast.Name) and name in _REFLECTIVE_CALLS
-    reads_source = name in _SOURCE_CALLS or _getattr_of_source(node, name)
-    return f"Call:{name}" if reflective or reads_source else None
+    return f"Call:{name}" if reflective or name in _SOURCE_CALLS else None
 
 
 def _tamper_of(node: ast.AST, function: str) -> str | None:
@@ -261,6 +260,7 @@ def _tamper_of(node: ast.AST, function: str) -> str | None:
         ((ast.Attribute, ast.Subscript), lambda found: _tamper_through(found, function)),
         ((ast.Global, ast.Nonlocal), lambda found: _tamper_global(found, protected)),
         (ast.Call, _tamper_call),
+        (ast.Constant, _tamper_literal),
     )
     return next((check(node) for kinds, check in checks if isinstance(node, kinds)), None)
 
