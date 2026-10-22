@@ -97,8 +97,9 @@ def _encode_dict_or_list(value: object) -> object | None:
 
 
 def _encode_tuple_or_set(value: object) -> object | None:
-    if type(value) is tuple:
-        return _encode_tuple(value)
+    if isinstance(value, tuple):
+        if value.__class__ is tuple:
+            return _encode_tuple(value)
     if isinstance(value, set):
         return _encode_set(value)  # type: ignore[arg-type]
     if isinstance(value, deque):
