@@ -104,6 +104,8 @@ _WORKER_SOURCE = textwrap.dedent(
     def put(value):
         if value is None:
             return {"kind": "value", "value": None}
+        if value is NotImplemented:
+            return {"kind": "notimplemented"}
         if isinstance(value, (bool, int, float, str)):
             return {"kind": "value", "value": value}
         if type(value) is list:
