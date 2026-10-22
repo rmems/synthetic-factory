@@ -202,11 +202,12 @@ def _writes(node: ast.AST) -> bool:
 
 
 def _tamper_through(node: ast.Attribute | ast.Subscript, function: str) -> str | None:
-    """A store or delete through the target's own name, or onto ``__doc__``/``__test__``."""
+    """A store or delete through the target's own name, or onto ``__doc__``/``__test__``; or
+    a read of a docstring or code object (see ``_SOURCE_ATTRS``)."""
 
-    if not _writes(node):
-        return None
     attr = getattr(node, "attr", None)
+    if not _writes(node):
+        return f"Read:{attr}" if attr in _SOURCE_ATTRS else None
     hit = _root_name(node) == function or attr in _PROTECTED_ATTRS
     return f"{type(node).__name__}:{attr}" if hit else None
 
@@ -224,13 +225,33 @@ def _tamper_global(node: ast.Global | ast.Nonlocal, protected: frozenset[str]) -
 _REFLECTIVE_CALLS = frozenset({
     "globals", "vars", "setattr", "delattr", "exec", "eval", "compile", "__import__",
 })
+# The sandboxed harness empties the target's docstring before the program loads, so the expected
+# outputs never enter the sandbox. A body that newly reads a docstring, a code object or source
+# text could behave differently there than under ``SubprocessHarness``, so it is refused too.
+_SOURCE_ATTRS = frozenset({"__doc__", "__code__"})
+_SOURCE_CALLS = frozenset({"getdoc", "getsource", "getsourcelines", "findsource", "getcomments"})
+
+
+def _called_name(node: ast.Call) -> str | None:
+    func = node.func
+    return func.id if isinstance(func, ast.Name) else getattr(func, "attr", None)
+
+
+def _getattr_of_source(node: ast.Call, name: str | None) -> bool:
+    """``getattr(x, "__doc__")`` and the like: the attribute named by a literal."""
+
+    named = node.args[1] if name == "getattr" and len(node.args) > 1 else None
+    return isinstance(named, ast.Constant) and named.value in _SOURCE_ATTRS
 
 
 def _tamper_call(node: ast.Call) -> str | None:
-    """A call that can rebind names or code without an AST store (``globals().update`` …)."""
+    """A call that can rebind names or code without an AST store (``globals().update`` …), or
+    one that reads source text or a docstring (``inspect.getsource``, ``getattr(f, "__doc__")``)."""
 
-    name = node.func.id if isinstance(node.func, ast.Name) else None
-    return f"Call:{name}" if name in _REFLECTIVE_CALLS else None
+    name = _called_name(node)
+    reflective = isinstance(node.func, ast.Name) and name in _REFLECTIVE_CALLS
+    reads_source = name in _SOURCE_CALLS or _getattr_of_source(node, name)
+    return f"Call:{name}" if reflective or reads_source else None
 
 
 def _tamper_of(node: ast.AST, function: str) -> str | None:

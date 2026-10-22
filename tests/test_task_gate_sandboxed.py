@@ -350,6 +350,16 @@ class SandboxedEndToEnd(unittest.TestCase):
             cv.VERDICT_PARSE_ERROR, cv.VERDICT_DUPLICATE,
         ])
 
+    def test_a_mutant_that_reads_the_docstring_gets_the_same_verdict_from_both_harnesses(self):
+        """Blocks on #513: the emptied docstring must not turn a passing mutant into ``kept``."""
+
+        item = proposal_for("return a + b if add.__doc__ else a - b", "return a + b")
+        verdicts = [
+            gate.Gate(PROGRAMS, rules(), chosen).run([item])[0].verdict
+            for chosen in (harness.SubprocessHarness(5), sandboxed.SandboxedHarness(5))
+        ]
+        self.assertEqual(verdicts, [cv.VERDICT_PARSE_ERROR, cv.VERDICT_PARSE_ERROR])
+
     def test_verdicts_match_the_subprocess_harness_on_the_procedural_fixture(self):
         catalog = procedural.load_catalog(base.FIXTURE)
         programs = procedural.programs_from_catalog(catalog)

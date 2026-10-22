@@ -107,8 +107,12 @@ its docstring as the compiler stores it (`__doc__`, dedented on Python 3.13+), s
 match `DocTestFinder`'s; examples marked `+SKIP` are neither sent nor counted, and a docstring
 `doctest` cannot parse is a `load_error` before anything runs. Output is recorded in full up to
 1 MiB (UTF-8) per run across all examples; a run that prints more is `crashed`
-(`output_truncated`), never `failed`, because a prefix cannot be judged. This is the one place the
-sandboxed harness differs from `SubprocessHarness`, which has no such budget. The flag never falls back: when
+(`output_truncated`), never `failed`, because a prefix cannot be judged. `SubprocessHarness` has no such
+budget. The other difference is the emptied docstring itself: a program that reads its target's
+docstring or source can tell. The gate refuses a mutant whose body newly reads `__doc__`,
+`__code__`, `getattr(..., "__doc__")` or `inspect.getsource`/`getdoc` (`mutant_escapes_body`),
+so a mutant cannot pass under one harness and be kept under the other that way; reading its own
+source text by other means is the same best-effort class as the rest of the AST tamper check. The flag never falls back: when
 bwrap or Landlock is unavailable, or a run's resource-limit and Landlock attestations are
 missing, the run is refused (`TASK_GATE_HARNESS_UNAVAILABLE`). `summary.json` records the harness in
 `inputs.harness` (`kind`: `subprocess` or `sandboxed`, plus the isolation identity). `Gate`
