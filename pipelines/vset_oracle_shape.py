@@ -136,6 +136,29 @@ def blank_instance(cls: type) -> object:
     return object.__new__(cls)
 
 
+def remote_hash(obj: object) -> int:
+    try:
+        func = obj.client.get(obj.oid, "__hash__")  # type: ignore[attr-defined]
+    except AttributeError:
+        return object.__hash__(obj)
+    if func is None:
+        raise TypeError("unhashable type")
+    return func()
+
+
+def truth(obj: object) -> bool:
+    try:
+        func = obj.client.get(obj.oid, "__bool__")  # type: ignore[attr-defined]
+    except AttributeError:
+        func = None
+    if func is not None:
+        return bool(func())
+    try:
+        func = obj.client.get(obj.oid, "__len__")  # type: ignore[attr-defined]
+    except AttributeError:
+        return True
+    return bool(func())
+
 
 if __package__:  # pragma: no cover - package-child import path
     _expose_package_sibling(__name__)
