@@ -207,14 +207,6 @@ WORKER_SOURCE = textwrap.dedent(
                 "kwargs": {key: put(val) for key, val in kwargs.items()},
             })
 
-        def __getattr__(self, name):
-            return ask({
-                "kind": "callback",
-                "op": "get",
-                "cb": self._cb,
-                "attr": name,
-            })
-
 
     def ask(payload):
         reply(payload)
