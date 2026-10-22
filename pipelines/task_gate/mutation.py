@@ -241,7 +241,8 @@ def _tamper_literal(node: ast.Constant) -> str | None:
     """A ``"__doc__"``/``"__code__"`` string literal: whatever reads by name (``getattr``,
     ``__getattribute__``, ``operator.attrgetter``, ``vars(x)[...]``) has to spell it."""
 
-    return f"Literal:{node.value}" if node.value in _SOURCE_ATTRS else None
+    value = node.value
+    return f"Literal:{value}" if isinstance(value, str) and value in _SOURCE_ATTRS else None
 
 
 def _tamper_call(node: ast.Call) -> str | None:
