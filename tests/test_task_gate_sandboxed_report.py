@@ -249,10 +249,39 @@ class Planning(unittest.TestCase):
         text = "def f():\n    '''\n    >>> f()  # doctest: +SKIP\n    9\n    >>> f()\n    1\n    '''\n    return 1\n"
         self.assertEqual(len(sandboxed_plan.plan_for(text, "f").examples), 1)
 
-    def test_the_last_top_level_definition_is_the_target_async_included(self):
-        text = ("def f():\n    '''\n    >>> 1\n    1\n    '''\n"
-                "async def f():\n    '''\n    >>> 2\n    2\n    >>> 3\n    3\n    '''\n")
+    def test_an_async_target_is_planned_like_any_other(self):
+        text = "async def f():\n    '''\n    >>> 2\n    2\n    >>> 3\n    3\n    '''\n"
         self.assertEqual(len(sandboxed_plan.plan_for(text, "f").examples), 2)
+
+    def test_a_decorated_or_rebound_target_is_refused_before_anything_runs(self):
+        """CodeRabbit on #513: the examples read from the ``def`` may not be the runtime object's."""
+
+        body = "def f():\n    '''\n    >>> 1 + 1\n    2\n    '''\n"
+        refused = {
+            "decorated": "import functools\n@functools.cache\n" + body,
+            "assigned after": body + "f = lambda: 1\n",
+            "assigned before": "f = 1\n" + body,
+            "redefined": body + body,
+            "imported over": body + "from os import path as f\n",
+            "star import": body + "from os.path import *\n",
+            "augmented": body + "f += 1\n",
+            "loop target": body + "for f in range(2):\n    pass\n",
+            "declared global": body + "def g():\n    global f\n    f = 2\n",
+            "class": body + "class f:\n    pass\n",
+        }
+        for name, text in refused.items():
+            with self.subTest(name):
+                plan = sandboxed_plan.plan_for(text, "f")
+                self.assertEqual((plan.outcome, plan.detail), (cv.OUTCOME_CRASHED, "target_binding"))
+        kept = {
+            "a local of another function": body + "def g():\n    f = 2\n    return f\n",
+            "a comprehension variable": body + "SQUARES = [f * f for f in range(3)]\n",
+            "a lambda parameter": body + "G = lambda f: f\n",
+            "a read of the name": body + "ALIAS = f\n",
+        }
+        for name, text in kept.items():
+            with self.subTest(name):
+                self.assertEqual(len(sandboxed_plan.plan_for(text, "f").examples), 1)
 
     def test_offsets_are_bytes_and_any_line_ending_is_handled(self):
         for newline in ("\n", "\r\n", "\r"):

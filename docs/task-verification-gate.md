@@ -102,8 +102,9 @@ the report file. The parent opens the records and compares each with the expecte
   `failed` or `crashed`, though still never `passed`. That is the hostile-introspection class the
   AST tamper check also leaves open.
 
-The examples are read from the source, so the target is the last top-level `def` of that name and
-its docstring as the compiler stores it (`__doc__`, dedented on Python 3.13+), so the examples
+The examples are read from the source, so the target is the top-level `def` of that name (a
+decorated target, or one whose name is bound anywhere else at module level, is `crashed` with
+`target_binding`, since the object that runs may not be that `def`) and its docstring as the compiler stores it (`__doc__`, dedented on Python 3.13+), so the examples
 match `DocTestFinder`'s; examples marked `+SKIP` are neither sent nor counted, and a docstring
 `doctest` cannot parse is a `load_error` before anything runs. Output is recorded in full up to
 1 MiB (UTF-8) per run across all examples; a run that prints more is `crashed`

@@ -7,11 +7,14 @@ program with that docstring replaced by an empty string, and each example's sour
 else. The expected outputs stay with the parent, which compares them itself
 (``sandboxed_judge.py``), so no program can report a pass without producing the output.
 
-The target is the last top-level ``def`` of that name, which is the object ``getattr`` returns
-after the module runs, and its docstring is read as the compiler stores it (``__doc__``), not as
-the AST literal, so examples match ``DocTestFinder``'s on every Python version. Examples marked ``# doctest: +SKIP`` are dropped, as ``DocTestRunner``
-skips them. The empty-string replacement keeps the line count, so line numbers in the child
-match the original program.
+The target is the top-level ``def`` of that name. A target that is decorated, or whose name is
+bound anywhere else at module level, is refused (``crashed``, ``target_binding``): the object
+``getattr`` returns after the module runs may not be that ``def``, so its examples may not be
+the ones ``SubprocessHarness`` runs. The docstring is read as the compiler stores it
+(``__doc__``), not as the AST literal, so examples match ``DocTestFinder``'s on every Python
+version. Examples marked ``# doctest: +SKIP`` are dropped, as ``DocTestRunner`` skips them.
+The empty-string replacement keeps the line count, so line numbers in the child match the
+original program.
 """
 
 from __future__ import annotations
@@ -62,11 +65,61 @@ def _target(module: ast.Module, function: str) -> ast.FunctionDef | ast.AsyncFun
     return found[-1] if found else None
 
 
-def _docstring_node(module: ast.Module | None, function: str) -> ast.Expr | None:
-    target = None if module is None else _target(module, function)
+def _docstring_of(target: ast.FunctionDef | ast.AsyncFunctionDef | None) -> ast.Expr | None:
     first = None if target is None else target.body[0]
     is_text = isinstance(first, ast.Expr) and isinstance(first.value, ast.Constant)
     return first if is_text and isinstance(first.value.value, str) else None
+
+
+def _docstring_node(module: ast.Module | None, function: str) -> ast.Expr | None:
+    return _docstring_of(None if module is None else _target(module, function))
+
+
+# Names bound inside these belong to their own scope, not the module's.
+_INNER_SCOPES = (
+    ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda,
+    ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp,
+)
+
+
+def _module_scope(module: ast.Module, skip: ast.AST) -> list[ast.AST]:
+    """Every node evaluated in module scope, without descending into inner scopes."""
+
+    found, stack = [], [node for node in module.body if node is not skip]
+    while stack:
+        node = stack.pop()
+        found.append(node)
+        if not isinstance(node, _INNER_SCOPES):
+            stack.extend(ast.iter_child_nodes(node))
+    return found
+
+
+_BINDING_NODES = (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.MatchAs, ast.MatchStar)
+
+
+def _bound_name(node: ast.AST) -> str | None:
+    """The module-level name ``node`` binds, if any (``*`` for a star import)."""
+
+    if isinstance(node, ast.Name) and isinstance(node.ctx, (ast.Store, ast.Del)):
+        return node.id
+    if isinstance(node, ast.alias):
+        return node.asname or node.name.split(".")[0]
+    return getattr(node, "name", None) if isinstance(node, _BINDING_NODES) else None
+
+
+def _rebinds(module: ast.Module, target: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
+    """True when ``getattr(module, name)`` may not be the ``def`` the plan reads.
+
+    A decorator, any other module-level binding of the name (assignment, import, another
+    ``def``, a star import) or a ``global`` declaration of it anywhere means the doctests the
+    plan would read are not necessarily those of the object the child runs.
+    """
+
+    bound = {_bound_name(node) for node in _module_scope(module, target)}
+    declared = any(
+        isinstance(node, ast.Global) and target.name in node.names for node in ast.walk(module)
+    )
+    return bool(target.decorator_list) or declared or bool(bound & {target.name, "*"})
 
 
 def _line_starts(data: bytes) -> list[int]:
@@ -115,9 +168,17 @@ def _compiled_docstring(node: ast.Expr) -> str:
 def plan_for(program_text: str, function: str) -> Plan:
     """The plan for one run; a program that cannot be planned runs as is with no examples."""
 
-    node = _docstring_node(_parsed(program_text), function)
+    module = _parsed(program_text)
+    target = None if module is None else _target(module, function)
+    if target is not None and _rebinds(module, target):
+        return Plan(program_text, outcome=cv.OUTCOME_CRASHED, detail="target_binding")
+    node = _docstring_of(target)
     if node is None:  # unparsable, no such target or no docstring: the child reports the rest
         return Plan(program_text)
+    return _planned(program_text, function, node)
+
+
+def _planned(program_text: str, function: str, node: ast.Expr) -> Plan:
     try:
         found = doctest.DocTestParser().get_examples(_compiled_docstring(node), function)
     except ValueError:  # what DocTestFinder raises for the same docstring
