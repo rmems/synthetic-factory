@@ -39,6 +39,33 @@ from curate_coding import (  # noqa: E402
     curate_step,
 )
 
+def _alpha_and_zeta_episodes():
+    """Two visible-evidence coding episodes for the alpha and zeta source files."""
+    first_record = episode([visible_step(n=1)])
+    first_record["id"] = "coding-alpha"
+    second_record = episode([visible_step(n=2, reflection="Visible second file.")])
+    second_record["id"] = "coding-zeta"
+    return first_record, second_record
+
+
+def _read_jsonl_lines(path):
+    return [json.loads(line) for line in path.read_text(encoding="utf-8").split("\n") if line]
+
+
+def _coding_lane(output, manifest_path):
+    """The gate's coding_observability lane over a curate_coding run directory."""
+    return {
+        "order": 5,
+        "bead": "sf-c5l.5",
+        "transform": curate_coding.TRANSFORM_NAME,
+        "version": curate_coding.TRANSFORM_VERSION,
+        "outputs_dir": output,
+        "manifest_path": manifest_path,
+        "manifest_format": "jsonl",
+        "artifacts": [],
+    }
+
+
 class CurateCodingTests(unittest.TestCase):
     def test_migrates_thought_from_visible_reflection(self):
         source = episode([visible_step()])
@@ -256,11 +283,27 @@ class CurateCodingTests(unittest.TestCase):
         )
         self.assertNotEqual(payload_hash, payload_cr_hash)
 
+    def _assert_two_file_summary(self, summary):
+        self.assertEqual(summary["input_files"], 2)
+        self.assertEqual(summary["input_records"], 2)
+        self.assertEqual(summary["output_records"], 2)
+        self.assertEqual(summary["hidden_reasoning_fields_removed"], 2)
+        self.assertEqual(summary["wrap_records"], 0)
+
+    def _assert_coding_lane_prepares(self, source, output, expected_paths):
+        """The run directory loads as the gate's coding lane, records in path order."""
+        prepared = curate_gate._prepare_lane(  # noqa: SLF001
+            _coding_lane(output, output / curate_coding.RUN_MANIFEST_FILENAME),
+            curate_gate._load_source_records(source),  # noqa: SLF001
+        )
+        self.assertEqual(len(prepared["entries"]), 2)
+        self.assertEqual(
+            [record["relative_path"] for record in prepared["records"]],
+            expected_paths,
+        )
+
     def test_directory_writer_preserves_paths_and_emits_one_gate_manifest(self):
-        first_record = episode([visible_step(n=1)])
-        first_record["id"] = "coding-alpha"
-        second_record = episode([visible_step(n=2, reflection="Visible second file.")])
-        second_record["id"] = "coding-zeta"
+        first_record, second_record = _alpha_and_zeta_episodes()
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             source = root / "source-run"
@@ -290,17 +333,9 @@ class CurateCodingTests(unittest.TestCase):
             self.assertEqual(completed.returncode, 0, completed.stderr)
             summary = json.loads(completed.stdout)
             manifest_path = output / curate_coding.RUN_MANIFEST_FILENAME
-            manifest = [
-                json.loads(line)
-                for line in manifest_path.read_text(encoding="utf-8").split("\n")
-                if line
-            ]
+            manifest = _read_jsonl_lines(manifest_path)
 
-            self.assertEqual(summary["input_files"], 2)
-            self.assertEqual(summary["input_records"], 2)
-            self.assertEqual(summary["output_records"], 2)
-            self.assertEqual(summary["hidden_reasoning_fields_removed"], 2)
-            self.assertEqual(summary["wrap_records"], 0)
+            self._assert_two_file_summary(summary)
             self.assertEqual(
                 [(item["source_path"], item["source_line"]) for item in manifest],
                 [(alpha.as_posix(), 2), (zeta.as_posix(), 1)],
@@ -312,25 +347,7 @@ class CurateCodingTests(unittest.TestCase):
                 [alpha.as_posix(), curate_coding.RUN_MANIFEST_FILENAME, zeta.as_posix()],
             )
 
-            lane = {
-                "order": 5,
-                "bead": "sf-c5l.5",
-                "transform": curate_coding.TRANSFORM_NAME,
-                "version": curate_coding.TRANSFORM_VERSION,
-                "outputs_dir": output,
-                "manifest_path": manifest_path,
-                "manifest_format": "jsonl",
-                "artifacts": [],
-            }
-            prepared = curate_gate._prepare_lane(  # noqa: SLF001
-                lane,
-                curate_gate._load_source_records(source),  # noqa: SLF001
-            )
-            self.assertEqual(len(prepared["entries"]), 2)
-            self.assertEqual(
-                [record["relative_path"] for record in prepared["records"]],
-                [alpha.as_posix(), zeta.as_posix()],
-            )
+            self._assert_coding_lane_prepares(source, output, [alpha.as_posix(), zeta.as_posix()])
 
     def test_directory_writer_refuses_clobber_and_preserves_existing_tree(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -435,7 +452,8 @@ class CurateCodingTests(unittest.TestCase):
 
         self.assertEqual(source, original)
 
-    def _two_file_source(self, root: Path) -> tuple[Path, Path]:
+    @staticmethod
+    def _two_file_source(root: Path) -> tuple[Path, Path]:
         source = root / "source-run"
         first = episode([visible_step(n=1)])
         first["id"] = "coding-alpha"
@@ -480,70 +498,75 @@ class CurateCodingTests(unittest.TestCase):
                 curate_coding.curate_run(source, rolled)
             self.assertFalse(rolled.exists())
 
+    def _assert_curate_run_refuses_unsafe_trees(self, root, source):
+        linked = root / "linked-source"
+        linked.symlink_to(source)
+        with self.assertRaisesRegex(ValueError, "must not be a symlink"):
+            curate_coding.curate_run(linked, root / "out-link")
+
+        nested_link = source / "zeta" / "alias"
+        nested_link.symlink_to(source / "alpha")
+        with self.assertRaisesRegex(ValueError, "symlinked path"):
+            curate_coding.curate_run(source, root / "out-nested")
+        nested_link.unlink()
+
+        empty = root / "empty-run"
+        empty.mkdir()
+        with self.assertRaisesRegex(ValueError, "holds no JSONL"):
+            curate_coding.curate_run(empty, root / "out-empty")
+
+        missing = root / "missing-run"
+        with self.assertRaisesRegex(ValueError, "not a directory"):
+            curate_coding.curate_run(missing, root / "out-missing")
+
+        reserved = source / curate_coding.RUN_MANIFEST_FILENAME
+        reserved.write_text("{}\n", encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "aggregate manifest"):
+            curate_coding.curate_run(source, root / "out-reserved")
+        reserved.unlink()
+
+        with self.assertRaisesRegex(ValueError, "outside the source run"):
+            curate_coding.curate_run(source, source / "inside")
+
+        raw = root / "outputs" / "raw" / "lane"
+        with self.assertRaisesRegex(ValueError, "immutable raw"):
+            curate_coding.curate_run(source, raw)
+
+    def _assert_cli_rejects_mixed_modes_and_writes_file_mode(self, root, source, output):
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr), self.assertRaises(SystemExit):
+            curate_coding.main(
+                [str(source), "--output-dir", str(output), "--output-jsonl", str(root / "x.jsonl")]
+            )
+        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+            curate_coding.main(
+                [str(source / "alpha/nested/episodes.jsonl"), "--output-dir", str(root / "d")]
+            )
+        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+            curate_coding.main([str(source)])
+        file_source = source / "alpha/nested/episodes.jsonl"
+        file_out = root / "one.jsonl"
+        file_manifest = root / "one.manifest.jsonl"
+        with contextlib.redirect_stdout(io.StringIO()):
+            code = curate_coding.main(
+                [
+                    str(file_source),
+                    "--output-jsonl",
+                    str(file_out),
+                    "--manifest-jsonl",
+                    str(file_manifest),
+                ]
+            )
+        self.assertEqual(code, 0)
+        self.assertTrue(file_out.is_file())
+        self.assertTrue(file_manifest.is_file())
+
     def test_directory_writer_rejects_symlink_empty_raw_and_nested_dest(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             source, output = self._two_file_source(root)
-            linked = root / "linked-source"
-            linked.symlink_to(source)
-            with self.assertRaisesRegex(ValueError, "must not be a symlink"):
-                curate_coding.curate_run(linked, root / "out-link")
-
-            nested_link = source / "zeta" / "alias"
-            nested_link.symlink_to(source / "alpha")
-            with self.assertRaisesRegex(ValueError, "symlinked path"):
-                curate_coding.curate_run(source, root / "out-nested")
-            nested_link.unlink()
-
-            empty = root / "empty-run"
-            empty.mkdir()
-            with self.assertRaisesRegex(ValueError, "holds no JSONL"):
-                curate_coding.curate_run(empty, root / "out-empty")
-
-            missing = root / "missing-run"
-            with self.assertRaisesRegex(ValueError, "not a directory"):
-                curate_coding.curate_run(missing, root / "out-missing")
-
-            reserved = source / curate_coding.RUN_MANIFEST_FILENAME
-            reserved.write_text("{}\n", encoding="utf-8")
-            with self.assertRaisesRegex(ValueError, "aggregate manifest"):
-                curate_coding.curate_run(source, root / "out-reserved")
-            reserved.unlink()
-
-            with self.assertRaisesRegex(ValueError, "outside the source run"):
-                curate_coding.curate_run(source, source / "inside")
-
-            raw = root / "outputs" / "raw" / "lane"
-            with self.assertRaisesRegex(ValueError, "immutable raw"):
-                curate_coding.curate_run(source, raw)
-
-            stderr = io.StringIO()
-            with contextlib.redirect_stderr(stderr), self.assertRaises(SystemExit):
-                curate_coding.main(
-                    [str(source), "--output-dir", str(output), "--output-jsonl", str(root / "x.jsonl")]
-                )
-            with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
-                curate_coding.main(
-                    [str(source / "alpha/nested/episodes.jsonl"), "--output-dir", str(root / "d")]
-                )
-            with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
-                curate_coding.main([str(source)])
-            file_source = source / "alpha/nested/episodes.jsonl"
-            file_out = root / "one.jsonl"
-            file_manifest = root / "one.manifest.jsonl"
-            with contextlib.redirect_stdout(io.StringIO()):
-                code = curate_coding.main(
-                    [
-                        str(file_source),
-                        "--output-jsonl",
-                        str(file_out),
-                        "--manifest-jsonl",
-                        str(file_manifest),
-                    ]
-                )
-            self.assertEqual(code, 0)
-            self.assertTrue(file_out.is_file())
-            self.assertTrue(file_manifest.is_file())
+            self._assert_curate_run_refuses_unsafe_trees(root, source)
+            self._assert_cli_rejects_mixed_modes_and_writes_file_mode(root, source, output)
 
             file_a = root / "a.jsonl"
             with self.assertRaisesRegex(ValueError, "distinct"):

@@ -28,7 +28,7 @@ def is_vendor_filename(name: str) -> bool:
         return False
     if name.startswith(VENDOR_PREFIXES):
         return True
-    if name.startswith("sir-mill-leftover") or name.startswith("sir-loop-leftover"):
+    if name.startswith(("sir-mill-leftover", "sir-loop-leftover")):
         return True
     if name.startswith("sir_r") and "leftover" in name and name.endswith("_mill.py"):
         return True

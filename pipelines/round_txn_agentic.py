@@ -161,35 +161,52 @@ def _long_horizon_step_errors(ctx: EnvelopeContext) -> list[str]:
     return errors
 
 
+def _reward_success(record: dict):
+    """Return ``reward.success`` when the record carries a reward object."""
+    reward = record.get("reward")
+    return reward.get("success") if isinstance(reward, dict) else None
+
+
+def _long_horizon_success_unsupported(outcome, outcome_text: str) -> bool:
+    """A success needs verification evidence, no partial language, and a terminal outcome."""
+    if _terms.LONG_HORIZON_COMPLETION_RE.search(outcome_text) is None:
+        return True
+    if _terms.PARTIAL_OUTCOME_RE.search(outcome_text) is not None:
+        return True
+    return not terminal_outcome_agrees(outcome, True)
+
+
+def _long_horizon_failure_unsupported(outcome_text: str) -> bool:
+    """A non-success needs partial-outcome language and no contradictory completion."""
+    if _terms.PARTIAL_OUTCOME_RE.search(outcome_text) is None:
+        return True
+    return _terms.LONG_HORIZON_CONTRADICTORY_COMPLETION_RE.search(outcome_text) is not None
+
+
 def _long_horizon_outcome_errors(ctx: EnvelopeContext) -> list[str]:
     if not isinstance(ctx.record, dict):
         return []
-    reward = ctx.record.get("reward")
-    success = reward.get("success") if isinstance(reward, dict) else None
+    success = _reward_success(ctx.record)
     if not isinstance(success, bool):
         return []
     ctx.tally.long_horizon_success_values.append(success)
     outcome = ctx.record.get("outcome")
     outcome_text = _outcome_text(outcome)
-    completion_evidence = _terms.LONG_HORIZON_COMPLETION_RE.search(outcome_text)
-    partial_evidence = _terms.PARTIAL_OUTCOME_RE.search(outcome_text)
-    contradictory = _terms.LONG_HORIZON_CONTRADICTORY_COMPLETION_RE.search(outcome_text)
-    errors = []
-    if success and (
-        completion_evidence is None
-        or partial_evidence is not None
-        or not terminal_outcome_agrees(outcome, True)
-    ):
-        errors.append(
-            f"{ctx.where}: successful long-horizon outcome must report "
-            "observable verification without partial or handoff language"
-        )
-    if not success and (partial_evidence is None or contradictory is not None):
-        errors.append(
-            f"{ctx.where}: unsuccessful long-horizon outcome must report "
-            "partial containment, mitigation, or handoff"
-        )
-    return errors
+    if success and _long_horizon_success_unsupported(outcome, outcome_text):
+        return [
+            (
+                f"{ctx.where}: successful long-horizon outcome must report "
+                "observable verification without partial or handoff language"
+            )
+        ]
+    if not success and _long_horizon_failure_unsupported(outcome_text):
+        return [
+            (
+                f"{ctx.where}: unsuccessful long-horizon outcome must report "
+                "partial containment, mitigation, or handoff"
+            )
+        ]
+    return []
 
 
 def _long_horizon_success_batch_errors(tally: EnvelopeTally, quota: int) -> list[str]:
@@ -225,15 +242,18 @@ def _turn_indexes(turn_contents: list, text) -> list[int]:
     ]
 
 
+def _names_plan_change(candidate: str) -> bool:
+    """True when text names a plan change and none of the terms that void one."""
+    if _terms.PLAN_CHANGE_RE.search(candidate) is None:
+        return False
+    return not any(term in candidate for term in _terms.IGNORED_PLAN_TERMS)
+
+
 def _plan_changes_after(disagreement_turns, resolution_turns, resolution, turn_contents) -> bool:
     for disagreement_index in disagreement_turns:
         for resolution_index in resolution_turns:
             candidate = f"{resolution} {turn_contents[resolution_index] or ''}".casefold()
-            if (
-                disagreement_index < resolution_index
-                and any(term in candidate for term in _terms.PLAN_CHANGE_TERMS)
-                and not any(term in candidate for term in _terms.IGNORED_PLAN_TERMS)
-            ):
+            if disagreement_index < resolution_index and _names_plan_change(candidate):
                 return True
     return False
 
@@ -290,6 +310,12 @@ def _sparse_forbidden_field_errors(where: str, index: int, step: dict) -> list[s
     return errors
 
 
+def _sparse_horizon_matches_steps(record: dict, steps: list) -> bool:
+    reward = record.get("reward")
+    horizon_steps = reward.get("horizon_steps") if isinstance(reward, dict) else None
+    return _is_plain_int(horizon_steps) and horizon_steps == len(steps)
+
+
 def _sparse_step_errors(ctx: EnvelopeContext) -> list[str]:
     if not isinstance(ctx.record, dict):
         return []
@@ -301,9 +327,7 @@ def _sparse_step_errors(ctx: EnvelopeContext) -> list[str]:
     for index, step in enumerate(steps):
         if isinstance(step, dict):
             errors.extend(_sparse_forbidden_field_errors(ctx.where, index, step))
-    reward = ctx.record.get("reward")
-    horizon_steps = reward.get("horizon_steps") if isinstance(reward, dict) else None
-    if not _is_plain_int(horizon_steps) or horizon_steps != len(steps):
+    if not _sparse_horizon_matches_steps(ctx.record, steps):
         errors.append(f"{ctx.where}: reward.horizon_steps must equal the staged step count")
     if len(_coverage.abandoned_failed_hypotheses(steps)) < 2:
         errors.append(
@@ -322,22 +346,32 @@ def _sparse_terminal_only_errors(ctx: EnvelopeContext) -> list[str]:
     return [f"{ctx.where}: reward.terminal_only must be true"]
 
 
+def _mentioned_last(matches: list, others: list) -> bool:
+    """True when ``matches`` is non-empty and its last match follows every other."""
+    if not matches:
+        return False
+    if not others:
+        return True
+    return matches[-1].start() > others[-1].start()
+
+
 def _sparse_outcome_mismatch(success: bool, outcome_text: str) -> bool:
     completion = list(_terms.SPARSE_COMPLETION_RE.finditer(outcome_text))
     failed = list(_terms.SPARSE_FAILED_RE.finditer(outcome_text))
     incomplete = _terms.SPARSE_INCOMPLETE_RE.search(outcome_text)
-    failed_last = bool(failed) and (not completion or failed[-1].start() > completion[-1].start())
-    completed_last = bool(completion) and (not failed or completion[-1].start() > failed[-1].start())
     if success:
-        return not completion or incomplete is not None or failed_last
-    return incomplete is None and (not failed or completed_last)
+        if not completion or incomplete is not None:
+            return True
+        return _mentioned_last(failed, completion)
+    if incomplete is not None:
+        return False
+    return not failed or _mentioned_last(completion, failed)
 
 
 def _sparse_outcome_errors(ctx: EnvelopeContext) -> list[str]:
     if not isinstance(ctx.record, dict):
         return []
-    reward = ctx.record.get("reward")
-    success = reward.get("success") if isinstance(reward, dict) else None
+    success = _reward_success(ctx.record)
     if not isinstance(success, bool):
         return []
     if not _sparse_outcome_mismatch(success, _outcome_text(ctx.record.get("outcome"))):
@@ -371,8 +405,8 @@ def _tool_use_lesson_errors(ctx: EnvelopeContext) -> list[str]:
     return []
 
 
-def _preference_side_errors(ctx: EnvelopeContext, side_name: str) -> list[str]:
-    side = ctx.get(side_name)
+def _preference_side_shape_errors(ctx: EnvelopeContext, side_name: str, side) -> list[str]:
+    """A side must be an episode with steps, never a wrapped Thalamic trajectory."""
     errors = []
     if not isinstance(side, dict) or not isinstance(side.get("steps"), list):
         errors.append(f"{ctx.where}: {side_name} must be an episode side with steps")
@@ -384,18 +418,34 @@ def _preference_side_errors(ctx: EnvelopeContext, side_name: str) -> list[str]:
                 ctx.where, side.get("steps"), f"tool-use preference {side_name}", (4, 10)
             )
         )
-    side_reward = side.get("reward") if isinstance(side, dict) else None
-    success = side_reward.get("success") if isinstance(side_reward, dict) else None
+    return errors
+
+
+def _preference_side_outcome_errors(ctx: EnvelopeContext, side_name: str, side) -> list[str]:
+    """Chosen sides succeed, rejected sides fail, and each outcome agrees with its reward."""
+    if not isinstance(side, dict):
+        return []
+    success = _reward_success(side)
+    if not isinstance(success, bool):
+        return []
+    errors = []
     required_success = side_name == "chosen"
-    if isinstance(success, bool) and success is not required_success:
+    if success is not required_success:
         errors.append(
             f"{ctx.where}: {side_name}.reward.success must be {str(required_success).lower()}"
         )
-    if isinstance(success, bool) and not terminal_outcome_agrees(side.get("outcome"), success):
+    if not terminal_outcome_agrees(side.get("outcome"), success):
         errors.append(
             f"{ctx.where}: {side_name}.outcome must agree with {side_name}.reward.success"
         )
     return errors
+
+
+def _preference_side_errors(ctx: EnvelopeContext, side_name: str) -> list[str]:
+    side = ctx.get(side_name)
+    return _preference_side_shape_errors(ctx, side_name, side) + _preference_side_outcome_errors(
+        ctx, side_name, side
+    )
 
 
 def _preference_sides_errors(ctx: EnvelopeContext) -> list[str]:

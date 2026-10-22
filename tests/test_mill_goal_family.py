@@ -40,6 +40,31 @@ from mill_family import (  # noqa: E402
     goal_family,
 )
 
+# One native record per mill, each borrowing a few terms another mill owns:
+# (factory, record id, goal).
+_SINGLE_CROSS_DOMAIN_TASKS = (
+    (
+        "git-ops-recovery-factory",
+        "gor-r864-rebase-reapply-cherry-picks-dup",
+        "Rebase the retry branch; keep jitter and remove duplicate backoff",
+    ),
+    (
+        INCIDENT_RESPONSE,
+        "irc-r3807-stargz-timeout",
+        "Restore the stargz timeout after layers disappeared from the TOC",
+    ),
+    (
+        "long-horizon-coding-factory",
+        "lhc-r4680-coredns-cache-prefetch",
+        "Repair TTL expiry after a cache stampede hit CoreDNS",
+    ),
+)
+
+
+def _native_pair(prefix, goal, factory):
+    """Two native ``<prefix>-r0N-native`` records of one mill sharing ``goal``."""
+    return [episode(f"{prefix}-r0{index}-native", goal, factory) for index in (1, 2)]
+
 
 class GoalFamilyAxis(MillAxisAssertions, unittest.TestCase):
     def test_repeated_native_prefix_foreign_goal_family_is_flagged(self):
@@ -66,55 +91,16 @@ class GoalFamilyAxis(MillAxisAssertions, unittest.TestCase):
 
     def test_single_native_cross_domain_tasks_are_not_goal_only_findings(self):
         native_cross_domain = [
-            (
-                "git-ops-recovery-factory",
-                episode(
-                    "gor-r864-rebase-reapply-cherry-picks-dup",
-                    "Rebase the retry branch; keep jitter and remove duplicate backoff",
-                    "git-ops-recovery-factory",
-                ),
-            ),
-            (
-                INCIDENT_RESPONSE,
-                episode(
-                    "irc-r3807-stargz-timeout",
-                    "Restore the stargz timeout after layers disappeared from the TOC",
-                    INCIDENT_RESPONSE,
-                ),
-            ),
-            (
-                "long-horizon-coding-factory",
-                episode(
-                    "lhc-r4680-coredns-cache-prefetch",
-                    "Repair TTL expiry after a cache stampede hit CoreDNS",
-                    "long-horizon-coding-factory",
-                ),
-            ),
+            (factory, episode(record_id, goal, factory))
+            for factory, record_id, goal in _SINGLE_CROSS_DOMAIN_TASKS
         ]
         mills = index_of(
             *((factory, [record]) for factory, record in native_cross_domain),
             (
                 RATE_LIMIT,
-                [
-                    episode(
-                        f"rlb-r0{index}-native",
-                        "Apply retry backoff jitter after throttling",
-                        RATE_LIMIT,
-                    )
-                    for index in (1, 2)
-                ],
+                _native_pair("rlb", "Apply retry backoff jitter after throttling", RATE_LIMIT),
             ),
-            (
-                DOCKER,
-                [
-                    episode(
-                        f"dbc-r0{index}-native",
-                        "Repair stargz layers and TOC metadata",
-                        DOCKER,
-                    )
-                    for index in (1, 2)
-                ],
-            ),
+            (DOCKER, _native_pair("dbc", "Repair stargz layers and TOC metadata", DOCKER)),
             (CACHE_STAMPEDE, STAMPEDE_CONTROLS),
         )
 
@@ -135,14 +121,7 @@ class GoalFamilyAxis(MillAxisAssertions, unittest.TestCase):
             (EMAIL_WEBHOOK, native),
             (
                 RATE_LIMIT,
-                [
-                    episode(
-                        f"rlb-r0{index}-native",
-                        "Apply ratelimit throttling backoff jitter",
-                        RATE_LIMIT,
-                    )
-                    for index in (1, 2)
-                ],
+                _native_pair("rlb", "Apply ratelimit throttling backoff jitter", RATE_LIMIT),
             ),
         )
 
@@ -165,14 +144,7 @@ class GoalFamilyAxis(MillAxisAssertions, unittest.TestCase):
             (INCIDENT_RESPONSE, [singleton]),
             (
                 DOCKER,
-                [
-                    episode(
-                        f"dbc-r0{index}-native",
-                        "Repair BuildKit cachemount exporter solver layers",
-                        DOCKER,
-                    )
-                    for index in (1, 2)
-                ],
+                _native_pair("dbc", "Repair BuildKit cachemount exporter solver layers", DOCKER),
             ),
         )
 

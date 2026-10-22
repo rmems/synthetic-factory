@@ -257,7 +257,7 @@ class DeepLayer(unittest.TestCase):
         # argv is this interpreter and the `code` text assembled just above
         # from the committed fixture path; no shell is enabled.
         result = subprocess.run(  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit.dangerous-subprocess-use-audit  # nosec B603
-            [sys.executable, "-c", code], cwd=REPO, capture_output=True, text=True
+            [sys.executable, "-c", code], cwd=REPO, capture_output=True, text=True, check=False
         )
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(json.loads(result.stdout), ["hardware_parity", []])
@@ -334,12 +334,10 @@ class DeepLayer(unittest.TestCase):
     def test_shape_failure_stops_before_the_family_validator(self):
         record = copy.deepcopy(_records(HARDWARE_BATCH)[0])
         record["scenario"] = "bad"
-        try:
-            errors, _warnings, kind, _id = check_records.check_record(
-                record, "unit:1"
-            )
-        except Exception as exc:  # noqa: BLE001 - this is the crash regression
-            self.fail(f"shape failure escaped as {type(exc).__name__}: {exc}")
+        # Crash regression: the shape failure is reported, never escapes as an exception.
+        errors, _warnings, kind, _id = check_records.check_record(
+            record, "unit:1"
+        )
         self.assertEqual(kind, "hardware_parity")
         self.assertTrue(errors)
 

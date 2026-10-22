@@ -24,6 +24,13 @@ if str(PIPELINES) not in sys.path:
 import curate_rewards  # noqa: E402
 
 
+def _first_matching(items, predicate):
+    """The first item predicate accepts; a missing item fails the test instead of leaking."""
+    for item in filter(predicate, items):
+        return item
+    raise AssertionError("no item matches the fixture lookup")
+
+
 class ConversionPolicyMappingTests(unittest.TestCase):
     """The mapping is the policy, not a description of it."""
 
@@ -191,9 +198,11 @@ class ConversionPolicyMappingTests(unittest.TestCase):
             cited.update(rule.get("optional_reason_codes", ()))
         self.assertEqual(cited, set(policy["reason_codes"]))
 
-    def test_a_broken_policy_is_refused_rather_than_silently_defaulted(self):
-        document = json.loads(MAPPING.read_text(encoding="utf-8"))
+    def _assert_refused(self, broken, pattern):
+        with self.assertRaisesRegex(curate_rewards.RewardOntologyError, pattern):
+            curate_rewards.validate_conversion_policy(broken)
 
+    def _assert_unknown_versions_and_reason_codes_refused(self, document):
         cases = {
             "unknown conversion policy document_type": ("document_type", "nonsense"),
             "unknown reward mapping version": ("mapping_version", "reward-mapping-v9"),
@@ -202,125 +211,80 @@ class ConversionPolicyMappingTests(unittest.TestCase):
         for expected, (field, value) in cases.items():
             broken = copy.deepcopy(document)
             broken[field] = value
-            with self.assertRaisesRegex(
-                curate_rewards.RewardOntologyError, expected
-            ):
-                curate_rewards.validate_conversion_policy(broken)
+            self._assert_refused(broken, expected)
 
         orphan = copy.deepcopy(document)
         orphan["policy"]["reason_codes"]["never_emitted"] = "orphan code"
-        with self.assertRaisesRegex(
-            curate_rewards.RewardOntologyError, "cited by no rule"
-        ):
-            curate_rewards.validate_conversion_policy(orphan)
+        self._assert_refused(orphan, "cited by no rule")
 
         uncatalogued = copy.deepcopy(document)
         uncatalogued["policy"]["comparability_rules"][0]["reason_codes"] = ["invented"]
-        with self.assertRaisesRegex(
-            curate_rewards.RewardOntologyError, "uncatalogued reason codes"
-        ):
-            curate_rewards.validate_conversion_policy(uncatalogued)
+        self._assert_refused(uncatalogued, "uncatalogued reason codes")
 
         duplicate = copy.deepcopy(document)
         duplicate["policy"]["comparability_rules"].append(
             copy.deepcopy(duplicate["policy"]["comparability_rules"][0])
         )
-        with self.assertRaisesRegex(
-            curate_rewards.RewardOntologyError, "duplicate comparability rule id"
-        ):
-            curate_rewards.validate_conversion_policy(duplicate)
+        self._assert_refused(duplicate, "duplicate comparability rule id")
 
+    def _assert_arithmetic_and_vocabulary_breaks_refused(self, document):
         stray_weight = copy.deepcopy(document)
         stray_weight["policy"]["arithmetic"]["weights_field"] = "task_progress"
-        with self.assertRaisesRegex(
-            curate_rewards.RewardOntologyError, "declared unit_calibration key"
-        ):
-            curate_rewards.validate_conversion_policy(stray_weight)
+        self._assert_refused(stray_weight, "declared unit_calibration key")
 
         stray_container = copy.deepcopy(document)
         stray_container["policy"]["arithmetic"]["nested_component_key"] = "not_declared"
-        with self.assertRaisesRegex(
-            curate_rewards.RewardOntologyError, "declared weighted container"
-        ):
-            curate_rewards.validate_conversion_policy(stray_container)
+        self._assert_refused(stray_container, "declared weighted container")
 
         bad_pattern = copy.deepcopy(document)
         bad_pattern["policy"]["conversion"]["usd_unit_pattern"] = "([0-9]"
-        with self.assertRaisesRegex(
-            curate_rewards.RewardOntologyError, "not a valid regular expression"
-        ):
-            curate_rewards.validate_conversion_policy(bad_pattern)
+        self._assert_refused(bad_pattern, "not a valid regular expression")
 
         bad_tolerance = copy.deepcopy(document)
         bad_tolerance["policy"]["arithmetic"]["default_tolerance"] = 0
-        with self.assertRaisesRegex(
-            curate_rewards.RewardOntologyError, "must be positive and finite"
-        ):
-            curate_rewards.validate_conversion_policy(bad_tolerance)
+        self._assert_refused(bad_tolerance, "must be positive and finite")
 
         missing_vocabulary = copy.deepcopy(document)
         missing_vocabulary.pop("source_vocabulary")
-        with self.assertRaisesRegex(
-            curate_rewards.RewardOntologyError, "source_vocabulary"
-        ):
-            curate_rewards.validate_conversion_policy(missing_vocabulary)
+        self._assert_refused(missing_vocabulary, "source_vocabulary")
 
         empty_vocabulary = copy.deepcopy(document)
         empty_vocabulary["source_vocabulary"] = {}
-        with self.assertRaisesRegex(
-            curate_rewards.RewardOntologyError, "source_vocabulary"
-        ):
-            curate_rewards.validate_conversion_policy(empty_vocabulary)
+        self._assert_refused(empty_vocabulary, "source_vocabulary")
 
         wrong_key_count = copy.deepcopy(document)
         wrong_key_count["source_vocabulary"]["unique_component_keys"] -= 1
-        with self.assertRaisesRegex(
-            curate_rewards.RewardOntologyError, "unique_component_keys"
-        ):
-            curate_rewards.validate_conversion_policy(wrong_key_count)
+        self._assert_refused(wrong_key_count, "unique_component_keys")
 
         wrong_disposition = copy.deepcopy(document)
         wrong_disposition["source_vocabulary"]["component_keys"][
             "task_progress"
         ]["disposition"] = "narrative_annotation"
-        with self.assertRaisesRegex(
-            curate_rewards.RewardOntologyError, "disposition must be"
-        ):
-            curate_rewards.validate_conversion_policy(wrong_disposition)
+        self._assert_refused(wrong_disposition, "disposition must be")
 
+    def _assert_colliding_declarations_refused(self, document):
         overlapping_aliases = copy.deepcopy(document)
         overlapping_aliases["policy"]["arithmetic"]["weight_aliases"]["safety"] = [
             "safety",
             "task_progress",
         ]
-        with self.assertRaisesRegex(
-            curate_rewards.RewardOntologyError, "weight alias groups must be disjoint"
-        ):
-            curate_rewards.validate_conversion_policy(overlapping_aliases)
+        self._assert_refused(overlapping_aliases, "weight alias groups must be disjoint")
 
         annotation_collision = copy.deepcopy(document)
         annotation_collision["policy"]["annotation_field"] = "reward_components"
-        with self.assertRaisesRegex(
-            curate_rewards.RewardOntologyError, "must not be a declared reward key"
-        ):
-            curate_rewards.validate_conversion_policy(annotation_collision)
+        self._assert_refused(annotation_collision, "must not be a declared reward key")
 
         bad_preference = copy.deepcopy(document)
         bad_preference["policy"]["preference_scope"]["preferred"] = "/chosen/not_reward"
-        with self.assertRaisesRegex(
-            curate_rewards.RewardOntologyError, "must target a declared reward key"
-        ):
-            curate_rewards.validate_conversion_policy(bad_preference)
+        self._assert_refused(bad_preference, "must target a declared reward key")
 
         shared_unit_fields = copy.deepcopy(document)
         shared_unit_fields["policy"]["conversion"]["text_unit_field"] = (
             shared_unit_fields["policy"]["conversion"]["structured_unit_field"]
         )
-        with self.assertRaisesRegex(
-            curate_rewards.RewardOntologyError,
-            "structured and textual unit fields must be distinct",
-        ):
-            curate_rewards.validate_conversion_policy(shared_unit_fields)
+        self._assert_refused(
+            shared_unit_fields, "structured and textual unit fields must be distinct"
+        )
 
         shared_calibration_fields = copy.deepcopy(document)
         shared_calibration_fields["policy"]["conversion"]["external_calibration"][
@@ -328,46 +292,41 @@ class ConversionPolicyMappingTests(unittest.TestCase):
         ] = shared_calibration_fields["policy"]["conversion"]["external_calibration"][
             "factor_field"
         ]
-        with self.assertRaisesRegex(
-            curate_rewards.RewardOntologyError,
-            "external calibration fields must be distinct",
-        ):
-            curate_rewards.validate_conversion_policy(shared_calibration_fields)
+        self._assert_refused(
+            shared_calibration_fields, "external calibration fields must be distinct"
+        )
 
+    def _assert_pattern_unit_and_shape_census_breaks_refused(self, document):
         nonnumeric_pattern = copy.deepcopy(document)
         nonnumeric_pattern["policy"]["arithmetic"][
             "rounding_declaration_pattern"
         ] = "(abc)"
-        with self.assertRaisesRegex(
-            curate_rewards.RewardOntologyError, "capture group must be numeric"
-        ):
-            curate_rewards.validate_conversion_policy(nonnumeric_pattern)
+        self._assert_refused(nonnumeric_pattern, "capture group must be numeric")
 
         foreign_unit = copy.deepcopy(document)
         foreign_unit["policy"]["conversion"]["canonical_unit"] = "eur"
-        with self.assertRaisesRegex(
-            curate_rewards.RewardOntologyError,
-            "canonical_unit must match the annotation schema constant",
-        ):
-            curate_rewards.validate_conversion_policy(foreign_unit)
+        self._assert_refused(
+            foreign_unit, "canonical_unit must match the annotation schema constant"
+        )
 
         impossible_pair = copy.deepcopy(document)
         impossible_pair["source_vocabulary"]["shapes"][0][
             "arithmetic_status"
         ] = "unsupported"
-        with self.assertRaisesRegex(
-            curate_rewards.RewardOntologyError,
-            "incompatible with method",
-        ):
-            curate_rewards.validate_conversion_policy(impossible_pair)
+        self._assert_refused(impossible_pair, "incompatible with method")
 
         stale_occurrences = copy.deepcopy(document)
         stale_occurrences["source_vocabulary"]["shapes"][0]["occurrences"] = 999999
-        with self.assertRaisesRegex(
-            curate_rewards.RewardOntologyError,
-            "shape occurrences must sum to reward_instances",
-        ):
-            curate_rewards.validate_conversion_policy(stale_occurrences)
+        self._assert_refused(
+            stale_occurrences, "shape occurrences must sum to reward_instances"
+        )
+
+    def test_a_broken_policy_is_refused_rather_than_silently_defaulted(self):
+        document = json.loads(MAPPING.read_text(encoding="utf-8"))
+        self._assert_unknown_versions_and_reason_codes_refused(document)
+        self._assert_arithmetic_and_vocabulary_breaks_refused(document)
+        self._assert_colliding_declarations_refused(document)
+        self._assert_pattern_unit_and_shape_census_breaks_refused(document)
 
     def test_missing_or_invalid_mapping_file_is_a_loud_failure(self):
         with tempfile.TemporaryDirectory() as td:
@@ -404,10 +363,9 @@ class ConversionPolicyMappingTests(unittest.TestCase):
 
     def test_policy_requires_every_runtime_classification_rule_id(self):
         document = copy.deepcopy(curate_rewards.CONVERSION_POLICY)
-        r00 = next(
-            rule
-            for rule in document["policy"]["comparability_rules"]
-            if rule["id"] == "R00"
+        r00 = _first_matching(
+            document["policy"]["comparability_rules"],
+            lambda rule: rule["id"] == "R00",
         )
         r00["id"] = "renamed-R00"
 
@@ -418,8 +376,9 @@ class ConversionPolicyMappingTests(unittest.TestCase):
             curate_rewards.validate_conversion_policy(document)
 
     def test_comparability_rule_returns_a_defensive_copy(self):
-        stored = next(
-            rule for rule in curate_rewards.COMPARABILITY_RULES if rule["id"] == "S08"
+        stored = _first_matching(
+            curate_rewards.COMPARABILITY_RULES,
+            lambda rule: rule["id"] == "S08",
         )
         original = copy.deepcopy(stored)
         try:
@@ -434,7 +393,7 @@ class ConversionPolicyMappingTests(unittest.TestCase):
 
     def test_classification_verdicts_are_read_from_the_matched_rule(self):
         rules = copy.deepcopy(list(curate_rewards.COMPARABILITY_RULES))
-        p01 = next(rule for rule in rules if rule["id"] == "P01")
+        p01 = _first_matching(rules, lambda rule: rule["id"] == "P01")
         p01["comparability"] = curate_rewards.SIGN_ORDER_ONLY
         p01["reason_codes"] = ["magnitude_calibration_missing"]
         source_rewards = [

@@ -13,12 +13,14 @@ if __package__:
     from . import _assert_direct_sibling, _expose_package_sibling
 
     _assert_direct_sibling("compose_curated_run_context")
-    from .compose_contract import ComposeDecision, EmittedRecord, LANE_ORDER
+    from .compose_contract import ComposeDecision, EmittedRecord
+    from .compose_eval_gate import ACCOUNTED_LANES
 else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
         "compose_curated_run_context"
     )
-    from compose_contract import ComposeDecision, EmittedRecord, LANE_ORDER
+    from compose_contract import ComposeDecision, EmittedRecord
+    from compose_eval_gate import ACCOUNTED_LANES
 
 
 @dataclass(frozen=True)
@@ -178,7 +180,7 @@ class ComposeRunState:
     counts: Counter[str] = field(default_factory=Counter)
     exclusions: Counter[str] = field(default_factory=Counter)
     lane_actions: dict[str, Counter[str]] = field(
-        default_factory=lambda: {lane: Counter() for lane in LANE_ORDER}
+        default_factory=lambda: {lane: Counter() for lane in ACCOUNTED_LANES}
     )
     manifest_lines: list[str] = field(default_factory=list)
     sidecar_lines: list[str] = field(default_factory=list)
@@ -187,6 +189,9 @@ class ComposeRunState:
     seen_source_semantics: dict[str, tuple[str, int]] = field(default_factory=dict)
     seen_curated_semantics: dict[str, tuple[str, int]] = field(default_factory=dict)
     rights_lanes: Counter[str] = field(default_factory=Counter)
+    # Last, keyword-only: captured once per run so every line and the summary
+    # share one policy, without shifting any existing positional field.
+    exclusion_policy: Any = field(default=None, kw_only=True)
 
 
 if __package__:

@@ -186,11 +186,13 @@ class DeclarationTestCase(unittest.TestCase):
         """The top-level feature called ``name``."""
         return self.names()[name]
 
-    def step_features(self, names):
+    @staticmethod
+    def step_features(names):
         """The step-list features by name."""
         return by_name(names["steps"]["list"])
 
-    def tool_call_features(self, steps):
+    @staticmethod
+    def tool_call_features(steps):
         """The ``tool_call`` struct features by name."""
         return by_name(steps["tool_call"]["struct"])
 

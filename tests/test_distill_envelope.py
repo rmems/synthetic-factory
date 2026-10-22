@@ -55,8 +55,9 @@ class GeneratorNeverCertifies(unittest.TestCase):
         self.assertTrue(any("propose_only" in error for error in errors))
 
     def test_new_generator_refuses_an_unnamed_llm(self):
+        identity = oc.GeneratorIdentity("g", version="1", kind="llm")
         with self.assertRaises(oc.ContractError):
-            oc.new_generator(oc.GeneratorIdentity("g", version="1", kind="llm"))
+            oc.new_generator(identity)
 
     def test_oracle_key_inside_scenario_is_a_violation(self):
         record = minimal_record()
@@ -419,12 +420,16 @@ class DigestBoundary(unittest.TestCase):
             "NaN": {"threshold": float("nan")},
         }.items():
             with self.subTest(case=name):
+                identity = oc.RecordIdentity("rec-3", base["family"])
+                proposal = oc.Proposal(generator=base["generator"], scenario=scenario)
+                verdict = oc.Verdict(oracle=base["oracle"], result=base["result"])
+                provenance = oc.new_provenance("unit-test")
                 with self.assertRaises(oc.ContractError) as caught:
                     oc.build_record(
-                        identity=oc.RecordIdentity("rec-3", base["family"]),
-                        proposal=oc.Proposal(generator=base["generator"], scenario=scenario),
-                        verdict=oc.Verdict(oracle=base["oracle"], result=base["result"]),
-                        provenance=oc.new_provenance("unit-test"),
+                        identity=identity,
+                        proposal=proposal,
+                        verdict=verdict,
+                        provenance=provenance,
                     )
                 self.assertIsNotNone(caught.exception.__cause__)
 

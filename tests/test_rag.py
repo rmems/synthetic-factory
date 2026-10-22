@@ -136,6 +136,15 @@ class AstExtract(unittest.TestCase):
             catalog.plants_from_source(source, mill_id="rag_r0001", source="bad.py")
         self.assertEqual(caught.exception.code, FINDING_SOURCE_NOT_PARSEABLE)
 
+    def test_a_deep_dict_and_negation_nest_evaluates_before_the_pairs_lookup(self):
+        # One stack frame per nesting level, as on main: 150 dicts around a 600-deep
+        # negation evaluate, and the source is refused for having no PAIRS list.
+        source = "CATALOG_FIRST = " + '{"a": ' * 150 + "-" * 600 + "1" + "}" * 150
+        with self.assertRaises(RagRefusal) as caught:
+            catalog.plants_from_source(source, mill_id="rag_r0001", source="deep.py")
+        self.assertEqual(caught.exception.code, FINDING_SOURCE_NOT_PARSEABLE)
+        self.assertIn("has no PAIRS list", str(caught.exception))
+
     def test_legacy_mill_ast_matches_committed_catalog(self):
         text = _git_show(LEGACY_MILL)
         if text is None:

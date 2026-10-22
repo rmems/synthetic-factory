@@ -82,6 +82,8 @@ StrictJsonlError = _strict_jsonl.StrictJsonlError
 reject_duplicate_object_keys = _tag_jsonutil.reject_duplicate_object_keys
 check_episode = _validate_run.check_episode
 episode_like = _validate_run.episode_like
+audit_jsonl_records = _completion.audit_jsonl_records
+completed_published_payload = _completion.completed_published_payload
 _percentile = _report.percentile
 _render_markdown = _report.render_markdown
 
@@ -332,7 +334,9 @@ def audit_run(
         _captured_run_files(run_dir) if snapshot is None else _validated_snapshot_files(snapshot)
     )
     mill_findings, mill_mix = index_mill_quarantine(run_dir, files)
-    rights_audit = _rights_audit.capture_rights_audit(run_dir, dict(files))
+    rights_audit = _rights_audit.capture_rights_audit(
+        run_dir, {relative.as_posix(): payload for relative, payload in files}
+    )
     audit = _CorpusAudit(run_dir, mill_findings, mill_mix)
     audit.rights_audit = rights_audit
     audit.completion_source = completion_source or rights_audit.source_run

@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
 from typing import Any
 
 from . import catalog as cat
@@ -13,40 +13,56 @@ from ._contract import bind_import_twin, contains_hidden_reasoning_key
 __all__ = ["check_pair", "check_record", "scan_payload"]
 
 
+def _refuse_banned_entry(key: Any, value: Any, path: str) -> None:
+    cv.refuse_when(
+        key in cv.BANNED_KEYS,
+        cv.FINDING_BANNED_KEY,
+        f"banned key {key} at {path}",
+    )
+    cv.refuse_when(
+        key == "sim_or_real" and value == cv.BANNED_SIM_OR_REAL,
+        cv.FINDING_BANNED_KEY,
+        f"sim_or_real real at {path}",
+    )
+    cv.refuse_when(
+        key == "spike_events",
+        cv.FINDING_BANNED_KEY,
+        f"spike_events at {path}",
+    )
+
+
+def _scan_text(text: str, path: str) -> None:
+    for banned in cv.BANNED_SUBSTRINGS:
+        cv.refuse_when(
+            banned in text,
+            cv.FINDING_BANNED_SUBSTRING,
+            f"banned substring {banned!r} at {path}",
+        )
+
+
+def _scan_children(obj: Any, path: str) -> Iterator[tuple[Any, str]]:
+    """Each child of a mapping or list with its path; a mapping entry's key is vetted first.
+
+    A generator, so it is suspended (off the stack) while ``scan_payload`` recurses.
+    """
+
+    if isinstance(obj, dict):
+        for key, value in obj.items():
+            _refuse_banned_entry(key, value, path)
+            yield value, f"{path}.{key}"
+    elif isinstance(obj, list):
+        for index, item in enumerate(obj):
+            yield item, f"{path}[{index}]"
+
+
 def scan_payload(obj: Any, path: str = "") -> None:
     """Refuse banned keys, hidden-reasoning keys, and banned substrings."""
     if contains_hidden_reasoning_key(obj):
         cv.refuse(cv.FINDING_BANNED_KEY, f"hidden-reasoning key at {path or '/'}")
-    if isinstance(obj, dict):
-        for key, value in obj.items():
-            cv.refuse_when(
-                key in cv.BANNED_KEYS,
-                cv.FINDING_BANNED_KEY,
-                f"banned key {key} at {path}",
-            )
-            cv.refuse_when(
-                key == "sim_or_real" and value == cv.BANNED_SIM_OR_REAL,
-                cv.FINDING_BANNED_KEY,
-                f"sim_or_real real at {path}",
-            )
-            cv.refuse_when(
-                key == "spike_events",
-                cv.FINDING_BANNED_KEY,
-                f"spike_events at {path}",
-            )
-            scan_payload(value, f"{path}.{key}")
-        return
-    if isinstance(obj, list):
-        for index, item in enumerate(obj):
-            scan_payload(item, f"{path}[{index}]")
-        return
     if isinstance(obj, str):
-        for banned in cv.BANNED_SUBSTRINGS:
-            cv.refuse_when(
-                banned in obj,
-                cv.FINDING_BANNED_SUBSTRING,
-                f"banned substring {banned!r} at {path}",
-            )
+        _scan_text(obj, path)
+    for child, child_path in _scan_children(obj, path):
+        scan_payload(child, child_path)
 
 
 def _require_mapping(record: Any) -> dict[str, Any]:
@@ -58,14 +74,12 @@ def _require_mapping(record: Any) -> dict[str, Any]:
     return record
 
 
-def check_record(record: Any, plant: cat.Plant, *, success: bool) -> None:
-    """One episode matches the plant, the mill identity, and the step contract."""
-    payload = _require_mapping(record)
-    scan_payload(payload)
-    meta = payload.get("meta")
-    cv.refuse_when(not isinstance(meta, Mapping), cv.FINDING_RECORD_MALFORMED, "meta must be an object")
-    stem = plant.plant_id if success else plant.fail_id
-    expected_id = cv.record_id(meta.get("round"), stem) if isinstance(meta.get("round"), int) else None
+def _refuse_identity_drift(
+    payload: dict[str, Any], meta: Mapping[str, Any], stem: str, success: bool
+) -> None:
+    """Id, factory, generator, kind, seed, step count, and outcome match the plant side."""
+    round_n = meta.get("round")
+    expected_id = cv.record_id(round_n, stem) if isinstance(round_n, int) else None
     steps = payload.get("steps")
     expected_steps = cv.SUCCESS_STEPS if success else cv.FAIL_STEPS
     cv.refuse_first((
@@ -84,6 +98,9 @@ def check_record(record: Any, plant: cat.Plant, *, success: bool) -> None:
         (payload.get("reward", {}).get("success") is not success, cv.FINDING_RECORD_MALFORMED,
          f"reward.success is not {success}"),
     ))
+
+
+def _refuse_step_drift(steps: list[Any]) -> None:
     for index, step in enumerate(steps, start=1):
         cv.refuse_when(not isinstance(step, dict), cv.FINDING_RECORD_MALFORMED, f"step {index} is not an object")
         basis = step.get("decision_basis")
@@ -98,6 +115,18 @@ def check_record(record: Any, plant: cat.Plant, *, success: bool) -> None:
             f"step {index} decision_basis length {len(basis)}",
         )
         cv.refuse_when(step.get("n") != index, cv.FINDING_RECORD_MALFORMED, f"step {index} n drifted")
+
+
+def check_record(record: Any, plant: cat.Plant, *, success: bool) -> None:
+    """One episode matches the plant, the mill identity, and the step contract."""
+    payload = _require_mapping(record)
+    scan_payload(payload)
+    meta = payload.get("meta")
+    if not isinstance(meta, Mapping):
+        cv.refuse(cv.FINDING_RECORD_MALFORMED, "meta must be an object")
+    stem = plant.plant_id if success else plant.fail_id
+    _refuse_identity_drift(payload, meta, stem, success)
+    _refuse_step_drift(payload["steps"])
 
 
 def check_pair(success: Any, failure: Any, plant: cat.Plant, round_n: int) -> None:

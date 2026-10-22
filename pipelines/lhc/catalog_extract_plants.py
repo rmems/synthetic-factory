@@ -8,6 +8,7 @@ from collections.abc import Mapping
 from typing import Any
 
 from .catalog_ast import (
+    UNSET,
     assignment_of,
     call_kwargs,
     call_name,
@@ -39,7 +40,7 @@ def _plants_from_dict(value: ast.Dict) -> tuple[dict[str, dict[str, Any]], str |
     table: dict[str, dict[str, Any]] = {}
     ctor: str | None = None
     for key_node, value_node in zip(value.keys, value.values, strict=True):
-        key = literal_value(key_node)
+        key = UNSET if key_node is None else literal_value(key_node)
         identity = _plant_ctor_identity(value_node)
         if not isinstance(key, str) or identity is None:
             return {}, None
@@ -59,8 +60,9 @@ def _plants_table(tree: ast.AST) -> tuple[dict[str, dict[str, Any]], str | None]
 def _p_identity(node: ast.AST) -> dict[str, Any] | None:
     kwargs = call_kwargs(node)
     args = call_positional_literals(node)
-    missing = kwargs is None or "slug" not in kwargs or "plant" not in kwargs
-    if missing:
+    if kwargs is None:
+        return None
+    if "slug" not in kwargs or "plant" not in kwargs:
         return None
     ok = args[0] if args else kwargs.get("ok")
     return {"slug": kwargs["slug"], "plant": kwargs["plant"], "ok": ok, "key": None}

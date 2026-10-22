@@ -1,0 +1,156 @@
+#!/usr/bin/env python3
+"""The persisted duplicate index: kept-proposal keys across runs, read-only until a new write.
+
+A key is ``sha256(program_id, span, replacement_text)`` taken over the *canonical* edit: the
+smallest byte span and replacement that turn the program into the mutant (the common prefix and
+suffix of original and mutant trimmed away). Two proposals written with more or less surrounding
+context but producing the same mutant therefore share one key. The key also binds the program's
+own sha256, so a key kept against an older catalog text never matches the program once its text
+changes. The hashed bytes are exact JSON of ``[KEY_FORMAT, program_id, program_sha256,
+start_byte, end_byte, replacement_hex]`` (hex, because a minimal byte slice need not be valid
+UTF-8 on its own). Only kept proposals
+are indexed: a rejected proposal is deterministic and is re-rejected on its own merits, so
+the index stays the list of tasks that already exist. Each run reads every prior index file
+it is given and writes a new, cumulative ``dedup-index.jsonl`` into its own new destination;
+no existing file is touched, and the next run needs only the newest one.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import os
+import re
+import stat
+from collections.abc import Iterable, Mapping
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
+
+from . import vocabulary as cv
+from ._contract import (
+    StrictJsonlError, bind_import_twin, dumps_exact_json, load_strict_json, strict_lf_jsonl_lines,
+)
+from .checks import is_count
+
+__all__ = ["PriorIndex", "dedup_key", "index_bytes", "load_prior", "minimal_edit"]
+
+_KEY = re.compile(r"[0-9a-f]{64}")
+_FIELDS = frozenset({"format", "key", "program_id", "start_byte", "end_byte"})
+
+
+def minimal_edit(original: bytes, mutant: bytes) -> tuple[int, int, bytes]:
+    """The smallest ``(start, end, replacement)`` with ``original[:start] + replacement +
+    original[end:] == mutant``: the common prefix, then the common suffix of what remains."""
+
+    start = len(os.path.commonprefix([original, mutant]))
+    room = min(len(original), len(mutant)) - start
+    tail = min(len(os.path.commonprefix([original[::-1], mutant[::-1]])), room)
+    return start, len(original) - tail, mutant[start:len(mutant) - tail]
+
+
+def dedup_key(program_id: str, program_text: str, mutant_text: str) -> tuple[str, int, int]:
+    """The key of the canonical edit from ``program_text`` to ``mutant_text``, and its span."""
+
+    original = program_text.encode("utf-8")
+    start, end, replacement = minimal_edit(original, mutant_text.encode("utf-8"))
+    payload = dumps_exact_json([
+        cv.KEY_FORMAT, program_id, hashlib.sha256(original).hexdigest(), start, end,
+        replacement.hex(),
+    ])
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest(), start, end
+
+
+@dataclass(frozen=True)
+class PriorIndex:
+    """Every key seen in prior runs, the rows that carry them, and each file's digest."""
+
+    rows: Mapping[str, dict[str, Any]]
+    files: tuple[dict[str, Any], ...]
+
+    def __contains__(self, key: object) -> bool:
+        return key in self.rows
+
+    @classmethod
+    def empty(cls) -> PriorIndex:
+        return cls({}, ())
+
+
+def _shape_is_sound(row: object) -> bool:
+    return isinstance(row, dict) and set(row) == _FIELDS
+
+
+def _key_is_sound(row: dict) -> bool:
+    return isinstance(row["key"], str) and _KEY.fullmatch(row["key"]) is not None
+
+
+def _program_is_sound(row: dict) -> bool:
+    return isinstance(row["program_id"], str) and bool(row["program_id"])
+
+
+def _span_is_sound(row: dict) -> bool:
+    return is_count(row["start_byte"]) and is_count(row["end_byte"])
+
+
+_ROW_CHECKS = (
+    lambda row: row["format"] == cv.INDEX_FORMAT, _key_is_sound, _program_is_sound, _span_is_sound,
+)
+
+
+def _row_is_sound(row: object) -> bool:
+    return _shape_is_sound(row) and all(check(row) for check in _ROW_CHECKS)
+
+
+def _read(path: Path) -> bytes:
+    try:
+        cv.refuse_when(
+            not stat.S_ISREG(os.stat(path).st_mode), cv.REFUSE_INDEX_UNREADABLE,
+            f"prior index {path} is not a regular file",
+        )
+        with path.open("rb") as handle:
+            data = handle.read(cv.MAX_INDEX_BYTES + 1)
+    except OSError as exc:
+        raise cv.GateRefusal(cv.REFUSE_INDEX_UNREADABLE, f"prior index {path}: {exc}") from exc
+    cv.refuse_when(
+        len(data) > cv.MAX_INDEX_BYTES, cv.REFUSE_INDEX_MALFORMED, f"prior index {path} is too large",
+    )
+    return data
+
+
+def _parse_file(path: Path, data: bytes) -> list[dict[str, Any]]:
+    try:
+        lines = strict_lf_jsonl_lines(data, str(path))
+        rows = [load_strict_json(line) for line in lines]
+    except (StrictJsonlError, ValueError, RecursionError) as exc:
+        raise cv.GateRefusal(cv.REFUSE_INDEX_MALFORMED, f"prior index {path}: {exc}") from exc
+    bad = next((n for n, row in enumerate(rows, 1) if not _row_is_sound(row)), None)
+    cv.refuse_when(bad is not None, cv.REFUSE_INDEX_MALFORMED, f"prior index {path}:{bad} is not an index row")
+    keys = [row["key"] for row in rows]
+    cv.refuse_when(
+        len(set(keys)) != len(keys), cv.REFUSE_INDEX_MALFORMED, f"prior index {path} repeats a key",
+    )
+    return rows
+
+
+def load_prior(paths: Iterable[Path | str]) -> PriorIndex:
+    """Union of the given index files; an absent or malformed file refuses the run."""
+
+    merged: dict[str, dict[str, Any]] = {}
+    files: list[dict[str, Any]] = []
+    for item in paths:
+        path = Path(item)
+        data = _read(path)
+        rows = _parse_file(path, data)
+        files.append({"path": path.name, "sha256": hashlib.sha256(data).hexdigest(), "keys": len(rows)})
+        for row in rows:
+            merged.setdefault(row["key"], row)
+    return PriorIndex(merged, tuple(files))
+
+
+def index_bytes(rows: Iterable[Mapping[str, Any]]) -> bytes:
+    """Deterministic index bytes: one exact-JSON row per key, sorted by key."""
+
+    ordered = sorted(rows, key=lambda row: row["key"])
+    return "".join(dumps_exact_json(dict(row)) + "\n" for row in ordered).encode("utf-8")
+
+
+bind_import_twin(__name__)

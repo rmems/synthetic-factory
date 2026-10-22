@@ -5,6 +5,8 @@ from __future__ import annotations
 
 import re
 from collections import Counter
+from collections.abc import Collection
+from typing import NamedTuple
 
 if __package__:
     from .reward_mapping import (
@@ -48,6 +50,21 @@ else:
     )
 
 
+class _VocabularyContext(NamedTuple):
+    """What every source-vocabulary section is checked against, and where errors point."""
+
+    arithmetic: dict
+    reward_instances: int
+    where: str
+
+
+class _ClassificationCatalogues(NamedTuple):
+    """The policy's declared comparability classes and reason codes (only their names are read)."""
+
+    classes: Collection[str]
+    reason_codes: Collection[str]
+
+
 def _validate_vocabulary_counts(vocabulary, reward_keys, where):
     vocabulary_where = f"{where}.source_vocabulary"
     _mapping_str(vocabulary, "run", vocabulary_where)
@@ -71,12 +88,12 @@ def _validate_vocabulary_counts(vocabulary, reward_keys, where):
     return vocabulary_where, reward_instances
 
 
-def _validate_one_component_key(key, entry, arithmetic, reward_instances, vocabulary_where):
-    entry_where = f"{vocabulary_where}.component_keys[{key!r}]"
+def _validate_one_component_key(key, entry, context):
+    entry_where = f"{context.where}.component_keys[{key!r}]"
     _require_named_object(
         key,
         entry,
-        NamedObjectContract(vocabulary_where, "component key names must be nonempty",
+        NamedObjectContract(context.where, "component key names must be nonempty",
                             entry_where, "entry must be a nonempty object"),
     )
     disposition = _mapping_str(entry, "disposition", entry_where)
@@ -90,14 +107,14 @@ def _validate_one_component_key(key, entry, arithmetic, reward_instances, vocabu
         raise _policy_error(
             entry_where, f"unknown observed value types {unknown_types}"
         )
-    expected = _policy_disposition(key, observed_types, arithmetic)
+    expected = _policy_disposition(key, observed_types, context.arithmetic)
     if disposition != expected:
         raise _policy_error(
             entry_where,
             f"disposition must be {expected!r} for {list(observed_types)!r}",
         )
     occurrences = _mapping_integer(entry, "occurrences", entry_where, minimum=1)
-    if occurrences > reward_instances:
+    if occurrences > context.reward_instances:
         raise _policy_error(
             entry_where,
             "occurrences must not exceed reward_instances",
@@ -105,7 +122,8 @@ def _validate_one_component_key(key, entry, arithmetic, reward_instances, vocabu
     return disposition
 
 
-def _validate_component_keys(vocabulary, arithmetic, reward_instances, vocabulary_where):
+def _validate_component_keys(vocabulary, context):
+    vocabulary_where = context.where
     component_keys = _mapping_object(
         vocabulary, "component_keys", vocabulary_where
     )
@@ -119,9 +137,7 @@ def _validate_component_keys(vocabulary, arithmetic, reward_instances, vocabular
         )
     disposition_counts = Counter()
     for key, entry in component_keys.items():
-        disposition = _validate_one_component_key(
-            key, entry, arithmetic, reward_instances, vocabulary_where
-        )
+        disposition = _validate_one_component_key(key, entry, context)
         disposition_counts[disposition] += 1
     declared_dispositions = _mapping_object(
         vocabulary, "dispositions", vocabulary_where
@@ -149,19 +165,14 @@ def _shape_outcome_keys(has_singular):
     return "status", "method"
 
 
-def _validate_shape_outcome(
-    outcome, has_singular, allowed_methods, arithmetic, seen_outcomes, where
-):
+def _validate_shape_outcome(outcome, has_singular, contract, seen_outcomes):
+    where = contract.where
     if not isinstance(outcome, dict):
         raise _policy_error(where, "outcome must be an object")
     status_key, method_key = _shape_outcome_keys(has_singular)
     status = _mapping_str(outcome, status_key, where)
     method = _mapping_str(outcome, method_key, where)
-    _require_arithmetic_status_method(
-        status,
-        method,
-        ArithmeticContract(arithmetic["methods"], where, allowed_methods, True),
-    )
+    _require_arithmetic_status_method(status, method, contract)
     _add_unique(
         (status, method),
         seen_outcomes,
@@ -169,24 +180,22 @@ def _validate_shape_outcome(
     )
 
 
-def _validate_one_shape(shape, index, arithmetic, signatures, vocabulary_where):
-    shape_where = f"{vocabulary_where}.shapes[{index}]"
+def _unique_shape_signature(shape, signatures, shape_where):
+    """The shape's signature, once the shape is an object and the signature is new."""
     if not isinstance(shape, dict):
         raise _policy_error(shape_where, "shape must be an object")
     signature = shape.get("signature")
     if not isinstance(signature, str):
         raise _policy_error(shape_where, "signature must be a string")
-    _add_unique(
+    return _add_unique(
         signature,
         signatures,
         _policy_error(shape_where, f"duplicate shape signature {signature!r}"),
     )
-    allowed_methods = _arithmetic_methods_for_signature(
-        signature, arithmetic, shape_where
-    )
-    occurrences = _mapping_integer(
-        shape, "occurrences", shape_where, minimum=1
-    )
+
+
+def _shape_outcomes(shape, shape_where):
+    """``(has_singular, outcomes)``: the shape itself, or its arithmetic_outcomes list."""
     has_singular = (
         "arithmetic_status" in shape or "arithmetic_method" in shape
     )
@@ -202,6 +211,20 @@ def _validate_one_shape(shape, index, arithmetic, signatures, vocabulary_where):
         raise _policy_error(
             shape_where, "arithmetic_outcomes must be a nonempty list"
         )
+    return has_singular, outcomes
+
+
+def _validate_one_shape(shape, index, context, signatures):
+    arithmetic = context.arithmetic
+    shape_where = f"{context.where}.shapes[{index}]"
+    signature = _unique_shape_signature(shape, signatures, shape_where)
+    allowed_methods = _arithmetic_methods_for_signature(
+        signature, arithmetic, shape_where
+    )
+    occurrences = _mapping_integer(
+        shape, "occurrences", shape_where, minimum=1
+    )
+    has_singular, outcomes = _shape_outcomes(shape, shape_where)
     seen_outcomes = set()
     for outcome_index, outcome in enumerate(outcomes):
         outcome_where = (
@@ -212,15 +235,14 @@ def _validate_one_shape(shape, index, arithmetic, signatures, vocabulary_where):
         _validate_shape_outcome(
             outcome,
             has_singular,
-            allowed_methods,
-            arithmetic,
+            ArithmeticContract(arithmetic["methods"], outcome_where, allowed_methods, True),
             seen_outcomes,
-            outcome_where,
         )
     return occurrences
 
 
-def _validate_vocabulary_shapes(vocabulary, arithmetic, reward_instances, vocabulary_where):
+def _validate_vocabulary_shapes(vocabulary, context):
+    vocabulary_where = context.where
     shapes = vocabulary.get("shapes")
     if not isinstance(shapes, list) or not shapes:
         raise _policy_error(vocabulary_where, "shapes must be a nonempty list")
@@ -234,17 +256,16 @@ def _validate_vocabulary_shapes(vocabulary, arithmetic, reward_instances, vocabu
     signatures = set()
     occurrence_total = 0
     for index, shape in enumerate(shapes):
-        occurrence_total += _validate_one_shape(
-            shape, index, arithmetic, signatures, vocabulary_where
-        )
-    if occurrence_total != reward_instances:
+        occurrence_total += _validate_one_shape(shape, index, context, signatures)
+    if occurrence_total != context.reward_instances:
         raise _policy_error(
             vocabulary_where,
             "shape occurrences must sum to reward_instances",
         )
 
 
-def _validate_vocabulary_arithmetic(vocabulary, arithmetic, reward_instances, vocabulary_where):
+def _validate_vocabulary_arithmetic(vocabulary, context):
+    arithmetic, vocabulary_where = context.arithmetic, context.where
     declared_arithmetic = vocabulary.get("arithmetic")
     if not isinstance(declared_arithmetic, list) or not declared_arithmetic:
         raise _policy_error(
@@ -269,7 +290,7 @@ def _validate_vocabulary_arithmetic(vocabulary, arithmetic, reward_instances, vo
         arithmetic_total += _mapping_integer(
             row, "occurrences", row_where, minimum=1
         )
-    if arithmetic_total != reward_instances:
+    if arithmetic_total != context.reward_instances:
         raise _policy_error(
             vocabulary_where,
             "arithmetic occurrences must sum to reward_instances",
@@ -281,19 +302,15 @@ def _validate_source_vocabulary(document, arithmetic, reward_keys, where):
     vocabulary_where, reward_instances = _validate_vocabulary_counts(
         vocabulary, reward_keys, where
     )
-    _validate_component_keys(
-        vocabulary, arithmetic, reward_instances, vocabulary_where
-    )
-    _validate_vocabulary_shapes(
-        vocabulary, arithmetic, reward_instances, vocabulary_where
-    )
-    _validate_vocabulary_arithmetic(
-        vocabulary, arithmetic, reward_instances, vocabulary_where
-    )
+    context = _VocabularyContext(arithmetic, reward_instances, vocabulary_where)
+    _validate_component_keys(vocabulary, context)
+    _validate_vocabulary_shapes(vocabulary, context)
+    _validate_vocabulary_arithmetic(vocabulary, context)
     return vocabulary
 
 
-def _validate_expected_totals(expected, expected_where, classes, reason_codes, run):
+def _validate_expected_totals(expected, expected_where, catalogues, run):
+    classes, reason_codes = catalogues
     if _mapping_str(expected, "run", expected_where) != run:
         raise _policy_error(
             expected_where, "run must match source_vocabulary.run"
@@ -328,7 +345,8 @@ def _require_factory_name(factory, where):
         raise _policy_error(where, "factory names must match ^[a-z0-9][a-z0-9-]*$")
 
 
-def _validate_factory_entry(factory, entry, expected_where, classes, reason_codes):
+def _validate_factory_entry(factory, entry, expected_where, catalogues):
+    classes, reason_codes = catalogues
     factory_where = f"{expected_where}.by_factory[{factory!r}]"
     _require_named_object(
         factory,
@@ -374,11 +392,11 @@ def _validate_factory_entry(factory, entry, expected_where, classes, reason_code
     return entry_records, factory_comparability, factory_reasons
 
 
-def _validate_expected_classification(document, classes, reason_codes, run, where):
+def _validate_expected_classification(document, catalogues, run, where):
     expected = _mapping_object(document, "expected_classification", where)
     expected_where = f"{where}.expected_classification"
     records, comparability, expected_reasons = _validate_expected_totals(
-        expected, expected_where, classes, reason_codes, run
+        expected, expected_where, catalogues, run
     )
     by_factory = _mapping_object(expected, "by_factory", expected_where)
     factory_records = 0
@@ -386,7 +404,7 @@ def _validate_expected_classification(document, classes, reason_codes, run, wher
     factory_reasons = Counter()
     for factory, entry in by_factory.items():
         entry_records, entry_classes, entry_reasons = _validate_factory_entry(
-            factory, entry, expected_where, classes, reason_codes
+            factory, entry, expected_where, catalogues
         )
         factory_records += entry_records
         factory_comparability.update(entry_classes)
@@ -395,7 +413,7 @@ def _validate_expected_classification(document, classes, reason_codes, run, wher
         raise _policy_error(
             expected_where, "by_factory records must sum to records"
         )
-    for name in classes:
+    for name in catalogues.classes:
         if factory_comparability[name] != comparability[name]:
             raise _policy_error(
                 expected_where,

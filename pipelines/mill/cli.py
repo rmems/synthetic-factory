@@ -11,13 +11,18 @@ import argparse
 import json
 import sys
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from . import catalog_load
-from . import generate
-from . import publication
+from . import catalog_load, generate, publication
 from . import vocabulary as cv
-from ._contract import bind_import_twin, dumps_exact_json, envelope, load_strict_json
+from ._contract import bind_import_twin, dumps_exact_json, load_strict_json
+
+# ``python3 -m`` runs this module as ``__main__``, so the import form comes from ``__package__``;
+# type checkers follow the package form.
+if TYPE_CHECKING or __package__.startswith("pipelines."):
+    from ..family_cli import runner
+else:
+    from family_cli import runner
 
 __all__ = ["build_parser", "run"]
 
@@ -54,17 +59,14 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _print(payload: dict[str, Any], as_json: bool) -> int:
-    if as_json:
-        sys.stdout.write(dumps_exact_json(payload, indent=2) + "\n")
-        return 0
-    sys.stdout.write(json.dumps(payload, indent=2) + "\n")
-    return 0
+def _print(payload: dict[str, Any], as_json: bool) -> None:
+    rendered = dumps_exact_json(payload, indent=2) if as_json else json.dumps(payload, indent=2)
+    sys.stdout.write(rendered + "\n")
 
 
-def _catalog_check(args: argparse.Namespace) -> int:
+def _catalog_check(args: argparse.Namespace) -> None:
     loaded = catalog_load.load_catalog(args.catalog)
-    return _print(
+    _print(
         {
             "catalog_id": loaded.catalog_id,
             "family": loaded.family,
@@ -76,7 +78,7 @@ def _catalog_check(args: argparse.Namespace) -> int:
     )
 
 
-def _generate(args: argparse.Namespace) -> int:
+def _generate(args: argparse.Namespace) -> None:
     summary = generate.run(
         generate.RunRequest(
             catalog_dir=args.catalog,
@@ -87,10 +89,10 @@ def _generate(args: argparse.Namespace) -> int:
             start_round=args.start_round,
         )
     )
-    return _print(summary, args.json)
+    _print(summary, args.json)
 
 
-def _publish(args: argparse.Namespace) -> int:
+def _publish(args: argparse.Namespace) -> None:
     receipt = publication.publish(
         publication.PublishRequest(
             run_dir=args.run,
@@ -100,10 +102,10 @@ def _publish(args: argparse.Namespace) -> int:
             hop_factory=args.hop_factory,
         )
     )
-    return _print(receipt, args.json)
+    _print(receipt, args.json)
 
 
-def _render(args: argparse.Namespace) -> int:
+def _render(args: argparse.Namespace) -> None:
     pairs = args.run_dir / generate.PAIRS_FILENAME
     cv.refuse_when(not pairs.is_file(), cv.FINDING_RUN_FILE_MISSING, f"missing {generate.PAIRS_FILENAME}")
     for line in pairs.read_text(encoding="utf-8").splitlines():
@@ -111,24 +113,21 @@ def _render(args: argparse.Namespace) -> int:
             continue
         record = load_strict_json(line)
         if isinstance(record, dict) and record.get("id") == args.record_id:
-            return _print(record, args.json)
+            _print(record, args.json)
+            return
     cv.refuse(cv.FINDING_RECORD_NOT_FOUND, f"record {args.record_id} is not in {pairs}")
 
 
+_HANDLERS = {
+    "catalog-check": _catalog_check,
+    "generate": _generate,
+    "publish": _publish,
+    "render": _render,
+}
+
+
 def run(argv: list[str] | None = None) -> int:
-    parser = build_parser()
-    try:
-        args = parser.parse_args(argv)
-        handlers = {
-            "catalog-check": _catalog_check,
-            "generate": _generate,
-            "publish": _publish,
-            "render": _render,
-        }
-        return handlers[args.command](args)
-    except envelope.ContractError as exc:
-        sys.stderr.write(f"{exc}\n")
-        return 2
+    return runner.run_commands(build_parser(), _HANDLERS, argv, json_refusals=False)
 
 
 bind_import_twin(__name__)

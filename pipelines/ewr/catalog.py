@@ -34,8 +34,6 @@ from ._contract import (
     GENERATOR,
     LEGACY_COMMIT,
     LEGACY_LANE,
-    LEGACY_MAPPING_MILL,
-    LEGACY_MAPPING_MILL_SHA256,
     LEGACY_MILL,
     LEGACY_MILL_SHA256,
     LEGACY_PLANTS,
@@ -47,7 +45,6 @@ from ._contract import (
     N_PAIRS,
     N_PLANT_PAIRS,
     PAIRS_SHA256,
-    PLANTS_MILL_ID,
     QUOTA_PER_ROUND,
     SCHEMA_ID,
     START_ROUND,
@@ -253,41 +250,44 @@ def _reject_banned(slug: str, where: str) -> None:
         )
 
 
-def _mill_pin_ok(item: dict[str, Any], pinned: MillPin, index: int) -> None:
-    refuse_first(
+def _mill_pin_checks(
+    item: dict[str, Any], pinned: MillPin, index: int
+) -> tuple[tuple[bool, str, str], ...]:
+    return (
         (
-            (
-                item.get("mill_id") != pinned.mill_id,
-                FINDING_CATALOG_MILL,
-                f"mills[{index}].mill_id must be {pinned.mill_id}",
-            ),
-            (
-                item.get("source_format") != pinned.source_format,
-                FINDING_CATALOG_MILL,
-                f"mills[{index}].source_format must be {pinned.source_format}",
-            ),
-            (
-                item.get("path") != pinned.mill_path,
-                FINDING_CATALOG_MILL,
-                f"mills[{index}].path must be {pinned.mill_path}",
-            ),
-            (
-                item.get("sha256") != pinned.mill_sha256,
-                FINDING_CATALOG_SCHEMA,
-                f"mills[{index}].sha256 drifted",
-            ),
-            (
-                item.get("catalog_first") != pinned.catalog_first,
-                FINDING_CATALOG_SCHEMA,
-                f"mills[{index}].catalog_first drifted",
-            ),
-            (
-                item.get("n_pairs") != pinned.n_pairs,
-                FINDING_CATALOG_PAIR_COUNT,
-                f"mills[{index}].n_pairs drifted",
-            ),
-        )
+            item.get("mill_id") != pinned.mill_id,
+            FINDING_CATALOG_MILL,
+            f"mills[{index}].mill_id must be {pinned.mill_id}",
+        ),
+        (
+            item.get("source_format") != pinned.source_format,
+            FINDING_CATALOG_MILL,
+            f"mills[{index}].source_format must be {pinned.source_format}",
+        ),
+        (
+            item.get("path") != pinned.mill_path,
+            FINDING_CATALOG_MILL,
+            f"mills[{index}].path must be {pinned.mill_path}",
+        ),
+        (
+            item.get("sha256") != pinned.mill_sha256,
+            FINDING_CATALOG_SCHEMA,
+            f"mills[{index}].sha256 drifted",
+        ),
+        (
+            item.get("catalog_first") != pinned.catalog_first,
+            FINDING_CATALOG_SCHEMA,
+            f"mills[{index}].catalog_first drifted",
+        ),
+        (
+            item.get("n_pairs") != pinned.n_pairs,
+            FINDING_CATALOG_PAIR_COUNT,
+            f"mills[{index}].n_pairs drifted",
+        ),
     )
+
+
+def _mill_plants_pin_ok(item: dict[str, Any], pinned: MillPin, index: int) -> None:
     if pinned.plants_path is None:
         refuse_when(
             item.get("plants") is not None or item.get("plants_sha256") is not None,
@@ -305,6 +305,11 @@ def _mill_pin_ok(item: dict[str, Any], pinned: MillPin, index: int) -> None:
         FINDING_CATALOG_SCHEMA,
         f"mills[{index}].plants_sha256 drifted",
     )
+
+
+def _mill_pin_ok(item: dict[str, Any], pinned: MillPin, index: int) -> None:
+    refuse_first(_mill_pin_checks(item, pinned, index))
+    _mill_plants_pin_ok(item, pinned, index)
 
 
 def _validate_header(document: dict[str, Any], digest: str) -> None:
@@ -374,71 +379,108 @@ def _read_pair_rows(path: Path) -> tuple[list[dict[str, Any]], str]:
     return rows, hashlib.sha256(payload).hexdigest()
 
 
-def _validate_rows(pair_rows: list[dict[str, Any]]) -> tuple[tuple[Pair, ...], tuple[MappingPair, ...]]:
-    refuse_when(len(pair_rows) != N_PAIRS, FINDING_CATALOG_PAIR_COUNT, f"need {N_PAIRS} rows, got {len(pair_rows)}")
-    windows = {pin.mill_id: (pin.catalog_first, pin.n_pairs, pin.source_format) for pin in MILL_SOURCES}
-    seen = {mill_id: 0 for mill_id in windows}
-    plant_slugs: list[str] = []
-    plant_mods: list[str] = []
-    plant_tickets: list[str] = []
-    plant_domains: list[str] = []
-    mapping_slugs: list[str] = []
-    mapping_mods: list[str] = []
-    mapping_tickets: list[str] = []
-    mapping_domains: list[str] = []
-    plant_pairs: list[Pair] = []
-    mapping_pairs: list[MappingPair] = []
-    for index, entry in enumerate(pair_rows):
-        item = _require_object(entry, f"pairs[{index}]")
-        mill_id = _require_str(_require_field(item, "mill_id", f"pairs[{index}]"), f"pairs[{index}].mill_id")
-        refuse_when(mill_id not in windows, FINDING_CATALOG_MILL, f"pairs[{index}] unknown mill {mill_id}")
-        first, _count, source_format = windows[mill_id]
-        offset = seen[mill_id]
-        round_n = _require_int(_require_field(item, "round", f"pairs[{index}]"), f"pairs[{index}].round")
-        refuse_when(
-            round_n != first + offset,
-            FINDING_CATALOG_FIELD_INVALID,
-            f"pairs[{index}].round must be {first + offset}",
-        )
-        seen[mill_id] = offset + 1
-        if source_format == "plants-v1":
-            ok = _plant(item.get("ok"), OK_REQUIRED, f"pairs[{index}].ok")
-            bad = _plant(item.get("bad"), BAD_REQUIRED, f"pairs[{index}].bad")
-            for plant, label in ((ok, "ok"), (bad, "bad")):
-                slug = str(plant["slug"])
-                _reject_banned(slug, f"pairs[{index}].{label}")
-                plant_slugs.append(slug)
-                plant_mods.append(str(plant["mod"]))
-                plant_domains.append(str(plant["domain"]))
-            plant_tickets.append(str(bad["ticket"]))
-            plant_pairs.append(Pair(mill_id=mill_id, round_n=round_n, ok=ok, bad=bad))
-            continue
-        if source_format == "mapping-v1":
-            mapping = _mapping(_require_field(item, "mapping", f"pairs[{index}]"), f"pairs[{index}].mapping")
-            slug = str(mapping["slug"])
-            fail_slug = str(mapping["fail"])
-            _reject_banned(slug, f"pairs[{index}].mapping.slug")
-            _reject_banned(fail_slug, f"pairs[{index}].mapping.fail")
-            mapping_slugs.extend((f"{mill_id}:{slug}", f"{mill_id}:{fail_slug}"))
-            mapping_mods.extend((f"{mill_id}:{mapping['mod']}", f"{mill_id}:{mapping['drop']}"))
-            mapping_domains.append(f"{mill_id}:{mapping['domain']}")
-            mapping_tickets.append(f"{mill_id}:{mapping['ticket']}")
-            mapping_pairs.append(MappingPair(mill_id=mill_id, round_n=round_n, mapping=mapping))
-            continue
-        refuse(FINDING_CATALOG_MILL, f"pairs[{index}] unsupported mill format {source_format!r}")
+_UNIQUE_KEY_NAMES = (
+    "plant slugs",
+    "plant mods",
+    "plant tickets",
+    "plant domains",
+    "mapping slugs",
+    "mapping mods",
+    "mapping tickets",
+    "mapping domains",
+)
+
+
+def _row_position(
+    item: dict[str, Any],
+    where: str,
+    windows: Mapping[str, tuple[int, int, str]],
+    seen: dict[str, int],
+) -> tuple[str, int, str]:
+    """Check a row's mill and round against its mill window; return (mill_id, round, format)."""
+
+    mill_id = _require_str(_require_field(item, "mill_id", where), f"{where}.mill_id")
+    refuse_when(mill_id not in windows, FINDING_CATALOG_MILL, f"{where} unknown mill {mill_id}")
+    first, _count, source_format = windows[mill_id]
+    offset = seen[mill_id]
+    round_n = _require_int(_require_field(item, "round", where), f"{where}.round")
+    refuse_when(
+        round_n != first + offset,
+        FINDING_CATALOG_FIELD_INVALID,
+        f"{where}.round must be {first + offset}",
+    )
+    seen[mill_id] = offset + 1
+    return mill_id, round_n, source_format
+
+
+def _plant_pair(item: dict[str, Any], where: str, mill_id: str, round_n: int) -> Pair:
+    ok = _plant(item.get("ok"), OK_REQUIRED, f"{where}.ok")
+    bad = _plant(item.get("bad"), BAD_REQUIRED, f"{where}.bad")
+    return Pair(mill_id=mill_id, round_n=round_n, ok=ok, bad=bad)
+
+
+def _tally_plant_keys(pair: Pair, where: str, keys: dict[str, list[str]]) -> None:
+    for plant, label in ((pair.ok, "ok"), (pair.bad, "bad")):
+        slug = str(plant["slug"])
+        _reject_banned(slug, f"{where}.{label}")
+        keys["plant slugs"].append(slug)
+        keys["plant mods"].append(str(plant["mod"]))
+        keys["plant domains"].append(str(plant["domain"]))
+    keys["plant tickets"].append(str(pair.bad["ticket"]))
+
+
+def _mapping_pair(item: dict[str, Any], where: str, mill_id: str, round_n: int) -> MappingPair:
+    mapping = _mapping(_require_field(item, "mapping", where), f"{where}.mapping")
+    return MappingPair(mill_id=mill_id, round_n=round_n, mapping=mapping)
+
+
+def _tally_mapping_keys(pair: MappingPair, where: str, keys: dict[str, list[str]]) -> None:
+    mill_id, mapping = pair.mill_id, pair.mapping
+    slug = str(mapping["slug"])
+    fail_slug = str(mapping["fail"])
+    _reject_banned(slug, f"{where}.mapping.slug")
+    _reject_banned(fail_slug, f"{where}.mapping.fail")
+    keys["mapping slugs"].extend((f"{mill_id}:{slug}", f"{mill_id}:{fail_slug}"))
+    keys["mapping mods"].extend((f"{mill_id}:{mapping['mod']}", f"{mill_id}:{mapping['drop']}"))
+    keys["mapping domains"].append(f"{mill_id}:{mapping['domain']}")
+    keys["mapping tickets"].append(f"{mill_id}:{mapping['ticket']}")
+
+
+def _check_row_totals(
+    windows: Mapping[str, tuple[int, int, str]],
+    seen: dict[str, int],
+    keys: dict[str, list[str]],
+) -> None:
     refuse_when(
         seen != {mill_id: windows[mill_id][1] for mill_id in windows},
         FINDING_CATALOG_PAIR_COUNT,
         f"pair counts drifted: {seen}",
     )
-    _unique("plant slugs", plant_slugs)
-    _unique("plant mods", plant_mods)
-    _unique("plant tickets", plant_tickets)
-    _unique("plant domains", plant_domains)
-    _unique("mapping slugs", mapping_slugs)
-    _unique("mapping mods", mapping_mods)
-    _unique("mapping tickets", mapping_tickets)
-    _unique("mapping domains", mapping_domains)
+    for name, values in keys.items():
+        _unique(name, values)
+
+
+def _validate_rows(pair_rows: list[dict[str, Any]]) -> tuple[tuple[Pair, ...], tuple[MappingPair, ...]]:
+    refuse_when(len(pair_rows) != N_PAIRS, FINDING_CATALOG_PAIR_COUNT, f"need {N_PAIRS} rows, got {len(pair_rows)}")
+    windows = {pin.mill_id: (pin.catalog_first, pin.n_pairs, pin.source_format) for pin in MILL_SOURCES}
+    seen = {mill_id: 0 for mill_id in windows}
+    keys: dict[str, list[str]] = {name: [] for name in _UNIQUE_KEY_NAMES}
+    plant_pairs: list[Pair] = []
+    mapping_pairs: list[MappingPair] = []
+    for index, entry in enumerate(pair_rows):
+        where = f"pairs[{index}]"
+        item = _require_object(entry, where)
+        mill_id, round_n, source_format = _row_position(item, where, windows, seen)
+        if source_format == "plants-v1":
+            plant_pairs.append(_plant_pair(item, where, mill_id, round_n))
+            _tally_plant_keys(plant_pairs[-1], where, keys)
+            continue
+        if source_format == "mapping-v1":
+            mapping_pairs.append(_mapping_pair(item, where, mill_id, round_n))
+            _tally_mapping_keys(mapping_pairs[-1], where, keys)
+            continue
+        refuse(FINDING_CATALOG_MILL, f"{where} unsupported mill format {source_format!r}")
+    _check_row_totals(windows, seen, keys)
     return tuple(plant_pairs), tuple(mapping_pairs)
 
 
@@ -479,11 +521,8 @@ def load_catalog(path: Path | None = None, *, root: Path | None = None) -> Catal
     )
 
 
-def catalog_check(path: Path | None = None, *, root: Path | None = None) -> Catalog:
-    """Load the committed catalog and re-assert the leftover-event contract."""
-
-    catalog = load_catalog(path, root=root)
-    checks: list[tuple[bool, str, str]] = [
+def _leftover_mill_checks(catalog: Catalog) -> list[tuple[bool, str, str]]:
+    return [
         (
             catalog.source.get("commit") != LEGACY_COMMIT,
             FINDING_CATALOG_SCHEMA,
@@ -510,6 +549,10 @@ def catalog_check(path: Path | None = None, *, root: Path | None = None) -> Cata
             "leftover3 mill_sha256 drifted",
         ),
     ]
+
+
+def _mapping_mill_checks(catalog: Catalog) -> list[tuple[bool, str, str]]:
+    checks: list[tuple[bool, str, str]] = []
     for index, (loaded, pinned) in enumerate(zip(catalog.mills[1:], MILL_SOURCES[1:], strict=True)):
         checks.extend(
             (
@@ -525,6 +568,14 @@ def catalog_check(path: Path | None = None, *, root: Path | None = None) -> Cata
                 ),
             )
         )
+    return checks
+
+
+def catalog_check(path: Path | None = None, *, root: Path | None = None) -> Catalog:
+    """Load the committed catalog and re-assert the leftover-event contract."""
+
+    catalog = load_catalog(path, root=root)
+    checks = _leftover_mill_checks(catalog) + _mapping_mill_checks(catalog)
     refuse_first(tuple(checks))
     refuse_when(len(catalog.pairs) != N_PLANT_PAIRS, FINDING_CATALOG_PAIR_COUNT, "plant pair count drifted")
     refuse_when(

@@ -75,7 +75,7 @@ def manifest_entry_from_record(record: Mapping[str, Any]) -> dict[str, Any]:
             "reason_codes": list(curation.get("reason_codes") or []),
         },
         "environment": _pick(
-            environment, ("repo_snapshot_hash", "task_id", "repo_pack_id")
+            environment, ("repo_snapshot_hash", "task_id", "repo_pack_id", "source_repo")
         ),
         "release": _pick(
             release, ("factory_contract_version", "factory_registry_sha256")

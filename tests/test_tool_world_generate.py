@@ -16,7 +16,13 @@ from unittest import mock
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import tool_world_test_support as support
-from tool_world_record_support import FACTORY, PACK, RunSandbox, read_candidates, refusal
+from tool_world_record_support import (
+    FACTORY,
+    PACK,
+    RunSandbox,
+    read_candidates,
+    refusal,
+)
 
 # The support modules go first: they put pipelines/ on sys.path for the imports below.
 # isort: split

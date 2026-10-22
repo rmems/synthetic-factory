@@ -134,6 +134,14 @@ def _plan_source_run(
     return source_run, source_run_dir
 
 
+def _lane_string(plan_path: Path, index: int, lane: dict[str, Any], field: str) -> str:
+    """One required lane field, refused unless it is a non-empty string."""
+    value = lane.get(field)
+    if not isinstance(value, str) or not value.strip():
+        raise GateError(f"{plan_path}: lane {index} needs a non-empty string '{field}'")
+    return value
+
+
 def _lane_declaration(
     plan_path: Path,
     index: int,
@@ -143,11 +151,9 @@ def _lane_declaration(
     """The three required strings, with one version per transform."""
     if not isinstance(lane, dict):
         raise GateError(f"{plan_path}: lane {index} must be an object")
-    declared = tuple(lane.get(field) for field in _LANE_STRING_FIELDS)
-    for field, value in zip(_LANE_STRING_FIELDS, declared):
-        if not isinstance(value, str) or not value.strip():
-            raise GateError(f"{plan_path}: lane {index} needs a non-empty string '{field}'")
-    transform, version, outputs = declared
+    transform, version, outputs = (
+        _lane_string(plan_path, index, lane, field) for field in _LANE_STRING_FIELDS
+    )
     previous = versions.get(transform)
     if previous is not None and previous != version:
         raise GateError(

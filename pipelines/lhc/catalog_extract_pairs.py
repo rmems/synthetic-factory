@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 import ast
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 from .catalog_ast import (
@@ -51,11 +51,11 @@ def _clean_pair(row: Mapping[str, Any]) -> dict[str, Any]:
     return {field: row[field] for field in _PAIR_FIELDS}
 
 
-def _first_success_slug(cleaned: list[Mapping[str, Any]]) -> str:
+def _first_success_slug(cleaned: Sequence[Mapping[str, Any]]) -> str:
     return str(cleaned[0]["success_slug"])
 
 
-def _last_success_slug(cleaned: list[Mapping[str, Any]]) -> str:
+def _last_success_slug(cleaned: Sequence[Mapping[str, Any]]) -> str:
     return str(cleaned[-1]["success_slug"])
 
 
@@ -71,7 +71,7 @@ def rows_record(shape: str, rows: list[dict[str, Any]], *, n_plants: int) -> dic
     }
 
 
-def _lhc_pairs_elts(node: ast.AST) -> list[ast.AST] | None:
+def _lhc_pairs_elts(node: ast.AST) -> list[ast.expr] | None:
     name, value = assignment_of(node)
     if name != "LHC_PAIRS":
         return None
@@ -83,7 +83,7 @@ def _lhc_pairs_elts(node: ast.AST) -> list[ast.AST] | None:
 
 
 def _rows_from_elts(
-    elts: list[ast.AST],
+    elts: Sequence[ast.expr],
     plants: Mapping[str, Mapping[str, Any]],
     wrappers: Mapping[str, str],
     expand_plants: Mapping[str, Mapping[str, Any]],

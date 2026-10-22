@@ -24,6 +24,8 @@ from ._contract import (
     refuse,
     refuse_when,
 )
+from ._mill_ast import literal_str as _literal_str
+from ._mill_ast import module_constants as _module_constants
 from .catalog_mill import DEFAULT_MILL_CATALOG_DIR, sha256_bytes
 
 EPISODE_PAIRS_FILENAME = "episode_pairs.jsonl"
@@ -50,33 +52,6 @@ __all__ = [
     "load_episode_mill_catalog",
     "materialize_p_pair",
 ]
-
-
-def _literal_str(node: ast.AST, where: str) -> str:
-    refuse_when(
-        not isinstance(node, ast.Constant) or not isinstance(node.value, str),
-        FINDING_CATALOG_FIELD_INVALID,
-        f"{where} must be a string literal",
-    )
-    assert isinstance(node, ast.Constant)
-    return node.value
-
-
-def _module_constants(tree: ast.Module) -> dict[str, Any]:
-    found: dict[str, Any] = {}
-    for node in tree.body:
-        if not isinstance(node, ast.Assign):
-            continue
-        for target in node.targets:
-            if not isinstance(target, ast.Name):
-                continue
-            name = target.id
-            if name in {"FACTORY", "GEN", "CATALOG_FIRST"}:
-                value = node.value
-                if isinstance(value, ast.Constant) and isinstance(value.value, (str, int)):
-                    if not isinstance(value.value, bool):
-                        found[name] = value.value
-    return found
 
 
 def _pairs_list(tree: ast.Module) -> ast.List:

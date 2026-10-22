@@ -11,6 +11,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 REPO = Path(__file__).resolve().parents[1]
 PIPELINES = REPO / "pipelines"
@@ -190,6 +191,73 @@ class AstExtract(unittest.TestCase):
             catalog.plants_from_source(source, mill_id="gql_r0211", source="banned.py")
         self.assertEqual(caught.exception.code, FINDING_PLANT_FIELD_INVALID)
 
+    def test_a_deep_dict_and_negation_nest_evaluates_before_the_plant_lookup(self):
+        # One stack frame per nesting level, as on main: 150 dicts around a 600-deep
+        # negation evaluate, and the source is refused for having no plant literal.
+        source = "BASE = " + '{"a": ' * 150 + "-" * 600 + "1" + "}" * 150
+        self._refused(source, FINDING_SOURCE_NOT_PARSEABLE, "has no plant literal")
+
+    def _refused(self, source, code, fragment):
+        with self.assertRaises(GqlRefusal) as caught:
+            catalog.plants_from_source(source, mill_id="gql_r0005", source="edge.py")
+        self.assertEqual(caught.exception.code, code)
+        self.assertIn(fragment, str(caught.exception))
+
+    def test_surface_catalog_tuples_become_surface_rows(self):
+        source = (
+            "CATALOG = [\n"
+            "  (0, 'shop-a', 'f1', 'Shop', 'dataloader', 'n+1', 'plant-a', 'old-a', 'new-a'),\n"
+            "  (1, 'mart-b', 'f2', 'Mart', 'batch', 'per-row', 'plant-b', 'old-b', 'new-b'),\n"
+            "]\n"
+        )
+        rows = catalog.plants_from_source(source, mill_id="gql_r0005", source="surface.py")
+        self.assertEqual([row["shape"] for row in rows], ["surface", "surface"])
+        self.assertEqual(rows[0]["plant_id"], "gql_r0005:shop-a")
+        self.assertEqual((rows[0]["prod"], rows[0]["coverage"], rows[1]["coverage"]), ("shop", 70, 71))
+        self.assertEqual(rows[1]["base_round"], 5)
+        self._refused(source.replace("(1, 'mart-b'", "(4, 'mart-b'"), FINDING_SOURCE_NOT_PARSEABLE,
+                      "idx 4 != 1")
+        self._refused("CATALOG = [(0, 'a')]\n", FINDING_SOURCE_NOT_PARSEABLE, "is not a 9-tuple")
+
+    def test_literal_forms_and_refusals(self):
+        rows = catalog.plants_from_source(
+            TINY_SOURCE.replace('"coverage": 90', '"coverage": -(-90)'),
+            mill_id="gql_r0007", source="neg.py",
+        )
+        self.assertEqual(rows[0]["coverage"], 90)
+        self._refused("PAIRS = [S(plant='p', coverage=1)]\n", FINDING_SOURCE_NOT_PARSEABLE,
+                      "edge.py[0].bad is not an object")
+        self._refused("PAIRS = [{**base}]\n", FINDING_SOURCE_NOT_PARSEABLE, "dict unpacking")
+        self._refused("PAIRS = [S('positional')]\n", FINDING_SOURCE_NOT_PARSEABLE, "(Call)")
+        self._refused("PAIRS = [f(x=1)]\n", FINDING_SOURCE_NOT_PARSEABLE, "(Call)")
+        self._refused("PAIRS = [obj.attr]\n", FINDING_SOURCE_NOT_PARSEABLE, "(Attribute)")
+
+    def test_module_level_refusals(self):
+        self._refused("def broken(:\n", FINDING_SOURCE_NOT_PARSEABLE, "does not parse")
+        self._refused("OTHER = [1]\n", FINDING_SOURCE_NOT_PARSEABLE, "has no plant literal")
+        self._refused("PAIRS = []\n", FINDING_SOURCE_NOT_PARSEABLE, "plant literal is empty")
+        self._refused("CATALOG = (1,)\n", FINDING_SOURCE_NOT_PARSEABLE, "plant literal is empty")
+        with self.assertRaises(GqlRefusal) as caught:
+            catalog.plants_from_source(TINY_SOURCE, mill_id="gql-7", source="edge.py")
+        self.assertEqual(caught.exception.code, FINDING_PLANT_FIELD_INVALID)
+        self.assertIn("is not gql_rNNN", str(caught.exception))
+        banned_scalar = TINY_SOURCE.replace("CATALOG_FIRST = 7", "CATALOG_FIRST = 7\nBANNED = 'tiny'")
+        self._refused(banned_scalar, FINDING_SOURCE_NOT_PARSEABLE, "BANNED is not a list")
+
+    def test_base_round_comes_from_the_argument_then_base_then_the_mill_id(self):
+        def base(source, **kwargs):
+            return catalog.plants_from_source(source, mill_id="gql_r0042", source="b.py",
+                                              **kwargs)[0]["base_round"]
+
+        no_first = TINY_SOURCE.replace("CATALOG_FIRST = 7", "")
+        self.assertEqual(base(TINY_SOURCE, base_round=3), 3)
+        self.assertEqual(base(no_first.replace("PAIRS = [", "BASE = 11\nPAIRS = [")), 11)
+        self.assertEqual(base(no_first), 42)
+        annotated = no_first.replace("PAIRS = [", "PAIRS: list = [")
+        self.assertEqual(base(annotated), 42)
+        allowed = TINY_SOURCE.replace("CATALOG_FIRST = 7", "CATALOG_FIRST = 7\nBANNED = ['zz']")
+        self.assertEqual(base(allowed), 7)
+
     def test_package_tree_has_no_vendored_or_loop_mills(self):
         tree = PIPELINES / "gql"
         hits = list(tree.rglob("gql-mill-r*.py")) + list(tree.rglob("gql-loop*.py"))
@@ -198,10 +266,84 @@ class AstExtract(unittest.TestCase):
         self.assertEqual(list((REPO / "config" / "gql").rglob("gql-mill-r*.py")), [])
 
 
+class CatalogRefusals(unittest.TestCase):
+    """Each catalog pin refuses on its own, through a re-pinned copy of the fixture."""
+
+    def _copy(self, edit_meta=None, edit_row=None):
+        root = Path(tempfile.mkdtemp(prefix="gql-edge-"))
+        self.addCleanup(shutil.rmtree, root, True)
+        dest = root / "catalog"
+        shutil.copytree(FIXTURE, dest)
+        plants = dest / catalog.PLANTS_FILENAME
+        if edit_row is not None:
+            row = edit_row(json.loads(plants.read_text(encoding="utf-8").splitlines()[0]))
+            plants.write_text(json.dumps(row, sort_keys=True) + "\n", encoding="utf-8")
+        meta_path = dest / catalog.CATALOG_FILENAME
+        meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        meta["plants_sha256"] = catalog.sha256_bytes(plants.read_bytes())
+        if edit_meta is not None:
+            edit_meta(meta)
+        meta_path.write_text(json.dumps(meta, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        return dest
+
+    def _refused(self, dest, code, fragment):
+        with self.assertRaises(GqlRefusal) as caught:
+            catalog.load_catalog(dest)
+        self.assertEqual(caught.exception.code, code)
+        self.assertIn(fragment, str(caught.exception))
+
+    def test_pinned_header_fields_refuse_in_order(self):
+        invalid = catalog.FINDING_CATALOG_FIELD_INVALID
+        self._refused(self._copy(lambda m: m.update(format="gql-catalog/0")), invalid,
+                      "CATALOG.json.format must be gql-catalog/1")
+        self._refused(self._copy(lambda m: m.update(quota_per_round=3, record_kind="x")), invalid,
+                      "CATALOG.json.record_kind must be episode")
+        self._refused(self._copy(lambda m: m.update(quota_per_round=3)), invalid,
+                      "CATALOG.json.quota_per_round must be 2")
+        self._refused(self._copy(lambda m: m.update(plant_count=2)), invalid,
+                      "plant_count is 2, file has 1")
+
+    def test_an_unregistered_factory_is_refused_after_the_digest_pin(self):
+        with mock.patch.object(catalog, "_registry_factory_ids", return_value=set()):
+            self._refused(self._copy(), catalog.FINDING_FACTORY_NOT_REGISTERED,
+                          "is not a registry path_id")
+
+    def test_plant_rows_refuse_on_shape_and_object(self):
+        self._refused(self._copy(edit_row=lambda row: [row]), FINDING_PLANT_FIELD_INVALID,
+                      "plants.jsonl:1 must be an object")
+        self._refused(self._copy(edit_row=lambda row: {**row, "shape": "blob"}),
+                      FINDING_PLANT_FIELD_INVALID, "plants.jsonl:1.shape must be pair or surface")
+        self._refused(self._copy(edit_row=lambda row: {**row, "plant_id": "gql_r0001:other"}),
+                      FINDING_PLANT_FIELD_INVALID, "plant_id must be 'gql_r0001:lattice-tiny'")
+
+
 class GeneratePairs(unittest.TestCase):
     def setUp(self):
         self.root = Path(tempfile.mkdtemp(prefix="gql-gen-"))
         self.addCleanup(shutil.rmtree, self.root, True)
+
+    def test_mill_and_all_selectors_number_rounds_from_the_mill_base(self):
+        for name, request in (
+            ("mill", {"mill_id": "gql_r0001"}),
+            ("all", {"all_plants": True}),
+        ):
+            summary = generate.run(generate.GenerateRequest(FIXTURE, self.root / name, **request))
+            self.assertEqual((summary["pairs"], summary["records"]), (1, 2))
+            first = json.loads(
+                (self.root / name / generate.RECORDS_FILENAME).read_text(encoding="utf-8")
+                .splitlines()[0]
+            )
+            self.assertEqual(first["id"], "gql-r1-tiny-leftover-bind")
+        unknown_mill = generate.GenerateRequest(FIXTURE, self.root / "x", mill_id="gql_r0002")
+        with self.assertRaises(GqlRefusal) as caught:
+            generate.run(unknown_mill)
+        self.assertEqual(caught.exception.code, catalog.FINDING_MILL_NOT_FOUND)
+        mill_with_round = generate.GenerateRequest(
+            FIXTURE, self.root / "y", mill_id="gql_r0001", round=2
+        )
+        with self.assertRaises(GqlRefusal) as caught:
+            generate.run(mill_with_round)
+        self.assertEqual(caught.exception.code, FINDING_USAGE)
 
     def test_fixture_pair_is_an_episode_and_not_hosted_grok(self):
         dest = self.root / "out"

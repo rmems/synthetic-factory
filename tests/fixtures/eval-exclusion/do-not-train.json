@@ -1,0 +1,13 @@
+{
+  "list": "do_not_train",
+  "note": "TEST FIXTURE ONLY. These entries exercise the gate and are not the reviewed rmems-eval-v0.1 lists.",
+  "program_ids": [],
+  "repos": [
+    "fixture-owner/do-not-train"
+  ],
+  "schema_version": "eval-exclusion-list-v1",
+  "status": "reviewed",
+  "task_ids": [
+    "fixture-task-do-not-train"
+  ]
+}

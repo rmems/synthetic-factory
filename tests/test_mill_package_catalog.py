@@ -60,12 +60,13 @@ class Refusals(unittest.TestCase):
         with refusal(self, cv.FINDING_PLANTS_SHA_MISMATCH, "digest"):
             catalog_load.load_catalog(dest)
 
-    def test_a_leftover_token_in_a_plant_row_is_refused(self):
+    def _repinned(self, edit_first_row):
+        """A copy of the fixture with its first plant row edited and the digest re-pinned."""
         dest = self.root / "catalog"
         shutil.copytree(FIXTURE_CATALOG, dest)
         plants = dest / "plants.jsonl"
         rows = plants.read_text(encoding="utf-8").splitlines()
-        rows[0] = rows[0].replace("Postmark", "leftover leftover leftover")
+        rows[0] = edit_first_row(rows[0])
         plants.write_text("\n".join(rows) + "\n", encoding="utf-8")
         header = dest / "CATALOG.json"
         payload = header.read_text(encoding="utf-8").replace(
@@ -73,7 +74,16 @@ class Refusals(unittest.TestCase):
             catalog_load.sha256_bytes(plants.read_bytes()),
         )
         header.write_text(payload, encoding="utf-8")
+        return dest
+
+    def test_a_leftover_token_in_a_plant_row_is_refused(self):
+        dest = self._repinned(lambda row: row.replace("Postmark", "leftover leftover leftover"))
         with refusal(self, cv.FINDING_BANNED_SUBSTRING, "leftover leftover leftover"):
+            catalog_load.load_catalog(dest)
+
+    def test_a_blank_plant_string_is_refused(self):
+        dest = self._repinned(lambda row: row.replace('"Postmark"', '"  "'))
+        with refusal(self, cv.FINDING_PLANT_FIELD_MISSING, "provider must be a nonempty string"):
             catalog_load.load_catalog(dest)
 
 

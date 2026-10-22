@@ -47,6 +47,7 @@ class OracleLoadedSource(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls._template_tmp = tempfile.TemporaryDirectory()
+        cls.addClassCleanup(cls._template_tmp.cleanup)
         cls.template = Path(cls._template_tmp.name)
         cls.repo_fingerprint = _source_fingerprint(REPO)
         build_source_template(REPO, cls.template)
@@ -56,13 +57,10 @@ class OracleLoadedSource(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
-        try:
-            if _source_fingerprint(REPO) != cls.repo_fingerprint:
-                raise AssertionError("loaded-source probes mutated the repository")
-            if _source_fingerprint(cls.template) != cls.template_fingerprint:
-                raise AssertionError("loaded-source probes mutated the pristine template")
-        finally:
-            cls._template_tmp.cleanup()
+        if _source_fingerprint(REPO) != cls.repo_fingerprint:
+            raise AssertionError("loaded-source probes mutated the repository")
+        if _source_fingerprint(cls.template) != cls.template_fingerprint:
+            raise AssertionError("loaded-source probes mutated the pristine template")
 
     def test_exact_loaded_bytes_and_import_ownership(self):
         # Driving the modes off the PROBES registry means a probe that is

@@ -94,22 +94,27 @@ class ModelValidation(unittest.TestCase):
         # the oracle ran a model other than the one declared whenever the
         # matrices happened to fit the coerced size.
         for bad in (1.9, 2.0, "2", True, 0, -1):
+            bad_neurons = _model(neurons=bad)
             with self.subTest(neurons=bad), self.assertRaises(ValueError):
-                oracle.normalize_model(_model(neurons=bad))
+                oracle.normalize_model(bad_neurons)
+            bad_inputs = _model(inputs=bad)
             with self.subTest(inputs=bad), self.assertRaises(ValueError):
-                oracle.normalize_model(_model(inputs=bad))
+                oracle.normalize_model(bad_inputs)
 
     def test_bad_matrix_shape_rejected(self):
+        model = _model(w_in=[[0.5]])
         with self.assertRaises(ValueError):
-            oracle.normalize_model(_model(w_in=[[0.5]]))
+            oracle.normalize_model(model)
 
     def test_unknown_reset_rejected(self):
+        model = _model(reset="clamp")
         with self.assertRaises(ValueError):
-            oracle.normalize_model(_model(reset="clamp"))
+            oracle.normalize_model(model)
 
     def test_action_labels_must_match_neuron_count(self):
+        model = _model(action_labels=["only-one"])
         with self.assertRaises(ValueError):
-            oracle.normalize_model(_model(action_labels=["only-one"]))
+            oracle.normalize_model(model)
 
     def test_stimulus_width_must_match_model(self):
         with self.assertRaises(ValueError):
@@ -148,8 +153,10 @@ class Quantization(unittest.TestCase):
         _, provenance = oracle.quantize_model(_model(w_in=[[300.0, 0.0], [0.0, 0.5]]))
         self.assertEqual(provenance["saturated_parameter_count"], 1)
         entry = next(
-            item for item in provenance["parameters"] if item["parameter"] == "w_in[0][0]"
+            (item for item in provenance["parameters"] if item["parameter"] == "w_in[0][0]"),
+            None,
         )
+        self.assertIsNotNone(entry)
         self.assertTrue(entry["saturated"])
         self.assertEqual(entry["q88_value"], oracle.Q88_MAX_VALUE)
 
@@ -283,8 +290,9 @@ class Adapters(unittest.TestCase):
 
     def test_fpga_adapter_run_raises_instead_of_substituting(self):
         adapter = oracle.FpgaHardwareAdapter(env={})
+        model, stimulus = _model(), _stimulus()
         with self.assertRaises(oracle.OracleUnavailable) as caught:
-            adapter.run(_model(), _stimulus())
+            adapter.run(model, stimulus)
         self.assertEqual(caught.exception.reason_code, "FPGA_DEVICE_NOT_DECLARED")
 
     def test_get_adapter_rejects_unknown_names(self):
@@ -298,7 +306,8 @@ class Adapters(unittest.TestCase):
 
 
 class RecordedCapture(unittest.TestCase):
-    def _capture(self, tmp, **overrides):
+    @staticmethod
+    def _capture(tmp, **overrides):
         model = _model()
         stimulus = oracle.normalize_stimulus(_stimulus(), model["inputs"])
         _, quantization = oracle.quantize_model(model)
@@ -341,8 +350,9 @@ class RecordedCapture(unittest.TestCase):
     def test_missing_capture_is_unavailable(self):
         adapter = oracle.RecordedCaptureAdapter("/nonexistent/capture.json")
         self.assertEqual(adapter.availability()["reason_code"], "CAPTURE_FILE_ABSENT")
+        model, stimulus = _model(), _stimulus()
         with self.assertRaises(oracle.OracleUnavailable):
-            adapter.run(_model(), _stimulus())
+            adapter.run(model, stimulus)
 
     def test_valid_capture_replays(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -363,16 +373,18 @@ class RecordedCapture(unittest.TestCase):
             capture["payload"]["spikes"][0][1] = 1
             path.write_text(json.dumps(capture), encoding="utf-8")
             adapter = oracle.RecordedCaptureAdapter(path)
+            model, stimulus = _model(), _stimulus()
             with self.assertRaises(oracle.OracleUnavailable) as caught:
-                adapter.run(_model(), _stimulus())
+                adapter.run(model, stimulus)
             self.assertEqual(caught.exception.reason_code, "CAPTURE_DIGEST_MISMATCH")
 
     def test_capture_for_a_different_input_is_refused(self):
         with tempfile.TemporaryDirectory() as tmp:
             adapter = oracle.RecordedCaptureAdapter(self._capture(tmp))
             other = {"name": "other", "steps": 4, "events": [[0, 1]] * 4, "dt_ms": 1.0}
+            model = _model()
             with self.assertRaises(oracle.OracleUnavailable) as caught:
-                adapter.run(_model(), other)
+                adapter.run(model, other)
             self.assertEqual(
                 caught.exception.reason_code, "CAPTURE_INPUT_FIXTURE_MISMATCH"
             )
@@ -407,8 +419,9 @@ class RecordedCapture(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             path = self._capture(tmp, manifest=["x"])
             adapter = oracle.RecordedCaptureAdapter(path)
+            model, stimulus = _model(), _stimulus()
             with self.assertRaises(oracle.OracleUnavailable) as caught:
-                adapter.run(_model(), _stimulus())
+                adapter.run(model, stimulus)
             self.assertEqual(caught.exception.reason_code, "CAPTURE_UNREADABLE")
 
     def test_capture_path_that_is_a_directory_is_refused(self):
@@ -426,8 +439,9 @@ class RecordedCapture(unittest.TestCase):
             capture["manifest"]["payload_sha256"] = oracle.digest(capture["payload"])
             path.write_text(json.dumps(capture), encoding="utf-8")
             adapter = oracle.RecordedCaptureAdapter(path)
+            model, stimulus = _model(), _stimulus()
             with self.assertRaises(oracle.OracleUnavailable) as caught:
-                adapter.run(_model(), _stimulus())
+                adapter.run(model, stimulus)
             self.assertEqual(
                 caught.exception.reason_code, "CAPTURE_QUANTIZATION_MISSING"
             )
@@ -447,8 +461,9 @@ class RecordedCapture(unittest.TestCase):
             capture["manifest"]["payload_sha256"] = oracle.digest(capture["payload"])
             path.write_text(json.dumps(capture), encoding="utf-8")
             adapter = oracle.RecordedCaptureAdapter(path)
+            model, stimulus = _model(), _stimulus()
             with self.assertRaises(oracle.OracleUnavailable) as caught:
-                adapter.run(_model(), _stimulus())
+                adapter.run(model, stimulus)
             self.assertEqual(
                 caught.exception.reason_code, "CAPTURE_QUANTIZATION_CONFLICT"
             )
@@ -467,8 +482,9 @@ class RecordedCapture(unittest.TestCase):
                 capture["manifest"]["payload_sha256"] = oracle.digest(capture["payload"])
                 path.write_text(json.dumps(capture), encoding="utf-8")
                 adapter = oracle.RecordedCaptureAdapter(path)
+                model, stimulus = _model(), _stimulus()
                 with self.assertRaises(oracle.OracleUnavailable) as caught:
-                    adapter.run(_model(), _stimulus())
+                    adapter.run(model, stimulus)
                 self.assertEqual(
                     caught.exception.reason_code, "CAPTURE_QUANTIZATION_CONFLICT"
                 )
@@ -481,8 +497,9 @@ class RecordedCapture(unittest.TestCase):
             capture["manifest"]["payload_sha256"] = oracle.digest(capture["payload"])
             path.write_text(json.dumps(capture), encoding="utf-8")
             adapter = oracle.RecordedCaptureAdapter(path)
+            model, stimulus = _model(), _stimulus()
             with self.assertRaises(oracle.OracleUnavailable) as caught:
-                adapter.run(_model(), _stimulus())
+                adapter.run(model, stimulus)
             self.assertEqual(caught.exception.reason_code, "CAPTURE_UNREADABLE")
             self.assertIn("arithmetic", caught.exception.detail)
 
@@ -496,8 +513,9 @@ class RecordedCapture(unittest.TestCase):
             capture["manifest"]["payload_sha256"] = oracle.digest(capture["payload"])
             path.write_text(json.dumps(capture), encoding="utf-8")
             adapter = oracle.RecordedCaptureAdapter(path)
+            model, stimulus = _model(), _stimulus()
             with self.assertRaises(oracle.OracleUnavailable) as caught:
-                adapter.run(_model(), _stimulus())
+                adapter.run(model, stimulus)
             self.assertEqual(caught.exception.reason_code, "CAPTURE_UNREADABLE")
 
     def test_capture_replay_carries_its_quantization_through(self):

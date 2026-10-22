@@ -14,6 +14,8 @@ from ._contract import SrlError
 
 __all__ = ["PLANT_KEYS", "Plant", "PLANTS", "plant_at", "plant_by_slug", "slugs"]
 
+_EXACT_INT = (int,)  # exact type: bool and every other int subclass are refused
+
 
 class Plant(TypedDict):
     """One designed sparse-reward plant from ``srl_r6110``."""
@@ -46,6 +48,8 @@ PLANT_KEYS: tuple[str, ...] = (
     "bad",
     "test",
 )
+
+_REKOR_WRONG = 'COSIGN_REKOR_URL=http://rekor.local:3000'
 
 PLANTS: tuple[Plant, ...] = (
         {
@@ -138,12 +142,12 @@ PLANTS: tuple[Plant, ...] = (
             'issue': 1507,
             'tool': 'cosign',
             'vs': 'notation leftover leftover leftover unsigned allow',
-            'wrong': 'COSIGN_REKOR_URL=http://rekor.local:3000',
+            'wrong': _REKOR_WRONG,
             'h1': 'COSIGN_EXPERIMENTAL=0',
             'h2': 'COSIGN_YES=1',
             'fix': 'COSIGN_REKOR_URL=https://rekor.sigstore.dev',
             'grep': 'COSIGN_REKOR_URL|COSIGN_EXPERIMENTAL',
-            'bad': 'http://rekor.local:3000',
+            'bad': _REKOR_WRONG.partition('=')[2],
             'test': 'test_cosign_rekor_url',
         },
         {
@@ -282,7 +286,7 @@ def slugs() -> tuple[str, ...]:
 def plant_at(index: int) -> Plant:
     """Return the plant at ``index`` (0..15). Raises ``SrlError`` if out of range."""
 
-    if type(index) is not int or not 0 <= index < len(PLANTS):
+    if type(index) not in _EXACT_INT or not 0 <= index < len(PLANTS):
         raise SrlError(f"unknown_plant_index: {index!r}")
     return PLANTS[index]
 

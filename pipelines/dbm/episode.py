@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Mapping
+from dataclasses import dataclass
 from typing import Any
 
 if __name__.startswith("pipelines."):
@@ -133,7 +134,37 @@ def _goal_ok(goal: str) -> str:
     return goal
 
 
-def build_episode(round_n: int, plant: Mapping[str, str], slot: int) -> dict[str, Any]:
+@dataclass(frozen=True)
+class _EpisodeNames:
+    """Every name and command one dbm episode derives from its plant, round, and slot."""
+
+    plant: Mapping[str, str]
+    round_n: int
+    ver: int
+    slug: str
+    table: str
+    col: str
+    col_v2: str
+    leftover: str
+    leftover2: str
+    res: str
+    sname: str
+    mig: str
+    down: str
+    test: str
+    runbook: str
+    backfill: str
+    checksum: str
+    inspect_cmd: str
+    seed_cmd: str
+    abort_cmd: str
+    lock_cmd: str
+    lock_fail: str
+    expand: str
+    inspect_obs: str
+
+
+def _episode_names(round_n: int, plant: Mapping[str, str], slot: int) -> _EpisodeNames:
     ver = 2500 + (round_n - START_ROUND) * 2 + slot
     slug = plant["slug"]
     table = plant["table"]
@@ -144,165 +175,186 @@ def build_episode(round_n: int, plant: Mapping[str, str], slot: int) -> dict[str
     res = residual(plant)
     sname = short_name(plant)
     st = stem(plant)
-    mig = f"migrations/{ver}_{st}.sql"
-    down = f"migrations/{ver}_{st}.down.sql"
-    test = f"tests/test_{st}.py"
-    runbook = f"docs/{slug}.md"
-    backfill = f"jobs/backfill_{st}.py"
-    checksum = f"jobs/checksum_{st}.py"
-    inspect_cmd = plant["inspect"]
-    seed_cmd = plant["seed"]
-    abort_cmd = plant["abort"]
-    lock_cmd = f'psql -X -c "{lock_sql(plant)}"'
-    lock_fail = plant.get("lock_fail") or f"ERROR: lock timeout ADD {col_v2} on {table}"
-    expand = expand_sql(plant)
-    inspect_obs = (
-        f"{table} present\n"
-        f"pending: {plant['fail']}\n"
-        f"shape now: {res}\n"
-        f"catalog: {plant['catalog']}\n"
-        f"locks/mutations: 1 active; dual leftover leftover leftover objects"
+    return _EpisodeNames(
+        plant=plant,
+        round_n=round_n,
+        ver=ver,
+        slug=slug,
+        table=table,
+        col=col,
+        col_v2=col_v2,
+        leftover=leftover,
+        leftover2=leftover2,
+        res=res,
+        sname=sname,
+        mig=f"migrations/{ver}_{st}.sql",
+        down=f"migrations/{ver}_{st}.down.sql",
+        test=f"tests/test_{st}.py",
+        runbook=f"docs/{slug}.md",
+        backfill=f"jobs/backfill_{st}.py",
+        checksum=f"jobs/checksum_{st}.py",
+        inspect_cmd=plant["inspect"],
+        seed_cmd=plant["seed"],
+        abort_cmd=plant["abort"],
+        lock_cmd=f'psql -X -c "{lock_sql(plant)}"',
+        lock_fail=plant.get("lock_fail") or f"ERROR: lock timeout ADD {col_v2} on {table}",
+        expand=expand_sql(plant),
+        inspect_obs=(
+            f"{table} present\n"
+            f"pending: {plant['fail']}\n"
+            f"shape now: {res}\n"
+            f"catalog: {plant['catalog']}\n"
+            f"locks/mutations: 1 active; dual leftover leftover leftover objects"
+        ),
     )
-    eid = f"{FAMILY_PREFIX}-r{round_n}-{slug}"
-    refuse_when(
-        bool(RECYCLE_SUFFIX.search(eid)),
-        FINDING_GENERATE_SHAPE,
-        f"recycle suffix in id: {eid}",
-    )
-    goal = _goal_ok(
-        f"{plant['plant']}: {plant['engine']} {seed_cmd} on {table}.{col} failed "
-        f"({plant['fail'][:140]}). Expand {col_v2}, backfill, residual {res}."
-    )
-    plan = (
-        f"Abort in-place rewrite; expand-contract via {expand}; keep {col}; "
-        f"dual leftover leftover leftover objects."
-    )
-    steps = [
+
+
+def _first_apply_steps(n: _EpisodeNames) -> list[dict[str, Any]]:
+    """Steps 1-5: inspect, the failing naive apply, abort, expand-only migration, lock."""
+
+    plant = n.plant
+    return [
         _step(
             1,
-            f"Plan: inspect {plant['engine']} leftover leftover leftover catalog for {table} "
-            f"before apply {ver} ({slug}).",
-            _bash(inspect_cmd),
-            inspect_obs,
+            f"Plan: inspect {plant['engine']} leftover leftover leftover catalog for {n.table} "
+            f"before apply {n.ver} ({n.slug}).",
+            _bash(n.inspect_cmd),
+            n.inspect_obs,
         ),
         _step(
             2,
-            f"Plan: apply naive leftover leftover leftover change on {table}.{col}.",
-            _bash(seed_cmd),
+            f"Plan: apply naive leftover leftover leftover change on {n.table}.{n.col}.",
+            _bash(n.seed_cmd),
             plant["fail"],
         ),
         _step(
             3,
             f"Observation: first apply failed ({plant['fail'][:90]}). Plan change: abort "
-            f"in-place rewrite; expand {col_v2} + backfill; leave {col} residual.",
-            _bash(abort_cmd),
+            f"in-place rewrite; expand {n.col_v2} + backfill; leave {n.col} residual.",
+            _bash(n.abort_cmd),
             "leftovers leftover leftover leftover dropped or cancelled; naive rewrite aborted; "
             "dual objects still planned",
         ),
         _step(
             4,
-            f"Plan: write expand-only migration {ver} adding {col_v2} (keep {col}).",
+            f"Plan: write expand-only migration {n.ver} adding {n.col_v2} (keep {n.col}).",
             _write(
-                mig,
-                f"-- {ver} expand {table} {col_v2}\n{expand};\n"
-                f"-- never drop {col}; leftover leftover leftover residual\n"
+                n.mig,
+                f"-- {n.ver} expand {n.table} {n.col_v2}\n{n.expand};\n"
+                f"-- never drop {n.col}; leftover leftover leftover residual\n"
                 f"-- {plant['catalog']}\n",
             ),
             "expand-only written",
         ),
         _step(
             5,
-            f"Plan: apply expand {ver} with short lock timeout.",
-            _bash(lock_cmd),
-            lock_fail,
+            f"Plan: apply expand {n.ver} with short lock timeout.",
+            _bash(n.lock_cmd),
+            n.lock_fail,
         ),
+    ]
+
+
+def _backfill_steps(n: _EpisodeNames) -> list[dict[str, Any]]:
+    """Steps 6-11: lock retry, batched backfill, tests, guarded down, residual, runbook."""
+
+    return [
         _step(
             6,
             "Observation: lock timeout on expand. Plan: retry lock timeout off-peak; "
             "ACCESS EXCLUSIVE avoided.",
-            _bash(lock_cmd),
-            f"ok retry expand {col_v2}",
+            _bash(n.lock_cmd),
+            f"ok retry expand {n.col_v2}",
         ),
         _step(
             7,
-            f"Plan: batched backfill {col_v2} from {col} without validating leftover leftover "
+            f"Plan: batched backfill {n.col_v2} from {n.col} without validating leftover leftover "
             "leftover constraints.",
-            _bash(f"python {backfill} --batch 8000 --from {col} --to {col_v2}"),
-            f"copied batch ok; remaining 0 on {table}; dual residual {res}",
+            _bash(f"python {n.backfill} --batch 8000 --from {n.col} --to {n.col_v2}"),
+            f"copied batch ok; remaining 0 on {n.table}; dual residual {n.res}",
         ),
         _step(
             8,
-            f"Plan: tests {test} (catalog residual must remain).",
-            _bash(f"pytest -q {test}"),
+            f"Plan: tests {n.test} (catalog residual must remain).",
+            _bash(f"pytest -q {n.test}"),
             "3 passed",
         ),
         _step(
             9,
-            f"Plan: down {ver} must refuse lossy drop of {col_v2}.",
+            f"Plan: down {n.ver} must refuse lossy drop of {n.col_v2}.",
             _write(
-                down,
-                f"SELECT raise_error('lossy {col_v2} drop; leftover leftover leftover residual "
-                f"{sname} must remain');\n",
+                n.down,
+                f"SELECT raise_error('lossy {n.col_v2} drop; leftover leftover leftover residual "
+                f"{n.sname} must remain');\n",
             ),
             "down v2 guard",
         ),
-        _step(10, f"Observation: dual residual {res}.", _bash(inspect_cmd), res),
+        _step(10, f"Observation: dual residual {n.res}.", _bash(n.inspect_cmd), n.res),
         _step(
             11,
             "Plan: runbook never in-place rewrite via naive leftover leftover leftover DDL.",
             _write(
-                runbook,
-                f"Never {seed_cmd}. Expand {col_v2}, backfill, dual-read. Residual: {res}. "
-                f"Restore leftovers leftover leftover leftover before retry. {plant['catalog']}",
+                n.runbook,
+                f"Never {n.seed_cmd}. Expand {n.col_v2}, backfill, dual-read. Residual: {n.res}. "
+                f"Restore leftovers leftover leftover leftover before retry. {n.plant['catalog']}",
             ),
             "runbook",
         ),
+    ]
+
+
+def _verify_steps(n: _EpisodeNames) -> list[dict[str, Any]]:
+    """Steps 12-16: wider tests, residual objects, checksum, lock check, version stamp."""
+
+    return [
         _step(
             12,
-            f"Plan: extra tests {test} + tests/test_schema.py.",
-            _bash(f"pytest -q {test} tests/test_schema.py"),
+            f"Plan: extra tests {n.test} + tests/test_schema.py.",
+            _bash(f"pytest -q {n.test} tests/test_schema.py"),
             "4 passed",
         ),
         _step(
             13,
             "Tool call: leftover leftover leftover catalog objects after abort.",
-            _bash(f"rg '{leftover}|{leftover2}|{col_v2}' || echo none-in-rewrite-path"),
+            _bash(f"rg '{n.leftover}|{n.leftover2}|{n.col_v2}' || echo none-in-rewrite-path"),
             "none in rewrite path; dual leftover leftover leftover objects remain as residual",
         ),
         _step(
             14,
             (
-                f"Plan: checksum {col} vs {col_v2}; confirm leftover leftover leftover "
+                f"Plan: checksum {n.col} vs {n.col_v2}; confirm leftover leftover leftover "
                 "objects still dual."
             ),
-            _bash(f"python {checksum}"),
-            f"mismatch 0 on backfilled rows; dual residual {res}",
+            _bash(f"python {n.checksum}"),
+            f"mismatch 0 on backfilled rows; dual residual {n.res}",
         ),
         _step(
             15,
-            f"Plan: confirm no active locks/mutations on {sname}.",
-            _bash(inspect_cmd),
+            f"Plan: confirm no active locks/mutations on {n.sname}.",
+            _bash(n.inspect_cmd),
             "0 blockers; dual leftover leftover leftover objects still present",
         ),
-        _step(16, f"Plan: stamp schema version {ver}.", _bash(f"echo {ver}"), str(ver)),
+        _step(16, f"Plan: stamp schema version {n.ver}.", _bash(f"echo {n.ver}"), str(n.ver)),
     ]
-    refuse_when(
-        len(steps) != SUCCESS_STEPS,
-        FINDING_GENERATE_SHAPE,
-        f"{eid} expected {SUCCESS_STEPS} steps",
-    )
-    episode = assemble_episode(EpisodeAssembly(
+
+
+def _assembled(n: _EpisodeNames, eid: str, goal: str, steps: list) -> dict[str, Any]:
+    plant = n.plant
+    return assemble_episode(EpisodeAssembly(
         episode_id=eid,
         goal=goal,
-        plan=plan,
+        plan=(
+            f"Abort in-place rewrite; expand-contract via {n.expand}; keep {n.col}; "
+            f"dual leftover leftover leftover objects."
+        ),
         steps=steps,
         outcome=(
             "Naive leftover leftover leftover apply failed. Plan change: "
-            f"expand {col_v2} + backfill. Tests 4/4. Residual: {res}."
+            f"expand {n.col_v2} + backfill. Tests 4/4. Residual: {n.res}."
         ),
         meta={
             "factory": FACTORY,
-            "round": round_n,
+            "round": n.round_n,
             "generator": GENERATOR,
             "kind": "episode",
             "plant": plant["plant"],
@@ -310,6 +362,27 @@ def build_episode(round_n: int, plant: Mapping[str, str], slot: int) -> dict[str
             "surface": plant["surface"],
         },
     ))
+
+
+def build_episode(round_n: int, plant: Mapping[str, str], slot: int) -> dict[str, Any]:
+    n = _episode_names(round_n, plant, slot)
+    eid = f"{FAMILY_PREFIX}-r{round_n}-{n.slug}"
+    refuse_when(
+        bool(RECYCLE_SUFFIX.search(eid)),
+        FINDING_GENERATE_SHAPE,
+        f"recycle suffix in id: {eid}",
+    )
+    goal = _goal_ok(
+        f"{plant['plant']}: {plant['engine']} {n.seed_cmd} on {n.table}.{n.col} failed "
+        f"({plant['fail'][:140]}). Expand {n.col_v2}, backfill, residual {n.res}."
+    )
+    steps = _first_apply_steps(n) + _backfill_steps(n) + _verify_steps(n)
+    refuse_when(
+        len(steps) != SUCCESS_STEPS,
+        FINDING_GENERATE_SHAPE,
+        f"{eid} expected {SUCCESS_STEPS} steps",
+    )
+    episode = _assembled(n, eid, goal, steps)
     _assert_clean(episode)
     refuse_when(
         contains_hidden_reasoning_key(episode),

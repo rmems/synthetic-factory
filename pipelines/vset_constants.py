@@ -66,6 +66,7 @@ VALIDATING_ORACLE_KINDS = frozenset(
 SHA256_RE = r"^sha256:[0-9a-f]{64}$"
 _SHA256 = re.compile(SHA256_RE)
 ERR_ACTOR_FIELDS_INVALID = "vset.actor_fields_invalid"
+ERR_ACTORS_CONFLATED = "vset.actors_conflated"
 ERR_PAYLOAD_INVALID = "vset.payload_invalid"
 ERR_RELEASE_CONTRACT_MISMATCH = "vset.release_contract_mismatch"
 ERR_ORACLE_PACK_BINDING = "vset.oracle_pack_binding"

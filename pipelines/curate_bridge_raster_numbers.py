@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from typing import Any, cast
+from typing import Any, TypeGuard, cast
 
 if __package__:
     # Import-twin helpers join the package import lock; import-order tests cover this edge.
@@ -199,7 +199,7 @@ def _nonnegative_int(value: object) -> bool:
     return _nonnegative_json_integer(value) is not None
 
 
-def _nonblank_text(value: Any) -> bool:
+def _nonblank_text(value: Any) -> TypeGuard[str]:
     return isinstance(value, str) and bool(value.strip())
 
 

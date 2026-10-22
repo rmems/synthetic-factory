@@ -138,7 +138,7 @@ class CorpusAudit(AuditAxes):
         self.totals["bytes"] += len(payload)
 
         try:
-            raw_lines = self.api._completion.audit_jsonl_records(
+            raw_lines = self.api.audit_jsonl_records(
                 rel, payload, self._completed_published_payload,
             )
         except self.api.StrictJsonlError as exc:
@@ -152,7 +152,7 @@ class CorpusAudit(AuditAxes):
 
     def _completed_published_payload(self, rel, payload) -> bool:
         source_root = self.completion_source or self.run_dir
-        return self.api._completion.completed_published_payload(source_root, rel, payload)
+        return self.api.completed_published_payload(source_root, rel, payload)
 
     def _observe_completed_procedural_file(self, rel, payload, previous_records):
         if self._completed_published_payload(rel, payload):
@@ -180,7 +180,8 @@ class CorpusAudit(AuditAxes):
                 parse_float=self.api._parse_finite_json_float,
             )
         except (ValueError, RecursionError) as exc:
-            self._record_parse_error(where, exc, token_estimate, bucket)
+            self._account_tokens(token_estimate, bucket)
+            self._record_parse_error(where, exc, bucket)
             return
 
         finding = self.mill_findings_by_ref.get((rel.as_posix(), line_number))
@@ -193,7 +194,8 @@ class CorpusAudit(AuditAxes):
         try:
             self.api.canonical_blob(obj)
         except (ValueError, RecursionError) as exc:
-            self._record_exact_json_contract_error(where, exc, token_estimate, bucket)
+            self._account_tokens(token_estimate, bucket)
+            self._record_exact_json_contract_error(where, exc, bucket)
             return
 
         self._account_tokens(token_estimate, bucket)
@@ -230,13 +232,14 @@ class CorpusAudit(AuditAxes):
             from oracle_grounded.record import SCHEMA_ID
         return isinstance(obj, dict) and obj.get("schema") == SCHEMA_ID
 
-    def _observe_oracle(self, obj, where, factory, bucket):
+    def _observe_oracle(self, obj, where, factory):
+        bucket = self.factories[factory]
         self._observe_admitted(_AdmissionRoute("oracle", obj, where, factory, bucket))
 
-    def _observe_specialist_route(self, obj, where, factory, bucket):
+    def _observe_specialist_route(self, obj, where, factory):
         """Dispatch a valid record to a specialist lane; returns whether it routed."""
         if isinstance(obj, dict) and obj.get("family") == "python-function-repair":
-            self._observe_code_repair(obj, where, factory, bucket)
+            self._observe_code_repair(obj, where, factory)
             return True
         if __package__:
             from .curate_parity import observe_research
@@ -245,18 +248,18 @@ class CorpusAudit(AuditAxes):
         if observe_research(self, obj, where, factory):
             return True
         if self._oracle_shaped(obj):
-            self._observe_oracle(obj, where, factory, bucket)
+            self._observe_oracle(obj, where, factory)
             return True
         if self._registered_code_repair_route(factory):
             # A foreign record filed under the procedural path still owes the
             # sealed source-admission check; it fails there, not here.
-            self._observe_code_repair(obj, where, factory, bucket)
+            self._observe_code_repair(obj, where, factory)
             return True
         return False
 
     def _observe_valid_record(self, obj, where, factory):
         bucket = self.factories[factory]
-        if self._observe_specialist_route(obj, where, factory, bucket):
+        if self._observe_specialist_route(obj, where, factory):
             return
         kind = self._observe_record(obj, where, factory)
         self.kinds[kind] += 1
@@ -287,7 +290,8 @@ class CorpusAudit(AuditAxes):
             )
         return False
 
-    def _observe_code_repair(self, obj, where, factory, bucket):
+    def _observe_code_repair(self, obj, where, factory):
+        bucket = self.factories[factory]
         self._observe_admitted(_AdmissionRoute("code_repair", obj, where, factory, bucket))
 
     @staticmethod
@@ -345,14 +349,12 @@ class CorpusAudit(AuditAxes):
         self.totals["eligible_records"] += 1
         route.bucket["eligible_records"] += 1
 
-    def _record_parse_error(self, where, exc, token_estimate, bucket):
-        self._account_tokens(token_estimate, bucket)
+    def _record_parse_error(self, where, exc, bucket):
         self.record_errors.append(f"{where}: JSON parse error: {exc}")
         self.kinds["unknown"] += 1
         bucket["by_kind"]["unknown"] += 1
 
-    def _record_exact_json_contract_error(self, where, exc, token_estimate, bucket):
-        self._account_tokens(token_estimate, bucket)
+    def _record_exact_json_contract_error(self, where, exc, bucket):
         self.totals["exact_json_contract_errors"] += 1
         bucket["exact_json_contract_errors"] += 1
         self.record_errors.append(f"{where}: exact JSON contract error: {exc}")

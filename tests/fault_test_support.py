@@ -66,7 +66,7 @@ def ensure_policy():
     oc.declare_oracle_labels(fault_vocabulary.FAMILY, fault_vocabulary.ORACLE_LABEL_KEYS)
 
 
-@functools.lru_cache(maxsize=None)
+@functools.cache
 def records(seed=SEED, count=36, produced_at=PINNED_AT):
     """A memoised record corpus; callers deep-copy before tampering."""
 

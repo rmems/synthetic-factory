@@ -10,7 +10,6 @@ aliases ``outputs/raw/``.
 
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -18,8 +17,6 @@ from typing import Any
 from . import catalog as cat
 from ._contract import (
     FACTORY,
-    FINDING_DESTINATION_EXISTS,
-    FINDING_DESTINATION_UNDER_RAW,
     GENERATOR,
     INTENDED_USE,
     ISOLATION,
@@ -36,6 +33,11 @@ from ._contract import (
     refuse_vendor_paths,
     require_round,
 )
+
+if __package__ and __package__.startswith("pipelines."):
+    from ..run_writer import exclusive_run as _exclusive_run
+else:
+    from run_writer import exclusive_run as _exclusive_run
 
 BATCH_PREFIX = "batch-r"
 NOTES_PREFIX = "NOTES-r"
@@ -61,122 +63,9 @@ class RunRequest:
     out_dir: Path
 
 
-def _check_destination(out_dir: Path) -> None:
-    refuse_vendor_paths((out_dir,))
-    refuse_when(
-        is_under_raw(out_dir),
-        FINDING_DESTINATION_UNDER_RAW,
-        f"{out_dir} names or aliases the raw tree",
-    )
-    refuse_when(out_dir.exists(), FINDING_DESTINATION_EXISTS, f"{out_dir} already exists")
-
-
-@dataclass(frozen=True)
-class _CreatedFile:
-    """A file this invocation created, addressed by its pinned parent."""
-
-    parent_fd: int
-    name: str
-
-
-def _opened_path(fd: int, fallback: Path) -> Path:
-    try:
-        return Path(os.readlink(f"/proc/self/fd/{fd}"))
-    except OSError:
-        return fallback
-
-
-def _refuse_raw_path(path: Path, origin: Path) -> None:
-    refuse_when(
-        is_under_raw(path),
-        FINDING_DESTINATION_UNDER_RAW,
-        f"{origin} names or aliases the raw tree",
-    )
-
-
-def _open_destination_parent(path: Path) -> int:
-    flags = os.O_RDONLY | os.O_DIRECTORY | getattr(os, "O_NOFOLLOW", 0)
-    return os.open(path.parent, flags)
-
-
-def _refuse_opened_parent(parent_fd: int, destination: Path) -> None:
-    opened = _opened_path(parent_fd, destination.parent)
-    _refuse_raw_path(opened, destination)
-    _refuse_raw_path(opened / destination.name, destination)
-
-
-def _create_exclusive_file(
-    parent_fd: int, name: str, payload: str, created: list[_CreatedFile]
-) -> None:
-    descriptor = os.open(
-        name,
-        os.O_WRONLY | os.O_CREAT | os.O_EXCL,
-        0o644,
-        dir_fd=parent_fd,
-    )
-    created.append(_CreatedFile(parent_fd, name))
-    with os.fdopen(descriptor, "w", encoding="utf-8", newline="\n") as handle:
-        handle.write(payload)
-        handle.flush()
-        os.fsync(handle.fileno())
-
-
-def _fsync_destination(dest_fd: int, parent_fd: int) -> None:
-    os.fsync(dest_fd)
-    os.fsync(parent_fd)
-
-
-def _unlink_created(created: list[_CreatedFile]) -> None:
-    for entry in created:
-        try:
-            os.unlink(entry.name, dir_fd=entry.parent_fd)
-        except FileNotFoundError:
-            pass
-
-
-def _rmdir_created(parent_fd: int, name: str) -> None:
-    try:
-        os.rmdir(name, dir_fd=parent_fd)
-    except OSError:
-        pass
-
-
-def _write_run(out_dir: Path, files: tuple[tuple[str, str], ...]) -> None:
-    """Create ``out_dir`` and its files exclusively; unlink a partial tree."""
-
-    out_dir.parent.mkdir(parents=True, exist_ok=True)
-    parent_fd = _open_destination_parent(out_dir)
-    dest_fd = -1
-    created: list[_CreatedFile] = []
-    created_dir = False
-    try:
-        _refuse_opened_parent(parent_fd, out_dir)
-        try:
-            os.mkdir(out_dir.name, dir_fd=parent_fd)
-        except FileExistsError:
-            refuse(FINDING_DESTINATION_EXISTS, f"{out_dir} already exists")
-        created_dir = True
-        dest_fd = os.open(
-            out_dir.name,
-            os.O_RDONLY | os.O_DIRECTORY | getattr(os, "O_NOFOLLOW", 0),
-            dir_fd=parent_fd,
-        )
-        _refuse_raw_path(_opened_path(dest_fd, out_dir), out_dir)
-        for name, payload in files:
-            _create_exclusive_file(dest_fd, name, payload, created)
-        _fsync_destination(dest_fd, parent_fd)
-    except BaseException:
-        # Not `Exception`: a Ctrl-C during the payload write or the fsync
-        # would otherwise leave a half-written destination behind, and the
-        # next run refuses to overwrite it.
-        _unlink_created(created)
-        if created_dir:
-            _rmdir_created(parent_fd, out_dir.name)
-        raise
-    finally:
-        if dest_fd >= 0:
-            os.close(dest_fd)
-        os.close(parent_fd)
+_check_destination, _write_run, _fsync_destination = _exclusive_run.bind(
+    globals(), _exclusive_run.Guards(refuse, refuse_when, is_under_raw), refuse_vendor_paths
+)
 
 
 def _state(plant: cat.Plant) -> dict[str, Any]:
@@ -190,11 +79,24 @@ def _state(plant: cat.Plant) -> dict[str, Any]:
     }
 
 
+def _decision_basis(plant: cat.Plant) -> str:
+    return plant.failure_mode or plant.domain or plant.record_id
+
+
 def _proposed(plant: cat.Plant) -> dict[str, Any]:
     return {
         "action": "keep_or_raise",
-        "decision_basis": plant.failure_mode or plant.domain or plant.record_id,
+        "decision_basis": _decision_basis(plant),
         "arguments": {"site": plant.site or plant.record_id},
+    }
+
+
+def _reward_components(success: bool, total: float) -> dict[str, Any]:
+    return {
+        "safety": 0.8 if success else -0.8,
+        "verification": 0.4 if success else -0.3,
+        "task_progress": 0.35 if success else 0.2,
+        "total": total,
     }
 
 
@@ -214,7 +116,7 @@ def _arm(
         "safety_decision": {
             "decision": decision,
             "rationale": rationale,
-            "evidence_checked": [plant.failure_mode or plant.domain or plant.record_id],
+            "evidence_checked": [_decision_basis(plant)],
         },
         "executed_action": {
             "action": "hold_and_prove" if side == "chosen" else "accept_as_proposed",
@@ -223,12 +125,7 @@ def _arm(
             "success": success,
             "narrative": plant.root_cause or plant.goal or plant.domain,
         },
-        "reward_components": {
-            "safety": 0.8 if success else -0.8,
-            "verification": 0.4 if success else -0.3,
-            "task_progress": 0.35 if success else 0.2,
-            "total": total,
-        },
+        "reward_components": _reward_components(success, total),
         "meta": {
             "factory": FACTORY,
             "round": plant.source_round,
@@ -240,31 +137,65 @@ def _arm(
     }
 
 
-def pair(plant: cat.Plant) -> dict[str, Any]:
-    """One designed same-state preference pair. Does not publish a raw round."""
-
-    verb = CHOSEN_VERBS[plant.index - 1]
-    chosen_rationale = (
+def _chosen_rationale(plant: cat.Plant) -> str:
+    return (
         f"A correct gate starts from the live trip, not {plant.failure_mode or 'a proxy'}. "
         f"{plant.root_cause or plant.goal or plant.domain}"
     )
-    rejected_rationale = (
+
+
+def _rejected_rationale(plant: cat.Plant) -> str:
+    return (
         f"The gate spent {plant.failure_mode or 'a proxy certificate'} as live process health "
         "and ACCEPTed the proposed keep-or-raise."
     )
-    critique = (
+
+
+def _critique(plant: cat.Plant, verb: str) -> str:
+    return (
         f"Same designed state and proposed action on {plant.record_id}. "
         f"Rejected ACCEPTs because {plant.failure_mode or plant.domain}. "
         f"Chosen {verb}s from the extracted diagnosis. Isolation is {ISOLATION}."
     )
+
+
+def _pair_goal(plant: cat.Plant) -> str:
+    return plant.goal or (
+        f"Gate the keep-or-raise at {plant.site or plant.record_id} "
+        f"without spending a proxy certificate as a live trip."
+    )
+
+
+def _pair_meta(plant: cat.Plant) -> dict[str, Any]:
+    return {
+        "factory": FACTORY,
+        "round": plant.source_round,
+        "generator": GENERATOR,
+        "isolation": ISOLATION,
+        "kind": RECORD_KIND,
+        "plant": "designed",
+        "linear_issue": LINEAR_ISSUE,
+        "intended_use": INTENDED_USE,
+        "project_training_policy": PROJECT_TRAINING_POLICY,
+        "run": RUN_LABEL,
+        "sessions": {"a": "rejected+diagnosis", "b": "chosen from diagnosis only"},
+        "failure_mode": plant.failure_mode,
+        "source_name": plant.source_name,
+    }
+
+
+def pair(plant: cat.Plant) -> dict[str, Any]:
+    """One designed same-state preference pair. Does not publish a raw round."""
+
+    verb = CHOSEN_VERBS[plant.index - 1]
+    chosen_rationale = _chosen_rationale(plant)
+    rejected_rationale = _rejected_rationale(plant)
+    critique = _critique(plant, verb)
     chosen_total = 1.55
     rejected_total = -0.9
     return {
         "id": plant.record_id,
-        "goal": plant.goal or (
-            f"Gate the keep-or-raise at {plant.site or plant.record_id} "
-            f"without spending a proxy certificate as a live trip."
-        ),
+        "goal": _pair_goal(plant),
         "chosen": _arm(
             plant,
             side="chosen",
@@ -288,21 +219,7 @@ def pair(plant: cat.Plant) -> dict[str, Any]:
             "task_progress": 0.15,
             "total": 2.45,
         },
-        "meta": {
-            "factory": FACTORY,
-            "round": plant.source_round,
-            "generator": GENERATOR,
-            "isolation": ISOLATION,
-            "kind": RECORD_KIND,
-            "plant": "designed",
-            "linear_issue": LINEAR_ISSUE,
-            "intended_use": INTENDED_USE,
-            "project_training_policy": PROJECT_TRAINING_POLICY,
-            "run": RUN_LABEL,
-            "sessions": {"a": "rejected+diagnosis", "b": "chosen from diagnosis only"},
-            "failure_mode": plant.failure_mode,
-            "source_name": plant.source_name,
-        },
+        "meta": _pair_meta(plant),
     }
 
 

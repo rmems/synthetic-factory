@@ -56,10 +56,12 @@ def public_view(record: dict[str, Any]) -> PublicView:
     )
 
 
-def render_prompt(view: PublicView) -> str:
+def render_prompt(view: PublicView, instructions: str = cv.PROMPT_INSTRUCTIONS) -> str:
+    """The prompt: task, broken module and bounded evidence, then one instruction line."""
+
     return PROMPT_TEMPLATE.format(
         task=view.task_specification, program=view.program_text, evidence=view.evidence_text,
-        instructions=cv.PROMPT_INSTRUCTIONS,
+        instructions=instructions,
     )
 
 

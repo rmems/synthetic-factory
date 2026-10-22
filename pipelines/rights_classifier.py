@@ -121,7 +121,7 @@ class RightsDecision(NamedTuple):  # noqa: D203,D211
             for field in PUBLIC_PAYLOAD_FIELD_ORDER
             if field != "reason_codes"
         }
-        payload["reason_codes"] = list(self.reason_codes)
+        payload["reason_codes"] = list(self.authorization.reason_codes)
         return payload
 
     @property

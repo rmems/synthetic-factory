@@ -209,7 +209,8 @@ class SupportedImportForms(unittest.TestCase):
     process already imported can mask a failure.
     """
 
-    def fresh(self, form: str) -> dict:
+    @staticmethod
+    def fresh(form: str) -> dict:
         context = multiprocessing.get_context("spawn")
         with ProcessPoolExecutor(max_workers=1, mp_context=context) as pool:
             return pool.submit(distill_import_probe.run_form, form).result(timeout=120)

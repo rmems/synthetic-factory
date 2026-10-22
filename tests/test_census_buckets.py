@@ -15,6 +15,7 @@ class CensusBuckets(unittest.TestCase):
         self._inserted_pipeline_path = pipeline_path not in sys.path
         if self._inserted_pipeline_path:
             sys.path.insert(0, pipeline_path)
+        self._loaded_census = "census" in sys.modules
         import census
 
         self.census = census
@@ -22,7 +23,8 @@ class CensusBuckets(unittest.TestCase):
     def tearDown(self):
         if self._inserted_pipeline_path:
             sys.path.remove(str(REPO / "pipelines"))
-        sys.modules.pop("census", None)
+        if not self._loaded_census:
+            sys.modules.pop("census", None)
 
     def test_kind_routing(self):
         six = {

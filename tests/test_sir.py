@@ -408,11 +408,13 @@ class SirSkeletonTests(unittest.TestCase):
                     raise OSError("simulated pairs.jsonl staging failure")
                 return real_write(path, content, **kwargs)
 
-            with patch.object(
-                catalog_extract_mod, "write_exclusive_text", side_effect=staging_write
+            with (
+                patch.object(
+                    catalog_extract_mod, "write_exclusive_text", side_effect=staging_write
+                ),
+                self.assertRaises(OSError),
             ):
-                with self.assertRaises(OSError):
-                    write_catalog_files(mills, package_dir=package_dir)
+                write_catalog_files(mills, package_dir=package_dir)
             self.assertEqual(catalog_path.read_text(encoding="utf-8"), original_catalog)
             self.assertEqual(pairs_path.read_text(encoding="utf-8"), original_pairs)
             self.assertEqual(list(package_dir.glob(".*.migrating")), [])

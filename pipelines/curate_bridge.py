@@ -37,7 +37,7 @@ import hashlib
 import json
 import sys
 from collections import Counter
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Iterable, Sequence, cast
 
@@ -173,6 +173,28 @@ class CurationDecision:
 class _SidecarValidationState:
     reason_codes: list[str]
     evidence: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class _SourceLine:
+    """Where one source record came from: its path, line, and exact byte digests."""
+
+    source_path: str
+    source_line: int
+    source_hash: str
+    source_file_hash: str | None
+
+
+@dataclass
+class _EventTimeScan:
+    """Per-event timestamp findings for one Bridge event stream, in event order."""
+
+    reason_codes: list[str] = field(default_factory=list)
+    event_time_keys: list[str | None] = field(default_factory=list)
+    times: list[Any] = field(default_factory=list)
+    invalid_event_indices: list[int] = field(default_factory=list)
+    invalid_time_indices: list[int] = field(default_factory=list)
+    negative_time_indices: list[int] = field(default_factory=list)
 
 
 def sha256_hex(data: bytes) -> str:
@@ -435,9 +457,28 @@ def _raster_reasons(
     """
 
     state = _SidecarValidationState([], {})
-    reason_codes, evidence = state.reason_codes, state.evidence
     expected_gate_decision = _expected_gate_decision(record)
     _bridge_gate.require_expected_decision(expected_gate_decision, require_routing_table, state)
+    _check_raster_sidecars(
+        record,
+        state,
+        require_raster=require_raster,
+        require_routing_table=require_routing_table,
+    )
+    _check_gate_compute_sidecars(record, state)
+    _check_gate_snn_sidecars(record, state, expected_gate_decision)
+    return state.reason_codes, state.evidence
+
+
+def _check_raster_sidecars(
+    record: dict[str, Any],
+    state: _SidecarValidationState,
+    *,
+    require_raster: bool,
+    require_routing_table: bool,
+) -> None:
+    """Validate raster declarations and record their own reason-code slice."""
+    reason_codes, evidence = state.reason_codes, state.evidence
     raster_reason_start = len(reason_codes)
     raster_present = _validate_declared_sidecars(
         _raster_candidates(record),
@@ -454,7 +495,13 @@ def _raster_reasons(
     if require_raster and not raster_present:
         reason_codes.append(REASON_RASTER_MISSING)
     evidence["raster_reason_codes"] = sorted(set(reason_codes[raster_reason_start:]))
-    gate_compute_reason_start = len(reason_codes)
+
+
+def _check_gate_compute_sidecars(
+    record: dict[str, Any], state: _SidecarValidationState
+) -> None:
+    """Validate gate-compute declarations and record their own reason-code slice."""
+    gate_compute_reason_start = len(state.reason_codes)
     _validate_declared_sidecars(
         _gate_compute_candidates(record),
         lambda value, reasons, details: _validate_gate_compute(
@@ -463,7 +510,17 @@ def _raster_reasons(
         state,
         "gate_compute",
     )
-    evidence["gate_compute_reason_codes"] = sorted(set(reason_codes[gate_compute_reason_start:]))
+    state.evidence["gate_compute_reason_codes"] = sorted(
+        set(state.reason_codes[gate_compute_reason_start:])
+    )
+
+
+def _check_gate_snn_sidecars(
+    record: dict[str, Any],
+    state: _SidecarValidationState,
+    expected_gate_decision: str | None,
+) -> None:
+    """Validate gate-as-SNN declarations against the record's expected decision."""
     gate_snn_present = _validate_declared_sidecars(
         _gate_snn_candidates(record),
         lambda value, reasons, details: _validate_gate_snn(
@@ -475,8 +532,7 @@ def _raster_reasons(
         state,
         "gate_snn",
     )
-    evidence.setdefault("gate_snn_present", gate_snn_present)
-    return reason_codes, evidence
+    state.evidence.setdefault("gate_snn_present", gate_snn_present)
 
 
 def raster_status(
@@ -530,18 +586,15 @@ def raster_status(
 
 
 def _base_manifest(
+    source: _SourceLine,
     *,
-    source_path: str,
-    source_line: int,
-    source_hash: str,
-    source_file_hash: str | None,
     source_record_locator: str | None,
 ) -> dict[str, Any]:
     return {
-        "source_path": source_path,
-        "source_line": source_line,
-        "source_hash": source_hash,
-        "source_file_hash": source_file_hash,
+        "source_path": source.source_path,
+        "source_line": source.source_line,
+        "source_hash": source.source_hash,
+        "source_file_hash": source.source_file_hash,
         "source_hash_algorithm": HASH_ALGORITHM,
         "source_hash_scope": SOURCE_HASH_SCOPE,
         "source_record_locator": source_record_locator,
@@ -566,18 +619,23 @@ def _finish_manifest(
     action: str,
     reason_codes: Iterable[str],
     evidence: dict[str, Any],
-    output_record: dict[str, Any] | None,
 ) -> dict[str, Any]:
     finished = dict(manifest)
     finished["action"] = action
     finished["reason_codes"] = list(dict.fromkeys(reason_codes))
     finished["evidence"] = evidence
-    if output_record is not None:
-        output_id = output_record.get("id")
-        if isinstance(output_id, str) and output_id.strip():
-            finished["output_id"] = output_id
-            finished["output_id_status"] = "present"
-        finished["output_hash"] = sha256_hex(canonical_json_bytes(output_record))
+    return finished
+
+
+def _record_output_identity(
+    finished: dict[str, Any], output_record: dict[str, Any]
+) -> dict[str, Any]:
+    """Expose an emitted record's existing top-level ID and its canonical output hash."""
+    output_id = output_record.get("id")
+    if isinstance(output_id, str) and output_id.strip():
+        finished["output_id"] = output_id
+        finished["output_id_status"] = "present"
+    finished["output_hash"] = sha256_hex(canonical_json_bytes(output_record))
     return finished
 
 
@@ -592,7 +650,6 @@ def _quarantine(
         action="quarantine",
         reason_codes=reason_codes,
         evidence=evidence,
-        output_record=None,
     )
     return CurationDecision(
         action="quarantine",
@@ -631,105 +688,82 @@ def _bridge_event_preflight(record: Any) -> tuple[list[Any] | None, list[str], d
     return events, [], {}
 
 
-def curate_record(
-    record: Any,
-    *,
-    source_path: str,
-    source_line: int,
-    **requirements: Any,
-) -> CurationDecision:
-    """Return a deterministic Bridge timing decision without mutating ``record``.
+def _require_non_empty_string(value: Any, name: str) -> None:
+    if not isinstance(value, str) or not value:
+        raise BridgeCurationError(f"{name} must be a non-empty string")
 
-    When ``require_raster`` is True, a missing ``raster`` sidecar (20-50 ms
-    excerpt + routing) also quarantines the record.  Spike-budget checks
-    (spikes = neurons*rate*window @23 pJ), third-factor routing entries, and
-    the spike-implemented ``gate_snn`` head are always validated when the
-    relevant fields are present, so minimal legacy fixtures remain green
-    unless their budgets or specs are wrong.
-    """
 
-    options = _resolve_options(
-        "curate_record",
-        requirements,
-        {
-            "source_hash": _REQUIRED_OPTION,
-            "source_file_hash": None,
-            "require_raster": False,
-            "require_routing_table": False,
-        },
-    )
-    source_hash = options["source_hash"]
-    source_file_hash = options["source_file_hash"]
-    require_raster = options["require_raster"]
-    require_routing_table = options["require_routing_table"]
+def _is_positive_source_line(value: Any) -> bool:
+    if not isinstance(value, int) or isinstance(value, bool):
+        return False
+    return value >= 1
 
-    if not isinstance(source_path, str) or not source_path:
-        raise BridgeCurationError("source_path must be a non-empty string")
-    if not isinstance(source_line, int):
+
+def _require_positive_source_line(value: Any) -> None:
+    if not _is_positive_source_line(value):
         raise BridgeCurationError(_SOURCE_LINE_ERROR)
-    if isinstance(source_line, bool):
-        raise BridgeCurationError(_SOURCE_LINE_ERROR)
-    if source_line < 1:
-        raise BridgeCurationError(_SOURCE_LINE_ERROR)
-    if not isinstance(source_hash, str) or not source_hash:
-        raise BridgeCurationError("source_hash must be a non-empty string")
 
-    manifest = _base_manifest(
-        source_path=source_path,
-        source_line=source_line,
-        source_hash=source_hash,
-        source_file_hash=source_file_hash,
-        source_record_locator=_record_locator(record),
-    )
-    events, preflight_reasons, preflight_evidence = _bridge_event_preflight(record)
-    if preflight_reasons:
-        return _quarantine(record, manifest, preflight_reasons, preflight_evidence)
-    events = cast(list[Any], events)
 
-    reason_codes: list[str] = []
-    event_time_keys: list[str | None] = []
-    times: list[Any] = []
-    invalid_event_indices: list[int] = []
-    invalid_time_indices: list[int] = []
-    negative_time_indices: list[int] = []
+def _require_source_coordinates(source: _SourceLine) -> None:
+    """Refuse a caller-supplied source path, line, or hash that cannot locate a record."""
+    _require_non_empty_string(source.source_path, "source_path")
+    _require_positive_source_line(source.source_line)
+    _require_non_empty_string(source.source_hash, "source_hash")
 
+
+def _scan_event_time(scan: _EventTimeScan, index: int, key: str, value: Any) -> None:
+    """Record one event's timestamp, or why it cannot order the stream."""
+    if not _is_finite_number(value):
+        scan.reason_codes.append(REASON_INVALID_TIME)
+        scan.invalid_time_indices.append(index)
+        return
+    scan.times.append(value)
+    if key != "t_rel_ms":
+        return
+    value_fraction = exact_fraction(value)
+    if value_fraction is not None and value_fraction < 0:
+        scan.reason_codes.append(REASON_NEGATIVE_RELATIVE_TIME)
+        scan.negative_time_indices.append(index)
+
+
+def _scan_event(scan: _EventTimeScan, index: int, event: Any) -> None:
+    """Classify one event: not an object, not exactly one timestamp key, or timed."""
+    if not isinstance(event, dict):
+        scan.reason_codes.append(REASON_EVENT_NOT_OBJECT)
+        scan.invalid_event_indices.append(index)
+        scan.event_time_keys.append(None)
+        return
+    present = [key for key in TIME_KEYS if key in event]
+    if len(present) != 1:
+        scan.reason_codes.append(REASON_TIME_KEY_COUNT)
+        scan.invalid_time_indices.append(index)
+        scan.event_time_keys.append(None)
+        return
+    key = present[0]
+    scan.event_time_keys.append(key)
+    _scan_event_time(scan, index, key, event[key])
+
+
+def _scan_event_times(events: list[Any]) -> _EventTimeScan:
+    """Scan every event's timestamp in stream order."""
+    scan = _EventTimeScan()
     for index, event in enumerate(events):
-        if not isinstance(event, dict):
-            reason_codes.append(REASON_EVENT_NOT_OBJECT)
-            invalid_event_indices.append(index)
-            event_time_keys.append(None)
-            continue
-        present = [key for key in TIME_KEYS if key in event]
-        if len(present) != 1:
-            reason_codes.append(REASON_TIME_KEY_COUNT)
-            invalid_time_indices.append(index)
-            event_time_keys.append(None)
-            continue
-        key = present[0]
-        event_time_keys.append(key)
-        value = event[key]
-        if not _is_finite_number(value):
-            reason_codes.append(REASON_INVALID_TIME)
-            invalid_time_indices.append(index)
-            continue
-        times.append(value)
-        if key != "t_rel_ms":
-            continue
-        value_fraction = exact_fraction(value)
-        if value_fraction is None:
-            continue
-        if value_fraction < 0:
-            reason_codes.append(REASON_NEGATIVE_RELATIVE_TIME)
-            negative_time_indices.append(index)
+        _scan_event(scan, index, event)
+    return scan
 
-    valid_keys = {key for key in event_time_keys if key is not None}
+
+def _timing_evidence(
+    record: dict[str, Any], events: list[Any], scan: _EventTimeScan
+) -> tuple[set[str], dict[str, Any]]:
+    """Add the stream-level clock checks to ``scan`` and build the shared evidence."""
+    valid_keys = {key for key in scan.event_time_keys if key is not None}
     if len(valid_keys) > 1:
-        reason_codes.append(REASON_MIXED_TIME_KEYS)
+        scan.reason_codes.append(REASON_MIXED_TIME_KEYS)
 
     declared_clocks = _declared_clock_domains(record, events)
     semantic_clocks = {item.split("=", 1)[1] for item in declared_clocks}
     if len(semantic_clocks) > 1:
-        reason_codes.append(REASON_MULTIPLE_CLOCKS)
+        scan.reason_codes.append(REASON_MULTIPLE_CLOCKS)
 
     explicit_order_fields = _explicit_order_fields(record, events)
 
@@ -738,16 +772,21 @@ def curate_record(
         "event_time_keys": sorted(valid_keys),
         "declared_clock_domains": declared_clocks,
         "explicit_order_fields": explicit_order_fields,
-        "invalid_event_indices": invalid_event_indices,
-        "invalid_time_indices": invalid_time_indices,
-        "negative_relative_time_indices": negative_time_indices,
+        "invalid_event_indices": scan.invalid_event_indices,
+        "invalid_time_indices": scan.invalid_time_indices,
+        "negative_relative_time_indices": scan.negative_time_indices,
         "original_event_order_hash": _evidence_hash(events),
     }
+    return valid_keys, evidence
 
-    if reason_codes:
-        evidence["repair_eligible"] = False
-        return _quarantine(record, manifest, reason_codes, evidence)
 
+def _time_order_evidence(
+    events: list[Any],
+    times: list[Any],
+    valid_keys: set[str],
+    evidence: dict[str, Any],
+) -> tuple[list[Any], list[dict[str, Any]]]:
+    """Stable-sort the stream by timestamp; return the sorted events and source descents."""
     # Every event contributed exactly one valid timestamp at this point.
     time_key = next(iter(valid_keys))
     descents = _adjacent_descents(times)
@@ -775,6 +814,56 @@ def curate_record(
             "output_event_order_hash": sha256_hex(canonical_json_bytes(sorted_events)),
         }
     )
+    return sorted_events, descents
+
+
+def _ordered_decision(
+    record: dict[str, Any],
+    manifest: dict[str, Any],
+    evidence: dict[str, Any],
+    repaired_events: list[Any] | None,
+) -> CurationDecision:
+    """Emit the record unchanged, or with its stream replaced by ``repaired_events``."""
+    output_record = copy.deepcopy(record)
+    if repaired_events is not None:
+        output_record["spike_events"] = repaired_events
+        action = "repair"
+        reasons = [REASON_REPAIRED]
+    else:
+        action = "retain"
+        reasons = [REASON_RETAINED]
+
+    finished = _record_output_identity(
+        _finish_manifest(
+            manifest,
+            action=action,
+            reason_codes=reasons,
+            evidence=evidence,
+        ),
+        output_record,
+    )
+    return CurationDecision(
+        action=action,
+        output_record=output_record,
+        quarantine_record=None,
+        manifest=finished,
+    )
+
+
+def _curate_event_stream(
+    record: dict[str, Any],
+    events: list[Any],
+    manifest: dict[str, Any],
+    options: dict[str, Any],
+) -> CurationDecision:
+    """Order a non-empty Bridge stream, or quarantine it with its reason codes."""
+    scan = _scan_event_times(events)
+    valid_keys, evidence = _timing_evidence(record, events, scan)
+    if scan.reason_codes:
+        evidence["repair_eligible"] = False
+        return _quarantine(record, manifest, scan.reason_codes, evidence)
+
+    sorted_events, descents = _time_order_evidence(events, scan.times, valid_keys, evidence)
 
     # --- Raster / spike-budget sidecar validation (20-50 ms, 23 pJ/spike) ---
     # Uses helper validators so manifests stay auditable. Missing raster only
@@ -786,47 +875,58 @@ def curate_record(
     # sidecar at all, and only when require_raster is set.
     raster_reasons, raster_evidence = _raster_reasons(
         record,
-        require_raster=require_raster,
-        require_routing_table=require_routing_table,
+        require_raster=options["require_raster"],
+        require_routing_table=options["require_routing_table"],
     )
     evidence["raster"] = raster_evidence
     if raster_reasons:
         # Deduplicate and keep deterministic order.
-        uniq = sorted(set(raster_reasons))
         evidence["repair_eligible"] = False
-        return _quarantine(record, manifest, uniq, evidence)
+        return _quarantine(record, manifest, sorted(set(raster_reasons)), evidence)
 
-    if descents and explicit_order_fields:
+    if descents and evidence["explicit_order_fields"]:
         evidence["repair_eligible"] = False
-        return _quarantine(
-            record,
-            manifest,
-            [REASON_EXPLICIT_ORDER],
-            evidence,
-        )
+        return _quarantine(record, manifest, [REASON_EXPLICIT_ORDER], evidence)
 
-    output_record = copy.deepcopy(record)
-    if descents:
-        output_record["spike_events"] = sorted_events
-        action = "repair"
-        reasons = [REASON_REPAIRED]
-    else:
-        action = "retain"
-        reasons = [REASON_RETAINED]
+    return _ordered_decision(record, manifest, evidence, sorted_events if descents else None)
 
-    finished = _finish_manifest(
-        manifest,
-        action=action,
-        reason_codes=reasons,
-        evidence=evidence,
-        output_record=output_record,
+
+def curate_record(
+    record: Any,
+    *,
+    source_path: str,
+    source_line: int,
+    **requirements: Any,
+) -> CurationDecision:
+    """Return a deterministic Bridge timing decision without mutating ``record``.
+
+    When ``require_raster`` is True, a missing ``raster`` sidecar (20-50 ms
+    excerpt + routing) also quarantines the record.  Spike-budget checks
+    (spikes = neurons*rate*window @23 pJ), third-factor routing entries, and
+    the spike-implemented ``gate_snn`` head are always validated when the
+    relevant fields are present, so minimal legacy fixtures remain green
+    unless their budgets or specs are wrong.
+    """
+
+    options = _resolve_options(
+        "curate_record",
+        requirements,
+        {
+            "source_hash": _REQUIRED_OPTION,
+            "source_file_hash": None,
+            "require_raster": False,
+            "require_routing_table": False,
+        },
     )
-    return CurationDecision(
-        action=action,
-        output_record=output_record,
-        quarantine_record=None,
-        manifest=finished,
+    source = _SourceLine(
+        source_path, source_line, options["source_hash"], options["source_file_hash"]
     )
+    _require_source_coordinates(source)
+    manifest = _base_manifest(source, source_record_locator=_record_locator(record))
+    events, preflight_reasons, preflight_evidence = _bridge_event_preflight(record)
+    if preflight_reasons:
+        return _quarantine(record, manifest, preflight_reasons, preflight_evidence)
+    return _curate_event_stream(record, cast(list[Any], events), manifest, options)
 
 
 def _source_display_path(path: Path, source_root: Path | None) -> str:
@@ -871,26 +971,51 @@ def _parse_source_record(text: str) -> Any:
 
 
 def _source_failure_decision(
+    source: _SourceLine,
     *,
-    source_path: str,
-    source_line: int,
-    source_hash: str,
-    source_file_hash: str,
     reason_code: str,
     detail: str,
 ) -> CurationDecision:
-    manifest = _base_manifest(
-        source_path=source_path,
-        source_line=source_line,
-        source_hash=source_hash,
-        source_file_hash=source_file_hash,
-        source_record_locator=None,
-    )
+    manifest = _base_manifest(source, source_record_locator=None)
     return _quarantine(
         None,
         manifest,
         [reason_code],
         {"parse_error": detail, "repair_eligible": False},
+    )
+
+
+def _curate_source_line(
+    record_bytes: bytes,
+    source: _SourceLine,
+    require_raster: bool,
+    require_routing_table: bool,
+) -> CurationDecision:
+    """Decode, parse, and curate one nonblank source line, quarantining bad bytes."""
+    try:
+        text = record_bytes.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        return _source_failure_decision(
+            source,
+            reason_code=REASON_INVALID_UTF8,
+            detail=str(exc),
+        )
+    try:
+        record = _parse_source_record(text)
+    except (ValueError, RecursionError) as exc:
+        return _source_failure_decision(
+            source,
+            reason_code=REASON_INVALID_JSON,
+            detail=str(exc),
+        )
+    return curate_record(
+        record,
+        source_path=source.source_path,
+        source_line=source.source_line,
+        source_hash=source.source_hash,
+        source_file_hash=source.source_file_hash,
+        require_raster=require_raster,
+        require_routing_table=require_routing_table,
     )
 
 
@@ -925,44 +1050,12 @@ def curate_jsonl(
         record_bytes = _record_bytes_without_terminator(physical_line)
         if not record_bytes.strip():
             continue
-        source_hash = sha256_hex(record_bytes)
-        try:
-            text = record_bytes.decode("utf-8")
-        except UnicodeDecodeError as exc:
-            decisions.append(
-                _source_failure_decision(
-                    source_path=display_path,
-                    source_line=line_number,
-                    source_hash=source_hash,
-                    source_file_hash=source_file_hash,
-                    reason_code=REASON_INVALID_UTF8,
-                    detail=str(exc),
-                )
-            )
-            continue
-        try:
-            record = _parse_source_record(text)
-        except (ValueError, RecursionError) as exc:
-            decisions.append(
-                _source_failure_decision(
-                    source_path=display_path,
-                    source_line=line_number,
-                    source_hash=source_hash,
-                    source_file_hash=source_file_hash,
-                    reason_code=REASON_INVALID_JSON,
-                    detail=str(exc),
-                )
-            )
-            continue
+        line_source = _SourceLine(
+            display_path, line_number, sha256_hex(record_bytes), source_file_hash
+        )
         decisions.append(
-            curate_record(
-                record,
-                source_path=display_path,
-                source_line=line_number,
-                source_hash=source_hash,
-                source_file_hash=source_file_hash,
-                require_raster=require_raster,
-                require_routing_table=require_routing_table,
+            _curate_source_line(
+                record_bytes, line_source, require_raster, require_routing_table
             )
         )
     return decisions

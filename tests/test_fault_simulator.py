@@ -89,41 +89,43 @@ class Boundary(unittest.TestCase):
     def test_a_verdict_inconsistent_with_its_outcome_is_refused(self):
         """Codex findings: an injected oracle's verdict must keep the consistency the
         simulator keeps by construction, and a malformed reason entry is a refusal."""
-        consistent = dict(
-            outcome="degrade_gracefully", reason_codes=("EVENTS_DROPPED", "REDUCED_CHANNEL_SET"),
-            detection_latency_ms=0.0, corrupt_events=0, dropped_events=5, total_events=96,
-        )
-        within = dict(outcome="continue", reason_codes=("WITHIN_TOLERANCE",), detection_latency_ms=None)
+        consistent = {
+            "outcome": "degrade_gracefully",
+            "reason_codes": ("EVENTS_DROPPED", "REDUCED_CHANNEL_SET"),
+            "detection_latency_ms": 0.0,
+            "corrupt_events": 0, "dropped_events": 5, "total_events": 96,
+        }
+        within = {"outcome": "continue", "reason_codes": ("WITHIN_TOLERANCE",), "detection_latency_ms": None}
         checked = result(**consistent)
         self.assertIs(fs.checked_result(checked), checked)
         # A temperature may sit below zero; only durations are non-negative.
         self.assertEqual(fs.checked_result(result(**consistent, peak_temperature_c=-12.5)).peak_temperature_c, -12.5)
         for label, changes in (
-            ("continue with a shutdown reason", dict(outcome="continue", reason_codes=("THERMAL_SHUTDOWN",), detection_latency_ms=None)),
-            ("fail_closed with WITHIN_TOLERANCE", dict(outcome="fail_closed", reason_codes=("WITHIN_TOLERANCE",))),
-            ("degrade without a detection", dict(detection_latency_ms=None)),
-            ("continue with a detection", dict(outcome="continue", reason_codes=("WITHIN_TOLERANCE",), detection_latency_ms=3.0)),
-            ("corrupt above total", dict(corrupt_events=200, total_events=1)),
-            ("corrupt with no events", dict(corrupt_events=1, dropped_events=0, total_events=0)),
-            ("unhashable reason entry", dict(reason_codes=(["EVENTS_DROPPED"],))),
-            ("negative recovery", dict(recovery_latency_ms=-1.0)),
-            ("negative staleness", dict(max_staleness_ms=-1.0)),
-            ("negative jitter", dict(max_jitter_ms=-0.5)),
-            ("negative result delay", dict(result_delay_ms=-2.0)),
-            ("recovery before detection", dict(detection_latency_ms=10.0, recovery_latency_ms=1.0)),
-            ("continue with a recovery", dict(outcome="continue", reason_codes=("WITHIN_TOLERANCE",), detection_latency_ms=None, recovery_latency_ms=2.0)),
+            ("continue with a shutdown reason", {"outcome": "continue", "reason_codes": ("THERMAL_SHUTDOWN",), "detection_latency_ms": None}),
+            ("fail_closed with WITHIN_TOLERANCE", {"outcome": "fail_closed", "reason_codes": ("WITHIN_TOLERANCE",)}),
+            ("degrade without a detection", {"detection_latency_ms": None}),
+            ("continue with a detection", {"outcome": "continue", "reason_codes": ("WITHIN_TOLERANCE",), "detection_latency_ms": 3.0}),
+            ("corrupt above total", {"corrupt_events": 200, "total_events": 1}),
+            ("corrupt with no events", {"corrupt_events": 1, "dropped_events": 0, "total_events": 0}),
+            ("unhashable reason entry", {"reason_codes": (["EVENTS_DROPPED"],)}),
+            ("negative recovery", {"recovery_latency_ms": -1.0}),
+            ("negative staleness", {"max_staleness_ms": -1.0}),
+            ("negative jitter", {"max_jitter_ms": -0.5}),
+            ("negative result delay", {"result_delay_ms": -2.0}),
+            ("recovery before detection", {"detection_latency_ms": 10.0, "recovery_latency_ms": 1.0}),
+            ("continue with a recovery", {"outcome": "continue", "reason_codes": ("WITHIN_TOLERANCE",), "detection_latency_ms": None, "recovery_latency_ms": 2.0}),
             # Codex round 7: a continue verdict cannot carry evidence the tiers would never pass.
             ("continue with an integrity violation", dict(**within, dropped_events=0, integrity_violation=True)),
             ("continue with dropped events", dict(**within)),
             ("continue with corrupt events", dict(**within, dropped_events=0, corrupt_events=1)),
             # Codex round 8: a same-tier reason needs its evidence, and unconditional evidence its reason.
-            ("a drop reason with no drops", dict(reason_codes=("EVENTS_DROPPED",), dropped_events=0)),
-            ("drops in the degrade tier without the drop reason", dict(reason_codes=("REDUCED_CHANNEL_SET",))),
-            ("a corruption reason with no corruption", dict(reason_codes=("CORRUPTION_BELOW_QUARANTINE_THRESHOLD",))),
-            ("corruption in the degrade tier without its reason", dict(reason_codes=("EVENTS_DROPPED",), corrupt_events=2)),
-            ("quarantine for a malformed stream that never was", dict(outcome="quarantine", reason_codes=("MALFORMED_STREAM_QUARANTINED",))),
-            ("an integrity violation quarantined for another reason only", dict(outcome="quarantine", reason_codes=("CORRUPTION_ABOVE_QUARANTINE_THRESHOLD",), corrupt_events=50, integrity_violation=True)),
-            ("quarantine above the threshold with no corruption", dict(outcome="quarantine", reason_codes=("CORRUPTION_ABOVE_QUARANTINE_THRESHOLD",))),
+            ("a drop reason with no drops", {"reason_codes": ("EVENTS_DROPPED",), "dropped_events": 0}),
+            ("drops in the degrade tier without the drop reason", {"reason_codes": ("REDUCED_CHANNEL_SET",)}),
+            ("a corruption reason with no corruption", {"reason_codes": ("CORRUPTION_BELOW_QUARANTINE_THRESHOLD",)}),
+            ("corruption in the degrade tier without its reason", {"reason_codes": ("EVENTS_DROPPED",), "corrupt_events": 2}),
+            ("quarantine for a malformed stream that never was", {"outcome": "quarantine", "reason_codes": ("MALFORMED_STREAM_QUARANTINED",)}),
+            ("an integrity violation quarantined for another reason only", {"outcome": "quarantine", "reason_codes": ("CORRUPTION_ABOVE_QUARANTINE_THRESHOLD",), "corrupt_events": 50, "integrity_violation": True}),
+            ("quarantine above the threshold with no corruption", {"outcome": "quarantine", "reason_codes": ("CORRUPTION_ABOVE_QUARANTINE_THRESHOLD",)}),
         ):
             with self.subTest(case=label), refusal(self, fv.FINDING_ORACLE_RESULT_OUT_OF_VOCABULARY, "oracle result"):
                 fs.checked_result(result(**{**consistent, **changes}))
@@ -186,7 +188,7 @@ class Boundary(unittest.TestCase):
         report fail-closed where the scenario's fallback was available (or fallback
         where none was), and comparing reasons as sets admitted duplicates and a
         different order from the tier table's."""
-        short = dict(detection_latency_ms=0.0, worst_healthy_channels=2, total_events=96)
+        short = {"detection_latency_ms": 0.0, "worst_healthy_channels": 2, "total_events": 96}
         engaged = dict(**short, outcome="fallback", reason_codes=("FALLBACK_SOURCE_ENGAGED",), recovery_latency_ms=4.0)
         closed = dict(**short, outcome="fail_closed", reason_codes=("INSUFFICIENT_HEALTHY_CHANNELS_NO_FALLBACK",), recovery_latency_ms=1.0)
         available = fs.verdict_context(scenario(), disturbance("sensor_loss", channels=["c0", "c1"], onset_ms=4.0, duration_ms=6.0))
@@ -199,7 +201,7 @@ class Boundary(unittest.TestCase):
                 self.assertEqual(fs.checked_result(result(**verdict), CONTEXT).outcome, verdict["outcome"])
                 with refusal(self, fv.FINDING_ORACLE_RESULT_OUT_OF_VOCABULARY, "fallback state"):
                     fs.checked_result(result(**verdict), context)
-        ordered = dict(outcome="degrade_gracefully", detection_latency_ms=0.0, recovery_latency_ms=2.0, dropped_events=5, worst_healthy_channels=3, total_events=96)
+        ordered = {"outcome": "degrade_gracefully", "detection_latency_ms": 0.0, "recovery_latency_ms": 2.0, "dropped_events": 5, "worst_healthy_channels": 3, "total_events": 96}
         self.assertEqual(fs.checked_result(result(**ordered, reason_codes=("EVENTS_DROPPED", "REDUCED_CHANNEL_SET")), CONTEXT).outcome, "degrade_gracefully")
         with refusal(self, fv.FINDING_ORACLE_RESULT_OUT_OF_VOCABULARY, "table order"):
             fs.checked_result(result(**ordered, reason_codes=("REDUCED_CHANNEL_SET", "EVENTS_DROPPED")), CONTEXT)
@@ -211,28 +213,30 @@ class Boundary(unittest.TestCase):
         verdict must be the tier table's own selection over the readings it reports,
         so continue at 100 C, continue past the hard deadline, or a quarantine whose
         corruption ratio sits below the threshold cannot become labels."""
-        quarantined = dict(
-            outcome="quarantine", reason_codes=("CORRUPTION_ABOVE_QUARANTINE_THRESHOLD",),
-            detection_latency_ms=0.0, recovery_latency_ms=1.0, corrupt_events=30, total_events=96,
-        )
+        quarantined = {
+            "outcome": "quarantine", "reason_codes": ("CORRUPTION_ABOVE_QUARANTINE_THRESHOLD",),
+            "detection_latency_ms": 0.0, "recovery_latency_ms": 1.0,
+            "corrupt_events": 30, "total_events": 96,
+        }
         self.assertEqual(fs.checked_result(result(**quarantined), CONTEXT).outcome, "quarantine")
-        fallback = dict(
-            outcome="fallback", reason_codes=("FALLBACK_SOURCE_ENGAGED",), detection_latency_ms=0.0,
-            recovery_latency_ms=4.0, worst_healthy_channels=2, total_events=96,
-        )
+        fallback = {
+            "outcome": "fallback", "reason_codes": ("FALLBACK_SOURCE_ENGAGED",),
+            "detection_latency_ms": 0.0, "recovery_latency_ms": 4.0,
+            "worst_healthy_channels": 2, "total_events": 96,
+        }
         self.assertEqual(fs.checked_result(result(**fallback), CONTEXT).outcome, "fallback")
         for label, changes in (
-            ("continue at 100 C", dict(peak_temperature_c=100.0)),
-            ("continue past the hard deadline", dict(result_delay_ms=100.0)),
-            ("continue with saturation at the reflex threshold", dict(saturated_ticks=4)),
+            ("continue at 100 C", {"peak_temperature_c": 100.0}),
+            ("continue past the hard deadline", {"result_delay_ms": 100.0}),
+            ("continue with saturation at the reflex threshold", {"saturated_ticks": 4}),
             ("quarantine below the corruption threshold", {**quarantined, "corrupt_events": 1}),
-            ("degrade reported where the tiers fail closed", dict(outcome="degrade_gracefully", reason_codes=("THERMAL_WARN",), detection_latency_ms=0.0, recovery_latency_ms=2.0, peak_temperature_c=100.0)),
-            ("a fired threshold reason left unreported", dict(outcome="degrade_gracefully", reason_codes=("EVENTS_DROPPED",), detection_latency_ms=0.0, recovery_latency_ms=2.0, dropped_events=5, max_jitter_ms=3.0)),
+            ("degrade reported where the tiers fail closed", {"outcome": "degrade_gracefully", "reason_codes": ("THERMAL_WARN",), "detection_latency_ms": 0.0, "recovery_latency_ms": 2.0, "peak_temperature_c": 100.0}),
+            ("a fired threshold reason left unreported", {"outcome": "degrade_gracefully", "reason_codes": ("EVENTS_DROPPED",), "detection_latency_ms": 0.0, "recovery_latency_ms": 2.0, "dropped_events": 5, "max_jitter_ms": 3.0}),
         ):
             with self.subTest(case=label):
-                fs.checked_result(result(**{**dict(total_events=96), **changes}))
+                fs.checked_result(result(**{"total_events": 96, **changes}))
                 with refusal(self, fv.FINDING_ORACLE_RESULT_OUT_OF_VOCABULARY, "tier table yields"):
-                    fs.checked_result(result(**{**dict(total_events=96), **changes}), CONTEXT)
+                    fs.checked_result(result(**{"total_events": 96, **changes}), CONTEXT)
         self.assertEqual(fs.checked_result(result()), result())
         self.assertEqual(fs.checked_result(thermal(96.0)).outcome, "fail_closed")
 

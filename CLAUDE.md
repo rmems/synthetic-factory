@@ -39,7 +39,12 @@ python3 -m unittest discover -s tests -p 'test_rights_*.py'   # one family of mo
 python -m compileall -q pipelines scripts tests .claude/skills/run-synthetic-factory/driver.py
 python3 pipelines/census.py tests/fixtures/mini-run   # validate_run.py on this fixture exits nonzero by design
 
-# Lint: ruff is configured in pyproject.toml (py314, line length 100) but not run in CI
+# Lint: CI (python.yml, ruff 0.16.8) gates only these correctness rules -- pyflakes, syntax
+# errors, pylint errors, bugbear -- and fails on any finding; fix the code, do not add noqa.
+ruff check --select F,E9,PLE,B --ignore PLE0605,B007,B008,B009,B010,B905 \
+  pipelines scripts tests .claude/skills/run-synthetic-factory/driver.py
+# The default rule set (pyproject.toml: py314, line length 100) still reports thousands of
+# style findings and is not gated
 ruff check pipelines tests
 
 # Operator audits on a run tree (read-only)
@@ -51,14 +56,15 @@ python3 .claude/skills/run-synthetic-factory/driver.py snapshot <run_dir> <label
 
 # Hugging Face: card viewer-schema audit and public release verification (network)
 python3 scripts/publish_grok46_hub.py schemas            # --strict exits nonzero while any gap remains
+python3 scripts/publish_grok46_hub.py status --hf-root <dir> --factory-root <dir>   # local counts, read-only
 python3 pipelines/verify_hf_release.py [--repo rmems/<dataset>]
 ```
 
 CI runs the unit suite with branch coverage on Python 3.14, the smoke check,
-Qodana (`qodana.yaml` documents the deliberate inspection exclusions), and a
-scheduled, path-filtered Hub release verification. CodeScene, Codacy, qlty
-(`.qlty/qlty.toml`, `smells.mode = "block"`) and Codecov review every PR; the
-owner wants findings fixed by refactoring, not suppressed.
+the ruff correctness gate above, Qodana (`qodana.yaml` documents the deliberate
+inspection exclusions), and a scheduled, path-filtered Hub release verification.
+CodeScene, Codacy, qlty (`.qlty/qlty.toml`, `smells.mode = "block"`) and Codecov
+review every PR; the owner wants findings fixed by refactoring, not suppressed.
 
 ## Architecture
 
@@ -87,10 +93,16 @@ data/curated · data/viewer/records.parquet · data/splits · provenance.json ·
 integration plan that overlays six lane outputs (the five above plus tag
 taxonomy), records a stratified human-review sample, and promotes only when
 every sampled record has a verdict. `scripts/publish_grok46_hub.py` snapshots
-published rounds into a mirror root hard-coded as
-`HF_ROOT = /home/raulmc/rmems/hf` (the factory source root is hard-coded the
-same way, so the publisher is tied to the owner's workstation) and writes Hub
-cards from `config/card-schemas/`; `pipelines/verify_hf_release.py` is the
+published rounds from a factory source root into a Hub mirror root and writes
+Hub cards from `config/card-schemas/`. Both roots resolve once per run, flag
+first, then environment, then the owner's defaults: `--hf-root` /
+`SYNTHETIC_FACTORY_HF_ROOT` (default `HF_ROOT = /home/raulmc/rmems/hf`) and
+`--factory-root` / `SYNTHETIC_FACTORY_SOURCE_ROOT` (default `FACTORY_ROOT`, the
+first existing `outputs/raw/2026-08-19-agentic` candidate). Resolution lives in
+`scripts/publish_hub_roots.py`: a configured root is refused unless it already
+exists as a real directory (the publisher does not create it), the Hub root is
+refused when it names or aliases `outputs/raw/` or overlaps the factory root,
+and `schemas` reads neither. `pipelines/verify_hf_release.py` is the
 authority that proves the public release contract still holds.
 `training_ready` is a structural and quality verdict, not training
 eligibility — that is `project_training_policy: allowed` on a registry row,
@@ -177,14 +189,12 @@ if __package__:
 module object so classes such as the exact-JSON decimal token keep one
 identity. Copy the prelude from a sibling when adding a module; a package child
 that others import both ways also needs its name in `_PACKAGE_SIBLING_NAMES`.
-Fourteen older modules are direct-execution only because they import siblings
-by bare name (`next_round`, `quality_gate_audit`, `quality_gate_embedding`,
-`card_schema`, `card_schema_validate`, `card_schema_yaml`, `tag_io`,
-`tag_jsonl`, `tag_record`, `tag_regex`, `tag_taxonomy`, `tag_write`,
-`verify_execution`, `verify_execution_shapes`); `import pipelines.next_round`
-raises `ModuleNotFoundError`. That is why `driver.py` and
-`scripts/publish_grok46_hub.py` insert `pipelines/` into `sys.path` before
-importing (`qodana.yaml` documents the resulting inspection exclusion).
+`next_round`, `quality_gate_audit`, `quality_gate_embedding`, `card_schema`,
+`card_schema_validate`, `card_schema_yaml`, `verify_execution` and
+`verify_execution_shapes` use the prelude above, so `import pipelines.next_round`
+resolves. `driver.py` and `scripts/publish_grok46_hub.py` still insert
+`pipelines/` into `sys.path` before importing by bare name (`qodana.yaml`
+documents the resulting inspection exclusion).
 
 Large features are split into many small sibling modules by responsibility
 (`compose_curated_*`, `export_*`, `rights_*`, `mill_*`). `compose_curated.py`

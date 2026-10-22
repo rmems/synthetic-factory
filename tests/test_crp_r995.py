@@ -163,12 +163,14 @@ class Generate(unittest.TestCase):
         self.assertEqual(classify_kind(first), "preference")
         notes = (out / "NOTES-r995.md").read_text(encoding="utf-8")
         self.assertIn("r995 low-code", notes)
+        request = generate.RunRequest(995, out)
         with self.assertRaises(CrpRefusal) as exists:
-            generate.run(generate.RunRequest(995, out))
+            generate.run(request)
         self.assertEqual(exists.exception.code, FINDING_DESTINATION_EXISTS)
         raw = self.root / "outputs" / "raw" / "x"
+        request = generate.RunRequest(995, raw)
         with self.assertRaises(CrpRefusal) as under_raw:
-            generate.run(generate.RunRequest(995, raw))
+            generate.run(request)
         self.assertEqual(under_raw.exception.code, FINDING_DESTINATION_UNDER_RAW)
 
     def test_round_994_still_routes_to_r817(self):

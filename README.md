@@ -26,9 +26,15 @@ reviewers.
 ## Generator lanes and rights
 
 Every factory is one reviewed row in `config/FACTORY-REGISTRY.json`
-(`factory-registry-v0.3`), keyed by exact `path_id` and `payload_factory`,
-that names its generator, provider/channel assignment, and rights profile
-(the Fable 5 generator appears on five rows, Grok 4.6 on 44). The
+(`factory-registry-v0.4`), keyed by exact `path_id` and `payload_factory`,
+that names its generator and, where the row has them, its provider/channel
+assignment and rights profile (the Fable 5 generator appears on five rows,
+Grok 4.6 on 44). Four rows have no provider/channel: the two procedural rows
+(`python-function-repair-factory`, `oracle-grounded`) also have no rights
+profile and rest on their sealed source policy instead, and the two
+native-parity rows (`hardware-parity-spike-trajectories`,
+`nir-cross-runtime-equivalence`) carry the `native-parity-research-only-v1`
+rights profile. The
 fail-closed rights policy from [PR #168] (`pipelines/rights_*.py`,
 `schemas/rights-policy-v1.mapping.json`) resolves that row to `intended_use`
 and `project_training_policy`; unknown provenance resolves to blocked. There
@@ -75,6 +81,31 @@ The contract every new generator must meet is the "Generator rule"
 (formerly `AGENTS.md`, retired in [#184]; preserved
 [at the tag](https://github.com/rmems/synthetic-factory/blob/legacy-prompt-factory-v0.2/AGENTS.md)).
 
+A public dataset can ship a machine-readable `rights.json` sidecar, validated
+by `pipelines/rights_document.py` (strict JSON, exact field set, closed
+vocabularies; anything else raises at load). Schema `0.1.0` is the
+hosted-frontier route: provider, channel, model, terms evidence, and a
+decision that must equal the sealed hosted authorization. Schema `0.2.0` adds
+the procedural route (`source_type: procedural`,
+`pipelines/rights_document_procedural.py`) for a dataset produced by a
+procedural registry row (`python-function-repair-factory`, `oracle-grounded`):
+the document names the row (`path_id`, `payload_factory`, `generator`,
+`generator_version`), repeats its `intended_use`, `project_training_policy`,
+`source_license_evidence`, catalog pins (`catalog_id`, `catalog_sha256`,
+`programs_sha256`) and `procedural_policy_sha256` exactly as the loaded
+registry states them, and declares `release_license: apache-2.0` and
+`training_ready: false`. Hosted documents stay at `0.1.0`, and a `0.2.0`
+document that is not procedural is refused. When `release-status.json`
+declares `rights_record: "rights.json"`, `pipelines/verify_hf_release.py`
+fetches the sidecar and requires it to validate, name the repository, and
+agree with the `intended_use` / `project_training_policy` that
+`release-status.json` restates; a procedural sidecar must also match the
+card's `license`, the `LICENSE` text, and `release-status.json` on the release
+license and `training_ready`. A release whose `rights_record` is null keeps
+the earlier contract. The sidecar grants nothing: training eligibility remains
+the registry row plus the fresh replay and completed-round gates, and
+publication authority is separate.
+
 ## Public dataset family
 
 Dataset payloads are published separately on Hugging Face. This code repository
@@ -109,6 +140,32 @@ are re-published once, after [#165] makes publication and release verification
 rights-aware. Card viewer schemas are declared by hand for 35 of the 44
 datasets (`python3 scripts/publish_grok46_hub.py schemas` lists the gaps).
 
+```bash
+# Read-only: the viewer-schema audit (reads no root) and local mirror/source counts
+python3 scripts/publish_grok46_hub.py schemas --strict
+python3 scripts/publish_grok46_hub.py status --hf-root ~/hf --factory-root outputs/raw/2026-08-19-agentic
+# Writes the local Hub mirror under <hf-root>/grok-4.6/
+python3 scripts/publish_grok46_hub.py snapshot --only long-horizon-coding-trajectories --hf-root ~/hf
+# Hub writes (network): create, upload, collect, or all four in order
+python3 scripts/publish_grok46_hub.py create --hf-root ~/hf
+python3 scripts/publish_grok46_hub.py upload --only long-horizon-coding-trajectories --hf-root ~/hf
+python3 scripts/publish_grok46_hub.py collect --hf-root ~/hf
+python3 scripts/publish_grok46_hub.py all --hf-root ~/hf
+```
+
+The publisher reads published rounds from a factory source root and mirrors
+them under `<hf-root>/grok-4.6/<dataset>/`. Each root resolves once per run:
+the `--hf-root` / `--factory-root` flag, then `SYNTHETIC_FACTORY_HF_ROOT` /
+`SYNTHETIC_FACTORY_SOURCE_ROOT`, then the owner's defaults
+(`/home/raulmc/rmems/hf`, and the first existing `outputs/raw/2026-08-19-agentic`
+under this checkout, `~/synthetic-factory`, or `~/synthetic-data`). A configured
+root is refused unless it already exists as a real, non-symlinked directory;
+the publisher does not create it. The Hub root is refused when it names or
+aliases `outputs/raw/` or overlaps the factory source root, so a Hub working
+tree cannot mutate raw bytes. A refusal exits 2 and names the flag or
+variable, not its value. `schemas` reads neither root and refuses the root
+flags, even with an empty value.
+
 ## License
 
 This repository is licensed under the [Apache License 2.0](LICENSE) — see
@@ -135,8 +192,9 @@ GitHub Actions runs those checks on pull requests and `main`
 (`.github/workflows/python.yml` and `.github/workflows/python-smoke.yml`).
 
 Cursor Cloud Agents build from `.cursor/Dockerfile` via
-`.cursor/environment.json`. The install script is idempotent and re-runs the
-same unit tests and operator smoke check.
+`.cursor/environment.json`. The install script is idempotent; it compiles the
+tree and prefetches and builds the Rust `sf-oracle`, while the unit tests and
+operator smoke check run in GitHub Actions.
 
 ## Structure
 - `schemas/` — Thalamic schema, the two parity-family schemas, + `provenance.md`; `oracle-grounded-v1.schema.json` and `oracle-grounded/` for the oracle-grounded families, plus actor-provenance-v1, vset-record-v1, and vset-release-manifest-v1
@@ -368,7 +426,28 @@ Compose writes a brand-new destination:
 | `records/<factory>/<file>.jsonl` | curated payload — the only subtree the audit reads |
 | `manifest/compose-manifest.jsonl` | one entry per source record: source hashes, per-lane transform name/version, action, reason codes, output hash |
 | `manifest/reward-sidecars.jsonl` | reversible copies of every source reward |
-| `COMPOSE.json` | counts, exclusions by reason code, output digests, audit result |
+| `COMPOSE.json` | counts, exclusions by reason code, output digests, audit result, and the `eval_exclusion` block (sha256 of both exclusion lists and of the alias cache) |
+
+**Eval denylist / do-not-train gate (#494).** After the lanes decide a line,
+compose runs `pipelines/compose_eval_gate.py` over it, and export replays the
+same gate. A retained record that names a public source repository
+(`code_repair` upstream at `scenario.source.upstream.repository`, or a
+`real_public_engineering` record's `environment.source_repo`) is canonicalized
+offline: lowercased, then resolved through the committed, timestamped alias
+cache `config/eval-exclusion/repo-aliases.json` (renames and transfers; compose
+never calls GitHub). The canonical `owner/name`, `program_id`, and `task_id` are
+then matched as whole values against `config/eval-exclusion/eval-denylist.json`
+and `config/eval-exclusion/do-not-train.json`. A match is excluded with
+`compose.eval_denylisted` or `compose.do_not_train_listed`; a repository that is
+missing, malformed, or absent from the cache is excluded with
+`compose.source_repo_unresolved` or `compose.source_repo_invalid`. An invalid
+list or cache raises at import. `COMPOSE.json` and export `provenance.json`
+record all three file digests, and export refuses a compose made under
+different lists. `scripts/refresh_repo_aliases.py` is the operator step that
+resolves names through `gh api repos/<owner>/<name>` into a new cache file for
+review. The committed lists are reviewed: the eval denylist names 23 canonical
+repositories and the do-not-train list names 19. `repo-aliases.json` is a
+381-entry cache resolved through the GitHub API on 2026-10-19T01:28:28Z.
 
 Export writes `data/curated/…` (byte-identical payload),
 `data/viewer/records.parquet` (`{source_file, source_line, record_json}`,
@@ -406,4 +485,5 @@ approved decision, and only training-candidate rows
 [#173]: https://github.com/rmems/synthetic-factory/issues/173
 [#175]: https://github.com/rmems/synthetic-factory/issues/175
 [#184]: https://github.com/rmems/synthetic-factory/issues/184
+[#186]: https://github.com/rmems/synthetic-factory/issues/186
 [PR #168]: https://github.com/rmems/synthetic-factory/pull/168

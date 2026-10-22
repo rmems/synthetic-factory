@@ -165,32 +165,65 @@ def _plant(raw: object, where: str) -> Mapping[str, str]:
     return MappingProxyType(record)
 
 
-def _validate_leftover3(raw: object) -> dict[str, Any]:
-    document = _require_object(raw, "leftover3")
+def _refuse_pin_drift(
+    mapping: Mapping[str, Any], pins: tuple[tuple[str, Any, str], ...]
+) -> None:
+    """``mapping[key]`` must equal each pinned value; the first drift refuses."""
+
     refuse_first(
-        (
-            (
-                document.get("schema_id") != SCHEMA_LEFTOVER3,
-                FINDING_CATALOG_SCHEMA,
-                f"schema_id must be {SCHEMA_LEFTOVER3!r}",
-            ),
-            (
-                document.get("family_prefix") != FAMILY_PREFIX,
-                FINDING_CATALOG_SCHEMA,
-                f"family_prefix must be {FAMILY_PREFIX!r}",
-            ),
-            (
-                document.get("factory") != FACTORY,
-                FINDING_CATALOG_SCHEMA,
-                f"factory must be {FACTORY!r}",
-            ),
-            (
-                document.get("generator") != GENERATOR,
-                FINDING_CATALOG_SCHEMA,
-                f"generator must be {GENERATOR!r}",
-            ),
+        tuple(
+            (mapping.get(key) != expected, FINDING_CATALOG_SCHEMA, message)
+            for key, expected, message in pins
         )
     )
+
+
+def _refuse_family_drift(document: Mapping[str, Any], schema_id: str) -> None:
+    """The schema id and the family identity every dbm catalog document pins."""
+
+    identity = (
+        ("schema_id", schema_id),
+        ("family_prefix", FAMILY_PREFIX),
+        ("factory", FACTORY),
+        ("generator", GENERATOR),
+    )
+    _refuse_pin_drift(
+        document,
+        tuple((key, expected, f"{key} must be {expected!r}") for key, expected in identity),
+    )
+
+
+_LEFTOVER3_SOURCE_PINS = (
+    ("lane", LEGACY_LANE, "source.lane drifted from legacy-mill-lane"),
+    ("commit", LEGACY_COMMIT, "source.commit drifted from the leftover mill family commit"),
+    ("mill", LEGACY_LEFTOVER3, "source.mill drifted from the leftover3 mill path"),
+    (
+        "mill_sha256",
+        LEGACY_LEFTOVER3_SHA256,
+        "source.mill_sha256 drifted from the leftover3 mill bytes",
+    ),
+)
+_MILLS_SOURCE_PINS = (
+    ("lane", LEGACY_LANE, "mills.source.lane drifted from legacy-mill-lane"),
+    (
+        "commit",
+        LEGACY_COMMIT,
+        "mills.source.commit drifted from the leftover mill family commit",
+    ),
+    (
+        "plants_gen",
+        LEGACY_PLANTS_GEN,
+        "mills.source.plants_gen drifted from the r1340 plant generator",
+    ),
+    (
+        "plants_gen_sha256",
+        LEGACY_PLANTS_GEN_SHA256,
+        "mills.source.plants_gen_sha256 drifted from the r1340 generator bytes",
+    ),
+)
+
+
+def _refuse_leftover3_counts(document: dict[str, Any]) -> None:
     start = _require_int(_require_field(document, "start_round", "leftover3"), "start_round")
     n_pairs = _require_int(_require_field(document, "n_pairs", "leftover3"), "n_pairs")
     quota = _require_int(
@@ -208,6 +241,9 @@ def _validate_leftover3(raw: object) -> dict[str, Any]:
             ),
         )
     )
+
+
+def _refuse_leftover3_plants_pin(document: dict[str, Any]) -> None:
     plants_file = _require_str(
         _require_field(document, "plants_file", "leftover3"),
         "leftover3.plants_file",
@@ -218,31 +254,15 @@ def _validate_leftover3(raw: object) -> dict[str, Any]:
         f"plants_file must be {LEFTOVER3_PLANTS_FILE!r}",
     )
     _require_str(_require_field(document, "plants_sha256", "leftover3"), "leftover3.plants_sha256")
+
+
+def _validate_leftover3(raw: object) -> dict[str, Any]:
+    document = _require_object(raw, "leftover3")
+    _refuse_family_drift(document, SCHEMA_LEFTOVER3)
+    _refuse_leftover3_counts(document)
+    _refuse_leftover3_plants_pin(document)
     source = _require_object(_require_field(document, "source", "leftover3"), "source")
-    refuse_first(
-        (
-            (
-                source.get("lane") != LEGACY_LANE,
-                FINDING_CATALOG_SCHEMA,
-                "source.lane drifted from legacy-mill-lane",
-            ),
-            (
-                source.get("commit") != LEGACY_COMMIT,
-                FINDING_CATALOG_SCHEMA,
-                "source.commit drifted from the leftover mill family commit",
-            ),
-            (
-                source.get("mill") != LEGACY_LEFTOVER3,
-                FINDING_CATALOG_SCHEMA,
-                "source.mill drifted from the leftover3 mill path",
-            ),
-            (
-                source.get("mill_sha256") != LEGACY_LEFTOVER3_SHA256,
-                FINDING_CATALOG_SCHEMA,
-                "source.mill_sha256 drifted from the leftover3 mill bytes",
-            ),
-        )
-    )
+    _refuse_pin_drift(source, _LEFTOVER3_SOURCE_PINS)
     return document
 
 
@@ -258,7 +278,8 @@ def _validate_plants(plants_raw: object) -> list[Any]:
         FINDING_CATALOG_PAIR_COUNT,
         f"need {N_PAIRS * 2} leftover3 plants, got {len(plants_raw)}",
     )
-    slugs, plants, tables, leftovers, surfaces = [], [], [], [], []
+    slugs, plants, tables, surfaces = [], [], [], []
+    leftovers: list[str] = []
     for index, entry in enumerate(plants_raw):
         plant = _plant(entry, f"plants[{index}]")
         slugs.append(plant["slug"])
@@ -289,32 +310,7 @@ def _load_plants_jsonl(path: Path, expected_sha256: str) -> list[Any]:
     return _validate_plants(plants)
 
 
-def _validate_mills(raw: object) -> dict[str, Any]:
-    document = _require_object(raw, "mills")
-    refuse_first(
-        (
-            (
-                document.get("schema_id") != SCHEMA_MILLS,
-                FINDING_CATALOG_SCHEMA,
-                f"schema_id must be {SCHEMA_MILLS!r}",
-            ),
-            (
-                document.get("family_prefix") != FAMILY_PREFIX,
-                FINDING_CATALOG_SCHEMA,
-                f"family_prefix must be {FAMILY_PREFIX!r}",
-            ),
-            (
-                document.get("factory") != FACTORY,
-                FINDING_CATALOG_SCHEMA,
-                f"factory must be {FACTORY!r}",
-            ),
-            (
-                document.get("generator") != GENERATOR,
-                FINDING_CATALOG_SCHEMA,
-                f"generator must be {GENERATOR!r}",
-            ),
-        )
-    )
+def _mill_list(document: dict[str, Any]) -> list[Any]:
     mills_raw = _require_field(document, "mills", "mills")
     refuse_when(
         not isinstance(mills_raw, list),
@@ -327,43 +323,63 @@ def _validate_mills(raw: object) -> dict[str, Any]:
         FINDING_CATALOG_PAIR_COUNT,
         f"need {MILL_COUNT} leftover mills, got {len(mills_raw)}",
     )
+    return mills_raw
+
+
+def _mill_identity(item: dict[str, Any], where: str) -> None:
+    path = _require_str(item.get("path"), f"{where}.path")
+    refuse_when(
+        "dbm-mill-" not in path or not path.endswith(".py"),
+        FINDING_CATALOG_FIELD_INVALID,
+        f"{where}.path is not a dbm leftover mill",
+    )
+    _require_str(item.get("sha256"), f"{where}.sha256")
+    _require_int(item.get("catalog_first"), f"{where}.catalog_first")
+    constructor = _require_str(item.get("constructor"), f"{where}.constructor")
+    refuse_when(
+        constructor not in {"P", "Q", "R"},
+        FINDING_CATALOG_FIELD_INVALID,
+        f"{where}.constructor must be P, Q, or R",
+    )
+
+
+def _mill_counts(item: dict[str, Any], where: str) -> tuple[int, int]:
+    pair_count = _require_int(item.get("pair_count"), f"{where}.pair_count")
+    plant_count = _require_int(item.get("plant_count"), f"{where}.plant_count")
+    refuse_when(
+        plant_count != pair_count * 2,
+        FINDING_CATALOG_PAIR_COUNT,
+        f"{where} plant_count must be 2 * pair_count",
+    )
+    return pair_count, plant_count
+
+
+def _mill_edges(item: dict[str, Any], where: str) -> tuple[str, str]:
+    first_slug = _require_str(item.get("first_slug"), f"{where}.first_slug")
+    last_slug = _require_str(item.get("last_slug"), f"{where}.last_slug")
+    _require_str(item.get("slugs_sha256"), f"{where}.slugs_sha256")
+    refuse_when(
+        first_slug == last_slug,
+        FINDING_CATALOG_DUPLICATE,
+        f"{where} first_slug and last_slug must differ",
+    )
+    return first_slug, last_slug
+
+
+def _refuse_mill_totals(mills_raw: list[Any]) -> None:
+    """Per-mill pins in order, then the sequential pair/plant totals and unique edges."""
+
     pair_total = 0
     plant_total = 0
     edges: list[str] = []
     for index, entry in enumerate(mills_raw):
-        item = _require_object(entry, f"mills[{index}]")
-        path = _require_str(item.get("path"), f"mills[{index}].path")
-        refuse_when(
-            "dbm-mill-" not in path or not path.endswith(".py"),
-            FINDING_CATALOG_FIELD_INVALID,
-            f"mills[{index}].path is not a dbm leftover mill",
-        )
-        _require_str(item.get("sha256"), f"mills[{index}].sha256")
-        _require_int(item.get("catalog_first"), f"mills[{index}].catalog_first")
-        constructor = _require_str(item.get("constructor"), f"mills[{index}].constructor")
-        refuse_when(
-            constructor not in {"P", "Q", "R"},
-            FINDING_CATALOG_FIELD_INVALID,
-            f"mills[{index}].constructor must be P, Q, or R",
-        )
-        pair_count = _require_int(item.get("pair_count"), f"mills[{index}].pair_count")
-        plant_count = _require_int(item.get("plant_count"), f"mills[{index}].plant_count")
-        refuse_when(
-            plant_count != pair_count * 2,
-            FINDING_CATALOG_PAIR_COUNT,
-            f"mills[{index}] plant_count must be 2 * pair_count",
-        )
+        where = f"mills[{index}]"
+        item = _require_object(entry, where)
+        _mill_identity(item, where)
+        pair_count, plant_count = _mill_counts(item, where)
         pair_total += pair_count
         plant_total += plant_count
-        first_slug = _require_str(item.get("first_slug"), f"mills[{index}].first_slug")
-        last_slug = _require_str(item.get("last_slug"), f"mills[{index}].last_slug")
-        _require_str(item.get("slugs_sha256"), f"mills[{index}].slugs_sha256")
-        refuse_when(
-            first_slug == last_slug,
-            FINDING_CATALOG_DUPLICATE,
-            f"mills[{index}] first_slug and last_slug must differ",
-        )
-        edges.extend((first_slug, last_slug))
+        edges.extend(_mill_edges(item, where))
     refuse_when(
         pair_total != MILL_PAIRS,
         FINDING_CATALOG_PAIR_COUNT,
@@ -375,31 +391,14 @@ def _validate_mills(raw: object) -> dict[str, Any]:
         f"need {MILL_PLANTS} sequential plants, got {plant_total}",
     )
     _unique("sequential mill edge slugs", edges)
+
+
+def _validate_mills(raw: object) -> dict[str, Any]:
+    document = _require_object(raw, "mills")
+    _refuse_family_drift(document, SCHEMA_MILLS)
+    _refuse_mill_totals(_mill_list(document))
     source = _require_object(_require_field(document, "source", "mills"), "mills.source")
-    refuse_first(
-        (
-            (
-                source.get("lane") != LEGACY_LANE,
-                FINDING_CATALOG_SCHEMA,
-                "mills.source.lane drifted from legacy-mill-lane",
-            ),
-            (
-                source.get("commit") != LEGACY_COMMIT,
-                FINDING_CATALOG_SCHEMA,
-                "mills.source.commit drifted from the leftover mill family commit",
-            ),
-            (
-                source.get("plants_gen") != LEGACY_PLANTS_GEN,
-                FINDING_CATALOG_SCHEMA,
-                "mills.source.plants_gen drifted from the r1340 plant generator",
-            ),
-            (
-                source.get("plants_gen_sha256") != LEGACY_PLANTS_GEN_SHA256,
-                FINDING_CATALOG_SCHEMA,
-                "mills.source.plants_gen_sha256 drifted from the r1340 generator bytes",
-            ),
-        )
-    )
+    _refuse_pin_drift(source, _MILLS_SOURCE_PINS)
     return document
 
 

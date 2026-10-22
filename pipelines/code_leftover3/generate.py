@@ -10,7 +10,6 @@ refuse an existing destination and any path that names or aliases
 
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -18,14 +17,17 @@ from typing import Any
 from . import catalog as cat
 from ._contract import (
     FINDING_CRITIQUE_TOO_SHORT,
-    FINDING_DESTINATION_EXISTS,
-    FINDING_DESTINATION_UNDER_RAW,
     bind_import_twin,
     dumps_exact_json,
     is_under_raw,
     refuse,
     refuse_when,
 )
+
+if __package__ and __package__.startswith("pipelines."):
+    from ..run_writer import exclusive_run as _exclusive_run
+else:
+    from run_writer import exclusive_run as _exclusive_run
 
 if __package__ and __package__.startswith("pipelines."):
     from .. import code_review_preference_tail as crp_tail
@@ -55,118 +57,9 @@ class RunRequest:
     out_dir: Path
 
 
-def _check_destination(out_dir: Path) -> None:
-    refuse_when(
-        is_under_raw(out_dir),
-        FINDING_DESTINATION_UNDER_RAW,
-        f"{out_dir} names or aliases the raw tree",
-    )
-    refuse_when(out_dir.exists(), FINDING_DESTINATION_EXISTS, f"{out_dir} already exists")
-
-
-@dataclass(frozen=True)
-class _CreatedFile:
-    """A file this invocation created, addressed by its pinned parent."""
-
-    parent_fd: int
-    name: str
-
-
-def _opened_path(fd: int, fallback: Path) -> Path:
-    try:
-        return Path(os.readlink(f"/proc/self/fd/{fd}"))
-    except OSError:
-        return fallback
-
-
-def _refuse_raw_path(path: Path, origin: Path) -> None:
-    refuse_when(
-        is_under_raw(path),
-        FINDING_DESTINATION_UNDER_RAW,
-        f"{origin} names or aliases the raw tree",
-    )
-
-
-def _open_destination_parent(path: Path) -> int:
-    flags = os.O_RDONLY | os.O_DIRECTORY | getattr(os, "O_NOFOLLOW", 0)
-    return os.open(path.parent, flags)
-
-
-def _refuse_opened_parent(parent_fd: int, destination: Path) -> None:
-    opened = _opened_path(parent_fd, destination.parent)
-    _refuse_raw_path(opened, destination)
-    _refuse_raw_path(opened / destination.name, destination)
-
-
-def _create_exclusive_file(
-    parent_fd: int, name: str, payload: str, created: list[_CreatedFile]
-) -> None:
-    descriptor = os.open(
-        name,
-        os.O_WRONLY | os.O_CREAT | os.O_EXCL,
-        0o644,
-        dir_fd=parent_fd,
-    )
-    created.append(_CreatedFile(parent_fd, name))
-    with os.fdopen(descriptor, "w", encoding="utf-8", newline="\n") as handle:
-        handle.write(payload)
-        handle.flush()
-        os.fsync(handle.fileno())
-
-
-def _fsync_destination(dest_fd: int, parent_fd: int) -> None:
-    os.fsync(dest_fd)
-    os.fsync(parent_fd)
-
-
-def _unlink_created(created: list[_CreatedFile]) -> None:
-    for entry in created:
-        try:
-            os.unlink(entry.name, dir_fd=entry.parent_fd)
-        except FileNotFoundError:
-            pass
-
-
-def _rmdir_created(parent_fd: int, name: str) -> None:
-    try:
-        os.rmdir(name, dir_fd=parent_fd)
-    except OSError:
-        pass
-
-
-def _write_run(out_dir: Path, files: tuple[tuple[str, str], ...]) -> None:
-    """Create ``out_dir`` and its files exclusively; unlink a partial tree."""
-
-    out_dir.parent.mkdir(parents=True, exist_ok=True)
-    parent_fd = _open_destination_parent(out_dir)
-    dest_fd = -1
-    created: list[_CreatedFile] = []
-    created_dir = False
-    try:
-        _refuse_opened_parent(parent_fd, out_dir)
-        try:
-            os.mkdir(out_dir.name, dir_fd=parent_fd)
-        except FileExistsError:
-            refuse(FINDING_DESTINATION_EXISTS, f"{out_dir} already exists")
-        created_dir = True
-        dest_fd = os.open(
-            out_dir.name,
-            os.O_RDONLY | os.O_DIRECTORY | getattr(os, "O_NOFOLLOW", 0),
-            dir_fd=parent_fd,
-        )
-        _refuse_raw_path(_opened_path(dest_fd, out_dir), out_dir)
-        for name, payload in files:
-            _create_exclusive_file(dest_fd, name, payload, created)
-        _fsync_destination(dest_fd, parent_fd)
-    except BaseException:
-        _unlink_created(created)
-        if created_dir:
-            _rmdir_created(parent_fd, out_dir.name)
-        raise
-    finally:
-        if dest_fd >= 0:
-            os.close(dest_fd)
-        os.close(parent_fd)
+_check_destination, _write_run, _fsync_destination = _exclusive_run.bind(
+    globals(), _exclusive_run.Guards(refuse, refuse_when, is_under_raw)
+)
 
 
 def _step(
@@ -189,9 +82,14 @@ def _bash(command: str) -> dict[str, Any]:
     return {"name": "bash", "args": {"command": command}}
 
 
-def _prefix(plant: cat.Plant, pr: int) -> list[dict[str, Any]]:
+def _feature(plant: cat.Plant) -> str:
+    return plant.title.split(":", 1)[-1].strip()
+
+
+def _inventory_steps(plant: cat.Plant, pr: int) -> list[dict[str, Any]]:
+    """Steps 1-3: inventory the PR, diff the core hunk, read the implementation."""
     repo, core, boot, test = plant.repo, plant.core, plant.boot, plant.test
-    feat = plant.title.split(":", 1)[-1].strip()
+    feat = _feature(plant)
     return [
         _step(
             1,
@@ -224,6 +122,14 @@ def _prefix(plant: cat.Plant, pr: int) -> list[dict[str, Any]]:
             ),
             "Confirm callers and tests before verdict.",
         ),
+    ]
+
+
+def _context_steps(plant: cat.Plant, pr: int) -> list[dict[str, Any]]:
+    """Steps 4-7: reachability, the tests as their own object, the search, the PR body."""
+    repo, core, boot, test = plant.repo, plant.core, plant.boot, plant.test
+    feat = _feature(plant)
+    return [
         _step(
             4,
             (
@@ -271,6 +177,10 @@ def _prefix(plant: cat.Plant, pr: int) -> list[dict[str, Any]]:
     ]
 
 
+def _prefix(plant: cat.Plant, pr: int) -> list[dict[str, Any]]:
+    return [*_inventory_steps(plant, pr), *_context_steps(plant, pr)]
+
+
 def _chosen_tail(plant: cat.Plant, pr: int, rid: int) -> list[dict[str, Any]]:
     return crp_tail.chosen_tail(plant, pr, rid)
 
@@ -284,19 +194,69 @@ def pair(plant: cat.Plant, round_n: int, slot: int) -> dict[str, Any]:
 
     pr = 1900 + (round_n - cat.PAIR_FIRST_ROUND) * 3 + slot
     rid = 900000 + pr
-    pq = round(0.86 + (slot * 0.02) + ((round_n % 5) * 0.002), 3)
-    vr = round(0.87 + (slot * 0.01) + ((round_n % 7) * 0.001), 3)
-    ds = round(0.88 + (slot * 0.015), 3)
+    chosen_reward = _chosen_reward(round_n, slot)
     margin = round(0.72 + (slot * 0.03) + ((round_n % 4) * 0.01), 3)
-    feat = plant.title.split(":", 1)[-1].strip()
+    chosen_steps, rejected_steps = _side_steps(plant, pr, rid, slot)
+    critique = _critique(plant, pr)
+    return {
+        "id": f"{cat.ID_PREFIX}-r{round_n}-{plant.slug}",
+        "goal": (
+            f"Review designed {plant.repo} PR #{pr} ({plant.title}) and post a "
+            f"merge-blocking review if {plant.missing} is not enforced."
+        ),
+        "outcome": (
+            f"Chosen: REQUEST_CHANGES on {plant.defect}; required {plant.fix} + "
+            f"{plant.missing}. Rejected: Nit on the {plant.nit} name, APPROVE. "
+            f"Missed {plant.defect}. Quality delta at first fork "
+            f"(missed race or real bug vs nit/LGTM)."
+        ),
+        "chosen": {
+            "steps": chosen_steps,
+            "outcome": (
+                f"REQUEST_CHANGES on {plant.defect}; required {plant.fix} + {plant.missing}."
+            ),
+            "reward": chosen_reward,
+        },
+        "rejected": {
+            "steps": rejected_steps,
+            "outcome": f"Nit on the {plant.nit} name, APPROVE. Missed {plant.defect}.",
+            "reward": {
+                "success": False,
+                "process_quality": 0.16,
+                "verify_rigor": 0.07,
+                "defect_specificity": 0.05,
+            },
+        },
+        "critique": critique,
+        "reward": {"success": True, "preference_margin": margin, "same_goal": 1.0},
+        "meta": _pair_meta(plant, round_n),
+    }
+
+
+def _chosen_reward(round_n: int, slot: int) -> dict[str, Any]:
+    return {
+        "success": True,
+        "process_quality": round(0.86 + (slot * 0.02) + ((round_n % 5) * 0.002), 3),
+        "verify_rigor": round(0.87 + (slot * 0.01) + ((round_n % 7) * 0.001), 3),
+        "defect_specificity": round(0.88 + (slot * 0.015), 3),
+    }
+
+
+def _side_steps(
+    plant: cat.Plant, pr: int, rid: int, slot: int
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """The shared seven-step prefix, then the chosen and rejected tails."""
     prefix = _prefix(plant, pr)
     prefix[0]["observation"] = (
         f'designed: {{"number":{pr},"title":"{plant.title}","additions":{8 + slot},'
         f'"files":[{{"path": "{plant.core}"}}, {{"path": "{plant.boot}"}}, '
         f'{{"path": "{plant.test}"}}],"headRefName":"feat/{plant.slug}"}}'
     )
-    chosen_steps = prefix + _chosen_tail(plant, pr, rid)
-    rejected_steps = prefix + _rejected_tail(plant, pr)
+    return prefix + _chosen_tail(plant, pr, rid), prefix + _rejected_tail(plant, pr)
+
+
+def _critique(plant: cat.Plant, pr: int) -> str:
+    feat = _feature(plant)
     critique = (
         f"Same {plant.repo} PR {pr} and the same seven-step prefix: pr view, {feat}, "
         f"{plant.defect}, {plant.reach}, tests resolve, rg, PR body. Divergence is "
@@ -316,59 +276,26 @@ def pair(plant: cat.Plant, round_n: int, slot: int) -> dict[str, Any]:
         FINDING_CRITIQUE_TOO_SHORT,
         f"critique too short for {plant.slug}: {len(critique)}",
     )
+    return critique
+
+
+def _pair_meta(plant: cat.Plant, round_n: int) -> dict[str, Any]:
     return {
-        "id": f"{cat.ID_PREFIX}-r{round_n}-{plant.slug}",
-        "goal": (
-            f"Review designed {plant.repo} PR #{pr} ({plant.title}) and post a "
-            f"merge-blocking review if {plant.missing} is not enforced."
-        ),
-        "outcome": (
-            f"Chosen: REQUEST_CHANGES on {plant.defect}; required {plant.fix} + "
-            f"{plant.missing}. Rejected: Nit on the {plant.nit} name, APPROVE. "
-            f"Missed {plant.defect}. Quality delta at first fork "
-            f"(missed race or real bug vs nit/LGTM)."
-        ),
-        "chosen": {
-            "steps": chosen_steps,
-            "outcome": (
-                f"REQUEST_CHANGES on {plant.defect}; required {plant.fix} + {plant.missing}."
-            ),
-            "reward": {
-                "success": True,
-                "process_quality": pq,
-                "verify_rigor": vr,
-                "defect_specificity": ds,
-            },
-        },
-        "rejected": {
-            "steps": rejected_steps,
-            "outcome": f"Nit on the {plant.nit} name, APPROVE. Missed {plant.defect}.",
-            "reward": {
-                "success": False,
-                "process_quality": 0.16,
-                "verify_rigor": 0.07,
-                "defect_specificity": 0.05,
-            },
-        },
-        "critique": critique,
-        "reward": {"success": True, "preference_margin": margin, "same_goal": 1.0},
-        "meta": {
-            "factory": cat.FACTORY,
-            "round": round_n,
-            "generator": cat.GENERATOR,
-            "kind": "preference",
-            "plant": "designed",
-            "rejected_sin": "missed defect / nitpicks",
-            "divergence_step": 8,
-            "construction": "divergence-point-shared-prefix",
-            "chosen_steps": 13,
-            "rejected_steps": 12,
-            "review_lesson": f"{plant.family}-blocking-vs-nit",
-            "family": plant.family,
-            "noun": plant.noun,
-            "slug": plant.slug,
-            "wave": cat.CATALOG_ID,
-        },
+        "factory": cat.FACTORY,
+        "round": round_n,
+        "generator": cat.GENERATOR,
+        "kind": "preference",
+        "plant": "designed",
+        "rejected_sin": "missed defect / nitpicks",
+        "divergence_step": 8,
+        "construction": "divergence-point-shared-prefix",
+        "chosen_steps": 13,
+        "rejected_steps": 12,
+        "review_lesson": f"{plant.family}-blocking-vs-nit",
+        "family": plant.family,
+        "noun": plant.noun,
+        "slug": plant.slug,
+        "wave": cat.CATALOG_ID,
     }
 
 

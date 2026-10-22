@@ -27,6 +27,7 @@ else:
 
 FAMILY_PREFIX = "ttf"
 FACTORY = "thalamic-trajectory-factory"
+_EXACT_INT = (int,)  # exact type: bool and every other int subclass are refused
 GENERATOR = "grok-4.6"
 RUN_LABEL = "2026-09-02-final-heavy"
 LINEAR_ISSUE = "RM-793"
@@ -159,7 +160,7 @@ def require_round(rnd: int) -> int:
     """Accept a positive integer round token. Booleans are not rounds."""
 
     refuse_when(
-        type(rnd) is not int or rnd < 1,
+        type(rnd) not in _EXACT_INT or rnd < 1,
         FINDING_ROUND_OUT_OF_DOMAIN,
         f"round must be a positive int, got {shown(rnd)}",
     )

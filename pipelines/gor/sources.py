@@ -22,6 +22,9 @@ class MillSource:
     companion_mill_path: str | None = None
 
 
+# Mills that several loop / plant-gen rows name as their companion, plus the mill's own row.
+_MILL_R1460 = "experiments/gor-mill-r1460.py"
+
 MILL_SOURCES: tuple[MillSource, ...] = (
     MillSource(
         "gor-loop-r946",
@@ -113,35 +116,35 @@ MILL_SOURCES: tuple[MillSource, ...] = (
         "experiments/gor-loop-r1460.py",
         "a125cda28c435a3a4ad7f4c8b35084d986a98e7f",
         KIND_LOOP,
-        "experiments/gor-mill-r1460.py",
+        _MILL_R1460,
     ),
     MillSource(
         "_gen_gor_plants_r1725",
         "experiments/_gen_gor_plants_r1725.py",
         "f90a1163419aa307a3bfe072bcfec53a58461965",
         KIND_GEN,
-        "experiments/gor-mill-r1460.py",
+        _MILL_R1460,
     ),
     MillSource(
         "_gen_gor_plants_w10",
         "experiments/_gen_gor_plants_w10.py",
         "8cd9a2d5adeea8679e20f22536008dfe96877e47",
         KIND_GEN,
-        "experiments/gor-mill-r1460.py",
+        _MILL_R1460,
     ),
     MillSource(
         "_gen_gor_plants_w11",
         "experiments/_gen_gor_plants_w11.py",
         "12b4532077451c184fda70ff5a87991e1777c88d",
         KIND_GEN,
-        "experiments/gor-mill-r1460.py",
+        _MILL_R1460,
     ),
     MillSource(
         "_gen_gor_plants_w12",
         "experiments/_gen_gor_plants_w12.py",
         "a0fa8c1bb5ee5da78a86e613f78774af3435251a",
         KIND_GEN,
-        "experiments/gor-mill-r1460.py",
+        _MILL_R1460,
     ),
     MillSource(
         "gor-mill-r946",
@@ -235,7 +238,7 @@ MILL_SOURCES: tuple[MillSource, ...] = (
     ),
     MillSource(
         "gor-mill-r1460",
-        "experiments/gor-mill-r1460.py",
+        _MILL_R1460,
         "a38ad92340a902e8a5365976f27963c2d61c401b",
         KIND_PAIRS,
     ),

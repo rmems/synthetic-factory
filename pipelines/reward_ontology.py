@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import copy
 from decimal import Decimal
+from typing import NamedTuple
 
 if __package__:
     from .reward_mapping import (
@@ -138,6 +139,28 @@ def _set_pointer(document, pointer, value):
     _assign_pointer_token(target, tokens[-1], value, pointer)
 
 
+def _number_value_type(value):
+    """A finite number is a ``number``; NaN and infinities are ``unknown``."""
+    return "number" if _decimal(value) is not None else "unknown"
+
+
+def _object_value_type(value):
+    """``{"value": <finite number>}`` is a ``value-object``; any other object is plain."""
+    inner = value.get("value")
+    if _decimal(inner) is not None:
+        return "value-object"
+    return "object"
+
+
+def _container_value_type(value):
+    """Objects, arrays, ``null``, and ``unknown`` for anything else."""
+    if isinstance(value, dict):
+        return _object_value_type(value)
+    if isinstance(value, list):
+        return "array"
+    return "null" if value is None else "unknown"
+
+
 def value_type(value):
     """Return the mapping's value-type name for one source reward member.
 
@@ -149,19 +172,10 @@ def value_type(value):
     if isinstance(value, bool):
         return "boolean"
     if isinstance(value, (int, float, Decimal)):
-        return "number" if _decimal(value) is not None else "unknown"
+        return _number_value_type(value)
     if isinstance(value, str):
         return "string"
-    if isinstance(value, dict):
-        inner = value.get("value")
-        if _decimal(inner) is not None:
-            return "value-object"
-        return "object"
-    if isinstance(value, list):
-        return "array"
-    if value is None:
-        return "null"
-    return "unknown"
+    return _container_value_type(value)
 
 
 def _reward_signature_type(value):
@@ -264,6 +278,14 @@ def _preference_optional_reasons(unit_statuses):
     return optional_reasons
 
 
+class _PreferenceUnits(NamedTuple):
+    """Per-pointer USD units and calibration sources, plus each side's unit status."""
+
+    units: dict
+    calibration_sources: dict
+    unit_statuses: list
+
+
 def _preference_units(rewards_by_pointer, calibration):
     units = {}
     calibration_sources = {}
@@ -275,37 +297,31 @@ def _preference_units(rewards_by_pointer, calibration):
         units[pointer] = unit
         calibration_sources[pointer] = calibration_source
         unit_statuses.append(status)
-    return units, calibration_sources, unit_statuses
+    return _PreferenceUnits(units, calibration_sources, unit_statuses)
 
 
 def _classify_preference_calibrated(
-    chosen_total,
-    rejected_total,
-    units,
-    unit_statuses,
-    arithmetic_by_pointer,
-    calibration_sources,
-    chosen_pointer,
-    rejected_pointer,
+    chosen_total, rejected_total, preference_units, arithmetic_by_pointer
 ):
+    chosen_pointer, rejected_pointer = PREFERENCE_POINTERS
+    units = preference_units.units
     chosen_canonical = chosen_total * units[chosen_pointer] / CANONICAL_UNIT_USD
     rejected_canonical = rejected_total * units[rejected_pointer] / CANONICAL_UNIT_USD
     if chosen_canonical <= rejected_canonical:
         return _mapped_verdict("P04")
     return _mapped_verdict(
         "P05",
-        _magnitude_payload(arithmetic_by_pointer, units, calibration_sources),
-        optional_reason_codes=_preference_optional_reasons(unit_statuses),
+        _magnitude_payload(
+            arithmetic_by_pointer, units, preference_units.calibration_sources
+        ),
+        optional_reason_codes=_preference_optional_reasons(
+            preference_units.unit_statuses
+        ),
     )
 
 
-def _classify_preference_uncalibrated(
-    chosen_total,
-    rejected_total,
-    unit_statuses,
-    chosen_pointer,
-    rejected_pointer,
-):
+def _classify_preference_uncalibrated(chosen_total, rejected_total, unit_statuses):
+    chosen_pointer, rejected_pointer = PREFERENCE_POINTERS
     if chosen_total <= rejected_total:
         return _mapped_verdict("P04")
     if any("conflict" in status for status in unit_statuses):
@@ -324,41 +340,41 @@ def _classify_preference_uncalibrated(
     )
 
 
-def _classify_preference(rewards_by_pointer, arithmetic_by_pointer, calibration):
+def _screen_preference_totals(rewards_by_pointer, arithmetic_by_pointer):
+    """``(rule_id, totals)``: P01-P03 when the pair cannot be compared, else ``None``.
+
+    The pointer-set guard runs before any pointer is indexed, so a missing
+    pointer is P01 rather than a ``KeyError``. ``totals`` is the
+    ``(chosen, rejected)`` pair of source totals once both arms are valid.
+    """
     if set(rewards_by_pointer) != set(PREFERENCE_POINTERS):
-        return _mapped_verdict("P01")
+        return "P01", None
     chosen_pointer, rejected_pointer = PREFERENCE_POINTERS
     chosen_arithmetic = arithmetic_by_pointer[chosen_pointer]
     rejected_arithmetic = arithmetic_by_pointer[rejected_pointer]
     statuses = {chosen_arithmetic["status"], rejected_arithmetic["status"]}
     if "invalid" in statuses:
-        return _mapped_verdict("P02")
-    if statuses != {"valid"}:
-        return _mapped_verdict("P03")
+        return "P02", None
+    if any(status != "valid" for status in statuses):
+        return "P03", None
     chosen_total = _decimal(chosen_arithmetic["source_total"])
     rejected_total = _decimal(rejected_arithmetic["source_total"])
-    if chosen_total is None or rejected_total is None:
-        return _mapped_verdict("P03")
-    units, calibration_sources, unit_statuses = _preference_units(
-        rewards_by_pointer, calibration
-    )
-    if all(unit is not None for unit in units.values()):
+    totals_missing = chosen_total is None or rejected_total is None
+    return ("P03" if totals_missing else None), (chosen_total, rejected_total)
+
+
+def _classify_preference(rewards_by_pointer, arithmetic_by_pointer, calibration):
+    rule_id, totals = _screen_preference_totals(rewards_by_pointer, arithmetic_by_pointer)
+    if rule_id is not None:
+        return _mapped_verdict(rule_id)
+    chosen_total, rejected_total = totals
+    preference_units = _preference_units(rewards_by_pointer, calibration)
+    if all(unit is not None for unit in preference_units.units.values()):
         return _classify_preference_calibrated(
-            chosen_total,
-            rejected_total,
-            units,
-            unit_statuses,
-            arithmetic_by_pointer,
-            calibration_sources,
-            chosen_pointer,
-            rejected_pointer,
+            chosen_total, rejected_total, preference_units, arithmetic_by_pointer
         )
     return _classify_preference_uncalibrated(
-        chosen_total,
-        rejected_total,
-        unit_statuses,
-        chosen_pointer,
-        rejected_pointer,
+        chosen_total, rejected_total, preference_units.unit_statuses
     )
 
 
@@ -489,6 +505,13 @@ def comparability_rule(rule_id):
     raise RewardOntologyError(f"undeclared comparability rule: {rule_id!r}")
 
 
+def _is_preference_side_pointer(pointer):
+    """A canonical preference pointer, or any pointer under ``/chosen/`` or ``/rejected/``."""
+    if pointer in PREFERENCE_POINTERS:
+        return True
+    return isinstance(pointer, str) and pointer.startswith(("/chosen/", "/rejected/"))
+
+
 def _layout_scope(source_rewards):
     """Map enumerated reward pointers onto a comparability-rule scope."""
     pointers = [
@@ -496,14 +519,7 @@ def _layout_scope(source_rewards):
         for item in source_rewards
         if isinstance(item, dict)
     ]
-    if any(
-        pointer in PREFERENCE_POINTERS
-        or (
-            isinstance(pointer, str)
-            and (pointer.startswith("/chosen/") or pointer.startswith("/rejected/"))
-        )
-        for pointer in pointers
-    ):
+    if any(_is_preference_side_pointer(pointer) for pointer in pointers):
         return "preference"
     if pointers:
         return "single"

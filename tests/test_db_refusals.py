@@ -59,8 +59,9 @@ class CodedRefusals(unittest.TestCase):
             assert_clean({"Internal Reasoning Notes": "nope"})
 
     def test_variant_stamped_goal_is_refused(self):
+        plant = _plant(plant="fixture [Variant 2]")
         with self.assertRaisesRegex(ValueError, "variant stamp in goal"):
-            build_episode(845, _plant(plant="fixture [Variant 2]"), 0)
+            build_episode(845, plant, 0)
 
     def test_pair_before_start_and_unknown_sql_engine_are_refused(self):
         with self.assertRaisesRegex(KeyError, "no plant pair for round 844"):

@@ -24,16 +24,12 @@ from search.catalog_extract import (  # noqa: E402
     dumps_catalog,
     dumps_home_header,
     dumps_pair_jsonl,
-    dumps_r72_header,
     extract_home_mill_catalog,
     extract_mill_catalog,
     home_header_document,
     home_header_path,
     home_jsonl_path,
     mill_summary,
-    r72_header_document,
-    r72_header_path,
-    r72_jsonl_path,
     sha256_bytes,
 )
 from search.identity import (  # noqa: E402
@@ -45,8 +41,6 @@ from search.identity import (  # noqa: E402
 from search.sources import (  # noqa: E402
     HOME_MILL_SOURCES,
     MILL_SOURCES,
-    R31_SOURCE,
-    R52_SOURCE,
     R72_SOURCE,
     catalog_sources,
     home_mill_sources,

@@ -46,7 +46,9 @@ def set_in(*path: str):
 
 def flip_predicate(record: dict) -> None:
     public = record["payload"]["predicate_results"]["public"]
-    key = next(iter(public))
+    key = next(iter(public), None)
+    if key is None:
+        raise AssertionError("the record has no public predicate result to flip")
     public[key] = not public[key]
 
 

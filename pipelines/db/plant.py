@@ -3,7 +3,8 @@
 
 from __future__ import annotations
 
-from typing import TypedDict
+from collections.abc import Mapping
+from typing import Final, TypedDict
 
 from . import config as cfg
 from .import_twins import bind_import_twin
@@ -33,7 +34,7 @@ class Plant(TypedDict, total=False):
     db: str
 
 
-REQUIRED_KEYS = (
+REQUIRED_KEYS: Final = (
     "engine", "slug", "plant", "surface", "table", "col", "col_v2",
     "leftover", "leftover2", "seed", "fail", "inspect", "catalog",
     "abort", "col_type",
@@ -70,8 +71,9 @@ def make_plant(
         "catalog": catalog, "abort": abort, "col_type": col_type,
         "lock_fail": lock_fail or "", "db": db,
     }
+    fields: Mapping[str, object] = record
     for key in REQUIRED_KEYS:
-        if not record[key]:
+        if not fields[key]:
             raise ValueError(f"empty {key} in {slug!r}")
     return record
 

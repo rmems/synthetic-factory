@@ -22,13 +22,17 @@ class MillSource:
     companion_mill_path: str | None = None
 
 
+# Mills that several loop / plant-gen rows name as their companion, plus the mill's own row.
+_MILL_R840 = "experiments/mdb-mill-r840.py"
+_MILL_R1208 = "experiments/mdb-mill-r1208.py"
+
 MILL_SOURCES: tuple[MillSource, ...] = (
     MillSource(
         "mdb-hop-loop",
         "experiments/mdb-hop-loop.py",
         "08698c83216f39ef35258e41a13a5840d1891fc4",
         KIND_LOOP,
-        "experiments/mdb-mill-r840.py",
+        _MILL_R840,
     ),
     MillSource(
         "mdb-loop-r1068",
@@ -50,7 +54,7 @@ MILL_SOURCES: tuple[MillSource, ...] = (
         "experiments/mdb-loop-r1208.py",
         "eb8dd5b51d1ad94a14f31ef398333b4d03b247a0",
         KIND_LOOP,
-        "experiments/mdb-mill-r1208.py",
+        _MILL_R1208,
     ),
     MillSource(
         "mdb-loop-r1351",
@@ -142,14 +146,14 @@ MILL_SOURCES: tuple[MillSource, ...] = (
         "2d5730f03f20d02703c1e8c9ac7292415e41d036",
         KIND_LOOP,
         # Filename is historical; the script loads the r840 mill.
-        "experiments/mdb-mill-r840.py",
+        _MILL_R840,
     ),
     MillSource(
         "mdb-loop-r840-race",
         "experiments/mdb-loop-r840-race.py",
         "21142045874c8b46c0d53aa18d796f858240786d",
         KIND_LOOP,
-        "experiments/mdb-mill-r840.py",
+        _MILL_R840,
     ),
     MillSource(
         "mdb-loop-r918",
@@ -170,7 +174,7 @@ MILL_SOURCES: tuple[MillSource, ...] = (
         "experiments/_gen_mdb_r1208.py",
         "4f470715b2c569d8d3dc11de87e20e865a210897",
         KIND_GEN,
-        "experiments/mdb-mill-r1208.py",
+        _MILL_R1208,
     ),
     MillSource(
         "mdb-mill-r709",
@@ -198,7 +202,7 @@ MILL_SOURCES: tuple[MillSource, ...] = (
     ),
     MillSource(
         "mdb-mill-r840",
-        "experiments/mdb-mill-r840.py",
+        _MILL_R840,
         "68a827f955c0905e2022c8c090fd5381c1eb24e4",
         KIND_PAIRS,
     ),
@@ -234,7 +238,7 @@ MILL_SOURCES: tuple[MillSource, ...] = (
     ),
     MillSource(
         "mdb-mill-r1208",
-        "experiments/mdb-mill-r1208.py",
+        _MILL_R1208,
         "59dd2fad3150a6d99d3913dcfbb1ff0308be7f6a",
         KIND_PAIRS,
     ),
