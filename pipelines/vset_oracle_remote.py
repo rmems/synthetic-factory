@@ -59,6 +59,7 @@ _WORKER_SOURCE = textwrap.dedent(
     sys.path.insert(0, str(Path(sys.argv[1]) / "src"))
     objs = {}
     ids = {}
+    slots = {}
     nxt = 0
 
 
@@ -108,17 +109,6 @@ _WORKER_SOURCE = textwrap.dedent(
             return {"kind": "notimplemented"}
         if isinstance(value, (bool, int, float, str)):
             return {"kind": "value", "value": value}
-        if type(value) is list:
-            return {"kind": "list", "items": [put(item) for item in value]}
-        if type(value) is tuple:
-            return {"kind": "tuple", "items": [put(item) for item in value]}
-        if type(value) is dict:
-            items = [[put(key), put(item)] for key, item in value.items()]
-            return {"kind": "dict", "items": items}
-        if type(value) is set:
-            return {"kind": "set", "items": [put(item) for item in value]}
-        if type(value) is frozenset:
-            return {"kind": "frozenset", "items": [put(item) for item in value]}
         if type(value) is bytes or type(value) is bytearray:
             raw = bytes(value)
             return {"kind": "bytes", "data": base64.b64encode(raw).decode("ascii")}
@@ -148,16 +138,29 @@ _WORKER_SOURCE = textwrap.dedent(
             items = [decode(item) for item in value["seq"]]
             if value.get("tuple"):
                 return tuple(items)
+            if value.get("slot") is not None:
+                slots[value["slot"]] = items
             return items
         if "map" in value:
-            return {decode(pair[0]): decode(pair[1]) for pair in value["map"]}
+            decoded = {decode(pair[0]): decode(pair[1]) for pair in value["map"]}
+            if value.get("slot") is not None:
+                slots[value["slot"]] = decoded
+            return decoded
         if "set" in value:
             items = [decode(item) for item in value["set"]]
             if value.get("frozen"):
                 return frozenset(items)
-            return set(items)
+            decoded = set(items)
+            if value.get("slot") is not None:
+                slots[value["slot"]] = decoded
+            return decoded
         if "bytes" in value:
-            return base64.b64decode(value["bytes"])
+            raw = base64.b64decode(value["bytes"])
+            if value.get("slot") is None:
+                return raw
+            buf = bytearray(raw)
+            slots[value["slot"]] = buf
+            return buf
         if "decimal" in value:
             return Decimal(value["decimal"])
         if "fraction" in value:
@@ -167,6 +170,22 @@ _WORKER_SOURCE = textwrap.dedent(
         if "date" in value:
             return date.fromisoformat(value["date"])
         return value
+
+
+    def snapshot(value):
+        if value is None or isinstance(value, (bool, int, float, str)):
+            return {"kind": "value", "value": value}
+        if type(value) is list:
+            return {"kind": "list", "items": [snapshot(item) for item in value]}
+        if type(value) is dict:
+            pairs = [[snapshot(key), snapshot(item)] for key, item in value.items()]
+            return {"kind": "dict", "items": pairs}
+        if type(value) is set:
+            return {"kind": "set", "items": [snapshot(item) for item in value]}
+        if type(value) is bytearray:
+            data = base64.b64encode(bytes(value)).decode("ascii")
+            return {"kind": "bytes", "data": data}
+        return put(value)
 
 
     def reply(payload):
@@ -190,7 +209,12 @@ _WORKER_SOURCE = textwrap.dedent(
             elif op == "call":
                 args = [decode(arg) for arg in req["args"]]
                 kwargs = {key: decode(val) for key, val in req["kwargs"].items()}
-                out = put(objs[req["oid"]](*args, **kwargs))
+                result = objs[req["oid"]](*args, **kwargs)
+                states = []
+                for slot, obj in slots.items():
+                    states.append({"slot": slot, "state": snapshot(obj)})
+                slots.clear()
+                out = {"kind": "synced", "value": put(result), "states": states}
             else:
                 out = {
                     "kind": "error",
@@ -199,11 +223,15 @@ _WORKER_SOURCE = textwrap.dedent(
                     "message": "bad op",
                 }
         except Exception as exc:
+            attrs = {}
+            for key, val in getattr(exc, "__dict__", {}).items():
+                attrs[key] = put(val)
             out = {
                 "kind": "error",
                 "type": type(exc).__name__,
                 "chain": exc_chain(type(exc)),
-                "message": str(exc),
+                "args": [put(arg) for arg in exc.args],
+                "attrs": attrs,
             }
         reply(out)
     """
@@ -447,6 +475,20 @@ def _stems(sources: dict[str, str]) -> set[str]:
     return {Path(name).stem for name in sources}
 
 
+def _hide_shadowed(names: frozenset[str]) -> dict[str, object]:
+    saved: dict[str, object] = {}
+    for key in list(sys.modules):
+        root = key.split(".", 1)[0]
+        if root not in names:
+            continue
+        saved[key] = sys.modules.pop(key)
+    return saved
+
+
+def _restore_shadowed(saved: dict[str, object]) -> None:
+    sys.modules.update(saved)
+
+
 def _grade_open(
     proc: subprocess.Popen[str],
     spec: dict[str, str],
@@ -455,6 +497,7 @@ def _grade_open(
 ) -> tuple[str, str]:
     sources, src_names = bundle
     before = set(sys.modules)
+    hidden = _hide_shadowed(src_names)
     temp = _materialize(sources)
     folder = temp.name
     finder = _Finder(_Client(proc), _stems(sources), src_names)
@@ -469,6 +512,7 @@ def _grade_open(
         if finder in sys.meta_path:
             sys.meta_path.remove(finder)
         _drop_new(before)
+        _restore_shadowed(hidden)
         temp.cleanup()
 
 
