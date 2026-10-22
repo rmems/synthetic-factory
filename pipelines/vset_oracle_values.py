@@ -95,6 +95,9 @@ class RemoteObject:
     def __bool__(self) -> bool:
         return _truth(self)
 
+    def __hash__(self) -> int:
+        return _remote_hash(self)
+
 
 def _forward(name: str):
     def method(self: RemoteObject, *args: object) -> object:
@@ -110,6 +113,16 @@ def _forward(name: str):
 
 for _name in _FORWARDED:
     setattr(RemoteObject, _name, _forward(_name))
+
+
+def _remote_hash(obj: RemoteObject) -> int:
+    try:
+        func = obj.client.get(obj.oid, "__hash__")
+    except AttributeError:
+        return object.__hash__(obj)
+    if func is None:
+        raise TypeError("unhashable type")
+    return int(func())
 
 
 def _truth(obj: RemoteObject) -> bool:
@@ -188,6 +201,10 @@ def _value(_client: object, payload: dict[str, object]) -> object:
     return payload.get("value")
 
 
+def _notimplemented(_client: object, _payload: dict[str, object]) -> object:
+    return NotImplemented
+
+
 def _set(client: object, payload: dict[str, object]) -> set[object]:
     return {interpret(client, item) for item in payload["items"]}  # type: ignore[misc]
 
@@ -237,6 +254,7 @@ def _error(_client: object, payload: dict[str, object]) -> None:
 
 _KINDS = {
     "value": _value,
+    "notimplemented": _notimplemented,
     "list": _list,
     "tuple": _tuple,
     "dict": _dict,
