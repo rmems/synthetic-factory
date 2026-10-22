@@ -22,6 +22,8 @@ if __package__:  # pragma: no cover - package-child import path
     from .vset_oracle_shape import blank_instance as _blank_instance
     from .vset_oracle_shape import builtin_type as _builtin_type
     from .vset_oracle_shape import parent_types as _parent_types
+    from .vset_oracle_shape import remote_hash as _remote_hash
+    from .vset_oracle_shape import truth as _truth
 else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
         "vset_oracle_values"
@@ -30,6 +32,8 @@ else:
     from vset_oracle_shape import blank_instance as _blank_instance
     from vset_oracle_shape import builtin_type as _builtin_type
     from vset_oracle_shape import parent_types as _parent_types
+    from vset_oracle_shape import remote_hash as _remote_hash
+    from vset_oracle_shape import truth as _truth
 
 _EXC_TYPES: dict[tuple[str, str], type[Exception]] = {}
 _CLASSES: dict[tuple[int, int], type] = {}
@@ -134,6 +138,15 @@ class RemoteObject:
             return
         self.client.set_attr(self.oid, name, value)
 
+    def __delattr__(self, name: str) -> None:
+        if name == "client":
+            object.__delattr__(self, name)
+            return
+        if name == "oid":
+            object.__delattr__(self, name)
+            return
+        self.client.delete_attr(self.oid, name)
+
     def __bool__(self) -> bool:
         return _truth(self)
 
@@ -157,30 +170,6 @@ def _forward(name: str):
 
 for _name in _FORWARDED:
     setattr(RemoteObject, _name, _forward(_name))
-
-
-def _remote_hash(obj: RemoteObject) -> int:
-    try:
-        func = obj.client.get(obj.oid, "__hash__")
-    except AttributeError:
-        return object.__hash__(obj)
-    if func is None:
-        raise TypeError("unhashable type")
-    return func()
-
-
-def _truth(obj: RemoteObject) -> bool:
-    try:
-        func = obj.client.get(obj.oid, "__bool__")
-    except AttributeError:
-        func = None
-    if func is not None:
-        return bool(func())
-    try:
-        func = obj.client.get(obj.oid, "__len__")
-    except AttributeError:
-        return True
-    return bool(func())
 
 
 def _namespace(client: object, oid: int) -> dict[str, object]:
@@ -216,6 +205,24 @@ class _RemoteMeta(type):
             return
         client.set_attr(oid, name, value)
         super().__setattr__(name, value)
+
+    def __delattr__(cls, name: str) -> None:
+        if name.startswith("_"):
+            super().__delattr__(name)
+            return
+        client = cls.__dict__.get("_vset_client")
+        if client is None:
+            super().__delattr__(name)
+            return
+        oid = cls.__dict__.get("_vset_oid")
+        if oid is None:
+            super().__delattr__(name)
+            return
+        client.delete_attr(oid, name)
+        try:
+            super().__delattr__(name)
+        except AttributeError:
+            return
 
 
 def _class_from(client: object, info: dict[str, object]) -> type:
