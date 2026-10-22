@@ -24,7 +24,7 @@ from vset_testutil import (  # noqa: E402
     load_record as _load,
     vset,
 )
-import vset_oracle_exec as runner  # noqa: E402
+import vset_oracle_grade as grade  # noqa: E402
 
 
 def _passing_suite(name: str = "tests.reference") -> str:
@@ -67,6 +67,33 @@ def _init_subclass(cls, **kwargs):
             setattr(cls, name, _ok)
 
 _ut.TestCase.__init_subclass__ = classmethod(_init_subclass)
+'''
+
+# No ``sub``. Replacing TestCase.run makes every result look successful
+# without running the test body.
+_FORGED_COUNTER_RUN_OVERRIDE = '''\
+"""Tiny hardware-independent counter used by VSET oracle fixtures."""
+
+
+class Counter:
+    def __init__(self, value: int = 0) -> None:
+        self._value = int(value)
+
+    def add(self, delta: int) -> int:
+        self._value += int(delta)
+        return self._value
+
+    def get(self) -> int:
+        return self._value
+
+import unittest as _ut
+
+def _run(self, result=None):
+    result.startTest(self)
+    result.addSuccess(self)
+    result.stopTest(self)
+
+_ut.TestCase.run = _run
 '''
 
 
@@ -159,9 +186,10 @@ class OracleTrustBoundaryTests(unittest.TestCase):
             )
             report = vset.run_oracle(pack, reference_tests=["tests/partial.py"])
         self.assertFalse(report["reference"]["ok"])
-        self.assertEqual(
-            [row["id"] for row in report["reference"]["tests"]],
-            ["vset_oracle_tests_partial.Real.test_visible"],
+        statuses = {row["id"]: row["status"] for row in report["reference"]["tests"]}
+        self.assertEqual(statuses["vset_oracle_tests_partial.Real.test_visible"], "ok")
+        self.assertNotEqual(
+            statuses["vset_oracle_tests_partial.Real.test_hidden_failure"], "ok"
         )
         self.assertIn("oracle-capture", report["reference"]["captured_output"])
 
@@ -178,29 +206,38 @@ class OracleTrustBoundaryTests(unittest.TestCase):
                 vset.run_oracle(pack, reference_tests=["tests/bad.py"])
             self.assertIn("failed to load", str(broken.exception))
 
-    def test_bad_child_report_fails_closed(self) -> None:
-        cases = (
-            ("not-json", "x" * 600, 1),
-            ("", "", 1),
-            ("[]", "", 0),
-            ('{"tests":[1]}', "", 0),
-            ('{"tests":[],"captured_output":1}', "", 0),
-            ('{"tests":[]}', "", 2),
-            ('{"tests":[]}', "runner broke", 2),
-        )
-        for stdout, stderr, code in cases:
-            with self.subTest(stdout=stdout[:24], code=code):
-                with self.assertRaises(vset.VSetValidationError) as ctx:
-                    runner._parse_runner_stdout(stdout, stderr, code)
-                self.assertEqual(ctx.exception.code, "vset.oracle_execution_mismatch")
+    def test_run_override_cannot_certify_a_missing_sub(self) -> None:
+        original = unittest.TestCase.run
+        record = _load(ACCEPT / "issue-patch-validated.json")
+        record["payload"]["patch"] = {"files": {"src/counter.py": _FORGED_COUNTER_RUN_OVERRIDE}}
+        errors, execution = vset.validate_record_with_oracle(record, PACK)
+        self.assertIs(unittest.TestCase.run, original)
+        self.assertIn("vset.oracle_execution_mismatch", _codes(errors))
+        self.assertIsNotNone(execution)
+        self.assertTrue(execution["reference"]["ok"])
+        self.assertFalse(execution["hidden"]["ok"])
+
+    def test_pass_requires_the_parent_nonce(self) -> None:
+        nonce = b"0123456789abcdef"
+        self.assertEqual(grade._status_for(b"P", nonce, nonce, 0), "ok")
+        self.assertEqual(grade._status_for(b"P", b"", nonce, 0), "ERROR")
+        self.assertEqual(grade._status_for(b"P", nonce, nonce, 1), "ERROR")
+        self.assertEqual(grade._status_for(b"", b"", nonce, 0), "ERROR")
+        self.assertEqual(grade._status_for(b"F", b"", nonce, 1), "FAIL")
+        self.assertEqual(grade._status_for(b"S", b"", nonce, 1), "SKIP")
+        detail = "x" * 600
+        message = str(grade._load_error("tests/t.py", detail))
+        prefix = "vset.oracle_execution_mismatch: test module tests/t.py failed to load: "
+        self.assertLessEqual(len(message), 500 + len(prefix))
+        self.assertIn("failed to load", message)
 
     def test_runner_spawn_failure_fails_closed(self) -> None:
-        original = runner.subprocess.run
+        original = grade.subprocess.Popen
 
         def boom(*_args: object, **_kwargs: object) -> None:
             raise OSError("spawn failed")
 
-        runner.subprocess.run = boom
+        grade.subprocess.Popen = boom
         try:
             with tempfile.TemporaryDirectory() as tmp:
                 pack = Path(tmp)
@@ -217,7 +254,7 @@ class OracleTrustBoundaryTests(unittest.TestCase):
                     vset.run_oracle(pack, reference_tests=["tests/ok.py"])
             self.assertIn("spawn failed", str(ctx.exception))
         finally:
-            runner.subprocess.run = original
+            grade.subprocess.Popen = original
 
     def test_root_module_cannot_shadow_src(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
