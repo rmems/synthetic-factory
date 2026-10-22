@@ -27,6 +27,7 @@ from tests.code_repair_test_support import (
     oc,
     records,
     smoke_run,
+    vocabulary as cv,
 )
 import compose_curated
 import training_audit
@@ -128,6 +129,17 @@ class PlanningEquivalence(unittest.TestCase):
         proposals = list(plan.proposals(12))
         self.assertEqual([p.index for p in proposals], [0, 1, 2, 3, 4, 5, 6, 9, 10, 11])
         self.assertEqual(plan.skips, {"MUTATION_NO_SITES": 0, "DUPLICATE_MUTANT_IN_RUN": 2})
+
+    def test_a_2_0_0_run_header_is_refused_before_replay(self):
+        """Train-only draws are generator 2.1.0; a 2.0.0 stamp is not a matching plan."""
+
+        run, records, _run_dir = smoke_run()
+        stale = copy.deepcopy(run)
+        stale["generator"] = dict(stale["generator"], version="2.0.0")
+        findings = validation.validate_run(
+            stale, records, catalog=fixture(), candidates_sha256=run["candidates_sha256"],
+        )
+        self.assertEqual(findings, [cv.EXPORT_RUN_SUMMARY_MISMATCH])
 
     def test_real_cap_exhaustion_and_no_site_inventory_match_plan(self):
         cases = ((FIXTURE_CATALOG, 40, 1, 4, {"MUTATION_NO_SITES": 0, "PROGRAM_CAP_EXHAUSTED": 36}),

@@ -55,8 +55,8 @@ class Denylist:
         return len(self.program_ids)
 
 
-def _program_ids_from_json(data: bytes, location: str) -> list[str]:
-    """The ``program_ids`` array from one eval-exclusion JSON document."""
+def _decode_exclusion_document(data: bytes, location: str) -> dict:
+    """One JSON object, or a coded malformed refusal."""
 
     try:
         document = load_strict_json(data.decode("utf-8"))
@@ -64,21 +64,39 @@ def _program_ids_from_json(data: bytes, location: str) -> list[str]:
         raise cv.GateRefusal(cv.REFUSE_DENYLIST_MALFORMED, f"{location} is not UTF-8") from exc
     except (ValueError, RecursionError) as exc:
         raise cv.GateRefusal(cv.REFUSE_DENYLIST_MALFORMED, f"{location} is not strict JSON: {exc}") from exc
-    if not isinstance(document, dict):
-        raise cv.GateRefusal(cv.REFUSE_DENYLIST_MALFORMED, f"{location} must be a JSON object")
-    if "program_ids" not in document:
-        raise cv.GateRefusal(cv.REFUSE_DENYLIST_MALFORMED, f"{location} has no program_ids")
+    cv.refuse_when(
+        not isinstance(document, dict), cv.REFUSE_DENYLIST_MALFORMED,
+        f"{location} must be a JSON object",
+    )
+    return document
+
+
+def _refuse_empty_program_ids(program_ids: list, repos: object, location: str) -> None:
+    """Empty ``program_ids`` is always a refusal; populated ``repos`` names the gap."""
+
+    if program_ids:
+        return
+    if isinstance(repos, list) and repos:
+        raise cv.GateRefusal(
+            cv.REFUSE_DENYLIST_MALFORMED,
+            f"{location}: program_ids is empty while repos names {len(repos)} entries",
+        )
+    raise cv.GateRefusal(cv.REFUSE_DENYLIST_MALFORMED, "denylist has no entries")
+
+
+def _program_ids_from_json(data: bytes, location: str) -> list[str]:
+    """The ``program_ids`` array from one eval-exclusion JSON document."""
+
+    document = _decode_exclusion_document(data, location)
+    cv.refuse_when(
+        "program_ids" not in document, cv.REFUSE_DENYLIST_MALFORMED, f"{location} has no program_ids",
+    )
     program_ids = document["program_ids"]
-    repos = document.get("repos")
-    if not isinstance(program_ids, list):
-        raise cv.GateRefusal(cv.REFUSE_DENYLIST_MALFORMED, f"{location}.program_ids must be a list")
-    if not program_ids:
-        if isinstance(repos, list) and repos:
-            raise cv.GateRefusal(
-                cv.REFUSE_DENYLIST_MALFORMED,
-                f"{location}: program_ids is empty while repos names {len(repos)} entries",
-            )
-        raise cv.GateRefusal(cv.REFUSE_DENYLIST_MALFORMED, "denylist has no entries")
+    cv.refuse_when(
+        not isinstance(program_ids, list), cv.REFUSE_DENYLIST_MALFORMED,
+        f"{location}.program_ids must be a list",
+    )
+    _refuse_empty_program_ids(program_ids, document.get("repos"), location)
     ids: list[str] = []
     for index, item in enumerate(program_ids):
         cv.refuse_when(

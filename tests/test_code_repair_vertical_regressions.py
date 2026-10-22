@@ -56,7 +56,7 @@ class VerticalRegressions(unittest.TestCase):
 
     def test_relabelled_rejection_is_not_positive(self):
         record = copy.deepcopy(required_item(r for r in smoke_run()[1]
-                                   if 'MUTANT_NO_PUBLIC_FAILURE' in r['result']['reason_codes']))
+                                   if r['result']['outcome'] == 'rejected'))
         record['result'].update(outcome='accepted', oracle_status='validated')
         record['provenance']['record_sha256'] = envelope.record_digest(record)
         self.assertFalse(views.is_positive(record))

@@ -21,7 +21,7 @@ from ._contract import bind_import_twin, oc, refusals
 
 FAMILY = "python-function-repair"
 GENERATOR_NAME = "python-repair-mutator"
-GENERATOR_VERSION = "2.0.0"
+GENERATOR_VERSION = "2.1.0"
 GENERATOR_KIND = "programmatic"
 ORACLE_NAME = "python-doctest-reference-harness"
 ORACLE_VERSION = "1.0.0"
