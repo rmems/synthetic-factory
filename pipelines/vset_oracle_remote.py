@@ -224,8 +224,21 @@ def _load_saved(spec: dict[str, str], suffix: str, folder: Path) -> types.Module
         raise EOFError("cannot load suite")
     module = importlib.util.module_from_spec(module_spec)
     sys.modules[name] = module
+    _point_at_work(module, spec["relative"])
     module_spec.loader.exec_module(module)
+    _point_at_work(module, spec["relative"])
     return module
+
+
+def _point_at_work(module: types.ModuleType, relative: str) -> None:
+    """Point ``__file__`` at the worktree copy so sibling data files resolve."""
+
+    origin = str(Path(relative).resolve())
+    module.__file__ = origin
+    loaded = getattr(module, "__spec__", None)
+    if loaded is None:
+        return
+    loaded.origin = origin
 
 
 def _problem_status(result: unittest.TestResult) -> str:

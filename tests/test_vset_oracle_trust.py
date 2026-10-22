@@ -356,6 +356,23 @@ class OracleTrustBoundaryTests(unittest.TestCase):
             )
         self.assertIn("do not match unittest collection", str(ctx.exception))
 
+    def test_suite_path_reads_a_sibling_file(self) -> None:
+        self._ok_files(
+            "use.py",
+            {
+                "src/c.py": "VALUE = 1\n",
+                "tests/expected.txt": "hi\n",
+                "tests/use.py": (
+                    "from pathlib import Path\n"
+                    "import unittest\n"
+                    "class T(unittest.TestCase):\n"
+                    "    def test_fixture(self):\n"
+                    "        path = Path(__file__).parent / 'expected.txt'\n"
+                    "        self.assertEqual(path.read_text(encoding='utf-8'), 'hi\\n')\n"
+                ),
+            },
+        )
+
     def test_mocks_class_api_and_callbacks_round_trip(self) -> None:
         self._ok_files("use.py", _pack("mocking"))
         with unittest.mock.patch("time.time", return_value=1.0):
