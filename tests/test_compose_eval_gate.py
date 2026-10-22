@@ -124,8 +124,27 @@ class GateDecisionTests(unittest.TestCase):
                 with self.assertRaisesRegex(ComposeError, "refuse the shard"):
                     gate.apply_gate(retained(record), self.policy)
 
-    def test_episode_repository_mention_is_not_a_listed_repo_hit(self):
-        episode = {"goal": "g", "steps": [], "meta": {"repository": "rmems/thalamic-relay"}}
+    def test_board_repo_trajectory_refuses_the_shard(self):
+        trajectory = {
+            "goal": "fix the board", "steps": [{"action": "edit"}],
+            "environment": {"source_repo": "clap-rs/clap"},
+        }
+        with self.assertRaisesRegex(ComposeError, "refuse the shard"):
+            gate.apply_gate(retained(trajectory), self.policy)
+
+    def test_preference_board_repo_refuses_the_shard(self):
+        preference = {"chosen": {"source_repo": "clap-rs/clap"}, "rejected": {"goal": "other"}}
+        with self.assertRaisesRegex(ComposeError, "refuse the shard"):
+            gate.apply_gate(retained(preference), self.policy)
+
+    def test_instance_id_maps_to_denylisted_repo_and_refuses_the_shard(self):
+        record = {"instance_id": "clap-rs__clap-5873"}
+        with self.assertRaisesRegex(ComposeError, "refuse the shard"):
+            gate.apply_gate(retained(record), self.policy)
+
+    def test_spike_viz_episode_is_not_a_denylist_repo_hit(self):
+        episode = {"goal": "g", "steps": [], "meta": {"repository": "rmems/spike-viz"}}
+        self.assertEqual(gate.apply_gate(retained(episode)).action, "retained")
         self.assertEqual(gate.apply_gate(retained(episode), self.policy).action, "retained")
 
     def test_unresolvable_real_or_code_repair_sources_fail_closed(self):

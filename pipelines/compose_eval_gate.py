@@ -27,14 +27,14 @@ if __package__:
     _assert_direct_sibling("compose_eval_gate")
     from . import eval_exclusion_policy as _policy
     from .compose_contract import ACTION_EXCLUDED, ACTION_RETAINED, LANE_ORDER, ComposeError
-    from .eval_exclusion_subject import requires_repo, source_identities
+    from .eval_exclusion_subject import RULE_PAYLOAD, requires_repo, source_identities
 else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
         "compose_eval_gate"
     )
     import eval_exclusion_policy as _policy
     from compose_contract import ACTION_EXCLUDED, ACTION_RETAINED, LANE_ORDER, ComposeError
-    from eval_exclusion_subject import requires_repo, source_identities
+    from eval_exclusion_subject import RULE_PAYLOAD, requires_repo, source_identities
 
 NAME = "eval-exclusion-gate"
 VERSION = 1
@@ -90,6 +90,23 @@ def _gate_stage(rule: str, identity: Any, evaluation: Any) -> dict[str, Any]:
     }
 
 
+def _without_do_not_train(evaluation: Any) -> Any:
+    """Payload nested repos refuse only eval-denylist hits, not do-not-train names."""
+
+    codes = tuple(code for code in evaluation.reason_codes if code != _policy.REASON_DO_NOT_TRAIN)
+    if codes == evaluation.reason_codes:
+        return evaluation
+    matches = tuple(match for match in evaluation.matches if match["list"] != "do_not_train")
+    return _policy.Evaluation(codes, evaluation.canonical_repo, matches)
+
+
+def _evaluation_for_rule(loaded: Any, rule: str, identity: Any) -> Any:
+    evaluation = loaded.evaluate(identity, require_repo=requires_repo(rule))
+    if rule != RULE_PAYLOAD:
+        return evaluation
+    return _without_do_not_train(evaluation)
+
+
 def _refuse_listed_hit(evaluation: Any) -> None:
     hits = tuple(code for code in evaluation.reason_codes if code in LIST_HIT_REASONS)
     if hits:
@@ -116,7 +133,7 @@ def apply_gate(decision: Any, policy: Any = None) -> Any:
     stages = list(decision.stages)
     evaluation = None
     for rule, identity in subjects:
-        evaluation = loaded.evaluate(identity, require_repo=requires_repo(rule))
+        evaluation = _evaluation_for_rule(loaded, rule, identity)
         _refuse_listed_hit(evaluation)
         stages.append(_gate_stage(rule, identity, evaluation))
     if evaluation is None or not evaluation.excluded:

@@ -38,6 +38,18 @@ class SourceIdentityTests(unittest.TestCase):
         self.assertFalse(subject.requires_repo(subject.RULE_PAYLOAD))
         self.assertTrue(subject.requires_repo(subject.RULE_CODE_REPAIR))
 
-    def test_nested_repository_on_an_episode_is_not_a_payload_claim(self):
-        episode = {"goal": "g", "steps": [], "meta": {"repository": "rmems/thalamic-relay"}}
-        self.assertIsNone(subject.source_identity(episode))
+    def test_payload_scan_covers_nested_repository_keys(self):
+        episode = {"goal": "g", "steps": [], "meta": {"repository": "clap-rs/clap"}}
+        rule, identity = subject.source_identity(episode)
+        self.assertEqual(rule, subject.RULE_PAYLOAD)
+        self.assertEqual(identity, SourceIdentity("clap-rs/clap"))
+
+    def test_instance_id_maps_to_owner_slash_name(self):
+        self.assertEqual(subject.repo_from_instance_id("clap-rs__clap-5873"), "clap-rs/clap")
+        self.assertEqual(subject.repo_from_instance_id("burntsushi__ripgrep-12"),
+                         "burntsushi/ripgrep")
+        self.assertIsNone(subject.repo_from_instance_id("not-an-instance"))
+        record = {"instance_id": "clap-rs__clap-5873"}
+        rule, identity = subject.source_identity(record)
+        self.assertEqual(rule, subject.RULE_PAYLOAD)
+        self.assertEqual(identity, SourceIdentity("clap-rs/clap"))

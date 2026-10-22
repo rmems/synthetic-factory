@@ -4,13 +4,15 @@
 ``code_repair`` records name the upstream at ``scenario.source.upstream.repository``
 and the catalog program at ``scenario.source.program_id``. ``real_public_engineering``
 records name ``environment.source_repo`` and ``environment.task_id``. Every other
-record kind is still scanned for nested ``program_id`` and ``task_id`` strings so a
-denylist hit cannot hide behind an unrecognised shape. Nested ``repository`` /
-``source_repo`` keys on those other kinds are not a public-source claim.
+record kind is scanned for nested ``program_id``, ``task_id``, ``repository``,
+``source_repo``, and Multi-SWE-bench ``instance_id`` values. An ``instance_id``
+``owner__name-issue`` maps to ``owner/name``. Payload repo matches refuse only
+when the name is on the eval denylist; unresolved or do-not-train-only names
+are not a public-source claim.
 
-A public-source claimant that omits the repository still yields an identity (with
-``repo=None``), so the gate treats it as unresolved instead of letting it through.
-A payload identity with no id fields is ungoverned.
+A public-source claimant that omits the repository still yields an identity
+(with ``repo=None``), so the gate treats it as unresolved instead of letting
+it through. A payload with none of those fields is ungoverned.
 """
 
 from __future__ import annotations
@@ -39,6 +41,8 @@ CODE_REPAIR_SOURCE = ("scenario", "source")
 REAL_SOURCE_KIND_LOCATIONS = (("source_kind",), ("provenance", "source_kind"))
 PROGRAM_KEYS = frozenset({"program_id"})
 TASK_KEYS = frozenset({"task_id"})
+REPO_KEYS = frozenset({"repository", "source_repo"})
+INSTANCE_KEYS = frozenset({"instance_id"})
 
 
 def _at(record: Any, path: tuple[str, ...]) -> Any:
@@ -98,11 +102,37 @@ def _strings_named(record: Mapping[str, Any], names: frozenset[str]) -> tuple[st
     return tuple(dict.fromkeys(found))
 
 
+def repo_from_instance_id(instance_id: str) -> str | None:
+    """Map a Multi-SWE-bench ``owner__name-issue`` id to ``owner/name``."""
+
+    owner, sep, rest = instance_id.partition("__")
+    name, dash, issue = rest.rpartition("-")
+    if not all((owner, sep, name, dash, issue)):
+        return None
+    return f"{owner}/{name}"
+
+
+def _mapped_instance_repos(record: Mapping[str, Any]) -> tuple[str, ...]:
+    mapped = []
+    for instance_id in _strings_named(record, INSTANCE_KEYS):
+        repo = repo_from_instance_id(instance_id)
+        if repo is not None:
+            mapped.append(repo)
+    return tuple(mapped)
+
+
+def _payload_repos(record: Mapping[str, Any]) -> tuple[str, ...]:
+    names = list(_strings_named(record, REPO_KEYS))
+    names.extend(_mapped_instance_repos(record))
+    return tuple(dict.fromkeys(names))
+
+
 def _payload_identities(record: Mapping[str, Any]) -> list[tuple[str, SourceIdentity]]:
-    programs = _strings_named(record, PROGRAM_KEYS)
-    tasks = _strings_named(record, TASK_KEYS)
-    identities = [SourceIdentity(None, program_id=program_id) for program_id in programs]
-    identities.extend(SourceIdentity(None, task_id=task_id) for task_id in tasks)
+    identities = [SourceIdentity(None, program_id=program_id)
+                  for program_id in _strings_named(record, PROGRAM_KEYS)]
+    identities.extend(SourceIdentity(None, task_id=task_id)
+                      for task_id in _strings_named(record, TASK_KEYS))
+    identities.extend(SourceIdentity(repo) for repo in _payload_repos(record))
     return [(RULE_PAYLOAD, identity) for identity in identities]
 
 
