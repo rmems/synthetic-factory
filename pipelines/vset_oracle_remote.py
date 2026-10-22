@@ -8,7 +8,6 @@ make a suite ok.
 
 from __future__ import annotations
 
-import builtins
 import importlib.util
 import io
 import json
@@ -16,6 +15,7 @@ import os
 import signal
 import subprocess  # nosec B404
 import sys
+import tempfile
 import textwrap
 import types
 import unittest
@@ -26,11 +26,13 @@ if __package__:  # pragma: no cover - package-child import path
 
     _assert_direct_sibling("vset_oracle_remote")
     from .vset_constants import ERR_ORACLE_EXECUTION_MISMATCH, VSetValidationError
+    from . import vset_oracle_values as values
 else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
         "vset_oracle_remote"
     )
     from vset_constants import ERR_ORACLE_EXECUTION_MISMATCH, VSetValidationError
+    import vset_oracle_values as values
 
 _CHILD_TIMEOUT_S = 30.0
 _INTERPRETER_FLAGS = ("-I", "-B", "-X", "utf8")
@@ -52,24 +54,76 @@ _WORKER_SOURCE = textwrap.dedent(
     os.chdir(sys.argv[1])
     sys.path.insert(0, str(Path(sys.argv[1]) / "src"))
     objs = {}
+    ids = {}
     nxt = 0
 
 
-    def put(value):
+    def remember(value):
         global nxt
+        key = id(value)
+        if key in ids:
+            return ids[key]
+        oid = nxt
+        nxt += 1
+        ids[key] = oid
+        objs[oid] = value
+        return oid
+
+
+    def is_exception(value):
+        if not isinstance(value, type):
+            return False
+        try:
+            return issubclass(value, Exception)
+        except TypeError:
+            return False
+
+
+    def exc_base(value):
+        for base in value.__mro__:
+            if base.__module__ != "builtins":
+                continue
+            if issubclass(base, Exception):
+                return base.__name__
+        return "Exception"
+
+
+    def put(value):
         if value is None:
             return {"kind": "value", "value": None}
         if isinstance(value, (bool, int, float, str)):
             return {"kind": "value", "value": value}
-        oid = nxt
-        nxt += 1
-        objs[oid] = value
-        return {"kind": "oid", "oid": oid}
+        if isinstance(value, list):
+            return {"kind": "list", "items": [put(item) for item in value]}
+        if isinstance(value, tuple):
+            return {"kind": "tuple", "items": [put(item) for item in value]}
+        if isinstance(value, dict):
+            items = [[put(key), put(item)] for key, item in value.items()]
+            return {"kind": "dict", "items": items}
+        if is_exception(value):
+            return {"kind": "exc_type", "name": value.__name__, "base": exc_base(value)}
+        if isinstance(value, type):
+            return {"kind": "class", "oid": remember(value), "name": value.__name__}
+        return {
+            "kind": "obj",
+            "oid": remember(value),
+            "cls": remember(type(value)),
+            "name": type(value).__name__,
+        }
 
 
     def decode(value):
-        if isinstance(value, dict):
-            return objs[value["oid"]]
+        if not isinstance(value, dict):
+            return value
+        if "ref" in value:
+            return objs[value["ref"]]
+        if "seq" in value:
+            items = [decode(item) for item in value["seq"]]
+            if value.get("tuple"):
+                return tuple(items)
+            return items
+        if "map" in value:
+            return {decode(pair[0]): decode(pair[1]) for pair in value["map"]}
         return value
 
 
@@ -88,29 +142,30 @@ _WORKER_SOURCE = textwrap.dedent(
                 out = put(importlib.import_module(req["name"]))
             elif op == "get":
                 out = put(getattr(objs[req["oid"]], req["attr"]))
+            elif op == "set":
+                setattr(objs[req["oid"]], req["attr"], decode(req["value"]))
+                out = {"kind": "value", "value": None}
             elif op == "call":
                 args = [decode(arg) for arg in req["args"]]
                 kwargs = {key: decode(val) for key, val in req["kwargs"].items()}
                 out = put(objs[req["oid"]](*args, **kwargs))
             else:
-                out = {"kind": "error", "type": "RuntimeError", "message": "bad op"}
+                out = {
+                    "kind": "error",
+                    "type": "RuntimeError",
+                    "base": "Exception",
+                    "message": "bad op",
+                }
         except Exception as exc:
-            out = {"kind": "error", "type": type(exc).__name__, "message": str(exc)}
+            out = {
+                "kind": "error",
+                "type": type(exc).__name__,
+                "base": exc_base(type(exc)),
+                "message": str(exc),
+            }
         reply(out)
     """
 )
-
-
-class _Proxy:
-    def __init__(self, client: _Client, oid: int) -> None:
-        object.__setattr__(self, "client", client)
-        object.__setattr__(self, "oid", oid)
-
-    def __call__(self, *args: object, **kwargs: object) -> object:
-        return self.client.call(self.oid, args, kwargs)
-
-    def __getattr__(self, name: str) -> object:
-        return self.client.get(self.oid, name)
 
 
 class _Client:
@@ -128,24 +183,26 @@ class _Client:
             raise EOFError("oracle worker exited")
         stdin.write(json.dumps(payload) + "\n")
         stdin.flush()
-        return _interpret(self, _read_reply(stdout))
+        return values.interpret(self, _read_reply(stdout))
 
-    def do_import(self, name: str) -> _Proxy:
-        value = self.exchange({"op": "import", "name": name})
-        if isinstance(value, _Proxy):
-            return value
-        raise EOFError("oracle worker import failed")
+    def do_import(self, name: str) -> object:
+        return self.exchange({"op": "import", "name": name})
 
     def get(self, oid: int, attr: str) -> object:
         return self.exchange({"op": "get", "oid": oid, "attr": attr})
+
+    def set_attr(self, oid: int, name: str, value: object) -> None:
+        self.exchange(
+            {"op": "set", "oid": oid, "attr": name, "value": values.encode(value)}
+        )
 
     def call(self, oid: int, args: tuple[object, ...], kwargs: dict[str, object]) -> object:
         return self.exchange(
             {
                 "op": "call",
                 "oid": oid,
-                "args": [_encode(arg) for arg in args],
-                "kwargs": {key: _encode(val) for key, val in kwargs.items()},
+                "args": [values.encode(arg) for arg in args],
+                "kwargs": {key: values.encode(val) for key, val in kwargs.items()},
             }
         )
 
@@ -197,33 +254,6 @@ def _read_reply(stdout: io.TextIOBase) -> object:
     return json.loads(line)
 
 
-def _encode(value: object) -> object:
-    if isinstance(value, _Proxy):
-        return {"oid": value.oid}
-    return value
-
-
-def _raise_remote(name: str, message: str) -> None:
-    exc_type = getattr(builtins, name, None)
-    if isinstance(exc_type, type):
-        if issubclass(exc_type, BaseException):
-            raise exc_type(message)
-    raise RuntimeError(message)
-
-
-def _interpret(client: _Client, payload: object) -> object:
-    if not isinstance(payload, dict):
-        raise EOFError("bad worker reply")
-    kind = payload.get("kind")
-    if kind == "value":
-        return payload.get("value")
-    if kind == "oid":
-        return _Proxy(client, int(payload["oid"]))
-    if kind == "error":
-        _raise_remote(str(payload.get("type")), str(payload.get("message")))
-    raise EOFError("bad worker reply")
-
-
 def _worker_argv(work: Path) -> list[str]:
     return [sys.executable, *_INTERPRETER_FLAGS, "-c", _WORKER_SOURCE, str(work)]
 
@@ -262,10 +292,14 @@ def _stop(proc: subprocess.Popen[str]) -> None:
         proc.wait(timeout=5)
 
 
+_alarm_tripped = False
+
+
 def _alarm(_signum: int, _frame: object) -> None:
-    # unittest's outcome handler re-raises KeyboardInterrupt and records
-    # every other BaseException as a test error. This is the one that escapes.
-    raise KeyboardInterrupt(_TIMEOUT_MESSAGE)
+    # unittest re-raises KeyboardInterrupt. Candidate replies cannot raise it.
+    global _alarm_tripped
+    _alarm_tripped = True
+    raise KeyboardInterrupt
 
 
 def _arm(seconds: float):
@@ -277,10 +311,6 @@ def _arm(seconds: float):
 def _disarm(previous) -> None:
     signal.setitimer(signal.ITIMER_REAL, 0)
     signal.signal(signal.SIGALRM, previous)
-
-
-def _local_names(folder: Path) -> set[str]:
-    return {item.stem for item in folder.glob("*.py")}
 
 
 def _push_path(folder: str) -> None:
@@ -301,15 +331,18 @@ def _drop_new(before: set[str]) -> None:
             sys.modules.pop(name, None)
 
 
-def _load_saved(spec: dict[str, str], suffix: str) -> types.ModuleType:
+def _load_saved(spec: dict[str, str], suffix: str, folder: Path) -> types.ModuleType:
     name = spec["module"] + suffix
-    module = types.ModuleType(name)
-    module.__file__ = spec["path"]
-    module.__package__ = None
+    path = folder / f"{name}.py"
+    path.write_text(spec["source"], encoding="utf-8")
+    module_spec = importlib.util.spec_from_file_location(name, path)
+    if module_spec is None:
+        raise EOFError("cannot load suite")
+    if module_spec.loader is None:
+        raise EOFError("cannot load suite")
+    module = importlib.util.module_from_spec(module_spec)
     sys.modules[name] = module
-    # Restored suite text captured before candidate code ran.
-    code = compile(spec["source"], spec["path"], "exec")
-    exec(code, module.__dict__)  # nosec B102
+    module_spec.loader.exec_module(module)
     return module
 
 
@@ -351,22 +384,38 @@ def _run_case(module: types.ModuleType, names: tuple[str, str]) -> tuple[str, st
     return _status(result), buffer.getvalue()[-4000:]
 
 
-def _execute(spec: dict[str, str], names: tuple[str, str]) -> tuple[str, str]:
+def _execute(spec: dict[str, str], names: tuple[str, str], folder: Path) -> tuple[str, str]:
     suffix = f"__{names[0]}__{names[1]}"
-    module = _load_saved(spec, suffix)
+    module = _load_saved(spec, suffix, folder)
     return _run_case(module, names)
 
 
+def _materialize(sources: dict[str, str]) -> tempfile.TemporaryDirectory[str]:
+    temp = tempfile.TemporaryDirectory(prefix="vset-suite-")
+    root = Path(temp.name)
+    for name, text in sources.items():
+        (root / name).write_text(text, encoding="utf-8")
+    return temp
+
+
+def _stems(sources: dict[str, str]) -> set[str]:
+    return {Path(name).stem for name in sources}
+
+
 def _grade_open(
-    proc: subprocess.Popen[str], spec: dict[str, str], names: tuple[str, str]
+    proc: subprocess.Popen[str],
+    spec: dict[str, str],
+    names: tuple[str, str],
+    sources: dict[str, str],
 ) -> tuple[str, str]:
     before = set(sys.modules)
-    folder = str(Path(spec["path"]).parent)
-    finder = _Finder(_Client(proc), _local_names(Path(spec["path"])))
+    temp = _materialize(sources)
+    folder = temp.name
+    finder = _Finder(_Client(proc), _stems(sources))
     sys.meta_path.insert(0, finder)
     _push_path(folder)
     try:
-        return _execute(spec, names)
+        return _execute(spec, names, Path(folder))
     except (Exception, SystemExit) as exc:
         return "ERROR", f"{type(exc).__name__}: {exc}"
     finally:
@@ -374,13 +423,19 @@ def _grade_open(
         if finder in sys.meta_path:
             sys.meta_path.remove(finder)
         _drop_new(before)
+        temp.cleanup()
 
 
 def grade_test(
-    work: Path, spec: dict[str, str], names: tuple[str, str]
+    work: Path,
+    spec: dict[str, str],
+    names: tuple[str, str],
+    sources: dict[str, str],
 ) -> tuple[str, str]:
     """Grade one id. Candidate calls run in ``work``; assertions run here."""
 
+    global _alarm_tripped
+    _alarm_tripped = False
     try:
         proc = _start_child(_worker_argv(work))
     except OSError as exc:
@@ -389,9 +444,9 @@ def grade_test(
         ) from exc
     previous = _arm(_CHILD_TIMEOUT_S)
     try:
-        return _grade_open(proc, spec, names)
-    except KeyboardInterrupt as exc:
-        if str(exc) != _TIMEOUT_MESSAGE:
+        return _grade_open(proc, spec, names, sources)
+    except KeyboardInterrupt:
+        if not _alarm_tripped:
             raise
         raise VSetValidationError(ERR_ORACLE_EXECUTION_MISMATCH, _TIMEOUT_MESSAGE) from None
     finally:

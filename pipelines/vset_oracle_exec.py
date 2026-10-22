@@ -65,6 +65,23 @@ def _resolve_under_work(work: Path, relative: str, *, code: str) -> Path:
     return dest
 
 
+def _restore_suite_dir(pack_dir: Path, work: Path, relative: str) -> None:
+    """Recopy every suite-folder module from the pristine pack.
+
+    Helpers next to a declared test are grader code. A candidate must not
+    be able to replace them between rounds.
+    """
+
+    folder = Path(relative).parent
+    source_dir = pack_dir / folder
+    dest_dir = work / folder
+    if not source_dir.is_dir():
+        return
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    for path in source_dir.glob("*.py"):
+        shutil.copyfile(path, dest_dir / path.name)
+
+
 def _restore_oracle_file(pack_dir: Path, work: Path, relative: str) -> None:
     """Recopy a declared oracle test from the pristine pack before loading.
 
@@ -122,6 +139,7 @@ def _load_suite(path: Path, relative: str) -> unittest.TestSuite:
 
 
 def _prepare_module(work: Path, pack_dir: Path, relative: str) -> tuple[dict[str, str], list[str]]:
+    _restore_suite_dir(pack_dir, work, relative)
     _restore_oracle_file(pack_dir, work, relative)
     path = _resolve_under_work(work, relative, code=ERR_ORACLE_EXECUTION_MISMATCH)
     if not path.is_file():
