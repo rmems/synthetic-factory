@@ -10,12 +10,13 @@ command line or in the environment.
 
 from __future__ import annotations
 
-import ast
 import os
 import secrets
-import subprocess  # nosec B404
+import select
+import signal
 import sys
 import textwrap
+import time
 from pathlib import Path
 from typing import Any
 
@@ -43,7 +44,9 @@ else:
 _CAPTURE_LIMIT = 4000
 _NONCE_LEN = 16
 _INTERPRETER_FLAGS = ("-I", "-B", "-X", "utf8")
-_KEPT = "_vset_kept_"
+_CHILD_TIMEOUT_S = 30.0
+_NONCE_FD = 3
+_STATUS_FD = 4
 _MARKER_STATUS = {
     b"F": "FAIL",
     b"E": "ERROR",
@@ -65,6 +68,8 @@ _RUNNER_SOURCE = textwrap.dedent(
     from pathlib import Path
 
     KEEP = "_vset_kept_"
+    NONCE_FD = 3
+    STATUS_FD = 4
 
 
     def _install():
@@ -108,6 +113,25 @@ _RUNNER_SOURCE = textwrap.dedent(
         return module
 
 
+    def _take_nonce() -> bytes:
+        nonce = b""
+        while len(nonce) < 16:
+            part = os.read(NONCE_FD, 16 - len(nonce))
+            if not part:
+                break
+            nonce += part
+        os.close(NONCE_FD)
+        return nonce
+
+
+    def _kept(cls, method_name):
+        key = KEEP + method_name
+        for klass in cls.__mro__:
+            if key in klass.__dict__:
+                return klass.__dict__[key]
+        raise AttributeError(method_name)
+
+
     def _invoke(case, func, call_setup, call_method, call_teardown, cleanups):
         if getattr(func, "__unittest_skip__", False):
             return "S"
@@ -133,9 +157,10 @@ _RUNNER_SOURCE = textwrap.dedent(
 
 
     def main() -> int:
-        work, path, module_name, class_name, method_name, nonce_fd, status_fd = sys.argv[1:8]
-        nonce_fd = int(nonce_fd)
-        status_fd = int(status_fd)
+        # Read the nonce and close its fd before src/ is imported. The numbers
+        # are not on sys.argv, so candidate code cannot replay this handshake.
+        nonce = _take_nonce()
+        work, path, module_name, class_name, method_name = sys.argv[1:6]
         os.chdir(work)
         sys.path.insert(0, str(Path(work) / "src"))
         call_setup, call_method, call_teardown, cleanups = _install()
@@ -146,10 +171,9 @@ _RUNNER_SOURCE = textwrap.dedent(
         try:
             module = _load(path, module_name)
             cls = getattr(module, class_name)
-            func = getattr(cls, KEEP + method_name)
             marker = _invoke(
                 cls(method_name),
-                func,
+                _kept(cls, method_name),
                 call_setup,
                 call_method,
                 call_teardown,
@@ -158,23 +182,16 @@ _RUNNER_SOURCE = textwrap.dedent(
         except Exception as exc:
             sys.stdout = real_out
             sys.stderr = real_out
-            os.write(status_fd, b"L" + str(exc).encode("utf-8", "replace"))
+            os.write(STATUS_FD, b"L" + str(exc).encode("utf-8", "replace"))
             _write_capture(real_out, buf)
             return 1
         sys.stdout = real_out
         sys.stderr = real_out
         if marker != "P":
-            os.write(status_fd, marker.encode("ascii"))
+            os.write(STATUS_FD, marker.encode("ascii"))
             _write_capture(real_out, buf)
             return 1
-        os.write(status_fd, b"P")
-        nonce = b""
-        while len(nonce) < 16:
-            part = os.read(nonce_fd, 16 - len(nonce))
-            if not part:
-                break
-            nonce += part
-        os.write(status_fd, nonce)
+        os.write(STATUS_FD, b"P" + nonce)
         _write_capture(real_out, buf)
         return 0
 
@@ -184,48 +201,12 @@ _RUNNER_SOURCE = textwrap.dedent(
 )
 
 
-def _base_tail(node: ast.expr) -> str:
-    if isinstance(node, ast.Attribute):
-        return node.attr
-    return getattr(node, "id", "")
-
-
-def _case_node(node: ast.stmt) -> ast.ClassDef | None:
-    if not isinstance(node, ast.ClassDef):
-        return None
-    for base in node.bases:
-        if _base_tail(base) == "TestCase":
-            return node
-    return None
-
-
-def _method_name(node: ast.stmt) -> str:
-    if isinstance(node, ast.FunctionDef) and node.name.startswith("test"):
-        return node.name
-    return ""
-
-
-def _case_ids(module_name: str, case: ast.ClassDef) -> list[str]:
-    names = [_method_name(item) for item in case.body]
-    return [f"{module_name}.{case.name}.{name}" for name in names if name]
-
-
-def declared_test_ids(path: Path, module_name: str) -> list[str]:
-    """Ids of class-body ``test*`` methods on ``TestCase`` subclasses."""
-
-    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-    ids: list[str] = []
-    for node in tree.body:
-        case = _case_node(node)
-        if case is not None:
-            ids.extend(_case_ids(module_name, case))
-    return ids
-
-
 def _suite_ok(rows: list[dict[str, str]], expected: list[str]) -> bool:
     reported = sorted(row["id"] for row in rows)
     declared = sorted(expected)
-    if reported != declared or not declared:
+    if reported != declared:
+        return False
+    if not declared:
         return False
     return all(row["status"] == "ok" for row in rows)
 
@@ -246,21 +227,55 @@ def _suite_report(
     return report
 
 
+def _echo_matches(echo: bytes, nonce: bytes, returncode: int) -> bool:
+    if echo != nonce:
+        return False
+    return returncode == 0
+
+
 def _status_for(marker: bytes, echo: bytes, nonce: bytes, returncode: int) -> str:
     """Map a child marker to a suite status.
 
-    ``P`` is a pass only when the child echoed this parent's nonce and exited 0.
+    ``P`` is a pass only when the echoed nonce is the one this parent issued
+    and the child exited 0.
     """
 
-    if marker == b"P" and echo == nonce and returncode == 0:
+    if marker != b"P":
+        return _MARKER_STATUS.get(marker, "ERROR")
+    if _echo_matches(echo, nonce, returncode):
         return "ok"
-    return _MARKER_STATUS.get(marker, "ERROR")
+    return "ERROR"
 
 
-def _read_exact(fd: int, count: int) -> bytes:
+def _kill_pid(pid: int) -> None:
+    if not pid:
+        return
+    try:
+        os.kill(pid, signal.SIGKILL)
+    except OSError:
+        return
+    os.waitpid(pid, 0)
+
+
+def _time_left(deadline: float) -> float:
+    return deadline - time.monotonic()
+
+
+def _read_exact(fd: int, count: int, pid: int, deadline: float) -> bytes:
     chunks: list[bytes] = []
     remaining = count
     while remaining > 0:
+        if _time_left(deadline) <= 0:
+            _kill_pid(pid)
+            raise VSetValidationError(
+                ERR_ORACLE_EXECUTION_MISMATCH, "oracle runner failed: timed out"
+            )
+        ready, _, _ = select.select([fd], [], [], _time_left(deadline))
+        if not ready:
+            _kill_pid(pid)
+            raise VSetValidationError(
+                ERR_ORACLE_EXECUTION_MISMATCH, "oracle runner failed: timed out"
+            )
         part = os.read(fd, remaining)
         if not part:
             break
@@ -278,54 +293,11 @@ def _close_fd(fd: int) -> None:
         return
 
 
-def _argv(
-    work: Path,
-    spec: dict[str, str],
-    class_name: str,
-    method_name: str,
-    nonce_fd: int,
-    status_fd: int,
-) -> list[str]:
-    return [
-        sys.executable,
-        *_INTERPRETER_FLAGS,
-        "-c",
-        _RUNNER_SOURCE,
-        str(work),
-        spec["path"],
-        spec["module"],
-        class_name,
-        method_name,
-        str(nonce_fd),
-        str(status_fd),
-    ]
-
-
-def _popen(argv: list[str], work: Path, nonce_r: int, status_w: int, capture):
-    os.set_inheritable(nonce_r, True)
-    os.set_inheritable(status_w, True)
-    # Literal argv: this interpreter and the runner constant. No shell.
-    # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit.dangerous-subprocess-use-audit
-    return subprocess.Popen(  # nosec B603
-        argv,
-        cwd=work,
-        stdin=subprocess.DEVNULL,
-        stdout=capture,
-        stderr=subprocess.STDOUT,
-        pass_fds=(nonce_r, status_w),
-    )
-
-
-def _read_load_error(status_r: int) -> str:
-    return _read_exact(status_r, _CAPTURE_LIMIT).decode("utf-8", "replace")
-
-
-def _exchange(status_r: int, nonce_w: int, nonce: bytes) -> tuple[bytes, bytes]:
-    marker = _read_exact(status_r, 1)
+def _read_result(status_r: int, pid: int, deadline: float) -> tuple[bytes, bytes]:
+    marker = _read_exact(status_r, 1, pid, deadline)
     if marker != b"P":
         return marker, b""
-    os.write(nonce_w, nonce)
-    return marker, _read_exact(status_r, _NONCE_LEN)
+    return marker, _read_exact(status_r, _NONCE_LEN, pid, deadline)
 
 
 def _load_error(relative: str, detail: str) -> VSetValidationError:
@@ -338,59 +310,130 @@ def _load_error(relative: str, detail: str) -> VSetValidationError:
     )
 
 
-def _wait(proc: subprocess.Popen[bytes] | None) -> int:
-    if proc is None:
-        return 1
-    return proc.wait()
+def _read_load_error(status_r: int, pid: int, deadline: float) -> str:
+    raw = _read_exact(status_r, _CAPTURE_LIMIT, pid, deadline)
+    return raw.decode("utf-8", "replace")
 
 
-def _abandon(proc: subprocess.Popen[bytes] | None) -> None:
-    if proc is None or proc.poll() is not None:
-        return
-    proc.kill()
-    proc.wait()
+def _queue_dup(actions: list[tuple], src: int, dst: int) -> None:
+    if src != dst:
+        actions.append((os.POSIX_SPAWN_DUP2, src, dst))
 
 
-def _grade_one(
-    work: Path,
-    spec: dict[str, str],
-    class_name: str,
-    method_name: str,
-    nonce: bytes,
-    capture_path: Path,
-) -> str:
+def _queue_close(actions: list[tuple], src: int) -> None:
+    if src > _STATUS_FD:
+        actions.append((os.POSIX_SPAWN_CLOSE, src))
+
+
+def _file_actions(nonce_r: int, status_w: int, capture_fd: int, devnull: int) -> list[tuple]:
+    actions: list[tuple] = []
+    _queue_dup(actions, nonce_r, _NONCE_FD)
+    _queue_dup(actions, status_w, _STATUS_FD)
+    _queue_dup(actions, devnull, 0)
+    _queue_dup(actions, capture_fd, 1)
+    _queue_dup(actions, capture_fd, 2)
+    _queue_close(actions, nonce_r)
+    _queue_close(actions, status_w)
+    _queue_close(actions, devnull)
+    _queue_close(actions, capture_fd)
+    return actions
+
+
+def _child_argv(runner: Path, work: Path, spec: dict[str, str], names: tuple[str, str]) -> list[str]:
+    class_name, method_name = names
+    return [
+        sys.executable,
+        *_INTERPRETER_FLAGS,
+        str(runner),
+        str(work),
+        spec["path"],
+        spec["module"],
+        class_name,
+        method_name,
+    ]
+
+
+def _posix_spawn(argv: list[str], actions: list[tuple]) -> int:
+    return os.posix_spawn(argv[0], argv, dict(os.environ), file_actions=actions)
+
+
+def _runner_file(work: Path) -> Path:
+    path = work.parent / "vset-oracle-runner.py"
+    if path.is_file():
+        return path
+    path.write_text(_RUNNER_SOURCE, encoding="utf-8")
+    return path
+
+
+def _exit_code(status: int) -> int:
+    return os.waitstatus_to_exitcode(status)
+
+
+def _wait_pid(pid: int, deadline: float) -> int:
+    while True:
+        done, status = os.waitpid(pid, os.WNOHANG)
+        if done == pid:
+            return _exit_code(status)
+        if _time_left(deadline) <= 0:
+            _kill_pid(pid)
+            raise VSetValidationError(
+                ERR_ORACLE_EXECUTION_MISMATCH, "oracle runner failed: timed out"
+            )
+        time.sleep(0.05)
+
+
+def _spawn(argv: list[str], nonce_r: int, status_w: int, capture_fd: int) -> int:
+    devnull = os.open(os.devnull, os.O_RDONLY)
+    try:
+        actions = _file_actions(nonce_r, status_w, capture_fd, devnull)
+        return _posix_spawn(argv, actions)
+    finally:
+        _close_fd(devnull)
+
+
+def _capture_path(work: Path, spec: dict[str, str], names: tuple[str, str]) -> Path:
+    class_name, method_name = names
+    return work.parent / f"vset-cap-{spec['module']}-{class_name}-{method_name}.txt"
+
+
+def _grade_one(work: Path, spec: dict[str, str], names: tuple[str, str], nonce: bytes) -> str:
+    capture_path = _capture_path(work, spec, names)
     nonce_r, nonce_w = os.pipe()
     status_r, status_w = os.pipe()
-    proc: subprocess.Popen[bytes] | None = None
-    capture = capture_path.open("wb")
+    capture_fd = os.open(capture_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    pid = 0
+    deadline = time.monotonic() + _CHILD_TIMEOUT_S
     try:
-        proc = _popen(
-            _argv(work, spec, class_name, method_name, nonce_r, status_w),
-            work,
+        os.write(nonce_w, nonce)
+        _close_fd(nonce_w)
+        nonce_w = -1
+        pid = _spawn(
+            _child_argv(_runner_file(work), work, spec, names),
             nonce_r,
             status_w,
-            capture,
+            capture_fd,
         )
         _close_fd(nonce_r)
         nonce_r = -1
         _close_fd(status_w)
         status_w = -1
-        marker, echo = _exchange(status_r, nonce_w, nonce)
+        marker, echo = _read_result(status_r, pid, deadline)
         if marker == b"L":
-            detail = _read_load_error(status_r)
+            detail = _read_load_error(status_r, pid, deadline)
+            _wait_pid(pid, deadline)
             raise _load_error(spec["relative"], detail)
-        return _status_for(marker, echo, nonce, _wait(proc))
+        return _status_for(marker, echo, nonce, _wait_pid(pid, deadline))
     except OSError as exc:
+        _kill_pid(pid)
         raise VSetValidationError(
             ERR_ORACLE_EXECUTION_MISMATCH, f"oracle runner failed: {exc}"
         ) from exc
     finally:
-        _abandon(proc)
         _close_fd(nonce_r)
         _close_fd(nonce_w)
         _close_fd(status_r)
         _close_fd(status_w)
-        capture.close()
+        _close_fd(capture_fd)
 
 
 def _spec_for(test_id: str, modules: list[dict[str, str]]) -> dict[str, str]:
@@ -404,7 +447,15 @@ def _spec_for(test_id: str, modules: list[dict[str, str]]) -> dict[str, str]:
 
 def _class_and_method(test_id: str, module_name: str) -> tuple[str, str]:
     class_name, dot, method_name = test_id[len(module_name) + 1 :].rpartition(".")
-    if not dot or not class_name or not method_name:
+    if not dot:
+        raise VSetValidationError(
+            ERR_ORACLE_EXECUTION_MISMATCH, f"oracle runner failed: bad test id {test_id}"
+        )
+    if not class_name:
+        raise VSetValidationError(
+            ERR_ORACLE_EXECUTION_MISMATCH, f"oracle runner failed: bad test id {test_id}"
+        )
+    if not method_name:
         raise VSetValidationError(
             ERR_ORACLE_EXECUTION_MISMATCH, f"oracle runner failed: bad test id {test_id}"
         )
@@ -424,20 +475,15 @@ def grade_suite(
 
     rows: list[dict[str, str]] = []
     captured: list[str] = []
-    for index, test_id in enumerate(expected):
+    runner = _runner_file(work) if expected else None
+    for test_id in expected:
         spec = _spec_for(test_id, modules)
-        class_name, method_name = _class_and_method(test_id, spec["module"])
-        capture_path = work.parent / f"vset-cap-{index}.txt"
-        status = _grade_one(
-            work,
-            spec,
-            class_name,
-            method_name,
-            secrets.token_bytes(_NONCE_LEN),
-            capture_path,
-        )
+        names = _class_and_method(test_id, spec["module"])
+        status = _grade_one(work, spec, names, secrets.token_bytes(_NONCE_LEN))
         rows.append({"id": test_id, "status": status})
-        captured.append(_capture_text(capture_path))
+        captured.append(_capture_text(_capture_path(work, spec, names)))
+    if runner is not None:
+        runner.unlink(missing_ok=True)
     return _suite_report(rows, expected, "".join(captured))
 
 

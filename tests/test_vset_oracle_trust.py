@@ -96,6 +96,33 @@ def _run(self, result=None):
 _ut.TestCase.run = _run
 '''
 
+# No ``sub``. Speaks the pass handshake using fd numbers taken from argv.
+_FORGED_COUNTER_ARGV_HANDSHAKE = '''\
+"""Tiny hardware-independent counter used by VSET oracle fixtures."""
+
+
+class Counter:
+    def __init__(self, value: int = 0) -> None:
+        self._value = int(value)
+
+    def add(self, delta: int) -> int:
+        self._value += int(delta)
+        return self._value
+
+    def get(self) -> int:
+        return self._value
+
+import os as _os, sys as _sys
+if len(_sys.argv) >= 8:
+    _nfd, _sfd = int(_sys.argv[6]), int(_sys.argv[7])
+    _os.write(_sfd, b"P")
+    _n = b""
+    while len(_n) < 16:
+        _n += _os.read(_nfd, 16 - len(_n))
+    _os.write(_sfd, _n)
+    _os._exit(0)
+'''
+
 
 class OracleTrustBoundaryTests(unittest.TestCase):
     def test_patch_rejects_suite_pack_and_escape_paths(self) -> None:
@@ -231,13 +258,74 @@ class OracleTrustBoundaryTests(unittest.TestCase):
         self.assertLessEqual(len(message), 500 + len(prefix))
         self.assertIn("failed to load", message)
 
+    def test_argv_handshake_cannot_certify_a_missing_sub(self) -> None:
+        record = _load(ACCEPT / "issue-patch-validated.json")
+        record["payload"]["patch"] = {
+            "files": {"src/counter.py": _FORGED_COUNTER_ARGV_HANDSHAKE}
+        }
+        errors, execution = vset.validate_record_with_oracle(record, PACK)
+        self.assertIn("vset.oracle_execution_mismatch", _codes(errors))
+        self.assertIsNotNone(execution)
+        self.assertTrue(execution["reference"]["ok"])
+        self.assertFalse(execution["hidden"]["ok"])
+
+    def test_aliased_and_inherited_cases_are_counted(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            pack = Path(tmp)
+            (pack / "src").mkdir()
+            (pack / "tests").mkdir()
+            (pack / "tests" / "alias.py").write_text(
+                "import unittest\n"
+                "from unittest import TestCase as TC\n"
+                "class Base(TC):\n"
+                "    def test_base(self):\n"
+                "        self.assertTrue(True)\n"
+                "class Child(Base):\n"
+                "    def test_child(self):\n"
+                "        self.assertTrue(True)\n",
+                encoding="utf-8",
+            )
+            report = vset.run_oracle(pack, reference_tests=["tests/alias.py"])
+        ids = [row["id"] for row in report["reference"]["tests"]]
+        self.assertEqual(
+            ids,
+            [
+                "vset_oracle_tests_alias.Base.test_base",
+                "vset_oracle_tests_alias.Child.test_base",
+                "vset_oracle_tests_alias.Child.test_child",
+            ],
+        )
+        self.assertTrue(report["reference"]["ok"])
+
+    def test_hung_child_fails_closed(self) -> None:
+        original = grade._CHILD_TIMEOUT_S
+        grade._CHILD_TIMEOUT_S = 0.2
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                pack = Path(tmp)
+                (pack / "src").mkdir()
+                (pack / "tests").mkdir()
+                (pack / "tests" / "hang.py").write_text(
+                    "import time\n"
+                    "import unittest\n"
+                    "class T(unittest.TestCase):\n"
+                    "    def test_hang(self):\n"
+                    "        time.sleep(30)\n",
+                    encoding="utf-8",
+                )
+                with self.assertRaises(vset.VSetValidationError) as ctx:
+                    vset.run_oracle(pack, reference_tests=["tests/hang.py"])
+            self.assertIn("timed out", str(ctx.exception))
+        finally:
+            grade._CHILD_TIMEOUT_S = original
+
     def test_runner_spawn_failure_fails_closed(self) -> None:
-        original = grade.subprocess.Popen
+        original = grade._posix_spawn
 
         def boom(*_args: object, **_kwargs: object) -> None:
             raise OSError("spawn failed")
 
-        grade.subprocess.Popen = boom
+        grade._posix_spawn = boom
         try:
             with tempfile.TemporaryDirectory() as tmp:
                 pack = Path(tmp)
@@ -254,7 +342,7 @@ class OracleTrustBoundaryTests(unittest.TestCase):
                     vset.run_oracle(pack, reference_tests=["tests/ok.py"])
             self.assertIn("spawn failed", str(ctx.exception))
         finally:
-            grade.subprocess.Popen = original
+            grade._posix_spawn = original
 
     def test_root_module_cannot_shadow_src(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
