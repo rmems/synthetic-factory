@@ -49,7 +49,6 @@ class ParentOracleTests(unittest.TestCase):
                     "    return clock.now()\n"
                     "def send(svc, msg):\n"
                     "    svc.send(msg)\n"
-                    "    svc.send.assert_called_once_with(msg)\n"
                     "def bump(acc):\n"
                     "    acc.total += 1\n"
                 ),
@@ -69,7 +68,9 @@ class ParentOracleTests(unittest.TestCase):
                     "    def test_clock(self):\n"
                     "        self.assertEqual(c.read_clock(Clock()), 5)\n"
                     "    def test_mock(self):\n"
-                    "        c.send(Mock(), 'ping')\n"
+                    "        svc = Mock()\n"
+                    "        c.send(svc, 'ping')\n"
+                    "        svc.send.assert_called_once_with('ping')\n"
                     "    def test_bump(self):\n"
                     "        acc = Acc()\n"
                     "        c.bump(acc)\n"
@@ -136,6 +137,50 @@ class ParentOracleTests(unittest.TestCase):
         with unittest.mock.patch("time.time", return_value=1.0):
             self.assertEqual(time.time(), 1.0)
         self.assertNotEqual(time.time(), 1.0)
+
+    def test_mock_configure_cannot_rewrite_assertions(self) -> None:
+        fresh = unittest.mock.Mock()
+        with self.assertRaises(AssertionError):
+            fresh.assert_called_once_with("x")
+        with tempfile.TemporaryDirectory() as tmp:
+            pack = Path(tmp)
+            (pack / "src").mkdir()
+            (pack / "tests").mkdir()
+            (pack / "src" / "c.py").write_text(
+                "def notify(cb):\n"
+                "    cb.configure_mock(**{\n"
+                "        '__class__.__base__.assert_called_once_with.side_effect':\n"
+                "        lambda *args, **kwargs: None,\n"
+                "    })\n"
+                "def work(cb):\n"
+                "    return 0\n",
+                encoding="utf-8",
+            )
+            (pack / "tests" / "reference.py").write_text(
+                "import unittest\nfrom unittest.mock import Mock\nimport c\n"
+                "class T(unittest.TestCase):\n"
+                "    def test_notify(self):\n"
+                "        c.notify(Mock())\n",
+                encoding="utf-8",
+            )
+            (pack / "tests" / "hidden.py").write_text(
+                "import unittest\nfrom unittest.mock import Mock\nimport c\n"
+                "class T(unittest.TestCase):\n"
+                "    def test_called(self):\n"
+                "        watched = Mock()\n"
+                "        c.work(watched)\n"
+                "        watched.assert_called_once_with('x')\n",
+                encoding="utf-8",
+            )
+            report = vset.run_oracle(
+                pack,
+                reference_tests=["tests/reference.py"],
+                hidden_suite={"tests": ["tests/hidden.py"]},
+            )
+        self.assertFalse(report["hidden"]["ok"], report["hidden"])
+        probe = unittest.mock.Mock()
+        with self.assertRaises(AssertionError):
+            probe.assert_called_once_with("x")
 
     def test_testcase_listener_cannot_rewrite_assertions(self) -> None:
         original = unittest.TestCase.assertEqual
