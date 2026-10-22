@@ -7,6 +7,7 @@ and a forged result hash must not become validated evidence.
 
 from __future__ import annotations
 
+import json
 import shutil
 import sys
 import tempfile
@@ -161,156 +162,9 @@ _Path("tests/counter.py").write_text(
 _FORGED_COUNTER_PLANTED_GRADER = _COUNTER_WITHOUT_SUB + _PLANTED_GRADER
 
 
-_HELPER_PACK = {
-    "src/counter.py": (
-        "class CounterError(ValueError):\n"
-        "    pass\n"
-        "class Counter:\n"
-        "    def __init__(self, value=0):\n"
-        "        self.value = value\n"
-        "    def add(self, delta):\n"
-        "        if delta < 0:\n"
-        "            raise CounterError('neg')\n"
-        "        self.value += delta\n"
-        "        return [self.value]\n"
-        "    def __len__(self):\n"
-        "        return self.value\n"
-        "    def __bool__(self):\n"
-        "        return self.value != 0\n"
-    ),
-    "tests/helper.py": "START = 0\n",
-    "tests/use.py": (
-        "import unittest\n"
-        "from helper import START\n"
-        "from counter import Counter, CounterError\n"
-        "class T(unittest.TestCase):\n"
-        "    def test_list(self):\n"
-        "        self.assertEqual(Counter().add(1), [1])\n"
-        "    def test_raises(self):\n"
-        "        with self.assertRaises(CounterError):\n"
-        "            Counter().add(-1)\n"
-        "    def test_len_and_type(self):\n"
-        "        item = Counter(3)\n"
-        "        self.assertEqual(len(item), 3)\n"
-        "        self.assertIsInstance(item, Counter)\n"
-        "    def test_bool(self):\n"
-        "        self.assertFalse(Counter(0))\n"
-        "        self.assertTrue(Counter(1))\n"
-        "    def test_set(self):\n"
-        "        item = Counter(1)\n"
-        "        item.value = 4\n"
-        "        self.assertEqual(item.value, 4)\n"
-        "    def test_helper(self):\n"
-        "        self.assertEqual(START, 0)\n"
-    ),
-}
-
-_VALUE_PACK = {
-    "src/counter.py": (
-        "from collections import namedtuple\n"
-        "from decimal import Decimal\n"
-        "from fractions import Fraction\n"
-        "Point = namedtuple('Point', 'x')\n"
-        "class Counter:\n"
-        "    def tags(self):\n"
-        "        return {'a', 'b'}\n"
-        "    def blob(self):\n"
-        "        return b'xy'\n"
-        "    def point(self):\n"
-        "        return Point(3)\n"
-        "    def has(self, items):\n"
-        "        return 'a' in items\n"
-        "    def same(self):\n"
-        "        return self\n"
-        "    def amount(self):\n"
-        "        return Decimal('1.50')\n"
-        "    def ratio(self):\n"
-        "        return Fraction(1, 3)\n"
-    ),
-    "tests/use.py": (
-        "import unittest\n"
-        "from decimal import Decimal\n"
-        "from fractions import Fraction\n"
-        "from counter import Counter\n"
-        "class T(unittest.TestCase):\n"
-        "    def test_values(self):\n"
-        "        item = Counter()\n"
-        "        self.assertEqual(item.tags(), {'a', 'b'})\n"
-        "        self.assertEqual(item.blob(), b'xy')\n"
-        "        self.assertEqual(item.point().x, 3)\n"
-        "        self.assertTrue(item.has({'a'}))\n"
-        "        self.assertIs(item.same(), item)\n"
-        "        self.assertEqual(item.amount(), Decimal('1.50'))\n"
-        "        self.assertEqual(item.ratio(), Fraction(1, 3))\n"
-    ),
-}
-
-_SHADOW_PACK = {
-    "src/statistics.py": "def mean(values):\n    return 42\n",
-    "tests/use.py": (
-        "import unittest\n"
-        "import statistics\n"
-        "class T(unittest.TestCase):\n"
-        "    def test_mean(self):\n"
-        "        self.assertEqual(statistics.mean([1]), 42)\n"
-    ),
-}
-
-_HIERARCHY_PACK = {
-    "src/counter.py": (
-        "class Base:\n"
-        "    def size(self):\n"
-        "        return 1\n"
-        "class Counter(Base):\n"
-        "    def __init__(self, value):\n"
-        "        self.value = value\n"
-        "    def sub(self, delta):\n"
-        "        if delta > self.value:\n"
-        "            raise NegativeError('neg')\n"
-        "        return self.value - delta\n"
-        "class CounterError(ValueError):\n"
-        "    pass\n"
-        "class NegativeError(CounterError):\n"
-        "    pass\n"
-    ),
-    "tests/use.py": (
-        "import unittest\n"
-        "from counter import Base, Counter, CounterError\n"
-        "class T(unittest.TestCase):\n"
-        "    def test_hierarchy(self):\n"
-        "        self.assertIsInstance(Counter(1), Base)\n"
-        "        self.assertEqual(Counter(1).size(), 1)\n"
-        "        self.assertEqual(Counter(3).sub(1), 2)\n"
-        "        with self.assertRaises(CounterError):\n"
-        "            Counter(0).sub(1)\n"
-    ),
-}
-
-
-_EQ_PACK = {
-    "src/pt.py": (
-        "class Pt:\n"
-        "    def __init__(self, x):\n"
-        "        self.x = x\n"
-        "    def __eq__(self, other):\n"
-        "        if type(other) is not Pt:\n"
-        "            return NotImplemented\n"
-        "        return self.x == other.x\n"
-        "    def __hash__(self):\n"
-        "        return hash(self.x)\n"
-        "    def pair(self):\n"
-        "        return {self, Pt(self.x)}\n"
-    ),
-    "tests/use.py": (
-        "import unittest\n"
-        "from pt import Pt\n"
-        "class T(unittest.TestCase):\n"
-        "    def test_eq(self):\n"
-        "        self.assertEqual(Pt(1), Pt(1))\n"
-        "        self.assertNotEqual(Pt(1), Pt(2))\n"
-        "        self.assertIn(Pt(1), Pt(1).pair())\n"
-    ),
-}
+def _pack(name: str) -> dict[str, str]:
+    path = _TESTS / "fixtures" / "vset" / "oracle-packs" / f"{name}.json"
+    return json.loads(path.read_text(encoding="utf-8"))
 
 
 class OracleTrustBoundaryTests(unittest.TestCase):
@@ -502,19 +356,19 @@ class OracleTrustBoundaryTests(unittest.TestCase):
         self.assertIn("do not match unittest collection", str(ctx.exception))
 
     def test_remote_values_and_helpers_round_trip(self) -> None:
-        self._ok_files("use.py", _HELPER_PACK)
+        self._ok_files("use.py", _pack("helper"))
 
     def test_common_values_round_trip(self) -> None:
-        self._ok_files("use.py", _VALUE_PACK)
+        self._ok_files("use.py", _pack("values"))
 
     def test_src_shadowing_stdlib_is_the_candidate(self) -> None:
-        self._ok_files("use.py", _SHADOW_PACK)
+        self._ok_files("use.py", _pack("shadow"))
 
     def test_candidate_hierarchy_is_preserved(self) -> None:
-        self._ok_files("use.py", _HIERARCHY_PACK)
+        self._ok_files("use.py", _pack("hierarchy"))
 
     def test_remote_equality_and_hash(self) -> None:
-        self._ok_files("use.py", _EQ_PACK)
+        self._ok_files("use.py", _pack("equality"))
 
     def test_candidate_base_exception_does_not_escape(self) -> None:
         report = self._run_reference_files(
