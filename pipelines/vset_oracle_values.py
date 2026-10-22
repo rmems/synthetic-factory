@@ -19,17 +19,17 @@ if __package__:  # pragma: no cover - package-child import path
 
     _assert_direct_sibling("vset_oracle_values")
     from .vset_oracle_codec import apply_slots as _apply_slots
-    from .vset_oracle_codec import blank_instance as _blank_instance
-    from .vset_oracle_codec import builtin_type as _builtin_type
-    from .vset_oracle_codec import parent_types as _parent_types
+    from .vset_oracle_shape import blank_instance as _blank_instance
+    from .vset_oracle_shape import builtin_type as _builtin_type
+    from .vset_oracle_shape import parent_types as _parent_types
 else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
         "vset_oracle_values"
     )
     from vset_oracle_codec import apply_slots as _apply_slots
-    from vset_oracle_codec import blank_instance as _blank_instance
-    from vset_oracle_codec import builtin_type as _builtin_type
-    from vset_oracle_codec import parent_types as _parent_types
+    from vset_oracle_shape import blank_instance as _blank_instance
+    from vset_oracle_shape import builtin_type as _builtin_type
+    from vset_oracle_shape import parent_types as _parent_types
 
 _EXC_TYPES: dict[tuple[str, str], type[Exception]] = {}
 _CLASSES: dict[tuple[int, int], type] = {}
