@@ -49,6 +49,8 @@ PLANT_KEYS: tuple[str, ...] = (
     "test",
 )
 
+_REKOR_WRONG = 'COSIGN_REKOR_URL=http://rekor.local:3000'
+
 PLANTS: tuple[Plant, ...] = (
         {
             'slug': 'networkd-dhcp-ipv4-only',
@@ -140,12 +142,12 @@ PLANTS: tuple[Plant, ...] = (
             'issue': 1507,
             'tool': 'cosign',
             'vs': 'notation leftover leftover leftover unsigned allow',
-            'wrong': 'COSIGN_REKOR_URL=http://rekor.local:3000',
+            'wrong': _REKOR_WRONG,
             'h1': 'COSIGN_EXPERIMENTAL=0',
             'h2': 'COSIGN_YES=1',
             'fix': 'COSIGN_REKOR_URL=https://rekor.sigstore.dev',
             'grep': 'COSIGN_REKOR_URL|COSIGN_EXPERIMENTAL',
-            'bad': 'http://rekor.local:3000',
+            'bad': _REKOR_WRONG.partition('=')[2],
             'test': 'test_cosign_rekor_url',
         },
         {

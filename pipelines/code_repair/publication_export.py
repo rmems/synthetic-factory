@@ -83,8 +83,8 @@ def completed_batch_matches(batch: Path, payload: bytes) -> bool:
     match = transaction.BATCH_RE.fullmatch(batch.name)
     if match is None:
         return False
-    marker = transaction.marker_paths(batch.parent, int(match.group(1)))["complete"]
     try:
+        marker = transaction.marker_paths(batch.parent, int(match.group(1)))["complete"]
         manifest = _completed_marker(marker)
         summary = publication.validate_completed(batch, manifest)
         return summary["procedural"]["batch_sha256"] == _sha(payload)
