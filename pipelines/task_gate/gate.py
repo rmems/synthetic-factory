@@ -133,11 +133,14 @@ class Gate:
     def run(self, items: Iterable[GateProposal | MalformedProposal]) -> list[Decision]:
         return [self.decide(item) for item in items]
 
+    def _denylisted(self, program_id: str | None) -> bool:
+        if program_id is None:
+            return False
+        return program_id in self.denylist or program_id in self.eval_program_ids
+
     def decide(self, item: GateProposal | MalformedProposal) -> Decision:
         source = item.source if isinstance(item, GateProposal) else None
-        if item.program_id is not None and (
-            item.program_id in self.denylist or item.program_id in self.eval_program_ids
-        ):
+        if self._denylisted(item.program_id):
             return Decision(item.proposal_id, item.program_id, source, cv.VERDICT_DENYLISTED,
                             cv.DETAIL_ON_DENYLIST)
         if isinstance(item, MalformedProposal):

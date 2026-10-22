@@ -124,6 +124,10 @@ class GateDecisionTests(unittest.TestCase):
                 with self.assertRaisesRegex(ComposeError, "refuse the shard"):
                     gate.apply_gate(retained(record), self.policy)
 
+    def test_episode_repository_mention_is_not_a_listed_repo_hit(self):
+        episode = {"goal": "g", "steps": [], "meta": {"repository": "rmems/thalamic-relay"}}
+        self.assertEqual(gate.apply_gate(retained(episode), self.policy).action, "retained")
+
     def test_unresolvable_real_or_code_repair_sources_fail_closed(self):
         cases = {
             "missing repo": real_record({"task_id": "t-1"}),

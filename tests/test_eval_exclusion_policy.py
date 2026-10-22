@@ -382,6 +382,14 @@ class PolicyMatchingTests(unittest.TestCase):
         unresolved_listed_id = self._evaluate(None, task_id="clap-rs__clap-941")
         self.assertEqual(unresolved_listed_id.reason_codes,
                          (policy.REASON_REPO_UNRESOLVED, policy.REASON_EVAL_DENYLISTED))
+        payload = self.policy.evaluate(
+            policy.SourceIdentity(None, program_id="tap-fixture-held-out"), require_repo=False,
+        )
+        self.assertEqual(payload.reason_codes, (policy.REASON_EVAL_DENYLISTED,))
+        unknown_repo = self.policy.evaluate(
+            policy.SourceIdentity("someone/unknown", program_id="tap-clean"), require_repo=False,
+        )
+        self.assertFalse(unknown_repo.excluded)
 
     def test_a_list_that_names_a_repository_by_its_old_name_is_refused(self):
         with tempfile.TemporaryDirectory() as temp:

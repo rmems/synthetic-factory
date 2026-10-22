@@ -37,3 +37,7 @@ class SourceIdentityTests(unittest.TestCase):
         self.assertEqual(preference_identity, SourceIdentity(repo=None, task_id="board-1"))
         self.assertFalse(subject.requires_repo(subject.RULE_PAYLOAD))
         self.assertTrue(subject.requires_repo(subject.RULE_CODE_REPAIR))
+
+    def test_nested_repository_on_an_episode_is_not_a_payload_claim(self):
+        episode = {"goal": "g", "steps": [], "meta": {"repository": "rmems/thalamic-relay"}}
+        self.assertIsNone(subject.source_identity(episode))

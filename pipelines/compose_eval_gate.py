@@ -100,7 +100,12 @@ def _refuse_listed_hit(evaluation: Any) -> None:
 
 
 def apply_gate(decision: Any, policy: Any = None) -> Any:
-    """Refuse a listed hit; exclude a public-source record the policy cannot resolve."""
+    """Refuse a listed eval hit; exclude an unresolvable public-source record.
+
+    A denylist or do-not-train match is a shard-level policy refusal (#508), not
+    the per-record quarantine used for unknown factories. Unresolved repositories
+    on public-source claimants still exclude that row only.
+    """
 
     if decision.action != ACTION_RETAINED or decision.record is None:
         return decision

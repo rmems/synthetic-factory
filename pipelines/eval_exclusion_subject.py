@@ -4,13 +4,13 @@
 ``code_repair`` records name the upstream at ``scenario.source.upstream.repository``
 and the catalog program at ``scenario.source.program_id``. ``real_public_engineering``
 records name ``environment.source_repo`` and ``environment.task_id``. Every other
-record kind is still scanned: any nested ``program_id``, ``task_id``, ``repository``,
-or ``source_repo`` string becomes a payload identity so a denylist hit cannot hide
-behind an unrecognised shape.
+record kind is still scanned for nested ``program_id`` and ``task_id`` strings so a
+denylist hit cannot hide behind an unrecognised shape. Nested ``repository`` /
+``source_repo`` keys on those other kinds are not a public-source claim.
 
 A public-source claimant that omits the repository still yields an identity (with
 ``repo=None``), so the gate treats it as unresolved instead of letting it through.
-A payload identity with no such fields is ``None`` and is not governed.
+A payload identity with no id fields is ungoverned.
 """
 
 from __future__ import annotations
@@ -37,7 +37,6 @@ RULE_REAL_PUBLIC_ENGINEERING = "real_public_engineering_environment"
 RULE_PAYLOAD = "record_payload"
 CODE_REPAIR_SOURCE = ("scenario", "source")
 REAL_SOURCE_KIND_LOCATIONS = (("source_kind",), ("provenance", "source_kind"))
-REPO_KEYS = frozenset({"repository", "source_repo"})
 PROGRAM_KEYS = frozenset({"program_id"})
 TASK_KEYS = frozenset({"task_id"})
 
@@ -76,35 +75,34 @@ def _claims_real_public_engineering(record: Mapping[str, Any]) -> bool:
     return any(_at(record, path) == REAL_PUBLIC_ENGINEERING for path in REAL_SOURCE_KIND_LOCATIONS)
 
 
+def _named_strings_in_mapping(node: Mapping[str, Any], names: frozenset[str]) -> list[str]:
+    return [value for key, value in node.items() if key in names and isinstance(value, str)]
+
+
+def _walk_children(node: Any) -> list[Any]:
+    if isinstance(node, Mapping):
+        return list(node.values())
+    if isinstance(node, (list, tuple)):
+        return list(node)
+    return []
+
+
 def _strings_named(record: Mapping[str, Any], names: frozenset[str]) -> tuple[str, ...]:
     found: list[str] = []
     stack: list[Any] = [record]
     while stack:
         node = stack.pop()
         if isinstance(node, Mapping):
-            for key, value in node.items():
-                if key in names and isinstance(value, str):
-                    found.append(value)
-                else:
-                    stack.append(value)
-        elif isinstance(node, (list, tuple)):
-            stack.extend(node)
+            found.extend(_named_strings_in_mapping(node, names))
+        stack.extend(_walk_children(node))
     return tuple(dict.fromkeys(found))
 
 
 def _payload_identities(record: Mapping[str, Any]) -> list[tuple[str, SourceIdentity]]:
-    repos = _strings_named(record, REPO_KEYS)
     programs = _strings_named(record, PROGRAM_KEYS)
     tasks = _strings_named(record, TASK_KEYS)
-    if not repos and not programs and not tasks:
-        return []
-    repo = repos[0] if repos else None
-    identities = [
-        SourceIdentity(repo=repo, program_id=program_id) for program_id in programs
-    ]
-    identities.extend(SourceIdentity(repo=repo, task_id=task_id) for task_id in tasks)
-    if not identities:
-        identities.append(SourceIdentity(repo=repo))
+    identities = [SourceIdentity(None, program_id=program_id) for program_id in programs]
+    identities.extend(SourceIdentity(None, task_id=task_id) for task_id in tasks)
     return [(RULE_PAYLOAD, identity) for identity in identities]
 
 
