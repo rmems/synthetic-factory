@@ -203,6 +203,18 @@ WORKER_SOURCE = textwrap.dedent(
         def __init__(self, cb):
             self._cb = cb
 
+        def __setattr__(self, name, value):
+            if name == "_cb":
+                object.__setattr__(self, name, value)
+                return
+            ask({
+                "kind": "callback",
+                "op": "set",
+                "cb": self._cb,
+                "attr": name,
+                "value": put(value),
+            })
+
         def __call__(self, *args, **kwargs):
             return ask({
                 "kind": "callback",
@@ -210,6 +222,14 @@ WORKER_SOURCE = textwrap.dedent(
                 "cb": self._cb,
                 "args": [put(arg) for arg in args],
                 "kwargs": {key: put(val) for key, val in kwargs.items()},
+            })
+
+        def __getattr__(self, name):
+            return ask({
+                "kind": "callback",
+                "op": "get",
+                "cb": self._cb,
+                "attr": name,
             })
 
 

@@ -20,6 +20,7 @@ if __package__:  # pragma: no cover - package-child import path
 
     _assert_direct_sibling("vset_oracle_bridge")
     from .vset_oracle_codec import encode as _encode
+    from .vset_oracle_record import live_collaborator as _live_collaborator
     from . import vset_oracle_shape as shape
     from . import vset_oracle_values as values
 else:
@@ -27,6 +28,7 @@ else:
         "vset_oracle_bridge"
     )
     from vset_oracle_codec import encode as _encode
+    from vset_oracle_record import live_collaborator as _live_collaborator
     import vset_oracle_shape as shape
     import vset_oracle_values as values
 
@@ -110,19 +112,7 @@ def _relay(reply: dict[str, object]) -> bool:
 
 
 def _receive(client: object, proc: object) -> object:
-    stdout = proc.stdout  # type: ignore[attr-defined]
-    if stdout is None:
-        raise EOFError("oracle worker exited")
-    while True:
-        reply = _read_reply(stdout)
-        if not isinstance(reply, dict):
-            return values.interpret(client, reply)
-        if _relay(reply):
-            continue
-        if reply.get("kind") == "callback":
-            _send(proc, _answer(client, reply))
-            continue
-        return values.interpret(client, reply)
+    return shape.receive(client, proc, (_read_reply, _send, _answer, _relay))
 
 
 def _answer(client: object, message: dict[str, object]) -> dict[str, object]:
@@ -152,9 +142,35 @@ def _named(client: object, message: dict[str, object]) -> dict[str, object]:
     return {str(key): values.interpret(client, item) for key, item in kwargs.items()}
 
 
+def _closed_name(name: str) -> bool:
+    return name.startswith("_")
+
+
+def _read_collaborator(target: object, name: str) -> object:
+    if not _live_collaborator(target):
+        raise AttributeError(name)
+    if _closed_name(name):
+        raise AttributeError(name)
+    return getattr(target, name)
+
+
+def _write_collaborator(target: object, name: str, value: object) -> None:
+    if not _live_collaborator(target):
+        raise AttributeError(name)
+    if _closed_name(name):
+        raise AttributeError(name)
+    setattr(target, name, value)
+
+
 def _invoke(client: object, message: dict[str, object]) -> object:
     target = values.take_callback(int(message["cb"]))  # type: ignore[arg-type]
-    if message.get("op") != "call":
+    op = message.get("op")
+    if op == "get":
+        return _read_collaborator(target, str(message.get("attr")))
+    if op == "set":
+        _write_collaborator(target, str(message.get("attr")), values.interpret(client, message.get("value")))
+        return None
+    if op != "call":
         raise TypeError("oracle callback is not readable")
     return target(*_positional(client, message), **_named(client, message))
 

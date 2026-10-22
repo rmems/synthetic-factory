@@ -7,6 +7,7 @@ so the two files do not import each other at module scope.
 from __future__ import annotations
 
 import sys
+import unittest
 
 if __package__:  # pragma: no cover - package-child import path
     from . import _assert_direct_sibling, _expose_package_sibling
@@ -63,16 +64,37 @@ def _namedtuple_record(value: object) -> dict[str, object] | None:
     return {"record": fields}
 
 
+def live_collaborator(value: object) -> bool:
+    """Mocks and test-defined fakes stay live. ``TestCase`` does not."""
+
+    if isinstance(value, unittest.mock.Mock):
+        return True
+    if isinstance(value, unittest.TestCase):
+        return False
+    module = getattr(type(value), "__module__", "")
+    if not isinstance(module, str):
+        return False
+    return module.startswith("vset_oracle_")
+
+
+def _public_attr(value: object, key: str) -> object:
+    try:
+        return getattr(value, key)
+    except Exception:
+        return _UNPLAIN
+
+
 def _object_record(value: object) -> dict[str, object] | None:
+    if live_collaborator(value):
+        return None
     if callable(value):
         return None
     fields: dict[str, object] = {}
     for key in dir(value):
         if key.startswith("_"):
             continue
-        try:
-            item = getattr(value, key)
-        except Exception:
+        item = _public_attr(value, key)
+        if item is _UNPLAIN:
             continue
         if callable(item):
             continue
