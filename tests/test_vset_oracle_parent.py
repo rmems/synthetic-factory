@@ -136,7 +136,8 @@ class ParentOracleTests(unittest.TestCase):
                     "        self.assertEqual(list(c.gen(3)), [0, 1, 2])\n"
                     "        self.assertEqual(tuple(c.gen(2)), (0, 1))\n"
                     "    def test_box(self):\n"
-                    "        self.assertEqual(dataclasses.asdict(c.mk()), {'n': 3})\n"
+                    "        self.assertEqual(c.mk().n, 3)\n"
+                    "        self.assertEqual(c.mk(), c.mk())\n"
                 ),
             },
         )
