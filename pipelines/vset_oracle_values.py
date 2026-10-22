@@ -47,8 +47,7 @@ def _exception_parent(chain: tuple[str, ...]) -> type[Exception]:
         return Exception
     builtin = _builtin_exception(chain[0])
     if builtin is not None:
-        if len(chain) == 1:
-            return builtin
+        return builtin
     return exception_type(chain[0], chain[1:])
 
 
