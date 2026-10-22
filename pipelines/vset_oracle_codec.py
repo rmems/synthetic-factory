@@ -86,7 +86,7 @@ _ENCODE = {
 }
 
 
-def _encode_fallback(value: object) -> object:
+def _encode_known(value: object) -> object | None:
     if isinstance(value, dict):
         return _encode_map(value)  # type: ignore[arg-type]
     if isinstance(value, tuple):
@@ -97,16 +97,19 @@ def _encode_fallback(value: object) -> object:
         return _encode_set(value)  # type: ignore[arg-type]
     if isinstance(value, deque):
         return _encode_list(list(value))
-    return value
+    return None
 
 
 def encode(value: object) -> object:
     if isinstance(value, _host().RemoteObject):
         return {"ref": value.oid}
     handler = _ENCODE.get(type(value))
-    if handler is None:
-        return _encode_fallback(value)
-    return handler(value)
+    if handler is not None:
+        return handler(value)
+    encoded = _encode_known(value)
+    if encoded is None:
+        return value
+    return encoded
 
 
 if __package__:  # pragma: no cover - package-child import path
