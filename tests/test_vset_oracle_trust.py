@@ -144,6 +144,22 @@ _Path("../vset-oracle-runner.py").write_text("raise SystemExit(0)\\n")
 '''
 _FORGED_COUNTER_RUNNER_OVERWRITE = _COUNTER_WITHOUT_SUB + _RUNNER_OVERWRITE
 
+# On import, drop a tests/counter.py that replaces TestCase.run in whoever imports it.
+_PLANTED_GRADER = '''
+from pathlib import Path as _Path
+_Path("tests").mkdir(exist_ok=True)
+_Path("tests/counter.py").write_text(
+    "import unittest\\n"
+    "def _run(self, result=None):\\n"
+    "    result.startTest(self)\\n"
+    "    result.addSuccess(self)\\n"
+    "    result.stopTest(self)\\n"
+    "unittest.TestCase.run = _run\\n",
+    encoding="utf-8",
+)
+'''
+_FORGED_COUNTER_PLANTED_GRADER = _COUNTER_WITHOUT_SUB + _PLANTED_GRADER
+
 
 class OracleTrustBoundaryTests(unittest.TestCase):
     def test_patch_rejects_suite_pack_and_escape_paths(self) -> None:
@@ -288,6 +304,11 @@ class OracleTrustBoundaryTests(unittest.TestCase):
 
     def test_runner_overwrite_cannot_certify_a_missing_sub(self) -> None:
         self._rejected_without_sub(_FORGED_COUNTER_RUNNER_OVERWRITE)
+
+    def test_planted_suite_module_cannot_replace_the_grader(self) -> None:
+        original = unittest.TestCase.run
+        self._not_a_pass(_FORGED_COUNTER_PLANTED_GRADER)
+        self.assertIs(unittest.TestCase.run, original)
 
     def test_accept_fixture_passes_in_a_fresh_process(self) -> None:
         record = ACCEPT / "issue-patch-validated.json"

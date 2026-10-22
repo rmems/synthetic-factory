@@ -22,24 +22,9 @@ else:
 _EXC_TYPES: dict[tuple[str, str], type[Exception]] = {}
 _CLASSES: dict[tuple[int, int], type] = {}
 _FORWARDED = (
-    "__eq__",
-    "__ne__",
-    "__lt__",
-    "__le__",
-    "__gt__",
-    "__ge__",
-    "__len__",
-    "__iter__",
-    "__next__",
-    "__contains__",
-    "__getitem__",
-    "__add__",
-    "__radd__",
-    "__sub__",
-    "__rsub__",
-    "__mul__",
-    "__rmul__",
-)
+    "__eq__ __ne__ __lt__ __le__ __gt__ __ge__ __len__ __iter__ __next__ "
+    "__contains__ __getitem__ __add__ __radd__ __sub__ __rsub__ __mul__ __rmul__"
+).split()
 
 
 def _builtin_exception(name: str) -> type[Exception] | None:

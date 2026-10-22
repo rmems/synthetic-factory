@@ -94,35 +94,22 @@ def _class_and_method(test_id: str, module_name: str) -> tuple[str, str]:
     return class_name, method_name
 
 
-def _folder_sources(folder: Path) -> dict[str, str]:
-    return {path.name: path.read_text(encoding="utf-8") for path in folder.glob("*.py")}
-
-
-def _sources_for(modules: list[dict[str, str]]) -> dict[str, dict[str, str]]:
-    grouped: dict[str, dict[str, str]] = {}
-    for spec in modules:
-        folder = str(Path(spec["path"]).parent)
-        if folder in grouped:
-            continue
-        grouped[folder] = _folder_sources(Path(folder))
-    return grouped
-
-
 def grade_suite(
-    work: Path, modules: list[dict[str, str]], expected: list[str]
+    work: Path,
+    modules: list[dict[str, str]],
+    expected: list[str],
+    sources: dict[str, dict[str, str]],
 ) -> dict[str, Any]:
     """Run every declared id here and build the suite report."""
 
     rows: list[dict[str, str]] = []
     captured: list[str] = []
     for spec in modules:
-        _require_match(spec, expected)
-    sources = _sources_for(modules)
+        _require_match(spec, expected, sources[spec["folder"]])
     for test_id in expected:
         spec = _spec_for(test_id, modules)
         names = _class_and_method(test_id, spec["module"])
-        folder = str(Path(spec["path"]).parent)
-        status, text = _grade_test(work, spec, names, sources[folder])
+        status, text = _grade_test(work, spec, names, sources[spec["folder"]])
         rows.append({"id": test_id, "status": status})
         captured.append(text)
     return _suite_report(rows, expected, "".join(captured))

@@ -78,8 +78,27 @@ def _restore_suite_dir(pack_dir: Path, work: Path, relative: str) -> None:
     if not source_dir.is_dir():
         return
     dest_dir.mkdir(parents=True, exist_ok=True)
+    keep = {path.name for path in source_dir.glob("*.py")}
+    cache = dest_dir / "__pycache__"
+    if cache.is_dir():
+        shutil.rmtree(cache)
+    for path in dest_dir.glob("*.py"):
+        if path.name not in keep:
+            path.unlink()
     for path in source_dir.glob("*.py"):
         shutil.copyfile(path, dest_dir / path.name)
+
+
+def _pack_sources(pack_dir: Path, folder: str) -> dict[str, str]:
+    """Suite text from the pristine pack, never from the candidate worktree."""
+
+    source_dir = pack_dir / folder
+    found: dict[str, str] = {}
+    if not source_dir.is_dir():
+        return found
+    for path in sorted(source_dir.glob("*.py")):
+        found[path.name] = path.read_text(encoding="utf-8")
+    return found
 
 
 def _restore_oracle_file(pack_dir: Path, work: Path, relative: str) -> None:
@@ -141,23 +160,24 @@ def _load_suite(path: Path, relative: str) -> unittest.TestSuite:
 def _prepare_module(work: Path, pack_dir: Path, relative: str) -> tuple[dict[str, str], list[str]]:
     _restore_suite_dir(pack_dir, work, relative)
     _restore_oracle_file(pack_dir, work, relative)
-    path = _resolve_under_work(work, relative, code=ERR_ORACLE_EXECUTION_MISMATCH)
-    if not path.is_file():
+    source_path = _resolve_under_work(pack_dir, relative, code=ERR_ORACLE_EXECUTION_MISMATCH)
+    if not source_path.is_file():
         raise VSetValidationError(ERR_ORACLE_EXECUTION_MISMATCH, f"missing test module {relative}")
     module_name = _oracle_module_name(relative)
     try:
-        source = path.read_text(encoding="utf-8")
-        expected = _declared_test_ids(path, module_name)
+        source = source_path.read_text(encoding="utf-8")
+        expected = _declared_test_ids(source_path, module_name)
     except (OSError, SyntaxError, UnicodeDecodeError) as exc:
         raise VSetValidationError(
             ERR_ORACLE_EXECUTION_MISMATCH,
             f"test module {relative} failed to load: {exc}",
         ) from exc
     spec = {
-        "path": str(path),
+        "path": str(source_path),
         "module": module_name,
         "relative": relative,
         "source": source,
+        "folder": Path(relative).parent.as_posix(),
     }
     return spec, expected
 
@@ -167,11 +187,15 @@ def _run_modules(work: Path, pack_dir: Path, relatives: Iterable[str]) -> dict[s
 
     modules: list[dict[str, str]] = []
     expected: list[str] = []
+    sources: dict[str, dict[str, str]] = {}
     for relative in relatives:
         spec, ids = _prepare_module(work, pack_dir, relative)
+        folder = spec["folder"]
+        if folder not in sources:
+            sources[folder] = _pack_sources(pack_dir, folder)
         modules.append(spec)
         expected.extend(ids)
-    return _grade_suite(work, modules, expected)
+    return _grade_suite(work, modules, expected, sources)
 
 
 def _cached_bytecode(names: list[str]) -> set[str]:
