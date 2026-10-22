@@ -211,25 +211,6 @@ def restore_dict_patches(saved: tuple[object, object]) -> None:
     unittest.mock._patch_dict.__exit__ = saved[1]  # type: ignore[method-assign]
 
 
-def receive(client: object, proc: object, ops: tuple[object, object, object, object]) -> object:
-    """Read worker replies, relaying prints and logs before the final value."""
-
-    read_reply, send, answer, relay = ops
-    stdout = proc.stdout  # type: ignore[attr-defined]
-    if stdout is None:
-        raise EOFError("oracle worker exited")
-    while True:
-        reply = read_reply(stdout)  # type: ignore[operator]
-        if not isinstance(reply, dict):
-            return _values().interpret(client, reply)
-        if relay(reply):  # type: ignore[operator]
-            continue
-        if reply.get("kind") == "callback":
-            send(proc, answer(client, reply))  # type: ignore[operator]
-            continue
-        return _values().interpret(client, reply)
-
-
 def remote_hash(obj: object) -> int:
     try:
         func = obj.client.get(obj.oid, "__hash__")  # type: ignore[attr-defined]

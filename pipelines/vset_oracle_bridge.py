@@ -21,6 +21,7 @@ if __package__:  # pragma: no cover - package-child import path
     _assert_direct_sibling("vset_oracle_bridge")
     from .vset_oracle_codec import encode as _encode
     from .vset_oracle_record import live_collaborator as _live_collaborator
+    from .vset_oracle_record import receive as _receive_replies
     from . import vset_oracle_shape as shape
     from . import vset_oracle_values as values
 else:
@@ -29,6 +30,7 @@ else:
     )
     from vset_oracle_codec import encode as _encode
     from vset_oracle_record import live_collaborator as _live_collaborator
+    from vset_oracle_record import receive as _receive_replies
     import vset_oracle_shape as shape
     import vset_oracle_values as values
 
@@ -112,7 +114,7 @@ def _relay(reply: dict[str, object]) -> bool:
 
 
 def _receive(client: object, proc: object) -> object:
-    return shape.receive(client, proc, (_read_reply, _send, _answer, _relay))
+    return _receive_replies(client, proc, (_read_reply, _send, _answer, _relay))
 
 
 def _answer(client: object, message: dict[str, object]) -> dict[str, object]:

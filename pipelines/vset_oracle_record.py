@@ -19,6 +19,15 @@ else:
     )
 
 
+def _values():
+    # vset_oracle_values imports the codec, which imports this module.
+    if __package__:
+        from . import vset_oracle_values as values
+    else:
+        import vset_oracle_values as values
+    return values
+
+
 def _codec():
     # vset_oracle_codec imports this module. A top-level import would cycle.
     if __package__:
@@ -84,27 +93,57 @@ def _public_attr(value: object, key: str) -> object:
         return _UNPLAIN
 
 
+def _field(value: object, key: str) -> object:
+    if key.startswith("_"):
+        return None
+    item = _public_attr(value, key)
+    if item is _UNPLAIN:
+        return None
+    if callable(item):
+        return None
+    return _plain_field(item)
+
+
+def _collect_fields(value: object) -> dict[str, object] | None:
+    fields: dict[str, object] = {}
+    for key in dir(value):
+        encoded = _field(value, key)
+        if encoded is _UNPLAIN:
+            return None
+        if encoded is None:
+            continue
+        fields[key] = encoded
+    return fields
+
+
 def _object_record(value: object) -> dict[str, object] | None:
     if live_collaborator(value):
         return None
     if callable(value):
         return None
-    fields: dict[str, object] = {}
-    for key in dir(value):
-        if key.startswith("_"):
-            continue
-        item = _public_attr(value, key)
-        if item is _UNPLAIN:
-            continue
-        if callable(item):
-            continue
-        encoded = _plain_field(item)
-        if encoded is _UNPLAIN:
-            return None
-        fields[key] = encoded
+    fields = _collect_fields(value)
     if not fields:
         return None
     return {"record": fields}
+
+
+def receive(client: object, proc: object, ops: tuple[object, object, object, object]) -> object:
+    """Read worker replies, relaying prints and logs before the final value."""
+
+    read_reply, send, answer, relay = ops
+    stdout = proc.stdout  # type: ignore[attr-defined]
+    if stdout is None:
+        raise EOFError("oracle worker exited")
+    while True:
+        reply = read_reply(stdout)  # type: ignore[operator]
+        if not isinstance(reply, dict):
+            return _values().interpret(client, reply)
+        if relay(reply):  # type: ignore[operator]
+            continue
+        if reply.get("kind") == "callback":
+            send(proc, answer(client, reply))  # type: ignore[operator]
+            continue
+        return _values().interpret(client, reply)
 
 
 def data_record(value: object) -> dict[str, object] | None:
