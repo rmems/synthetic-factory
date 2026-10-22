@@ -125,25 +125,6 @@ def _receive(client: object, proc: object) -> object:
         return values.interpret(client, reply)
 
 
-_CLOSED_ATTRS = {
-    "gi_frame",
-    "gi_code",
-    "cr_frame",
-    "cr_code",
-    "f_globals",
-    "f_locals",
-    "f_back",
-    "func_globals",
-    "func_code",
-}
-
-
-def _closed_attr(name: str) -> bool:
-    if name.startswith("_"):
-        return True
-    return name in _CLOSED_ATTRS
-
-
 def _answer(client: object, message: dict[str, object]) -> dict[str, object]:
     try:
         encoded = _encode(_invoke(client, message))
@@ -173,13 +154,7 @@ def _named(client: object, message: dict[str, object]) -> dict[str, object]:
 
 def _invoke(client: object, message: dict[str, object]) -> object:
     target = values.take_callback(int(message["cb"]))  # type: ignore[arg-type]
-    op = message.get("op")
-    if op == "get":
-        attr = str(message.get("attr"))
-        if _closed_attr(attr):
-            raise AttributeError(attr)
-        return getattr(target, attr)
-    if op != "call":
+    if message.get("op") != "call":
         raise TypeError("oracle callback is not readable")
     return target(*_positional(client, message), **_named(client, message))
 
