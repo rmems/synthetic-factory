@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import importlib.util
 import io
-import json
 import os
 import signal
 import subprocess  # nosec B404
@@ -27,6 +26,7 @@ if __package__:  # pragma: no cover - package-child import path
     _assert_direct_sibling("vset_oracle_remote")
     from .vset_constants import ERR_ORACLE_EXECUTION_MISMATCH, VSetValidationError
     from .vset_oracle_codec import encode as _encode
+    from . import vset_oracle_bridge as bridge
     from . import vset_oracle_values as values
 else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
@@ -34,11 +34,11 @@ else:
     )
     from vset_constants import ERR_ORACLE_EXECUTION_MISMATCH, VSetValidationError
     from vset_oracle_codec import encode as _encode
+    import vset_oracle_bridge as bridge
     import vset_oracle_values as values
 
 _CHILD_TIMEOUT_S = 30.0
 _INTERPRETER_FLAGS = ("-I", "-B", "-X", "utf8")
-_REPLY_LIMIT = 1_000_000
 _TIMEOUT_MESSAGE = "oracle runner failed: timed out"
 
 # Passed to a fresh interpreter via -c. Nothing under the worktree is executed
@@ -46,6 +46,7 @@ _TIMEOUT_MESSAGE = "oracle runner failed: timed out"
 _WORKER_SOURCE = textwrap.dedent(
     """\
     import base64
+    import builtins
     import importlib
     import json
     import os
@@ -96,6 +97,10 @@ _WORKER_SOURCE = textwrap.dedent(
 
 
     def describe_class(cls):
+        if cls.__module__ == "builtins":
+            found = getattr(builtins, cls.__name__, None)
+            if isinstance(found, type):
+                return {"builtin": cls.__name__}
         bases = []
         for base in cls.__bases__:
             if base is object:
@@ -107,6 +112,8 @@ _WORKER_SOURCE = textwrap.dedent(
     def put(value):
         if value is None:
             return {"kind": "value", "value": None}
+        if isinstance(value, ParentProxy):
+            return {"kind": "cb", "cb": value._cb}
         if value is NotImplemented:
             return {"kind": "notimplemented"}
         if isinstance(value, (bool, int, float, str)):
@@ -145,6 +152,8 @@ _WORKER_SOURCE = textwrap.dedent(
     def decode(value):
         if not isinstance(value, dict):
             return value
+        if "cb" in value:
+            return ParentProxy(value["cb"])
         if "ref" in value:
             return objs[value["ref"]]
         if "seq" in value:
@@ -206,35 +215,50 @@ _WORKER_SOURCE = textwrap.dedent(
         real_out.flush()
 
 
-    for line in sys.stdin:
-        if not line.strip():
-            continue
-        try:
+    _MISSING = object()
+    _PATCHES = []
+
+
+    class ParentProxy:
+        def __init__(self, cb):
+            self._cb = cb
+
+        def __call__(self, *args, **kwargs):
+            return ask({
+                "kind": "callback",
+                "op": "call",
+                "cb": self._cb,
+                "args": [put(arg) for arg in args],
+                "kwargs": {key: put(val) for key, val in kwargs.items()},
+            })
+
+        def __getattr__(self, name):
+            return ask({
+                "kind": "callback",
+                "op": "get",
+                "cb": self._cb,
+                "attr": name,
+            })
+
+
+    def ask(payload):
+        reply(payload)
+        while True:
+            line = sys.stdin.readline()
+            if not line:
+                raise EOFError("oracle worker exited")
             req = json.loads(line)
-            op = req["op"]
-            if op == "import":
-                out = put(importlib.import_module(req["name"]))
-            elif op == "get":
-                out = put(getattr(objs[req["oid"]], req["attr"]))
-            elif op == "set":
-                setattr(objs[req["oid"]], req["attr"], decode(req["value"]))
-                out = {"kind": "value", "value": None}
-            elif op == "call":
-                args = [decode(arg) for arg in req["args"]]
-                kwargs = {key: decode(val) for key, val in req["kwargs"].items()}
-                result = objs[req["oid"]](*args, **kwargs)
-                states = []
-                for slot, obj in slots.items():
-                    states.append({"slot": slot, "state": snapshot(obj)})
-                slots.clear()
-                out = {"kind": "synced", "value": put(result), "states": states}
-            else:
-                out = {
-                    "kind": "error",
-                    "type": "RuntimeError",
-                    "chain": ["Exception"],
-                    "message": "bad op",
-                }
+            if "cb_result" not in req:
+                handle(req)
+                continue
+            if req.get("ok"):
+                return decode(req.get("value"))
+            raise RuntimeError(str(req.get("message")))
+
+
+    def handle(req):
+        try:
+            out = run_op(req)
         except Exception as exc:
             attrs = {}
             for key, val in getattr(exc, "__dict__", {}).items():
@@ -247,6 +271,60 @@ _WORKER_SOURCE = textwrap.dedent(
                 "attrs": attrs,
             }
         reply(out)
+
+
+    def run_op(req):
+        op = req["op"]
+        if op == "import":
+            return put(importlib.import_module(req["name"]))
+        if op == "get":
+            return put(getattr(objs[req["oid"]], req["attr"]))
+        if op == "set":
+            setattr(objs[req["oid"]], req["attr"], decode(req["value"]))
+            return {"kind": "value", "value": None}
+        if op == "del":
+            delattr(objs[req["oid"]], req["attr"])
+            return {"kind": "value", "value": None}
+        if op == "patch":
+            mod = importlib.import_module(req["name"])
+            attr = req["attr"]
+            old = _MISSING
+            if hasattr(mod, attr):
+                old = getattr(mod, attr)
+            _PATCHES.append((mod, attr, old))
+            setattr(mod, attr, decode(req["value"]))
+            return {"kind": "value", "value": None}
+        if op == "unpatch":
+            mod, attr, old = _PATCHES.pop()
+            if old is _MISSING:
+                delattr(mod, attr)
+            else:
+                setattr(mod, attr, old)
+            return {"kind": "value", "value": None}
+        if op == "call":
+            args = [decode(arg) for arg in req["args"]]
+            kwargs = {key: decode(val) for key, val in req["kwargs"].items()}
+            result = objs[req["oid"]](*args, **kwargs)
+            states = []
+            for slot, obj in slots.items():
+                states.append({"slot": slot, "state": snapshot(obj)})
+            slots.clear()
+            return {"kind": "synced", "value": put(result), "states": states}
+        return {
+            "kind": "error",
+            "type": "RuntimeError",
+            "chain": ["Exception"],
+            "message": "bad op",
+        }
+
+
+    while True:
+        line = sys.stdin.readline()
+        if not line:
+            break
+        if not line.strip():
+            continue
+        handle(json.loads(line))
     """
 )
 
@@ -256,17 +334,7 @@ class _Client:
         self.proc = proc
 
     def exchange(self, payload: dict[str, object]) -> object:
-        if self.proc.poll() is not None:
-            raise EOFError("oracle worker exited")
-        stdin = self.proc.stdin
-        stdout = self.proc.stdout
-        if stdin is None:
-            raise EOFError("oracle worker exited")
-        if stdout is None:
-            raise EOFError("oracle worker exited")
-        stdin.write(json.dumps(payload) + "\n")
-        stdin.flush()
-        return values.interpret(self, _read_reply(stdout))
+        return bridge.exchange(self, payload)
 
     def do_import(self, name: str) -> object:
         return self.exchange({"op": "import", "name": name})
@@ -278,6 +346,17 @@ class _Client:
         self.exchange(
             {"op": "set", "oid": oid, "attr": name, "value": _encode(value)}
         )
+
+    def delete_attr(self, oid: int, name: str) -> None:
+        self.exchange({"op": "del", "oid": oid, "attr": name})
+
+    def patch_module(self, name: str, attr: str, value: object) -> None:
+        self.exchange(
+            {"op": "patch", "name": name, "attr": attr, "value": _encode(value)}
+        )
+
+    def unpatch_module(self) -> None:
+        self.exchange({"op": "unpatch"})
 
     def call(self, oid: int, args: tuple[object, ...], kwargs: dict[str, object]) -> object:
         return self.exchange(
@@ -295,11 +374,12 @@ class _RemoteLoader:
         self._client = client
         self._fullname = fullname
 
-    def create_module(self, spec: importlib.machinery.ModuleSpec) -> None:
-        return None
+    def create_module(self, spec: importlib.machinery.ModuleSpec) -> types.ModuleType:
+        return bridge.remote_module(spec, self._client)
 
     def exec_module(self, module: types.ModuleType) -> None:
         proxy = self._client.do_import(self._fullname)
+        module._vset_oid = proxy.oid  # type: ignore[attr-defined]
         oid = proxy.oid
         client = self._client
 
@@ -307,6 +387,7 @@ class _RemoteLoader:
             return _client.get(_oid, name)
 
         module.__getattr__ = missing  # type: ignore[method-assign]
+        module._vset_live = True  # type: ignore[attr-defined]
 
 
 class _Finder:
@@ -329,15 +410,6 @@ class _Finder:
         if root in sys.stdlib_module_names:
             return None
         return importlib.util.spec_from_loader(fullname, _RemoteLoader(self._client, fullname))
-
-
-def _read_reply(stdout: io.TextIOBase) -> object:
-    line = stdout.readline(_REPLY_LIMIT)
-    if not line:
-        raise EOFError("oracle worker exited")
-    if len(line) >= _REPLY_LIMIT:
-        raise EOFError("oracle worker reply is too large")
-    return json.loads(line)
 
 
 def _worker_argv(work: Path) -> list[str]:
@@ -364,13 +436,20 @@ def _kill_group(proc: subprocess.Popen[str]) -> None:
         proc.kill()
 
 
+def _close(stream: object) -> None:
+    if stream is None:
+        return
+    try:
+        stream.close()  # type: ignore[attr-defined]
+    except OSError:
+        return
+
+
 def _stop(proc: subprocess.Popen[str]) -> None:
     if proc.poll() is None:
         _kill_group(proc)
-    if proc.stdin is not None:
-        proc.stdin.close()
-    if proc.stdout is not None:
-        proc.stdout.close()
+    _close(proc.stdin)
+    _close(proc.stdout)
     try:
         proc.wait(timeout=5)
     except subprocess.TimeoutExpired:
@@ -513,14 +592,19 @@ def _grade_open(
     hidden = _hide_shadowed(src_names)
     temp = _materialize(sources)
     folder = temp.name
-    finder = _Finder(_Client(proc), _stems(sources), src_names)
+    client = _Client(proc)
+    finder = _Finder(client, _stems(sources), src_names)
     sys.meta_path.insert(0, finder)
     _push_path(folder)
+    hooks = None
     try:
+        hooks = bridge.install_patches(client)
         return _execute(spec, names, Path(folder))
     except (Exception, SystemExit) as exc:
         return "ERROR", f"{type(exc).__name__}: {exc}"
     finally:
+        if hooks is not None:
+            bridge.restore_patches(hooks)
         _pop_path(folder)
         if finder in sys.meta_path:
             sys.meta_path.remove(finder)

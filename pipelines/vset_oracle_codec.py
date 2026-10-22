@@ -7,6 +7,7 @@ module loads ``vset_oracle_values`` lazily to avoid a cycle.
 from __future__ import annotations
 
 import base64
+import builtins
 import sys
 from collections import deque
 from datetime import date, datetime
@@ -25,8 +26,10 @@ else:
 
 def _host():
     # vset_oracle_values imports this module. A top-level import would cycle.
-    import vset_oracle_values as values
-
+    if __package__:
+        from . import vset_oracle_values as values
+    else:
+        import vset_oracle_values as values
     return values
 
 
@@ -111,6 +114,153 @@ def _encode_known(value: object) -> object | None:
     return _encode_tuple_or_set(value)
 
 
+def builtin_type(info: dict[str, object]) -> type | None:
+    """Real builtin when the child describes one, instead of a proxy class."""
+
+    name = info.get("builtin")
+    if not isinstance(name, str):
+        return None
+    found = getattr(builtins, name, None)
+    if isinstance(found, type):
+        return found
+    return None
+
+
+def _collect_parents(client: object, host: object, raw: list[object]) -> list[type]:
+    parents: list[type] = []
+    for base in raw:
+        if not isinstance(base, dict):
+            continue
+        builtin = builtin_type(base)
+        if builtin is not None:
+            parents.append(builtin)
+            continue
+        parents.append(host._class_from(client, base))  # type: ignore[attr-defined]
+    return parents
+
+
+def _with_remote(host: object, parents: list[type]) -> list[type]:
+    remote = host.RemoteObject  # type: ignore[attr-defined]
+    for parent in parents:
+        if issubclass(parent, remote):
+            return parents
+    return [remote, *parents]
+
+
+def parent_types(client: object, info: dict[str, object]) -> list[type]:
+    """Bases for a reconstructed candidate class, preserving builtin ancestry."""
+
+    host = _host()
+    raw = info.get("bases")
+    if not isinstance(raw, list):
+        return [host.RemoteObject]
+    if not raw:
+        return [host.RemoteObject]
+    parents = _collect_parents(client, host, raw)
+    if not parents:
+        return [host.RemoteObject]
+    return _with_remote(host, parents)
+
+
+def _new_list(cls: type) -> object:
+    return list.__new__(cls)
+
+
+def _new_dict(cls: type) -> object:
+    return dict.__new__(cls)
+
+
+def _new_set(cls: type) -> object:
+    return set.__new__(cls)
+
+
+def _new_tuple(cls: type) -> object:
+    return tuple.__new__(cls, ())
+
+
+def _new_str(cls: type) -> object:
+    return str.__new__(cls, "")
+
+
+def _new_bytes(cls: type) -> object:
+    return bytes.__new__(cls, b"")
+
+
+def _new_bytearray(cls: type) -> object:
+    return bytearray.__new__(cls)
+
+
+def _new_int(cls: type) -> object:
+    return int.__new__(cls, 0)
+
+
+def _new_float(cls: type) -> object:
+    return float.__new__(cls, 0.0)
+
+
+_BLANK = (
+    (list, _new_list),
+    (dict, _new_dict),
+    (set, _new_set),
+    (tuple, _new_tuple),
+    (str, _new_str),
+    (bytes, _new_bytes),
+    (bytearray, _new_bytearray),
+    (int, _new_int),
+    (float, _new_float),
+)
+
+
+def blank_instance(cls: type) -> object:
+    """Empty instance whose real builtin bases ``isinstance`` still sees."""
+
+    for base, maker in _BLANK:
+        if cls is base:
+            continue
+        if issubclass(cls, base):
+            return maker(cls)
+    return object.__new__(cls)
+
+
+def _replace(original: object, new: object) -> None:
+    if isinstance(original, list):
+        original.clear()
+        original.extend(new)  # type: ignore[arg-type]
+        return
+    if isinstance(original, dict):
+        original.clear()
+        original.update(new)  # type: ignore[arg-type]
+        return
+    if isinstance(original, set):
+        original.clear()
+        original.update(new)  # type: ignore[arg-type]
+        return
+    if isinstance(original, bytearray):
+        original.clear()
+        original.extend(new)  # type: ignore[arg-type]
+
+
+def apply_slots(client: object, states: object) -> None:
+    """Copy child mutations of parent containers back onto the originals."""
+
+    if not isinstance(states, list):
+        return
+    host = _host()
+    for state in states:
+        if not isinstance(state, dict):
+            continue
+        original = host._SLOTS.get(int(state["slot"]))
+        if original is None:
+            continue
+        _replace(original, host.interpret(client, state["state"]))
+
+
+def _plain(value: object) -> bool:
+    if value is None:
+        return True
+    return type(value) in {bool, int, float, str}
+
+
 def encode(value: object) -> object:
     if isinstance(value, _host().RemoteObject):
         return {"ref": value.oid}
@@ -118,9 +268,11 @@ def encode(value: object) -> object:
     if handler is not None:
         return handler(value)
     encoded = _encode_known(value)
-    if encoded is None:
+    if encoded is not None:
+        return encoded
+    if _plain(value):
         return value
-    return encoded
+    return {"cb": _host().remember_callback(value)}
 
 
 if __package__:  # pragma: no cover - package-child import path
