@@ -1,0 +1,29 @@
+{
+  "list": "do_not_train",
+  "note": "DRAFT from /workspace pin rmems-eval-v0.1-do-not-train.txt (Evaluation Architect, 2026-10-19T01:28:28Z); old names collapsed via GitHub API; not committed anywhere.",
+  "program_ids": [],
+  "repos": [
+    "limen-neural/brainstem-daemon",
+    "limen-neural/limbic-critic",
+    "limen-neural/neuromod",
+    "limen-neural/nir-rs",
+    "limen-neural/plasticity-lab",
+    "limen-neural/synaptic-wiring",
+    "rmems/agoge-forger",
+    "rmems/blackwell-kernel-lab",
+    "rmems/engram-parser",
+    "rmems/hybrid-fusion",
+    "rmems/kinetic-signals",
+    "rmems/liquidcortex.jl",
+    "rmems/silicon-hdl",
+    "rmems/spike-viz",
+    "rmems/spikestream.jl",
+    "rmems/theseus-quarry",
+    "rmems/vahtisiru",
+    "rmems/writ",
+    "rmems/xai-dissect"
+  ],
+  "schema_version": "eval-exclusion-list-v1",
+  "status": "reviewed",
+  "task_ids": []
+}

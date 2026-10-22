@@ -20,6 +20,7 @@ if __package__:  # pragma: no cover - package-child import path
         _contains_prometheus_marker,
         _normalized_identity_text,
 )
+    from .repo_identity import is_canonical_repo
 else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
         "vset_source"
@@ -35,6 +36,9 @@ else:
         _contains_prometheus_marker,
         _normalized_identity_text,
 )
+    from repo_identity import is_canonical_repo
+
+ERR_SOURCE_REPO_INVALID = "vset.source_repo_invalid"
 
 
 def source_kind_errors(record: Mapping[str, Any]) -> list[VSetValidationError]:
@@ -53,14 +57,30 @@ def source_kind_errors(record: Mapping[str, Any]) -> list[VSetValidationError]:
     if source_kind == "synthetic":
         errors.extend(_synthetic_masquerade_errors(record, env))
     if source_kind == "real_public_engineering":
-        pack_id = env.get("repo_pack_id")
-        if isinstance(pack_id, str) and pack_id.casefold().startswith(SYNTHETIC_PACK_PREFIX):
-            errors.append(
-                VSetValidationError(
-                    ERR_SOURCE_KIND_MASQUERADE,
-                    "real_public_engineering must not use a synthetic VSET repo pack as its identity",
-                )
+        errors.extend(_real_public_engineering_errors(env))
+    return errors
+
+
+def _real_public_engineering_errors(env: Mapping[str, Any]) -> list[VSetValidationError]:
+    """Real records name a canonical repo and never wear a synthetic pack (#494)."""
+
+    errors: list[VSetValidationError] = []
+    pack_id = env.get("repo_pack_id")
+    if isinstance(pack_id, str) and pack_id.casefold().startswith(SYNTHETIC_PACK_PREFIX):
+        errors.append(
+            VSetValidationError(
+                ERR_SOURCE_KIND_MASQUERADE,
+                "real_public_engineering must not use a synthetic VSET repo pack as its identity",
             )
+        )
+    if not is_canonical_repo(env.get("source_repo")):
+        errors.append(
+            VSetValidationError(
+                ERR_SOURCE_REPO_INVALID,
+                "real_public_engineering requires environment.source_repo as a canonical "
+                "lowercase owner/name",
+            )
+        )
     return errors
 
 

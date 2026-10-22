@@ -12,19 +12,18 @@ from __future__ import annotations
 import ast
 import hashlib
 import re
+import sys
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, TypeGuard
 
+from . import _contract
 from ._contract import (
-    CATALOG_FILENAME,
-    CATALOG_FORMAT,
     FACTORY,
     FINDING_CATALOG_FIELD_INVALID,
     FINDING_CATALOG_FIELD_MISSING,
     FINDING_CATALOG_FILE_MISSING,
-    FINDING_CATALOG_SHA256_MISMATCH,
     FINDING_FACTORY_NOT_REGISTERED,
     FINDING_MILL_NOT_FOUND,
     FINDING_PLANT_DUPLICATE_ID,
@@ -32,15 +31,34 @@ from ._contract import (
     FINDING_PLANT_FIELD_MISSING,
     FINDING_PLANT_NOT_FOUND,
     FINDING_SOURCE_NOT_PARSEABLE,
-    MILL_PREFIX,
-    PLANTS_FILENAME,
-    QUOTA_PER_ROUND,
-    RECORD_KIND,
     RagRefusal,
     bind_import_twin,
     load_strict_json,
     repo_root,
 )
+
+CATALOG_FILENAME = _contract.CATALOG_FILENAME
+CATALOG_FORMAT = _contract.CATALOG_FORMAT
+FINDING_CATALOG_SHA256_MISMATCH = _contract.FINDING_CATALOG_SHA256_MISMATCH
+MILL_PREFIX = _contract.MILL_PREFIX
+PLANTS_FILENAME = _contract.PLANTS_FILENAME
+QUOTA_PER_ROUND = _contract.QUOTA_PER_ROUND
+RECORD_KIND = _contract.RECORD_KIND
+
+if (__package__ or "").startswith("pipelines."):
+    from ..catalog_cli.pinned_load import load_pinned_catalog
+    from ..catalog_cli.source_const import (
+        plant_const_eval,
+        registry_factory_ids,
+        require_positive_base,
+    )
+else:
+    from catalog_cli.pinned_load import load_pinned_catalog
+    from catalog_cli.source_const import (
+        plant_const_eval,
+        registry_factory_ids,
+        require_positive_base,
+    )
 
 MILL_ID_RE = re.compile(r"^rag_r[0-9]+$")
 SLUG_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
@@ -161,51 +179,9 @@ def expand_pair(
 
 
 def _const_eval(node: ast.AST) -> Any:
-    """Literal values only. Refuses calls, names, and starred dicts.
+    """Literal values only. Refuses calls, names, and starred dicts."""
 
-    Every nested value is evaluated by this function calling itself (one frame a
-    level, two inside a tuple's generator), never through a helper.
-    """
-
-    if isinstance(node, ast.Constant):
-        return node.value
-    if isinstance(node, ast.Tuple):
-        return tuple(_const_eval(item) for item in node.elts)
-    if isinstance(node, ast.List):
-        return list(map(_const_eval, node.elts))
-    pairs = _literal_pairs(node)
-    if pairs is not None:
-        return {_const_eval(key): _const_eval(value) for key, value in pairs}
-    operand = _minus_operand(node)
-    if operand is None:
-        raise RagRefusal(FINDING_SOURCE_NOT_PARSEABLE, _refusal_text(node))
-    return -_const_eval(operand)
-
-
-def _literal_pairs(node: ast.AST) -> list[tuple[ast.expr, ast.expr]] | None:
-    """``(key, value)`` nodes of a dict without ``**`` unpacking; None otherwise."""
-
-    if not isinstance(node, ast.Dict):
-        return None
-    pairs = [(key, value) for key, value in zip(node.keys, node.values) if key is not None]
-    return pairs if len(pairs) == len(node.keys) else None
-
-
-def _minus_operand(node: ast.AST) -> ast.expr | None:
-    """What ``-x`` negates; None for every other node."""
-
-    if not isinstance(node, ast.UnaryOp):
-        return None
-    return node.operand if isinstance(node.op, ast.USub) else None
-
-
-def _refusal_text(node: ast.AST) -> str:
-    """Why ``node`` is not a constant: ``**`` in a dict, or any other node kind."""
-
-    kind = type(node).__name__
-    if isinstance(node, ast.Dict):
-        return "plant source uses dict unpacking"
-    return f"plant source is not a constant ({kind})"
+    return plant_const_eval(node, RagRefusal, FINDING_SOURCE_NOT_PARSEABLE)
 
 
 def _assigned_name(node: ast.AST) -> tuple[str, ast.AST] | None:
@@ -229,7 +205,6 @@ def _p_call_args(node: ast.AST) -> tuple[str, str, str, str] | None:
     if len(node.args) != 4:
         raise RagRefusal(FINDING_SOURCE_NOT_PARSEABLE, "P() must have four arguments")
     return _four_strings(node)
-
 
 def _four_strings(node: ast.Call) -> tuple[str, str, str, str]:
     """The four ``P()`` arguments as non-empty literal strings."""
@@ -262,7 +237,6 @@ def plants_from_source(
     base = _catalog_first_round(inferred_base, base_round, mill_id, source)
     return _p_call_rows(raw_pairs, mill_id, source, base)
 
-
 def _scan_mill_source(text: str, source: str) -> tuple[ast.AST | None, Any, Any]:
     """``PAIRS`` node plus literal ``CATALOG_FIRST`` and ``FACTORY``; the last of each wins."""
 
@@ -288,28 +262,20 @@ def _scan_mill_source(text: str, source: str) -> tuple[ast.AST | None, Any, Any]
             factory = _const_eval(value)
     return raw_pairs, inferred_base, factory
 
-
 def _catalog_first_round(
     inferred_base: Any, base_round: int | None, mill_id: str, source: str
 ) -> int:
     """The explicit base round, else ``CATALOG_FIRST``, else the ``rag_rNNN`` number."""
 
-    base = inferred_base if base_round is None else base_round
-    if base is None:
-        base = int(mill_id[len("rag_r") :])
-    if not _is_plain_int(base) or base < 1:
-        raise RagRefusal(
+    return require_positive_base(
+        inferred_base if base_round is None else base_round,
+        mill_id,
+        "rag_r",
+        lambda: RagRefusal(
             FINDING_PLANT_FIELD_INVALID,
             f"{source} CATALOG_FIRST must be a positive int",
-        )
-    return base
-
-
-def _is_plain_int(value: Any) -> TypeGuard[int]:
-    """An ``int`` that is not a ``bool``."""
-
-    return isinstance(value, int) and not isinstance(value, bool)
-
+        ),
+    )
 
 def _p_call_rows(
     raw_pairs: ast.List, mill_id: str, source: str, base: int
@@ -396,6 +362,10 @@ def _plant_from_row(row: Any, where: str) -> Plant:
         ),
     )
 
+def _is_plain_int(value: Any) -> TypeGuard[int]:
+    """An ``int`` that is not a ``bool``."""
+
+    return isinstance(value, int) and not isinstance(value, bool)
 
 def _round_and_tokens(row: dict[str, Any], where: str, slug: str) -> tuple[int, str, str]:
     """Positive base round plus the eng/leftover tokens the slug is built from."""
@@ -464,159 +434,27 @@ def _read_jsonl(path: Path) -> tuple[Any, ...]:
 
 
 def _registry_factory_ids() -> set[str]:
-    path = repo_root() / "config" / "FACTORY-REGISTRY.json"
-    try:
-        payload = load_strict_json(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError) as exc:
-        raise RagRefusal(
-            FINDING_FACTORY_NOT_REGISTERED, f"factory registry is unreadable: {exc}"
-        ) from exc
-    factories = payload.get("factories") if isinstance(payload, dict) else None
-    if not isinstance(factories, list):
-        raise RagRefusal(FINDING_FACTORY_NOT_REGISTERED, "factory registry factories is not a list")
-    path_ids = (row.get("path_id") for row in factories if isinstance(row, dict))
-    return {path_id for path_id in path_ids if isinstance(path_id, str)}
+    return registry_factory_ids(
+        repo_root,
+        load_strict_json,
+        lambda message: RagRefusal(FINDING_FACTORY_NOT_REGISTERED, message),
+    )
+
+
+CATALOG_HOOKS = (
+    _field,
+    _require_text,
+    _mill_from_row,
+    _plant_from_row,
+    _read_jsonl,
+    _registry_factory_ids,
+)
 
 
 def load_catalog(directory: Path | None = None) -> Catalog:
     """Load a catalog directory and refuse unless every pin holds."""
 
-    catalog_dir = Path(default_catalog_dir() if directory is None else directory)
-    meta_path = catalog_dir / CATALOG_FILENAME
-    plants_path = catalog_dir / PLANTS_FILENAME
-    meta, catalog_id = _read_catalog_identity(meta_path)
-    factory = _require_contract_pins(meta)
-    plant_count = _field(meta, "plant_count", int, CATALOG_FILENAME)
-    plants_sha256 = _field(meta, "plants_sha256", str, CATALOG_FILENAME)
-    mill_rows = _field(meta, "mills", list, CATALOG_FILENAME)
-    mills, digest = _mills_and_digest(mill_rows, plants_path, plants_sha256)
-    if factory not in _registry_factory_ids():
-        raise RagRefusal(FINDING_FACTORY_NOT_REGISTERED, f"{factory} is not a registry path_id")
-    plants, by_mill = _plants_by_mill(plants_path, plant_count)
-    _check_mill_totals(mills, by_mill)
-    return Catalog(
-        catalog_id=catalog_id,
-        directory=catalog_dir,
-        factory=factory,
-        plants_sha256=digest,
-        plants=plants,
-        mills=mills,
-        meta=meta,
-    )
-
-
-def _read_catalog_identity(meta_path: Path) -> tuple[Any, str]:
-    try:
-        meta_text = meta_path.read_text(encoding="utf-8")
-    except OSError as exc:
-        raise RagRefusal(FINDING_CATALOG_FILE_MISSING, f"{meta_path} is missing") from exc
-    try:
-        meta = load_strict_json(meta_text)
-    except ValueError as exc:
-        raise RagRefusal(
-            FINDING_CATALOG_FIELD_INVALID, f"{CATALOG_FILENAME} is not strict JSON"
-        ) from exc
-    catalog_id = _require_text(
-        _field(meta, "catalog_id", str, CATALOG_FILENAME),
-        f"{CATALOG_FILENAME}.catalog_id",
-        FINDING_CATALOG_FIELD_INVALID,
-    )
-    return meta, catalog_id
-
-
-def _require_contract_pins(meta: Any) -> str:
-    """The format, factory, mill prefix, record kind, and quota pins."""
-
-    fmt = _field(meta, "format", str, CATALOG_FILENAME)
-    if fmt != CATALOG_FORMAT:
-        raise RagRefusal(
-            FINDING_CATALOG_FIELD_INVALID,
-            f"{CATALOG_FILENAME}.format must be {CATALOG_FORMAT}",
-        )
-    factory = _field(meta, "factory", str, CATALOG_FILENAME)
-    if factory != FACTORY:
-        raise RagRefusal(
-            FINDING_CATALOG_FIELD_INVALID, f"{CATALOG_FILENAME}.factory must be {FACTORY}"
-        )
-    prefix = _field(meta, "mill_prefix", str, CATALOG_FILENAME)
-    if prefix != MILL_PREFIX:
-        raise RagRefusal(
-            FINDING_CATALOG_FIELD_INVALID,
-            f"{CATALOG_FILENAME}.mill_prefix must be {MILL_PREFIX}",
-        )
-    kind = _field(meta, "record_kind", str, CATALOG_FILENAME)
-    if kind != RECORD_KIND:
-        raise RagRefusal(
-            FINDING_CATALOG_FIELD_INVALID,
-            f"{CATALOG_FILENAME}.record_kind must be {RECORD_KIND}",
-        )
-    quota = _field(meta, "quota_per_round", int, CATALOG_FILENAME)
-    if isinstance(quota, bool) or quota != QUOTA_PER_ROUND:
-        raise RagRefusal(
-            FINDING_CATALOG_FIELD_INVALID,
-            f"{CATALOG_FILENAME}.quota_per_round must be {QUOTA_PER_ROUND}",
-        )
-    return factory
-
-
-def _mills_and_digest(
-    mill_rows: list[Any], plants_path: Path, plants_sha256: str
-) -> tuple[tuple[Mill, ...], str]:
-    """Catalog mills, then the plants.jsonl digest checked against its pin."""
-
-    mills = tuple(
-        _mill_from_row(row, f"{CATALOG_FILENAME}.mills[{i}]") for i, row in enumerate(mill_rows)
-    )
-    try:
-        plants_bytes = plants_path.read_bytes()
-    except OSError as exc:
-        raise RagRefusal(FINDING_CATALOG_FILE_MISSING, f"{plants_path} is missing") from exc
-    digest = sha256_bytes(plants_bytes)
-    if digest != plants_sha256:
-        raise RagRefusal(
-            FINDING_CATALOG_SHA256_MISMATCH,
-            f"{PLANTS_FILENAME} digest {digest} != catalog pin {plants_sha256}",
-        )
-    return mills, digest
-
-
-def _plants_by_mill(
-    plants_path: Path, plant_count: int
-) -> tuple[tuple[Plant, ...], dict[str, int]]:
-    """Unique plants from plants.jsonl and how many each mill has."""
-
-    rows = _read_jsonl(plants_path)
-    if len(rows) != plant_count:
-        raise RagRefusal(
-            FINDING_CATALOG_FIELD_INVALID,
-            f"{CATALOG_FILENAME}.plant_count is {plant_count}, file has {len(rows)}",
-        )
-    plants = tuple(
-        _plant_from_row(row, f"{PLANTS_FILENAME}:{i}") for i, row in enumerate(rows, start=1)
-    )
-    seen: set[str] = set()
-    for plant in plants:
-        if plant.plant_id in seen:
-            raise RagRefusal(FINDING_PLANT_DUPLICATE_ID, f"duplicate plant_id {plant.plant_id}")
-        seen.add(plant.plant_id)
-    by_mill: dict[str, int] = {}
-    for plant in plants:
-        by_mill[plant.mill_id] = by_mill.get(plant.mill_id, 0) + 1
-    return plants, by_mill
-
-
-def _check_mill_totals(mills: tuple[Mill, ...], by_mill: dict[str, int]) -> None:
-    mill_ids = {mill.mill_id for mill in mills}
-    if mill_ids != set(by_mill):
-        raise RagRefusal(
-            FINDING_CATALOG_FIELD_INVALID, "catalog mills do not match plant mill_id values"
-        )
-    for mill in mills:
-        if by_mill[mill.mill_id] != mill.plant_count:
-            raise RagRefusal(
-                FINDING_CATALOG_FIELD_INVALID,
-                f"{mill.mill_id} plant_count {mill.plant_count} != {by_mill[mill.mill_id]}",
-            )
+    return load_pinned_catalog(directory, sys.modules[__name__], _contract, RagRefusal)
 
 
 def catalog_check(directory: Path | None = None) -> list[dict[str, str]]:

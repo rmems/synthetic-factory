@@ -244,7 +244,7 @@ def _turn_indexes(turn_contents: list, text) -> list[int]:
 
 def _names_plan_change(candidate: str) -> bool:
     """True when text names a plan change and none of the terms that void one."""
-    if not any(term in candidate for term in _terms.PLAN_CHANGE_TERMS):
+    if _terms.PLAN_CHANGE_RE.search(candidate) is None:
         return False
     return not any(term in candidate for term in _terms.IGNORED_PLAN_TERMS)
 

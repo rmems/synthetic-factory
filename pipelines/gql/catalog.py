@@ -12,37 +12,47 @@ from __future__ import annotations
 import ast
 import hashlib
 import re
+import sys
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from . import _contract
 from ._contract import (
-    CATALOG_FILENAME,
-    CATALOG_FORMAT,
-    FACTORY,
     FINDING_CATALOG_FIELD_INVALID,
     FINDING_CATALOG_FIELD_MISSING,
     FINDING_CATALOG_FILE_MISSING,
-    FINDING_CATALOG_SHA256_MISMATCH,
     FINDING_FACTORY_NOT_REGISTERED,
     FINDING_MILL_NOT_FOUND,
-    FINDING_PLANT_DUPLICATE_ID,
     FINDING_PLANT_FIELD_INVALID,
     FINDING_PLANT_FIELD_MISSING,
     FINDING_PLANT_NOT_FOUND,
     FINDING_SOURCE_NOT_PARSEABLE,
-    GqlRefusal,
-    MILL_PREFIX,
-    PLANTS_FILENAME,
-    QUOTA_PER_ROUND,
-    RECORD_KIND,
     SHAPE_PAIR,
     SHAPE_SURFACE,
+    GqlRefusal,
     bind_import_twin,
     load_strict_json,
     repo_root,
 )
+
+CATALOG_FILENAME = _contract.CATALOG_FILENAME
+CATALOG_FORMAT = _contract.CATALOG_FORMAT
+FACTORY = _contract.FACTORY
+FINDING_CATALOG_SHA256_MISMATCH = _contract.FINDING_CATALOG_SHA256_MISMATCH
+FINDING_PLANT_DUPLICATE_ID = _contract.FINDING_PLANT_DUPLICATE_ID
+MILL_PREFIX = _contract.MILL_PREFIX
+PLANTS_FILENAME = _contract.PLANTS_FILENAME
+QUOTA_PER_ROUND = _contract.QUOTA_PER_ROUND
+RECORD_KIND = _contract.RECORD_KIND
+
+if (__package__ or "").startswith("pipelines."):
+    from ..catalog_cli.pinned_load import load_pinned_catalog
+    from ..catalog_cli.source_const import registry_factory_ids
+else:
+    from catalog_cli.pinned_load import load_pinned_catalog
+    from catalog_cli.source_const import registry_factory_ids
 
 OK_KEYS = (
     "slug",
@@ -119,7 +129,7 @@ __all__ = [
 
 
 @dataclass(frozen=True)
-class Plant:
+class CatalogPlant:
     """One leftover-execution plant: pair (ok/bad sides) or surface tuple."""
 
     plant_id: str
@@ -131,6 +141,9 @@ class Plant:
     plant: str
     coverage: int
     payload: Mapping[str, Any]
+
+
+Plant = CatalogPlant
 
 
 @dataclass(frozen=True)
@@ -555,138 +568,33 @@ def _read_jsonl(path: Path) -> tuple[Any, ...]:
 
 
 def _registry_factory_ids() -> set[str]:
-    path = repo_root() / "config" / "FACTORY-REGISTRY.json"
-    try:
-        payload = load_strict_json(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError) as exc:
-        raise GqlRefusal(
-            FINDING_FACTORY_NOT_REGISTERED, f"factory registry is unreadable: {exc}"
-        ) from exc
-    factories = payload.get("factories") if isinstance(payload, dict) else None
-    if not isinstance(factories, list):
-        raise GqlRefusal(FINDING_FACTORY_NOT_REGISTERED, "factory registry factories is not a list")
-    return {
-        row["path_id"]
-        for row in factories
-        if isinstance(row, dict) and isinstance(row.get("path_id"), str)
-    }
-
-
-# Catalog header fields pinned to this family, checked in this order.
-_PINNED_META = (
-    ("format", str, CATALOG_FORMAT),
-    ("factory", str, FACTORY),
-    ("mill_prefix", str, MILL_PREFIX),
-    ("record_kind", str, RECORD_KIND),
-    ("quota_per_round", int, QUOTA_PER_ROUND),
-)
-
-
-def _read_meta(meta_path: Path) -> Any:
-    try:
-        meta_text = meta_path.read_text(encoding="utf-8")
-    except OSError as exc:
-        raise GqlRefusal(FINDING_CATALOG_FILE_MISSING, f"{meta_path} is missing") from exc
-    try:
-        return load_strict_json(meta_text)
-    except ValueError as exc:
-        raise GqlRefusal(
-            FINDING_CATALOG_FIELD_INVALID, f"{CATALOG_FILENAME} is not strict JSON"
-        ) from exc
-
-
-def _require_pinned_meta(meta: Any) -> None:
-    for key, kind, expected in _PINNED_META:
-        value = _field(meta, key, kind, CATALOG_FILENAME)
-        if isinstance(value, bool) or value != expected:
-            raise GqlRefusal(
-                FINDING_CATALOG_FIELD_INVALID,
-                f"{CATALOG_FILENAME}.{key} must be {expected}",
-            )
-
-
-def _pinned_plants_digest(plants_path: Path, plants_sha256: str) -> str:
-    try:
-        plants_bytes = plants_path.read_bytes()
-    except OSError as exc:
-        raise GqlRefusal(FINDING_CATALOG_FILE_MISSING, f"{plants_path} is missing") from exc
-    digest = sha256_bytes(plants_bytes)
-    if digest != plants_sha256:
-        raise GqlRefusal(
-            FINDING_CATALOG_SHA256_MISMATCH,
-            f"{PLANTS_FILENAME} digest {digest} != catalog pin {plants_sha256}",
-        )
-    return digest
-
-
-def _load_plants(plants_path: Path, plant_count: int) -> tuple[Plant, ...]:
-    rows = _read_jsonl(plants_path)
-    if len(rows) != plant_count:
-        raise GqlRefusal(
-            FINDING_CATALOG_FIELD_INVALID,
-            f"{CATALOG_FILENAME}.plant_count is {plant_count}, file has {len(rows)}",
-        )
-    plants = tuple(
-        _plant_from_row(row, f"{PLANTS_FILENAME}:{i}") for i, row in enumerate(rows, start=1)
+    return registry_factory_ids(
+        repo_root,
+        load_strict_json,
+        lambda message: GqlRefusal(FINDING_FACTORY_NOT_REGISTERED, message),
     )
-    seen: set[str] = set()
-    for plant in plants:
-        if plant.plant_id in seen:
-            raise GqlRefusal(FINDING_PLANT_DUPLICATE_ID, f"duplicate plant_id {plant.plant_id}")
-        seen.add(plant.plant_id)
-    return plants
 
 
-def _require_mill_counts(mills: tuple[Mill, ...], plants: tuple[Plant, ...]) -> None:
-    by_mill: dict[str, int] = {}
-    for plant in plants:
-        by_mill[plant.mill_id] = by_mill.get(plant.mill_id, 0) + 1
-    mill_ids = {mill.mill_id for mill in mills}
-    if mill_ids != set(by_mill):
-        raise GqlRefusal(
-            FINDING_CATALOG_FIELD_INVALID, "catalog mills do not match plant mill_id values"
-        )
-    for mill in mills:
-        if by_mill[mill.mill_id] != mill.plant_count:
-            raise GqlRefusal(
-                FINDING_CATALOG_FIELD_INVALID,
-                f"{mill.mill_id} plant_count {mill.plant_count} != {by_mill[mill.mill_id]}",
-            )
+def _registry_ids_hook() -> set[str]:
+    """Resolve ``_registry_factory_ids`` per call so patching it still takes effect."""
+
+    return _registry_factory_ids()
+
+
+CATALOG_HOOKS = (
+    _field,
+    _require_text,
+    _mill_from_row,
+    _plant_from_row,
+    _read_jsonl,
+    _registry_ids_hook,
+)
 
 
 def load_catalog(directory: Path | None = None) -> Catalog:
     """Load a catalog directory and refuse unless every pin holds."""
 
-    catalog_dir = Path(default_catalog_dir() if directory is None else directory)
-    meta = _read_meta(catalog_dir / CATALOG_FILENAME)
-    catalog_id = _require_text(
-        _field(meta, "catalog_id", str, CATALOG_FILENAME),
-        f"{CATALOG_FILENAME}.catalog_id",
-        FINDING_CATALOG_FIELD_INVALID,
-    )
-    _require_pinned_meta(meta)
-    factory = meta["factory"]
-    plant_count = _field(meta, "plant_count", int, CATALOG_FILENAME)
-    plants_sha256 = _field(meta, "plants_sha256", str, CATALOG_FILENAME)
-    mill_rows = _field(meta, "mills", list, CATALOG_FILENAME)
-    mills = tuple(
-        _mill_from_row(row, f"{CATALOG_FILENAME}.mills[{i}]") for i, row in enumerate(mill_rows)
-    )
-    plants_path = catalog_dir / PLANTS_FILENAME
-    digest = _pinned_plants_digest(plants_path, plants_sha256)
-    if factory not in _registry_factory_ids():
-        raise GqlRefusal(FINDING_FACTORY_NOT_REGISTERED, f"{factory} is not a registry path_id")
-    plants = _load_plants(plants_path, plant_count)
-    _require_mill_counts(mills, plants)
-    return Catalog(
-        catalog_id=catalog_id,
-        directory=catalog_dir,
-        factory=factory,
-        plants_sha256=digest,
-        plants=plants,
-        mills=mills,
-        meta=meta,
-    )
+    return load_pinned_catalog(directory, sys.modules[__name__], _contract, GqlRefusal)
 
 
 def catalog_check(directory: Path | None = None) -> list[dict[str, str]]:

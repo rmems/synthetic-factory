@@ -1,0 +1,16 @@
+{
+  "list": "eval_denylist",
+  "note": "TEST FIXTURE ONLY. These entries exercise the gate and are not the reviewed rmems-eval-v0.1 lists.",
+  "program_ids": [
+    "tap-fixture-held-out"
+  ],
+  "repos": [
+    "clap-rs/clap",
+    "rmems/thalamic-relay"
+  ],
+  "schema_version": "eval-exclusion-list-v1",
+  "status": "reviewed",
+  "task_ids": [
+    "clap-rs__clap-941"
+  ]
+}

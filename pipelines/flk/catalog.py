@@ -12,35 +12,45 @@ from __future__ import annotations
 import ast
 import hashlib
 import re
+import sys
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, TypeGuard
+from typing import Any
 
+from . import _contract
 from ._contract import (
-    CATALOG_FILENAME,
-    CATALOG_FORMAT,
-    FACTORY,
     FINDING_CATALOG_FIELD_INVALID,
     FINDING_CATALOG_FIELD_MISSING,
     FINDING_CATALOG_FILE_MISSING,
-    FINDING_CATALOG_SHA256_MISMATCH,
     FINDING_FACTORY_NOT_REGISTERED,
     FINDING_MILL_NOT_FOUND,
-    FINDING_PLANT_DUPLICATE_ID,
     FINDING_PLANT_FIELD_INVALID,
     FINDING_PLANT_FIELD_MISSING,
     FINDING_PLANT_NOT_FOUND,
     FINDING_SOURCE_NOT_PARSEABLE,
     FlkRefusal,
-    MILL_PREFIX,
-    PLANTS_FILENAME,
-    QUOTA_PER_ROUND,
-    RECORD_KIND,
     bind_import_twin,
     load_strict_json,
     repo_root,
 )
+
+CATALOG_FILENAME = _contract.CATALOG_FILENAME
+CATALOG_FORMAT = _contract.CATALOG_FORMAT
+FACTORY = _contract.FACTORY
+FINDING_CATALOG_SHA256_MISMATCH = _contract.FINDING_CATALOG_SHA256_MISMATCH
+FINDING_PLANT_DUPLICATE_ID = _contract.FINDING_PLANT_DUPLICATE_ID
+MILL_PREFIX = _contract.MILL_PREFIX
+PLANTS_FILENAME = _contract.PLANTS_FILENAME
+QUOTA_PER_ROUND = _contract.QUOTA_PER_ROUND
+RECORD_KIND = _contract.RECORD_KIND
+
+if (__package__ or "").startswith("pipelines."):
+    from ..catalog_cli.pinned_load import keyed_plants_from_source, load_pinned_catalog
+    from ..catalog_cli.source_const import plant_const_eval, registry_factory_ids
+else:
+    from catalog_cli.pinned_load import keyed_plants_from_source, load_pinned_catalog
+    from catalog_cli.source_const import plant_const_eval, registry_factory_ids
 
 PLANT_KEYS = (
     "slug",
@@ -141,137 +151,36 @@ def sha256_bytes(payload: bytes) -> str:
 
 
 def _const_eval(node: ast.AST) -> Any:
-    """Literal values only. Refuses calls, names, and starred dicts.
+    """Literal values only. Refuses calls, names, and starred dicts."""
 
-    Nested values recurse straight back into this function, one frame per level
-    (two for a tuple's generator) as before; the helpers it calls never recurse.
-    """
-
-    if isinstance(node, ast.Constant):
-        return node.value
-    if isinstance(node, ast.List):
-        return [_const_eval(item) for item in node.elts]
-    if isinstance(node, ast.Tuple):
-        return tuple(_const_eval(item) for item in node.elts)
-    items = _dict_items(node)
-    if items is not None:
-        keys, values = items
-        return dict(zip(map(_const_eval, keys), map(_const_eval, values)))
-    operand = _negated_operand(node)
-    if operand is None:
-        raise FlkRefusal(FINDING_SOURCE_NOT_PARSEABLE, _not_constant_message(node))
-    return -_const_eval(operand)
+    return plant_const_eval(node, FlkRefusal, FINDING_SOURCE_NOT_PARSEABLE)
 
 
-def _dict_items(node: ast.AST) -> tuple[list[ast.expr], list[ast.expr]] | None:
-    """Key and value nodes of a dict literal; None for any other node or ``**`` unpacking."""
-
-    if not isinstance(node, ast.Dict):
-        return None
-    keys = [key for key in node.keys if key is not None]
-    return (keys, node.values) if len(keys) == len(node.keys) else None
-
-
-def _negated_operand(node: ast.AST) -> ast.expr | None:
-    if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
-        return node.operand
-    return None
-
-
-def _not_constant_message(node: ast.AST) -> str:
-    if isinstance(node, ast.Dict):
-        return "plant source uses dict unpacking"
-    return f"plant source is not a constant ({type(node).__name__})"
-
-
-def _assigned_name(node: ast.AST) -> tuple[str, ast.AST] | None:
-    if isinstance(node, ast.Assign) and len(node.targets) == 1:
-        target = node.targets[0]
-        if isinstance(target, ast.Name):
-            return target.id, node.value
-    if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
-        return None if node.value is None else (node.target.id, node.value)
-    return None
+_SOURCE_SPEC = {
+    "list_name": "PLANTS",
+    "base_name": "BASE",
+    "prefix": "flk_r",
+    "pattern": "flk_rNNN",
+    "keys": PLANT_KEYS,
+    "label": "PLANTS",
+    "evaluate": _const_eval,
+    "fullmatch": MILL_ID_RE.fullmatch,
+}
+_SOURCE_REFUSALS = (
+    FlkRefusal,
+    FINDING_SOURCE_NOT_PARSEABLE,
+    FINDING_PLANT_FIELD_INVALID,
+    FINDING_PLANT_FIELD_MISSING,
+)
 
 
 def plants_from_source(
-    text: str,
-    *,
-    mill_id: str,
-    source: str,
-    base_round: int | None = None,
+    text: str, *, mill_id: str, source: str, base_round: int | None = None
 ) -> tuple[dict[str, Any], ...]:
     """AST-extract ``PLANTS`` from leftover-mill source text. Never exec."""
 
-    try:
-        tree = ast.parse(text)
-    except SyntaxError as exc:
-        raise FlkRefusal(
-            FINDING_SOURCE_NOT_PARSEABLE, f"{source} does not parse: {exc}"
-        ) from exc
-    raw_plants, inferred_base = _scan_plants(tree, mill_id, source)
-    base = _plant_base_round(inferred_base, base_round, mill_id, source)
-    rows = []
-    for index, raw in enumerate(raw_plants):
-        if not isinstance(raw, dict):
-            raise FlkRefusal(
-                FINDING_SOURCE_NOT_PARSEABLE, f"{source} PLANTS[{index}] is not an object"
-            )
-        missing = [key for key in PLANT_KEYS if key not in raw]
-        if missing:
-            raise FlkRefusal(
-                FINDING_PLANT_FIELD_MISSING,
-                f"{source} PLANTS[{index}] missing {missing[0]}",
-            )
-        row = {
-            "plant_id": f"{mill_id}:{raw['slug']}",
-            "mill_id": mill_id,
-            "source": source,
-            "base_round": base,
-        }
-        row.update({key: raw[key] for key in PLANT_KEYS})
-        rows.append(row)
-    return tuple(rows)
-
-
-def _scan_plants(tree: ast.Module, mill_id: str, source: str) -> tuple[list[Any], Any]:
-    """A non-empty literal ``PLANTS`` list and ``BASE`` (last assignment wins) for a flk mill."""
-
-    raw_plants: Any = None
-    inferred_base: Any = None
-    for node in tree.body:
-        assigned = _assigned_name(node)
-        if assigned is None:
-            continue
-        name, value = assigned
-        if name == "PLANTS":
-            raw_plants = _const_eval(value)
-        elif name == "BASE":
-            inferred_base = _const_eval(value)
-    if not isinstance(raw_plants, list) or not raw_plants:
-        raise FlkRefusal(FINDING_SOURCE_NOT_PARSEABLE, f"{source} has no PLANTS list")
-    if not MILL_ID_RE.fullmatch(mill_id):
-        raise FlkRefusal(FINDING_PLANT_FIELD_INVALID, f"mill_id {mill_id!r} is not flk_rNNN")
-    return raw_plants, inferred_base
-
-
-def _plant_base_round(
-    inferred_base: Any, base_round: int | None, mill_id: str, source: str
-) -> int:
-    """The explicit base round, else ``BASE``, else the ``flk_rNNN`` number."""
-
-    base = inferred_base if base_round is None else base_round
-    if base is None:
-        base = int(mill_id[len("flk_r") :])
-    if not _is_plain_int(base) or base < 1:
-        raise FlkRefusal(FINDING_PLANT_FIELD_INVALID, f"{source} BASE must be a positive int")
-    return base
-
-
-def _is_plain_int(value: Any) -> TypeGuard[int]:
-    """An ``int`` that is not a ``bool``."""
-
-    return isinstance(value, int) and not isinstance(value, bool)
+    identity = {"mill_id": mill_id, "source": source, "base_round": base_round}
+    return keyed_plants_from_source(text, identity, _SOURCE_SPEC, _SOURCE_REFUSALS)
 
 
 def _field(mapping: Any, key: str, kinds: type | tuple[type, ...], where: str) -> Any:
@@ -331,7 +240,6 @@ def _plant_from_row(row: Any, where: str) -> Plant:
         ci=fields["ci"],
         ticket=fields["ticket"],
     )
-
 
 def _plant_mill_and_slug(row: Any, where: str) -> tuple[str, str]:
     """An object row whose mill_id and slug are well-formed."""
@@ -394,159 +302,27 @@ def _read_jsonl(path: Path) -> tuple[Any, ...]:
 
 
 def _registry_factory_ids() -> set[str]:
-    path = repo_root() / "config" / "FACTORY-REGISTRY.json"
-    try:
-        payload = load_strict_json(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError) as exc:
-        raise FlkRefusal(
-            FINDING_FACTORY_NOT_REGISTERED, f"factory registry is unreadable: {exc}"
-        ) from exc
-    factories = payload.get("factories") if isinstance(payload, dict) else None
-    if not isinstance(factories, list):
-        raise FlkRefusal(FINDING_FACTORY_NOT_REGISTERED, "factory registry factories is not a list")
-    ids: set[str] = set()
-    for row in factories:
-        path_id = row.get("path_id") if isinstance(row, dict) else None
-        if isinstance(path_id, str):
-            ids.add(path_id)
-    return ids
+    return registry_factory_ids(
+        repo_root,
+        load_strict_json,
+        lambda message: FlkRefusal(FINDING_FACTORY_NOT_REGISTERED, message),
+    )
+
+
+CATALOG_HOOKS = (
+    _field,
+    _require_text,
+    _mill_from_row,
+    _plant_from_row,
+    _read_jsonl,
+    _registry_factory_ids,
+)
 
 
 def load_catalog(directory: Path | None = None) -> Catalog:
     """Load a catalog directory and refuse unless every pin holds."""
 
-    catalog_dir = Path(default_catalog_dir() if directory is None else directory)
-    meta_path = catalog_dir / CATALOG_FILENAME
-    plants_path = catalog_dir / PLANTS_FILENAME
-    meta = _read_catalog_meta(meta_path)
-    catalog_id, factory = _require_catalog_pins(meta)
-    plant_count = _field(meta, "plant_count", int, CATALOG_FILENAME)
-    plants_sha256 = _field(meta, "plants_sha256", str, CATALOG_FILENAME)
-    mill_rows = _field(meta, "mills", list, CATALOG_FILENAME)
-    mills = tuple(
-        _mill_from_row(row, f"{CATALOG_FILENAME}.mills[{i}]") for i, row in enumerate(mill_rows)
-    )
-    digest = _pinned_digest(plants_path, plants_sha256)
-    if factory not in _registry_factory_ids():
-        raise FlkRefusal(FINDING_FACTORY_NOT_REGISTERED, f"{factory} is not a registry path_id")
-    plants = _load_plant_rows(plants_path, plant_count)
-    _check_mill_counts(mills, plants)
-    return Catalog(
-        catalog_id=catalog_id,
-        directory=catalog_dir,
-        factory=factory,
-        plants_sha256=digest,
-        plants=plants,
-        mills=mills,
-        meta=meta,
-    )
-
-
-def _read_catalog_meta(meta_path: Path) -> Any:
-    try:
-        meta_text = meta_path.read_text(encoding="utf-8")
-    except OSError as exc:
-        raise FlkRefusal(FINDING_CATALOG_FILE_MISSING, f"{meta_path} is missing") from exc
-    try:
-        meta = load_strict_json(meta_text)
-    except ValueError as exc:
-        raise FlkRefusal(
-            FINDING_CATALOG_FIELD_INVALID, f"{CATALOG_FILENAME} is not strict JSON"
-        ) from exc
-    return meta
-
-
-def _require_catalog_pins(meta: Any) -> tuple[str, str]:
-    """catalog_id plus the format, factory, prefix, kind, and quota pins."""
-
-    catalog_id = _require_text(
-        _field(meta, "catalog_id", str, CATALOG_FILENAME),
-        f"{CATALOG_FILENAME}.catalog_id",
-        FINDING_CATALOG_FIELD_INVALID,
-    )
-    fmt = _field(meta, "format", str, CATALOG_FILENAME)
-    if fmt != CATALOG_FORMAT:
-        raise FlkRefusal(
-            FINDING_CATALOG_FIELD_INVALID,
-            f"{CATALOG_FILENAME}.format must be {CATALOG_FORMAT}",
-        )
-    factory = _field(meta, "factory", str, CATALOG_FILENAME)
-    if factory != FACTORY:
-        raise FlkRefusal(
-            FINDING_CATALOG_FIELD_INVALID, f"{CATALOG_FILENAME}.factory must be {FACTORY}"
-        )
-    prefix = _field(meta, "mill_prefix", str, CATALOG_FILENAME)
-    if prefix != MILL_PREFIX:
-        raise FlkRefusal(
-            FINDING_CATALOG_FIELD_INVALID,
-            f"{CATALOG_FILENAME}.mill_prefix must be {MILL_PREFIX}",
-        )
-    kind = _field(meta, "record_kind", str, CATALOG_FILENAME)
-    if kind != RECORD_KIND:
-        raise FlkRefusal(
-            FINDING_CATALOG_FIELD_INVALID,
-            f"{CATALOG_FILENAME}.record_kind must be {RECORD_KIND}",
-        )
-    quota = _field(meta, "quota_per_round", int, CATALOG_FILENAME)
-    if isinstance(quota, bool) or quota != QUOTA_PER_ROUND:
-        raise FlkRefusal(
-            FINDING_CATALOG_FIELD_INVALID,
-            f"{CATALOG_FILENAME}.quota_per_round must be {QUOTA_PER_ROUND}",
-        )
-    return catalog_id, factory
-
-
-def _pinned_digest(plants_path: Path, plants_sha256: str) -> str:
-    try:
-        plants_bytes = plants_path.read_bytes()
-    except OSError as exc:
-        raise FlkRefusal(FINDING_CATALOG_FILE_MISSING, f"{plants_path} is missing") from exc
-    digest = sha256_bytes(plants_bytes)
-    if digest != plants_sha256:
-        raise FlkRefusal(
-            FINDING_CATALOG_SHA256_MISMATCH,
-            f"{PLANTS_FILENAME} digest {digest} != catalog pin {plants_sha256}",
-        )
-    return digest
-
-
-def _load_plant_rows(plants_path: Path, plant_count: int) -> tuple[Plant, ...]:
-    """The pinned number of plants.jsonl rows, with no repeated plant_id."""
-
-    rows = _read_jsonl(plants_path)
-    if len(rows) != plant_count:
-        raise FlkRefusal(
-            FINDING_CATALOG_FIELD_INVALID,
-            f"{CATALOG_FILENAME}.plant_count is {plant_count}, file has {len(rows)}",
-        )
-    plants = tuple(
-        _plant_from_row(row, f"{PLANTS_FILENAME}:{i}") for i, row in enumerate(rows, start=1)
-    )
-    seen: set[str] = set()
-    for plant in plants:
-        if plant.plant_id in seen:
-            raise FlkRefusal(FINDING_PLANT_DUPLICATE_ID, f"duplicate plant_id {plant.plant_id}")
-        seen.add(plant.plant_id)
-    return plants
-
-
-def _check_mill_counts(mills: tuple[Mill, ...], plants: tuple[Plant, ...]) -> None:
-    """Every mill has plants, and as many as its plant_count says."""
-
-    by_mill: dict[str, int] = {}
-    for plant in plants:
-        by_mill[plant.mill_id] = by_mill.get(plant.mill_id, 0) + 1
-    mill_ids = {mill.mill_id for mill in mills}
-    if mill_ids != set(by_mill):
-        raise FlkRefusal(
-            FINDING_CATALOG_FIELD_INVALID, "catalog mills do not match plant mill_id values"
-        )
-    for mill in mills:
-        if by_mill[mill.mill_id] != mill.plant_count:
-            raise FlkRefusal(
-                FINDING_CATALOG_FIELD_INVALID,
-                f"{mill.mill_id} plant_count {mill.plant_count} != {by_mill[mill.mill_id]}",
-            )
+    return load_pinned_catalog(directory, sys.modules[__name__], _contract, FlkRefusal)
 
 
 def catalog_check(directory: Path | None = None) -> list[dict[str, str]]:
