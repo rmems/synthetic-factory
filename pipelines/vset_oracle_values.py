@@ -321,23 +321,11 @@ def _error(client: object, payload: dict[str, object]) -> None:
 
 
 _KINDS = {
-    "value": _value,
-    "synced": _synced,
-    "notimplemented": _notimplemented,
-    "list": _list,
-    "tuple": _tuple,
-    "dict": _dict,
-    "set": _set,
-    "frozenset": _frozenset,
-    "bytes": _bytes,
-    "class": _class,
-    "obj": _wrap,
-    "exc_type": _exc_type,
-    "error": _error,
-    "decimal": _decimal,
-    "fraction": _fraction,
-    "datetime": _datetime,
-    "date": _date,
+    "value": _value, "synced": _synced, "notimplemented": _notimplemented,
+    "list": _list, "tuple": _tuple, "dict": _dict, "set": _set,
+    "frozenset": _frozenset, "bytes": _bytes, "class": _class, "obj": _wrap,
+    "exc_type": _exc_type, "error": _error, "decimal": _decimal,
+    "fraction": _fraction, "datetime": _datetime, "date": _date,
 }
 
 

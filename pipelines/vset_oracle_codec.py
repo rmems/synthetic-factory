@@ -86,18 +86,29 @@ _ENCODE = {
 }
 
 
-def _encode_known(value: object) -> object | None:
+def _encode_dict_or_list(value: object) -> object | None:
     if isinstance(value, dict):
         return _encode_map(value)  # type: ignore[arg-type]
-    if isinstance(value, tuple):
-        return _encode_tuple(tuple(value))
     if isinstance(value, list):
         return _encode_list(value)  # type: ignore[arg-type]
+    return None
+
+
+def _encode_tuple_or_set(value: object) -> object | None:
+    if isinstance(value, tuple):
+        return _encode_tuple(tuple(value))
     if isinstance(value, set):
         return _encode_set(value)  # type: ignore[arg-type]
     if isinstance(value, deque):
         return _encode_list(list(value))
     return None
+
+
+def _encode_known(value: object) -> object | None:
+    encoded = _encode_dict_or_list(value)
+    if encoded is not None:
+        return encoded
+    return _encode_tuple_or_set(value)
 
 
 def encode(value: object) -> object:
