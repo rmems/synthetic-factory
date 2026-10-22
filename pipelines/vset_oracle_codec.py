@@ -97,8 +97,8 @@ def _encode_dict_or_list(value: object) -> object | None:
 
 
 def _encode_tuple_or_set(value: object) -> object | None:
-    if isinstance(value, tuple):
-        return _encode_tuple(tuple(value))
+    if type(value) is tuple:
+        return _encode_tuple(value)
     if isinstance(value, set):
         return _encode_set(value)  # type: ignore[arg-type]
     if isinstance(value, deque):
@@ -164,26 +164,6 @@ def encode(value: object) -> object:
     if _plain(value):
         return value
     return {"cb": _host().remember_callback(value)}
-
-
-def embeds_callback(value: object) -> bool:
-    pending = [value]
-    while pending:
-        item = pending.pop()
-        if isinstance(item, dict):
-            if "cb" in item:
-                return True
-            pending.extend(item.values())
-        elif isinstance(item, list):
-            pending.extend(item)
-    return False
-
-
-def plain_callback_result(value: object) -> object:
-    encoded = encode(value)
-    if embeds_callback(encoded):
-        raise TypeError("callback result is not plain data")
-    return encoded
 
 
 if __package__:  # pragma: no cover - package-child import path
