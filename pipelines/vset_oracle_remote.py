@@ -547,6 +547,8 @@ def grade_test(
             ERR_ORACLE_EXECUTION_MISMATCH, f"oracle runner failed: {exc}"
         ) from exc
     previous = _arm(_CHILD_TIMEOUT_S)
+    previous_cwd = Path.cwd()
+    os.chdir(work)
     try:
         return _grade_open(proc, spec, names, bundle)
     except KeyboardInterrupt:
@@ -554,6 +556,7 @@ def grade_test(
             raise
         raise VSetValidationError(ERR_ORACLE_EXECUTION_MISMATCH, _TIMEOUT_MESSAGE) from None
     finally:
+        os.chdir(previous_cwd)
         _disarm(previous)
         _stop(proc)
 
