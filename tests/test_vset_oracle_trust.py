@@ -11,6 +11,7 @@ import json
 import shutil
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -354,6 +355,12 @@ class OracleTrustBoundaryTests(unittest.TestCase):
                 },
             )
         self.assertIn("do not match unittest collection", str(ctx.exception))
+
+    def test_mocks_class_api_and_callbacks_round_trip(self) -> None:
+        self._ok_files("use.py", _pack("mocking"))
+        with unittest.mock.patch("time.time", return_value=1.0):
+            self.assertEqual(time.time(), 1.0)
+        self.assertNotEqual(time.time(), 1.0)
 
     def test_remote_values_and_helpers_round_trip(self) -> None:
         self._ok_files("use.py", _pack("helper"))

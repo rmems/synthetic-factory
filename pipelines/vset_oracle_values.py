@@ -18,19 +18,54 @@ if __package__:  # pragma: no cover - package-child import path
     from . import _assert_direct_sibling, _expose_package_sibling
 
     _assert_direct_sibling("vset_oracle_values")
+    from .vset_oracle_codec import apply_slots as _apply_slots
+    from .vset_oracle_codec import blank_instance as _blank_instance
+    from .vset_oracle_codec import builtin_type as _builtin_type
+    from .vset_oracle_codec import parent_types as _parent_types
 else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
         "vset_oracle_values"
     )
+    from vset_oracle_codec import apply_slots as _apply_slots
+    from vset_oracle_codec import blank_instance as _blank_instance
+    from vset_oracle_codec import builtin_type as _builtin_type
+    from vset_oracle_codec import parent_types as _parent_types
 
 _EXC_TYPES: dict[tuple[str, str], type[Exception]] = {}
 _CLASSES: dict[tuple[int, int], type] = {}
 _OBJECTS: dict[tuple[int, int], RemoteObject] = {}
 _SLOTS: dict[int, object] = {}
+_CALLBACKS: dict[int, object] = {}
 _FORWARDED = (
     "__eq__ __ne__ __lt__ __le__ __gt__ __ge__ __len__ __iter__ __next__ "
-    "__contains__ __getitem__ __add__ __radd__ __sub__ __rsub__ __mul__ __rmul__"
+    "__contains__ __getitem__ __setitem__ __delitem__ "
+    "__add__ __radd__ __sub__ __rsub__ __mul__ __rmul__ "
+    "__truediv__ __rtruediv__ __floordiv__ __rfloordiv__ __mod__ __rmod__ "
+    "__pow__ __neg__ __pos__ __abs__ __int__ __float__ __index__ "
+    "__repr__ __str__ __format__ __enter__ __exit__ __reversed__ "
+    "__iadd__ __isub__ __imul__ __itruediv__ __ifloordiv__ __imod__ "
+    "__matmul__ __rmatmul__ __imatmul__ __divmod__ __rdivmod__ "
+    "__and__ __rand__ __iand__ __or__ __ror__ __ior__ "
+    "__xor__ __rxor__ __ixor__ __invert__ "
+    "__lshift__ __rlshift__ __ilshift__ __rshift__ __rrshift__ __irshift__"
 ).split()
+_STRICT = {
+    "__enter__",
+    "__exit__",
+    "__repr__",
+    "__str__",
+    "__format__",
+    "__iter__",
+    "__next__",
+    "__len__",
+    "__getitem__",
+    "__setitem__",
+    "__delitem__",
+    "__int__",
+    "__float__",
+    "__index__",
+    "__reversed__",
+}
 
 
 def _builtin_exception(name: str) -> type[Exception] | None:
@@ -111,6 +146,8 @@ def _forward(name: str):
         try:
             func = self.client.get(self.oid, name)
         except AttributeError:
+            if name in _STRICT:
+                raise
             return NotImplemented
         return func(*args)
 
@@ -129,7 +166,7 @@ def _remote_hash(obj: RemoteObject) -> int:
         return object.__hash__(obj)
     if func is None:
         raise TypeError("unhashable type")
-    return int(func())
+    return func()
 
 
 def _truth(obj: RemoteObject) -> bool:
@@ -146,24 +183,56 @@ def _truth(obj: RemoteObject) -> bool:
     return bool(func())
 
 
+def _namespace(client: object, oid: int) -> dict[str, object]:
+    def new(cls: type, *args: object, **kwargs: object) -> object:
+        return client.call(oid, args, kwargs)  # type: ignore[attr-defined]
+
+    return {"__new__": new}
+
+
+class _RemoteMeta(type):
+    """Forwards class attributes to the candidate class."""
+
+    def __getattr__(cls, name: str) -> object:
+        client = cls.__dict__.get("_vset_client")
+        if client is None:
+            raise AttributeError(name)
+        oid = cls.__dict__.get("_vset_oid")
+        if oid is None:
+            raise AttributeError(name)
+        return client.get(oid, name)
+
+    def __setattr__(cls, name: str, value: object) -> None:
+        if name.startswith("_"):
+            super().__setattr__(name, value)
+            return
+        client = cls.__dict__.get("_vset_client")
+        if client is None:
+            super().__setattr__(name, value)
+            return
+        oid = cls.__dict__.get("_vset_oid")
+        if oid is None:
+            super().__setattr__(name, value)
+            return
+        client.set_attr(oid, name, value)
+        super().__setattr__(name, value)
+
+
 def _class_from(client: object, info: dict[str, object]) -> type:
+    builtin = _builtin_type(info)
+    if builtin is not None:
+        return builtin
     oid = int(info["oid"])
     key = (id(client), oid)
     found = _CLASSES.get(key)
     if found is not None:
         return found
-    raw_bases = info.get("bases")
-    if raw_bases is None:
-        raw_bases = []
-    parents = [_class_from(client, base) for base in raw_bases]  # type: ignore[union-attr]
-    if not parents:
-        parents = [RemoteObject]
-
-    def new(cls, *args, **kwargs):
-        return client.call(oid, args, kwargs)  # type: ignore[attr-defined]
-
-    created = type(str(info["name"]), tuple(parents), {"__new__": new})
+    created = _RemoteMeta(
+        str(info["name"]), tuple(_parent_types(client, info)), _namespace(client, oid)
+    )
     _CLASSES[key] = created
+    created._vset_client = client  # type: ignore[attr-defined]
+    created._vset_oid = oid  # type: ignore[attr-defined]
     return created
 
 
@@ -173,6 +242,22 @@ def reset_identity() -> None:
     _OBJECTS.clear()
     _CLASSES.clear()
     _SLOTS.clear()
+    _CALLBACKS.clear()
+
+
+def remember_callback(value: object) -> int:
+    """Keep a parent object the child can call back into."""
+
+    key = id(value)
+    _CALLBACKS[key] = value
+    return key
+
+
+def take_callback(key: int) -> object:
+    found = _CALLBACKS.get(key)
+    if found is None:
+        raise KeyError(key)
+    return found
 
 
 def _track(value: object) -> int:
@@ -188,7 +273,7 @@ def _wrap(client: object, payload: dict[str, object]) -> RemoteObject:
     if found is not None:
         return found
     cls = _class_from(client, payload["cls"])  # type: ignore[arg-type]
-    obj = object.__new__(cls)
+    obj = _blank_instance(cls)
     object.__setattr__(obj, "client", client)
     object.__setattr__(obj, "oid", oid)
     _OBJECTS[key] = obj
@@ -209,36 +294,6 @@ def _dict(client: object, payload: dict[str, object]) -> dict[object, object]:
         interpret(client, pair[0]): interpret(client, pair[1])  # type: ignore[index]
         for pair in pairs  # type: ignore[union-attr]
     }
-
-
-def _replace(original: object, new: object) -> None:
-    if isinstance(original, list):
-        original.clear()
-        original.extend(new)  # type: ignore[arg-type]
-        return
-    if isinstance(original, dict):
-        original.clear()
-        original.update(new)  # type: ignore[arg-type]
-        return
-    if isinstance(original, set):
-        original.clear()
-        original.update(new)  # type: ignore[arg-type]
-        return
-    if isinstance(original, bytearray):
-        original.clear()
-        original.extend(new)  # type: ignore[arg-type]
-
-
-def _apply_slots(client: object, states: object) -> None:
-    if not isinstance(states, list):
-        return
-    for state in states:
-        if not isinstance(state, dict):
-            continue
-        original = _SLOTS.get(int(state["slot"]))
-        if original is None:
-            continue
-        _replace(original, interpret(client, state["state"]))
 
 
 def _synced(client: object, payload: dict[str, object]) -> object:
@@ -280,6 +335,10 @@ def _datetime(_client: object, payload: dict[str, object]) -> datetime:
 
 def _date(_client: object, payload: dict[str, object]) -> date:
     return date.fromisoformat(str(payload["data"]))
+
+
+def _callback(_client: object, payload: dict[str, object]) -> object:
+    return take_callback(int(payload["cb"]))
 
 
 def _class(client: object, payload: dict[str, object]) -> type:
@@ -325,7 +384,7 @@ _KINDS = {
     "list": _list, "tuple": _tuple, "dict": _dict, "set": _set,
     "frozenset": _frozenset, "bytes": _bytes, "class": _class, "obj": _wrap,
     "exc_type": _exc_type, "error": _error, "decimal": _decimal,
-    "fraction": _fraction, "datetime": _datetime, "date": _date,
+    "fraction": _fraction, "datetime": _datetime, "date": _date, "cb": _callback,
 }
 
 
