@@ -39,10 +39,12 @@ def write_denylist_json(path: Path, program_ids: list[str], *, repos: list[str] 
     path.write_text(json.dumps(document, indent=2) + "\n", encoding="utf-8")
 
 
-def rules(deny=DENY, prior=None):
+def rules(deny=DENY, prior=None, eval_program_ids=frozenset()):
     """The gate's rules: the denylist and a prior index (empty unless given)."""
 
-    return gate.Rules(deny, dedup_index.PriorIndex.empty() if prior is None else prior)
+    return gate.Rules(
+        deny, dedup_index.PriorIndex.empty() if prior is None else prior, eval_program_ids,
+    )
 
 
 def refused(call, *args):

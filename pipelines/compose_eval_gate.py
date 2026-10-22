@@ -3,12 +3,12 @@
 
 Compose applies this gate to every line after the lanes (and after any oracle
 training selection) have decided it, exactly as export replays it. A retained
-record that makes a public-source claim (see ``eval_exclusion_subject``) gets
-an ``eval_exclusion`` stage. When its canonical repository, ``program_id``, or
-``task_id`` is on the vendored eval denylist or do-not-train list, or when its
-repository cannot be resolved offline, the record is excluded with the
-matching reason codes and no output, id, or reward sidecar. Records without a
-public-source claim, and lines already excluded, pass through unchanged.
+record is scanned for a source identity on every record kind (see
+``eval_exclusion_subject``). A denylist or do-not-train hit refuses the shard
+instead of dropping the row. A public-source claimant whose repository cannot
+be resolved offline is still excluded with the matching reason codes and no
+output, id, or reward sidecar. Records without a governed identity, and lines
+already excluded, pass through unchanged.
 
 Every compose summary records the policy it ran under (both list sha256 values
 and the alias-cache sha256) under ``eval_exclusion``; export refuses a summary
@@ -27,14 +27,14 @@ if __package__:
     _assert_direct_sibling("compose_eval_gate")
     from . import eval_exclusion_policy as _policy
     from .compose_contract import ACTION_EXCLUDED, ACTION_RETAINED, LANE_ORDER, ComposeError
-    from .eval_exclusion_subject import source_identity
+    from .eval_exclusion_subject import requires_repo, source_identities
 else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
         "compose_eval_gate"
     )
     import eval_exclusion_policy as _policy
     from compose_contract import ACTION_EXCLUDED, ACTION_RETAINED, LANE_ORDER, ComposeError
-    from eval_exclusion_subject import source_identity
+    from eval_exclusion_subject import requires_repo, source_identities
 
 NAME = "eval-exclusion-gate"
 VERSION = 1
@@ -43,6 +43,7 @@ SUMMARY_KEY = "eval_exclusion"
 # Lanes whose stage actions COMPOSE.json totals under ``lane_actions``: the five
 # curation lanes plus this gate, counted identically by compose and export replay.
 ACCOUNTED_LANES = (*LANE_ORDER, LANE)
+LIST_HIT_REASONS = frozenset((_policy.REASON_EVAL_DENYLISTED, _policy.REASON_DO_NOT_TRAIN))
 
 
 def active_policy(policy: Any = None) -> Any:
@@ -89,25 +90,38 @@ def _gate_stage(rule: str, identity: Any, evaluation: Any) -> dict[str, Any]:
     }
 
 
+def _refuse_listed_hit(evaluation: Any) -> None:
+    hits = tuple(code for code in evaluation.reason_codes if code in LIST_HIT_REASONS)
+    if hits:
+        raise ComposeError(
+            "eval_exclusion: retained record matches the committed denylist or "
+            f"do-not-train list ({', '.join(hits)}); refuse the shard rather than drop the row"
+        )
+
+
 def apply_gate(decision: Any, policy: Any = None) -> Any:
-    """Exclude a retained public-source record that the exclusion policy refuses."""
+    """Refuse a listed hit; exclude a public-source record the policy cannot resolve."""
 
     if decision.action != ACTION_RETAINED or decision.record is None:
         return decision
-    subject = source_identity(decision.record)
-    if subject is None:
+    subjects = source_identities(decision.record)
+    if not subjects:
         return decision
-    rule, identity = subject
-    evaluation = active_policy(policy).evaluate(identity)
-    stages = (*decision.stages, _gate_stage(rule, identity, evaluation))
-    if not evaluation.excluded:
-        return replace(decision, stages=stages)
+    loaded = active_policy(policy)
+    stages = list(decision.stages)
+    evaluation = None
+    for rule, identity in subjects:
+        evaluation = loaded.evaluate(identity, require_repo=requires_repo(rule))
+        _refuse_listed_hit(evaluation)
+        stages.append(_gate_stage(rule, identity, evaluation))
+    if evaluation is None or not evaluation.excluded:
+        return replace(decision, stages=tuple(stages))
     return replace(
         decision,
         action=ACTION_EXCLUDED,
         record=None,
         reason_codes=evaluation.reason_codes,
-        stages=stages,
+        stages=tuple(stages),
         output_id=None,
         reward_sidecar=None,
     )

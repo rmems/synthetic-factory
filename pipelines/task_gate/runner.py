@@ -38,6 +38,7 @@ class GateRequest:
     prior_index_paths: Sequence[Path | str] = ()
     timeout_s: float = cv.DEFAULT_TIMEOUT_S
     provenance: Mapping[str, Any] = field(default_factory=dict)
+    eval_program_ids: frozenset[str] = frozenset()
 
 
 def _programs_digest(programs: Mapping[str, GateProgram]) -> str:
@@ -106,7 +107,9 @@ def run(request: GateRequest, harness: Harness | None = None) -> dict[str, Any]:
     """Run the gate and return the summary that was written to ``summary.json``."""
 
     check_destination(Path(request.out))
-    rules = Rules(_loaded_denylist(request), _loaded_prior(request))
+    rules = Rules(
+        _loaded_denylist(request), _loaded_prior(request), frozenset(request.eval_program_ids),
+    )
     cv.refuse_when(not request.proposals, cv.REFUSE_NO_PROPOSALS, "no proposals to verify")
     cv.refuse_when(not request.programs, cv.REFUSE_PROGRAM_INVALID, "no programs")
     active = harness if harness is not None else SubprocessHarness(request.timeout_s)

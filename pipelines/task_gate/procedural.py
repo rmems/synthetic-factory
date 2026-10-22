@@ -28,8 +28,12 @@ else:
 
 SOURCE = "procedural"
 _TRAIN_SPLIT = "train"
+EVAL_SPLITS = frozenset({"validation", "held_out"})
 
-__all__ = ["SOURCE", "load_catalog", "programs_from_catalog", "proposals_from_plan"]
+__all__ = [
+    "EVAL_SPLITS", "SOURCE", "eval_program_ids", "load_catalog",
+    "programs_from_catalog", "proposals_from_plan",
+]
 
 
 def _train_catalog(catalog: _catalog.Catalog) -> _catalog.Catalog:
@@ -48,6 +52,14 @@ def load_catalog(directory: Path) -> _catalog.Catalog:
         return _catalog.load_catalog(Path(directory))
     except _repair_vocabulary.RepairRefusal as exc:
         raise cv.GateRefusal(cv.REFUSE_PROGRAM_INVALID, f"{directory}: {exc}") from exc
+
+
+def eval_program_ids(catalog: _catalog.Catalog) -> frozenset[str]:
+    """Validation and held-out program ids the verify step must never keep."""
+
+    return frozenset(
+        program.program_id for program in catalog.programs if program.split in EVAL_SPLITS
+    )
 
 
 def programs_from_catalog(catalog: _catalog.Catalog) -> dict[str, GateProgram]:

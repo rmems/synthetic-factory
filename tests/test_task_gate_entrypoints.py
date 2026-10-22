@@ -13,6 +13,7 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+from task_gate import procedural
 from task_gate_test_support import REPO, cv, write_denylist_json
 
 SCRIPT = REPO / "pipelines" / "task_gate_cli.py"
@@ -106,6 +107,25 @@ class DirectScript(unittest.TestCase):
     def test_importing_the_script_as_a_module_runs_nothing(self):
         namespace = runpy.run_path(str(SCRIPT), run_name="task_gate_cli_imported")
         self.assertTrue(callable(namespace["main"]))
+
+    def test_verify_denies_validation_and_held_out_catalog_programs(self):
+        catalog = procedural.load_catalog(FIXTURE)
+        eval_ids = sorted(procedural.eval_program_ids(catalog))
+        self.assertEqual(len(eval_ids), 2)
+        rows = self.root / "eval-splits.jsonl"
+        rows.write_text("".join(
+            json.dumps({"program_id": program_id, "replacement_text": "0", "original_text": "x"})
+            + "\n"
+            for program_id in eval_ids
+        ))
+        out = self.root / "verified-splits"
+        code, _, _ = run_script(
+            "verify", "--catalog", str(FIXTURE), "--denylist", str(self.deny),
+            "--proposals", str(rows), "--out", str(out), "--timeout", "5",
+        )
+        self.assertEqual(code, 0)
+        verdicts = json.loads((out / cv.SUMMARY_FILENAME).read_text())["verdicts"]
+        self.assertEqual(verdicts[cv.VERDICT_DENYLISTED], 2)
 
     def test_an_unreadable_proposals_file_is_a_coded_refusal(self):
         code, _, stderr = run_script(

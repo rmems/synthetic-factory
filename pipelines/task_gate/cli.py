@@ -81,10 +81,11 @@ def run(argv: Sequence[str] | None = None) -> int:
     try:
         catalog = procedural.load_catalog(args.catalog)
         proposals, provenance = _proposals(args, catalog)
+        eval_ids = procedural.eval_program_ids(catalog) if args.command == "verify" else frozenset()
         summary = run_gate(GateRequest(
             programs=procedural.programs_from_catalog(catalog), proposals=proposals,
             denylist=args.denylist, out=args.out, prior_index_paths=args.prior_index,
-            timeout_s=args.timeout, provenance=provenance,
+            timeout_s=args.timeout, provenance=provenance, eval_program_ids=eval_ids,
         ), _harness(args))
     except cv.GateRefusal as exc:
         print(f"refused: {exc}", file=sys.stderr)

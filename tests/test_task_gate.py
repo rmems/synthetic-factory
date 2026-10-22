@@ -163,6 +163,7 @@ class Denylist(unittest.TestCase):
 
 class ProceduralTrainSplit(unittest.TestCase):
     FIXTURE = REPO / "tests" / "fixtures" / "code-repair"
+    PINNED = REPO / "catalogs" / "python-repair-v1"
 
     def test_procedural_draws_only_train_split_programs(self):
         catalog = procedural.load_catalog(self.FIXTURE)
@@ -174,6 +175,32 @@ class ProceduralTrainSplit(unittest.TestCase):
         self.assertTrue(proposals, "expected at least one procedural proposal")
         drawn = {item.program_id for item in proposals}
         self.assertFalse(drawn & non_train)
+
+    def test_verify_denies_catalog_validation_and_held_out_ids(self):
+        catalog = procedural.load_catalog(self.FIXTURE)
+        eval_ids = procedural.eval_program_ids(catalog)
+        splits = {program.split: program.program_id for program in catalog.programs
+                  if program.split in procedural.EVAL_SPLITS}
+        self.assertEqual(set(splits), {"validation", "held_out"})
+        self.assertEqual(eval_ids, set(splits.values()))
+        gate_rules = rules(eval_program_ids=eval_ids)
+        for split, program_id in splits.items():
+            with self.subTest(split=split):
+                decision, fake = decide(proposal_for(program_id=program_id), rule_set=gate_rules)
+                self.assertEqual(decision.verdict, cv.VERDICT_DENYLISTED)
+                self.assertEqual(fake.calls, [])
+
+    def test_pinned_catalog_eval_splits_are_sixteen_validation_and_nineteen_held_out(self):
+        catalog = procedural.load_catalog(self.PINNED)
+        by_split = {"validation": set(), "held_out": set()}
+        for program in catalog.programs:
+            if program.split in by_split:
+                by_split[program.split].add(program.program_id)
+        self.assertEqual(len(by_split["validation"]), 16)
+        self.assertEqual(len(by_split["held_out"]), 19)
+        self.assertEqual(
+            procedural.eval_program_ids(catalog), by_split["validation"] | by_split["held_out"],
+        )
 
 
 class ParseErrors(unittest.TestCase):
