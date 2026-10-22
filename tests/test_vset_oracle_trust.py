@@ -25,7 +25,7 @@ from vset_testutil import (  # noqa: E402
     load_record as _load,
     vset,
 )
-import vset_oracle_grade as grade  # noqa: E402
+import vset_oracle_remote as remote  # noqa: E402
 
 
 def _passing_suite(name: str = "tests.reference") -> str:
@@ -114,6 +114,36 @@ while _f is not None:
 '''
 _FORGED_COUNTER_STACK_NONCE = _COUNTER_WITHOUT_SUB + _STACK_NONCE
 
+# Writes the done byte and echoes whatever arrives, then exits.
+_FD_ECHO = '''
+import os as _os
+_fds = []
+for _fd in range(3, 64):
+    try:
+        _os.fstat(_fd)
+        _fds.append(_fd)
+    except OSError:
+        pass
+if len(_fds) >= 2:
+    _nfd, _sfd = _fds[0], _fds[1]
+    _os.write(_sfd, b"D")
+    _n = b""
+    while len(_n) < 16:
+        _part = _os.read(_nfd, 16 - len(_n))
+        if not _part:
+            break
+        _n += _part
+    _os.write(_sfd, _n)
+_os._exit(0)
+'''
+_FORGED_COUNTER_FD_ECHO = _COUNTER_WITHOUT_SUB + _FD_ECHO
+
+_RUNNER_OVERWRITE = '''
+from pathlib import Path as _Path
+_Path("../vset-oracle-runner.py").write_text("raise SystemExit(0)\\n")
+'''
+_FORGED_COUNTER_RUNNER_OVERWRITE = _COUNTER_WITHOUT_SUB + _RUNNER_OVERWRITE
+
 
 class OracleTrustBoundaryTests(unittest.TestCase):
     def test_patch_rejects_suite_pack_and_escape_paths(self) -> None:
@@ -173,6 +203,19 @@ class OracleTrustBoundaryTests(unittest.TestCase):
         self.assertFalse(execution["hidden"]["ok"])
         return errors, execution
 
+    def _not_a_pass(self, body: str):
+        record = _load(ACCEPT / "issue-patch-validated.json")
+        record["payload"]["patch"] = {"files": {"src/counter.py": body}}
+        errors, execution = vset.validate_record_with_oracle(record, PACK)
+        self.assertIn("vset.oracle_execution_mismatch", _codes(errors))
+        if execution is None:
+            return errors, execution
+        certified = execution["reference"]["ok"]
+        if certified:
+            certified = execution["hidden"]["ok"]
+        self.assertFalse(certified)
+        return errors, execution
+
     def test_init_subclass_hook_cannot_neuter_hidden_suite(self) -> None:
         hook = unittest.TestCase.__init_subclass__.__func__
         self._rejected_without_sub(_FORGED_COUNTER_WITHOUT_SUB)
@@ -206,14 +249,9 @@ class OracleTrustBoundaryTests(unittest.TestCase):
                 "    return unittest.TestSuite([Real('test_visible')])\n",
                 encoding="utf-8",
             )
-            report = vset.run_oracle(pack, reference_tests=["tests/partial.py"])
-        self.assertFalse(report["reference"]["ok"])
-        statuses = {row["id"]: row["status"] for row in report["reference"]["tests"]}
-        self.assertEqual(statuses["vset_oracle_tests_partial.Real.test_visible"], "ok")
-        self.assertNotEqual(
-            statuses["vset_oracle_tests_partial.Real.test_hidden_failure"], "ok"
-        )
-        self.assertIn("oracle-capture", report["reference"]["captured_output"])
+            with self.assertRaises(vset.VSetValidationError) as ctx:
+                vset.run_oracle(pack, reference_tests=["tests/partial.py"])
+        self.assertIn("do not match unittest collection", str(ctx.exception))
 
     def test_missing_or_unparseable_suite_fails_closed(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -233,30 +271,54 @@ class OracleTrustBoundaryTests(unittest.TestCase):
         self._rejected_without_sub(_FORGED_COUNTER_RUN_OVERRIDE)
         self.assertIs(unittest.TestCase.run, original)
 
-    def test_pass_requires_the_parent_nonce(self) -> None:
-        nonce = b"0123456789abcdef"
-        self.assertEqual(grade._status_for(b"D", nonce, nonce, 0), "ok")
-        self.assertEqual(grade._status_for(b"D", b"", nonce, 0), "ERROR")
-        self.assertEqual(grade._status_for(b"D", nonce, nonce, 1), "ERROR")
-        self.assertEqual(grade._status_for(b"", b"", nonce, 0), "ERROR")
-        self.assertEqual(grade._status_for(b"F", b"", nonce, 1), "FAIL")
-        self.assertEqual(grade._status_for(b"S", b"", nonce, 1), "SKIP")
-        detail = "x" * 600
-        message = str(grade._load_error("tests/t.py", detail))
-        prefix = "vset.oracle_execution_mismatch: test module tests/t.py failed to load: "
-        self.assertLessEqual(len(message), 500 + len(prefix))
-        self.assertIn("failed to load", message)
+    def test_fd_echo_cannot_certify_a_missing_sub(self) -> None:
+        self._not_a_pass(_FORGED_COUNTER_FD_ECHO)
 
     def test_argv_handshake_cannot_certify_a_missing_sub(self) -> None:
-        self._rejected_without_sub(_FORGED_COUNTER_ARGV_HANDSHAKE)
+        self._not_a_pass(_FORGED_COUNTER_ARGV_HANDSHAKE)
 
     def test_stack_nonce_cannot_certify_a_missing_sub(self) -> None:
-        self._rejected_without_sub(_FORGED_COUNTER_STACK_NONCE)
+        self._not_a_pass(_FORGED_COUNTER_STACK_NONCE)
+
+    def test_runner_overwrite_cannot_certify_a_missing_sub(self) -> None:
+        self._rejected_without_sub(_FORGED_COUNTER_RUNNER_OVERWRITE)
 
     def test_accept_fixture_passes_in_a_fresh_process(self) -> None:
         record = ACCEPT / "issue-patch-validated.json"
         proc = cli("--oracle", "--pack", str(PACK), str(record))
         self.assertEqual(proc.returncode, 0, proc.stderr + proc.stdout)
+
+    def test_uncollected_suite_tests_fail_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            pack = Path(tmp)
+            (pack / "src").mkdir()
+            (pack / "tests").mkdir()
+            (pack / "tests" / "helper.py").write_text(
+                "import unittest\nclass Base(unittest.TestCase):\n    pass\n",
+                encoding="utf-8",
+            )
+            (pack / "tests" / "gap.py").write_text(
+                "import unittest\n"
+                "from helper import Base\n"
+                "class A(unittest.TestCase):\n"
+                "    def test_ok(self):\n"
+                "        self.assertTrue(True)\n"
+                "class B(unittest.IsolatedAsyncioTestCase):\n"
+                "    async def test_async_fails(self):\n"
+                "        self.fail('async')\n"
+                "class C(Base):\n"
+                "    def test_helper_fails(self):\n"
+                "        self.fail('helper')\n"
+                "class D(unittest.TestCase):\n"
+                "    pass\n"
+                "def _fail(self):\n"
+                "    self.fail('generated')\n"
+                "D.test_generated = _fail\n",
+                encoding="utf-8",
+            )
+            with self.assertRaises(vset.VSetValidationError) as ctx:
+                vset.run_oracle(pack, reference_tests=["tests/gap.py"])
+        self.assertIn("do not match unittest collection", str(ctx.exception))
 
     def test_aliased_and_inherited_cases_are_counted(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -297,8 +359,8 @@ class OracleTrustBoundaryTests(unittest.TestCase):
         return str(ctx.exception)
 
     def test_hung_child_fails_closed(self) -> None:
-        original = grade._CHILD_TIMEOUT_S
-        grade._CHILD_TIMEOUT_S = 0.2
+        original = remote._CHILD_TIMEOUT_S
+        remote._CHILD_TIMEOUT_S = 0.2
         try:
             message = self._oracle_failure(
                 "hang.py",
@@ -308,16 +370,16 @@ class OracleTrustBoundaryTests(unittest.TestCase):
                 "        time.sleep(30)\n",
             )
         finally:
-            grade._CHILD_TIMEOUT_S = original
+            remote._CHILD_TIMEOUT_S = original
         self.assertIn("timed out", message)
 
     def test_runner_spawn_failure_fails_closed(self) -> None:
-        original = grade._start_child
+        original = remote._start_child
 
         def boom(*_args: object, **_kwargs: object) -> None:
             raise OSError("spawn failed")
 
-        grade._start_child = boom
+        remote._start_child = boom
         try:
             message = self._oracle_failure(
                 "ok.py",
@@ -327,8 +389,52 @@ class OracleTrustBoundaryTests(unittest.TestCase):
                 "        self.assertTrue(True)\n",
             )
         finally:
-            grade._start_child = original
+            remote._start_child = original
         self.assertIn("spawn failed", message)
+
+    def _reference_report(self, filename: str, source: str):
+        with tempfile.TemporaryDirectory() as tmp:
+            pack = Path(tmp)
+            (pack / "src").mkdir()
+            (pack / "tests").mkdir()
+            (pack / "tests" / filename).write_text(source, encoding="utf-8")
+            return vset.run_oracle(pack, reference_tests=[f"tests/{filename}"])
+
+    def test_class_and_module_fixtures_are_honored(self) -> None:
+        report = self._reference_report(
+            "fixtures.py",
+            "import unittest\n"
+            "FLAG = 0\n"
+            "def setUpModule():\n"
+            "    global FLAG\n"
+            "    FLAG = 7\n"
+            "class T(unittest.TestCase):\n"
+            "    @classmethod\n"
+            "    def setUpClass(cls):\n"
+            "        cls.shared = FLAG\n"
+            "    def test_a(self):\n"
+            "        self.assertEqual(self.shared, 7)\n",
+        )
+        self.assertTrue(report["reference"]["ok"])
+        self.assertEqual(
+            [row["status"] for row in report["reference"]["tests"]],
+            ["ok"],
+        )
+
+    def test_class_skip_does_not_run_the_body(self) -> None:
+        report = self._reference_report(
+            "skip_cls.py",
+            "import unittest\n"
+            "@unittest.skip('skip')\n"
+            "class T(unittest.TestCase):\n"
+            "    def test_x(self):\n"
+            "        raise AssertionError('ran')\n",
+        )
+        self.assertFalse(report["reference"]["ok"])
+        self.assertEqual(
+            [row["status"] for row in report["reference"]["tests"]],
+            ["SKIP"],
+        )
 
     def test_root_module_cannot_shadow_src(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
