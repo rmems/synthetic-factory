@@ -370,6 +370,9 @@ class OracleTrustBoundaryTests(unittest.TestCase):
     def test_remote_equality_and_hash(self) -> None:
         self._ok_files("use.py", _pack("equality"))
 
+    def test_in_place_mutation_and_exception_fields(self) -> None:
+        self._ok_files("use.py", _pack("mutate"))
+
     def test_candidate_base_exception_does_not_escape(self) -> None:
         report = self._run_reference_files(
             "boom.py",

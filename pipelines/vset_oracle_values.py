@@ -10,7 +10,6 @@ from __future__ import annotations
 import base64
 import builtins
 import sys
-from collections import deque
 from datetime import date, datetime
 from decimal import Decimal
 from fractions import Fraction
@@ -27,6 +26,7 @@ else:
 _EXC_TYPES: dict[tuple[str, str], type[Exception]] = {}
 _CLASSES: dict[tuple[int, int], type] = {}
 _OBJECTS: dict[tuple[int, int], RemoteObject] = {}
+_SLOTS: dict[int, object] = {}
 _FORWARDED = (
     "__eq__ __ne__ __lt__ __le__ __gt__ __ge__ __len__ __iter__ __next__ "
     "__contains__ __getitem__ __add__ __radd__ __sub__ __rsub__ __mul__ __rmul__"
@@ -63,13 +63,21 @@ def exception_type(name: str, chain: tuple[str, ...]) -> type[Exception]:
     return created
 
 
-def raise_remote(name: str, chain: tuple[str, ...], message: str) -> None:
+def raise_remote(
+    name: str,
+    chain: tuple[str, ...],
+    args: tuple[object, ...],
+    attrs: dict[str, object],
+) -> None:
     """Raise a candidate error without ever raising BaseException."""
 
     builtin = _builtin_exception(name)
-    if builtin is not None:
-        raise builtin(message)
-    raise exception_type(name, chain)(message)
+    if builtin is None:
+        builtin = exception_type(name, chain)
+    exc = builtin(*args)
+    for key, value in attrs.items():
+        setattr(exc, key, value)
+    raise exc
 
 
 class RemoteObject:
@@ -164,6 +172,13 @@ def reset_identity() -> None:
 
     _OBJECTS.clear()
     _CLASSES.clear()
+    _SLOTS.clear()
+
+
+def _track(value: object) -> int:
+    slot = id(value)
+    _SLOTS[slot] = value
+    return slot
 
 
 def _wrap(client: object, payload: dict[str, object]) -> RemoteObject:
@@ -194,6 +209,41 @@ def _dict(client: object, payload: dict[str, object]) -> dict[object, object]:
         interpret(client, pair[0]): interpret(client, pair[1])  # type: ignore[index]
         for pair in pairs  # type: ignore[union-attr]
     }
+
+
+def _replace(original: object, new: object) -> None:
+    if isinstance(original, list):
+        original.clear()
+        original.extend(new)  # type: ignore[arg-type]
+        return
+    if isinstance(original, dict):
+        original.clear()
+        original.update(new)  # type: ignore[arg-type]
+        return
+    if isinstance(original, set):
+        original.clear()
+        original.update(new)  # type: ignore[arg-type]
+        return
+    if isinstance(original, bytearray):
+        original.clear()
+        original.extend(new)  # type: ignore[arg-type]
+
+
+def _apply_slots(client: object, states: object) -> None:
+    if not isinstance(states, list):
+        return
+    for state in states:
+        if not isinstance(state, dict):
+            continue
+        original = _SLOTS.get(int(state["slot"]))
+        if original is None:
+            continue
+        _replace(original, interpret(client, state["state"]))
+
+
+def _synced(client: object, payload: dict[str, object]) -> object:
+    _apply_slots(client, payload.get("states"))
+    return interpret(client, payload["value"])
 
 
 def _value(_client: object, payload: dict[str, object]) -> object:
@@ -247,23 +297,43 @@ def _exc_type(_client: object, payload: dict[str, object]) -> type[Exception]:
     return exception_type(str(payload.get("name")), _chain(payload))
 
 
-def _error(_client: object, payload: dict[str, object]) -> None:
-    raise_remote(str(payload.get("type")), _chain(payload), str(payload.get("message")))
+def _items(client: object, payload: dict[str, object], key: str) -> tuple[object, ...]:
+    raw = payload.get(key)
+    if not raw:
+        return ()
+    return tuple(interpret(client, item) for item in raw)  # type: ignore[union-attr]
+
+
+def _attrs(client: object, payload: dict[str, object]) -> dict[str, object]:
+    raw = payload.get("attrs")
+    if not isinstance(raw, dict):
+        return {}
+    return {str(key): interpret(client, value) for key, value in raw.items()}
+
+
+def _error(client: object, payload: dict[str, object]) -> None:
+    raise_remote(
+        str(payload.get("type")),
+        _chain(payload),
+        _items(client, payload, "args"),
+        _attrs(client, payload),
+    )
 
 
 _KINDS = {
     "value": _value,
+    "synced": _synced,
     "notimplemented": _notimplemented,
     "list": _list,
     "tuple": _tuple,
     "dict": _dict,
+    "set": _set,
+    "frozenset": _frozenset,
+    "bytes": _bytes,
     "class": _class,
     "obj": _wrap,
     "exc_type": _exc_type,
     "error": _error,
-    "set": _set,
-    "frozenset": _frozenset,
-    "bytes": _bytes,
     "decimal": _decimal,
     "fraction": _fraction,
     "datetime": _datetime,
@@ -280,78 +350,9 @@ def interpret(client: object, payload: object) -> object:
     return handler(client, payload)
 
 
-def _encode_list(value: list[object]) -> dict[str, object]:
-    return {"seq": [encode(item) for item in value]}
-
-
-def _encode_tuple(value: tuple[object, ...]) -> dict[str, object]:
-    return {"seq": [encode(item) for item in value], "tuple": True}
-
-
-def _encode_map(value: dict[object, object]) -> dict[str, object]:
-    return {"map": [[encode(key), encode(item)] for key, item in value.items()]}
-
-
-def _encode_set(value: set[object]) -> dict[str, object]:
-    return {"set": [encode(item) for item in value]}
-
-
-def _encode_frozen(value: frozenset[object]) -> dict[str, object]:
-    return {"set": [encode(item) for item in value], "frozen": True}
-
-
-def _encode_bytes(value: bytes | bytearray) -> dict[str, str]:
-    return {"bytes": base64.b64encode(bytes(value)).decode("ascii")}
-
-
-def _encode_decimal(value: Decimal) -> dict[str, str]:
-    return {"decimal": str(value)}
-
-
-def _encode_fraction(value: Fraction) -> dict[str, int]:
-    return {"fraction": value.numerator, "d": value.denominator}
-
-
-def _encode_datetime(value: datetime) -> dict[str, str]:
-    return {"datetime": value.isoformat()}
-
-
-def _encode_date(value: date) -> dict[str, str]:
-    return {"date": value.isoformat()}
-
-
-_ENCODE = {
-    set: _encode_set,
-    frozenset: _encode_frozen,
-    bytes: _encode_bytes,
-    bytearray: _encode_bytes,
-    Decimal: _encode_decimal,
-    Fraction: _encode_fraction,
-    datetime: _encode_datetime,
-    date: _encode_date,
-}
-
-
-def _encode_fallback(value: object) -> object:
-    if isinstance(value, dict):
-        return _encode_map(dict(value))
-    if isinstance(value, tuple):
-        return _encode_tuple(tuple(value))
-    if isinstance(value, list):
-        return _encode_list(list(value))
-    if isinstance(value, deque):
-        return _encode_list(list(value))
-    return value
-
-
-def encode(value: object) -> object:
-    if isinstance(value, RemoteObject):
-        return {"ref": value.oid}
-    handler = _ENCODE.get(type(value))
-    if handler is None:
-        return _encode_fallback(value)
-    return handler(value)
-
-
 if __package__:  # pragma: no cover - package-child import path
+    from .vset_oracle_codec import encode as encode
+
     _expose_package_sibling(__name__)
+else:
+    from vset_oracle_codec import encode as encode
