@@ -22,6 +22,7 @@ WORKER_SOURCE = textwrap.dedent(
     """\
     import base64
     import builtins
+    import dataclasses
     import importlib
     import json
     import logging
@@ -123,6 +124,11 @@ WORKER_SOURCE = textwrap.dedent(
             info = describe_class(value)
             info["kind"] = "class"
             return info
+        if dataclasses.is_dataclass(value):
+            fields = {}
+            for field in dataclasses.fields(value):
+                fields[field.name] = put(getattr(value, field.name))
+            return {"kind": "dataclass", "name": type(value).__name__, "fields": fields}
         return {"kind": "obj", "oid": remember(value), "cls": describe_class(type(value))}
 
 
