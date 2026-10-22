@@ -10,6 +10,7 @@ run and passed.
 
 from __future__ import annotations
 
+import shutil
 import sys
 from pathlib import Path
 from typing import Any
@@ -94,6 +95,47 @@ def _class_and_method(test_id: str, module_name: str) -> tuple[str, str]:
     return class_name, method_name
 
 
+def _src_names(work: Path) -> frozenset[str]:
+    folder = work / "src"
+    names: set[str] = set()
+    if not folder.is_dir():
+        return frozenset()
+    for path in folder.glob("*.py"):
+        names.add(path.stem)
+    for path in folder.iterdir():
+        if not path.is_dir():
+            continue
+        if not (path / "__init__.py").is_file():
+            continue
+        names.add(path.name)
+    return frozenset(names)
+
+
+def _drop_added_modules(folder: Path, keep: frozenset[str]) -> None:
+    for path in folder.glob("*.py"):
+        if path.stem not in keep:
+            path.unlink()
+
+
+def _drop_added_packages(folder: Path, keep: frozenset[str]) -> None:
+    for path in list(folder.iterdir()):
+        if not path.is_dir():
+            continue
+        if path.name in keep:
+            continue
+        if not (path / "__init__.py").is_file():
+            continue
+        shutil.rmtree(path)
+
+
+def _drop_added_src(work: Path, keep: frozenset[str]) -> None:
+    folder = work / "src"
+    if not folder.is_dir():
+        return
+    _drop_added_modules(folder, keep)
+    _drop_added_packages(folder, keep)
+
+
 def grade_suite(
     work: Path,
     modules: list[dict[str, str]],
@@ -104,15 +146,20 @@ def grade_suite(
 
     rows: list[dict[str, str]] = []
     captured: list[str] = []
-    for spec in modules:
-        _require_match(spec, expected, sources[spec["folder"]])
-    for test_id in expected:
-        spec = _spec_for(test_id, modules)
-        names = _class_and_method(test_id, spec["module"])
-        status, text = _grade_test(work, spec, names, sources[spec["folder"]])
-        rows.append({"id": test_id, "status": status})
-        captured.append(text)
-    return _suite_report(rows, expected, "".join(captured))
+    src_names = _src_names(work)
+    try:
+        for spec in modules:
+            _require_match(spec, expected, sources[spec["folder"]])
+        for test_id in expected:
+            spec = _spec_for(test_id, modules)
+            names = _class_and_method(test_id, spec["module"])
+            bundle = (sources[spec["folder"]], src_names)
+            status, text = _grade_test(work, spec, names, bundle)
+            rows.append({"id": test_id, "status": status})
+            captured.append(text)
+        return _suite_report(rows, expected, "".join(captured))
+    finally:
+        _drop_added_src(work, src_names)
 
 
 if __package__:  # pragma: no cover - package-child import path

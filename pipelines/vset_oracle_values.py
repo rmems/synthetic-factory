@@ -7,8 +7,12 @@ unittest and ordinary assertions use.
 
 from __future__ import annotations
 
+import base64
 import builtins
 import sys
+from datetime import date, datetime
+from decimal import Decimal
+from fractions import Fraction
 
 if __package__:  # pragma: no cover - package-child import path
     from . import _assert_direct_sibling, _expose_package_sibling
@@ -21,6 +25,7 @@ else:
 
 _EXC_TYPES: dict[tuple[str, str], type[Exception]] = {}
 _CLASSES: dict[tuple[int, int], type] = {}
+_OBJECTS: dict[tuple[int, int], RemoteObject] = {}
 _FORWARDED = (
     "__eq__ __ne__ __lt__ __le__ __gt__ __ge__ __len__ __iter__ __next__ "
     "__contains__ __getitem__ __add__ __radd__ __sub__ __rsub__ __mul__ __rmul__"
@@ -131,11 +136,24 @@ def _class_for(client: object, oid: int, name: str) -> type:
     return created
 
 
+def reset_identity() -> None:
+    """Drop remote objects from the previous child."""
+
+    _OBJECTS.clear()
+    _CLASSES.clear()
+
+
 def _wrap(client: object, payload: dict[str, object]) -> RemoteObject:
+    oid = int(payload["oid"])
+    key = (id(client), oid)
+    found = _OBJECTS.get(key)
+    if found is not None:
+        return found
     cls = _class_for(client, int(payload["cls"]), str(payload["name"]))
     obj = object.__new__(cls)
     object.__setattr__(obj, "client", client)
-    object.__setattr__(obj, "oid", int(payload["oid"]))
+    object.__setattr__(obj, "oid", oid)
+    _OBJECTS[key] = obj
     return obj
 
 
@@ -157,6 +175,34 @@ def _dict(client: object, payload: dict[str, object]) -> dict[object, object]:
 
 def _value(_client: object, payload: dict[str, object]) -> object:
     return payload.get("value")
+
+
+def _set(client: object, payload: dict[str, object]) -> set[object]:
+    return {interpret(client, item) for item in payload["items"]}  # type: ignore[misc]
+
+
+def _frozenset(client: object, payload: dict[str, object]) -> frozenset[object]:
+    return frozenset(interpret(client, item) for item in payload["items"])  # type: ignore[misc]
+
+
+def _bytes(_client: object, payload: dict[str, object]) -> bytes:
+    return base64.b64decode(str(payload["data"]))
+
+
+def _decimal(_client: object, payload: dict[str, object]) -> Decimal:
+    return Decimal(str(payload["data"]))
+
+
+def _fraction(_client: object, payload: dict[str, object]) -> Fraction:
+    return Fraction(int(payload["n"]), int(payload["d"]))
+
+
+def _datetime(_client: object, payload: dict[str, object]) -> datetime:
+    return datetime.fromisoformat(str(payload["data"]))
+
+
+def _date(_client: object, payload: dict[str, object]) -> date:
+    return date.fromisoformat(str(payload["data"]))
 
 
 def _class(client: object, payload: dict[str, object]) -> type:
@@ -191,6 +237,13 @@ _KINDS = {
     "obj": _wrap,
     "exc_type": _exc_type,
     "error": _error,
+    "set": _set,
+    "frozenset": _frozenset,
+    "bytes": _bytes,
+    "decimal": _decimal,
+    "fraction": _fraction,
+    "datetime": _datetime,
+    "date": _date,
 }
 
 
@@ -215,16 +268,56 @@ def _encode_map(value: dict[object, object]) -> dict[str, object]:
     return {"map": [[encode(key), encode(item)] for key, item in value.items()]}
 
 
+def _encode_set(value: set[object]) -> dict[str, object]:
+    return {"set": [encode(item) for item in value]}
+
+
+def _encode_frozen(value: frozenset[object]) -> dict[str, object]:
+    return {"set": [encode(item) for item in value], "frozen": True}
+
+
+def _encode_bytes(value: bytes | bytearray) -> dict[str, str]:
+    return {"bytes": base64.b64encode(bytes(value)).decode("ascii")}
+
+
+def _encode_decimal(value: Decimal) -> dict[str, str]:
+    return {"decimal": str(value)}
+
+
+def _encode_fraction(value: Fraction) -> dict[str, int]:
+    return {"fraction": value.numerator, "d": value.denominator}
+
+
+def _encode_datetime(value: datetime) -> dict[str, str]:
+    return {"datetime": value.isoformat()}
+
+
+def _encode_date(value: date) -> dict[str, str]:
+    return {"date": value.isoformat()}
+
+
+_ENCODE = {
+    list: _encode_list,
+    tuple: _encode_tuple,
+    dict: _encode_map,
+    set: _encode_set,
+    frozenset: _encode_frozen,
+    bytes: _encode_bytes,
+    bytearray: _encode_bytes,
+    Decimal: _encode_decimal,
+    Fraction: _encode_fraction,
+    datetime: _encode_datetime,
+    date: _encode_date,
+}
+
+
 def encode(value: object) -> object:
     if isinstance(value, RemoteObject):
         return {"ref": value.oid}
-    if isinstance(value, list):
-        return _encode_list(value)
-    if isinstance(value, tuple):
-        return _encode_tuple(value)
-    if isinstance(value, dict):
-        return _encode_map(value)
-    return value
+    handler = _ENCODE.get(type(value))
+    if handler is None:
+        return value
+    return handler(value)
 
 
 if __package__:  # pragma: no cover - package-child import path
