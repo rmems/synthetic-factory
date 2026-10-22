@@ -5,11 +5,10 @@ anything except declared oracle test files, and every declared suite file
 is recopied from the pristine pack before it is loaded, so candidate code
 can never rewrite the evidence that judges it.
 
-Reference and hidden tests run one id per child interpreter. The child
-calls the suite function from the class body and does not consult
-``TestCase.run`` or a ``TestResult``. ``ok`` is decided here from those
-calls' exit codes and a nonce this process generated, and only when every
-id counted from the restored suite files ran and passed.
+Reference and hidden tests run in this process. Candidate modules are
+not imported here: a child loads ``src/`` and answers calls. ``ok`` is
+this process's unittest result, and only when every id counted from the
+restored suite files ran and passed.
 """
 
 from __future__ import annotations
@@ -129,13 +128,19 @@ def _prepare_module(work: Path, pack_dir: Path, relative: str) -> tuple[dict[str
         raise VSetValidationError(ERR_ORACLE_EXECUTION_MISMATCH, f"missing test module {relative}")
     module_name = _oracle_module_name(relative)
     try:
+        source = path.read_text(encoding="utf-8")
         expected = _declared_test_ids(path, module_name)
-    except (OSError, SyntaxError) as exc:
+    except (OSError, SyntaxError, UnicodeDecodeError) as exc:
         raise VSetValidationError(
             ERR_ORACLE_EXECUTION_MISMATCH,
             f"test module {relative} failed to load: {exc}",
         ) from exc
-    spec = {"path": str(path), "module": module_name, "relative": relative}
+    spec = {
+        "path": str(path),
+        "module": module_name,
+        "relative": relative,
+        "source": source,
+    }
     return spec, expected
 
 
