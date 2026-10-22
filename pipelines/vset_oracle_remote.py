@@ -43,10 +43,14 @@ _TIMEOUT_MESSAGE = "oracle runner failed: timed out"
 # as the grader, so candidate code cannot replace this source for a later id.
 _WORKER_SOURCE = textwrap.dedent(
     """\
+    import base64
     import importlib
     import json
     import os
     import sys
+    from datetime import date, datetime
+    from decimal import Decimal
+    from fractions import Fraction
     from pathlib import Path
 
     real_out = sys.stdout
@@ -93,13 +97,28 @@ _WORKER_SOURCE = textwrap.dedent(
             return {"kind": "value", "value": None}
         if isinstance(value, (bool, int, float, str)):
             return {"kind": "value", "value": value}
-        if isinstance(value, list):
+        if type(value) is list:
             return {"kind": "list", "items": [put(item) for item in value]}
-        if isinstance(value, tuple):
+        if type(value) is tuple:
             return {"kind": "tuple", "items": [put(item) for item in value]}
-        if isinstance(value, dict):
+        if type(value) is dict:
             items = [[put(key), put(item)] for key, item in value.items()]
             return {"kind": "dict", "items": items}
+        if type(value) is set:
+            return {"kind": "set", "items": [put(item) for item in value]}
+        if type(value) is frozenset:
+            return {"kind": "frozenset", "items": [put(item) for item in value]}
+        if type(value) is bytes or type(value) is bytearray:
+            raw = bytes(value)
+            return {"kind": "bytes", "data": base64.b64encode(raw).decode("ascii")}
+        if isinstance(value, Decimal):
+            return {"kind": "decimal", "data": str(value)}
+        if isinstance(value, Fraction):
+            return {"kind": "fraction", "n": value.numerator, "d": value.denominator}
+        if isinstance(value, datetime):
+            return {"kind": "datetime", "data": value.isoformat()}
+        if isinstance(value, date):
+            return {"kind": "date", "data": value.isoformat()}
         if is_exception(value):
             return {"kind": "exc_type", "name": value.__name__, "base": exc_base(value)}
         if isinstance(value, type):
@@ -124,6 +143,21 @@ _WORKER_SOURCE = textwrap.dedent(
             return items
         if "map" in value:
             return {decode(pair[0]): decode(pair[1]) for pair in value["map"]}
+        if "set" in value:
+            items = [decode(item) for item in value["set"]]
+            if value.get("frozen"):
+                return frozenset(items)
+            return set(items)
+        if "bytes" in value:
+            return base64.b64decode(value["bytes"])
+        if "decimal" in value:
+            return Decimal(value["decimal"])
+        if "fraction" in value:
+            return Fraction(value["fraction"], value["d"])
+        if "datetime" in value:
+            return datetime.fromisoformat(value["datetime"])
+        if "date" in value:
+            return date.fromisoformat(value["date"])
         return value
 
 
@@ -227,9 +261,10 @@ class _RemoteLoader:
 
 
 class _Finder:
-    def __init__(self, client: _Client, local: set[str]) -> None:
+    def __init__(self, client: _Client, local: set[str], src_names: frozenset[str]) -> None:
         self._client = client
         self._local = local
+        self._src = src_names
 
     def find_spec(
         self,
@@ -238,9 +273,11 @@ class _Finder:
         target: object = None,
     ) -> importlib.machinery.ModuleSpec | None:
         root = fullname.split(".", 1)[0]
-        if root in sys.stdlib_module_names:
-            return None
         if root in self._local:
+            return None
+        if root in self._src:
+            return importlib.util.spec_from_loader(fullname, _RemoteLoader(self._client, fullname))
+        if root in sys.stdlib_module_names:
             return None
         return importlib.util.spec_from_loader(fullname, _RemoteLoader(self._client, fullname))
 
@@ -406,12 +443,13 @@ def _grade_open(
     proc: subprocess.Popen[str],
     spec: dict[str, str],
     names: tuple[str, str],
-    sources: dict[str, str],
+    bundle: tuple[dict[str, str], frozenset[str]],
 ) -> tuple[str, str]:
+    sources, src_names = bundle
     before = set(sys.modules)
     temp = _materialize(sources)
     folder = temp.name
-    finder = _Finder(_Client(proc), _stems(sources))
+    finder = _Finder(_Client(proc), _stems(sources), src_names)
     sys.meta_path.insert(0, finder)
     _push_path(folder)
     try:
@@ -430,12 +468,13 @@ def grade_test(
     work: Path,
     spec: dict[str, str],
     names: tuple[str, str],
-    sources: dict[str, str],
+    bundle: tuple[dict[str, str], frozenset[str]],
 ) -> tuple[str, str]:
     """Grade one id. Candidate calls run in ``work``; assertions run here."""
 
     global _alarm_tripped
     _alarm_tripped = False
+    values.reset_identity()
     try:
         proc = _start_child(_worker_argv(work))
     except OSError as exc:
@@ -444,7 +483,7 @@ def grade_test(
         ) from exc
     previous = _arm(_CHILD_TIMEOUT_S)
     try:
-        return _grade_open(proc, spec, names, sources)
+        return _grade_open(proc, spec, names, bundle)
     except KeyboardInterrupt:
         if not _alarm_tripped:
             raise

@@ -394,6 +394,67 @@ class OracleTrustBoundaryTests(unittest.TestCase):
         )
         self.assertTrue(report["reference"]["ok"], report["reference"])
 
+    def test_common_values_round_trip(self) -> None:
+        report = self._run_reference_files(
+            "use.py",
+            {
+                "src/counter.py": (
+                    "from collections import namedtuple\n"
+                    "from decimal import Decimal\n"
+                    "from fractions import Fraction\n"
+                    "Point = namedtuple('Point', 'x')\n"
+                    "class Counter:\n"
+                    "    def tags(self):\n"
+                    "        return {'a', 'b'}\n"
+                    "    def blob(self):\n"
+                    "        return b'xy'\n"
+                    "    def point(self):\n"
+                    "        return Point(3)\n"
+                    "    def has(self, items):\n"
+                    "        return 'a' in items\n"
+                    "    def same(self):\n"
+                    "        return self\n"
+                    "    def amount(self):\n"
+                    "        return Decimal('1.50')\n"
+                    "    def ratio(self):\n"
+                    "        return Fraction(1, 3)\n"
+                ),
+                "tests/use.py": (
+                    "import unittest\n"
+                    "from decimal import Decimal\n"
+                    "from fractions import Fraction\n"
+                    "from counter import Counter\n"
+                    "class T(unittest.TestCase):\n"
+                    "    def test_values(self):\n"
+                    "        item = Counter()\n"
+                    "        self.assertEqual(item.tags(), {'a', 'b'})\n"
+                    "        self.assertEqual(item.blob(), b'xy')\n"
+                    "        self.assertEqual(item.point().x, 3)\n"
+                    "        self.assertTrue(item.has({'a'}))\n"
+                    "        self.assertIs(item.same(), item)\n"
+                    "        self.assertEqual(item.amount(), Decimal('1.50'))\n"
+                    "        self.assertEqual(item.ratio(), Fraction(1, 3))\n"
+                ),
+            },
+        )
+        self.assertTrue(report["reference"]["ok"], report["reference"])
+
+    def test_src_shadowing_stdlib_is_the_candidate(self) -> None:
+        report = self._run_reference_files(
+            "use.py",
+            {
+                "src/statistics.py": "def mean(values):\n    return 42\n",
+                "tests/use.py": (
+                    "import unittest\n"
+                    "import statistics\n"
+                    "class T(unittest.TestCase):\n"
+                    "    def test_mean(self):\n"
+                    "        self.assertEqual(statistics.mean([1]), 42)\n"
+                ),
+            },
+        )
+        self.assertTrue(report["reference"]["ok"], report["reference"])
+
     def test_candidate_base_exception_does_not_escape(self) -> None:
         report = self._run_reference_files(
             "boom.py",
