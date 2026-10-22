@@ -23,6 +23,11 @@ with the expected output it kept (``sandboxed_judge.py``). So:
   checker or channel, reading the key out of the child's memory) can make its own run report
   ``failed`` or ``crashed``. It still cannot report a pass. This is the hostile-introspection
   class the AST tamper check in ``mutation.py`` also leaves open.
+* Not closed: the emptied docstring is observable. ``mutation.py`` refuses the direct reads, but
+  a mutant that reaches its docstring or source another way (a name built at runtime,
+  ``open(__file__)``, frame introspection) can fail here where it passes under
+  ``SubprocessHarness``, and be kept. Parity would need both harnesses to run the same
+  redacted text.
 
 It never falls back: an unavailable boundary refuses at construction, and a run whose limits or
 Landlock were not attested on the real stdout refuses instead of producing a verdict.

@@ -101,6 +101,13 @@ the report file. The parent opens the records and compares each with the expecte
   checker, or reading the key out of the child's own objects) can make its own run report
   `failed` or `crashed`, though still never `passed`. That is the hostile-introspection class the
   AST tamper check also leaves open.
+- Not closed: a program can tell its docstring was emptied, and a mutant that reads it can behave
+  differently here than under `SubprocessHarness`: fail here (and be `kept`) where it passes
+  there (`mutant_passes`). The gate refuses the direct reads (see below), but a name built at
+  runtime (`getattr(f, "_" + "_doc__")`), a `dir()` scan, `open(__file__)`, `linecache` or
+  `sys._getframe()` still get through; no list of spellings closes this. Treat a `kept` verdict
+  from an adversarial proposer as unverified against this until both harnesses run the same
+  redacted text.
 
 The examples are read from the source, so the target is the top-level `def` of that name (a
 decorated target, or one whose name is bound anywhere else at module level, is `crashed` with
@@ -113,8 +120,8 @@ budget. The other difference is the emptied docstring itself: a program that rea
 docstring or source can tell. The gate refuses a mutant whose body newly reads `__doc__`,
 `__code__`, a `"__doc__"`/`"__code__"` string literal (so `getattr`, `__getattribute__`,
 `attrgetter` and the like) or `inspect.getsource`/`getdoc` (`mutant_escapes_target_body`),
-so a mutant cannot pass under one harness and be kept under the other that way; reading its own
-source text by other means is the same best-effort class as the rest of the AST tamper check. The flag never falls back: when
+which closes the obvious ways a mutant could pass under one harness and be kept under the other;
+it is best effort, like the rest of the AST tamper check (see the second "Not closed" item above). The flag never falls back: when
 bwrap or Landlock is unavailable, or a run's resource-limit and Landlock attestations are
 missing, the run is refused (`TASK_GATE_HARNESS_UNAVAILABLE`). `summary.json` records the harness in
 `inputs.harness` (`kind`: `subprocess` or `sandboxed`, plus the isolation identity). `Gate`
