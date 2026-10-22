@@ -112,16 +112,22 @@ def _ids_for(module_name: str, class_name: str, classes: dict[str, ast.ClassDef]
     return [f"{module_name}.{class_name}.{name}" for name in sorted(methods)]
 
 
-def declared_test_ids(path: Path, module_name: str) -> list[str]:
-    """Return ``module.Class.method`` ids for every collected test."""
+def declared_ids_from_text(text: str, filename: str, module_name: str) -> list[str]:
+    """Return ``module.Class.method`` ids for source the grader already read."""
 
-    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    tree = ast.parse(text, filename=filename)
     classes = _class_map(tree)
     cases = _case_classes(classes, _case_seeds(tree))
     ids: list[str] = []
     for name in sorted(cases):
         ids.extend(_ids_for(module_name, name, classes))
     return ids
+
+
+def declared_test_ids(path: Path, module_name: str) -> list[str]:
+    """Return ``module.Class.method`` ids for every collected test."""
+
+    return declared_ids_from_text(path.read_text(encoding="utf-8"), str(path), module_name)
 
 
 if __package__:  # pragma: no cover - package-child import path

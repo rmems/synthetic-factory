@@ -48,8 +48,46 @@ def pack_sources(pack_dir: Path, folder: str) -> dict[str, str]:
     return found
 
 
-def src_names(work: Path) -> frozenset[str]:
-    folder = work / "src"
+_FROZEN: dict[str, str] = {}
+
+
+def freeze_pack(pack_dir: Path) -> None:
+    """Remember pack text before any candidate process can rewrite it."""
+
+    frozen: dict[str, str] = {}
+    for path in pack_dir.rglob("*.py"):
+        frozen[path.relative_to(pack_dir).as_posix()] = path.read_text(encoding="utf-8")
+    _FROZEN.clear()
+    _FROZEN.update(frozen)
+
+
+def clear_pack() -> None:
+    _FROZEN.clear()
+
+
+def frozen_text(relative: str) -> str:
+    if relative not in _FROZEN:
+        raise KeyError(relative)
+    return _FROZEN[relative]
+
+
+def frozen_folder(folder: str) -> dict[str, str]:
+    prefix = "" if folder in {"", "."} else folder.strip("/") + "/"
+    found: dict[str, str] = {}
+    for rel, text in _FROZEN.items():
+        if not rel.startswith(prefix):
+            continue
+        name = rel[len(prefix):]
+        if "/" in name:
+            continue
+        if not name.endswith(".py"):
+            continue
+        found[name] = text
+    return found
+
+
+def src_names(pack_dir: Path) -> frozenset[str]:
+    folder = pack_dir / "src"
     names: set[str] = set()
     if not folder.is_dir():
         return frozenset()

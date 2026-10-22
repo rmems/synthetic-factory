@@ -34,10 +34,13 @@ if __package__:  # pragma: no cover - package-child import path
         pack_snapshot_hash,
 )
     from .vset_oracle_grade import grade_suite as _grade_suite
-    from .vset_oracle_ids import declared_test_ids as _declared_test_ids
+    from .vset_oracle_ids import declared_ids_from_text as _declared_ids_from_text
     from .vset_oracle_layout import (
+        clear_pack as _clear_pack,
         drop_added_src as _drop_added_src,
-        pack_sources as _pack_sources,
+        freeze_pack as _freeze_pack,
+        frozen_folder as _frozen_folder,
+        frozen_text as _frozen_text,
         restore_suite_dir as _restore_suite_dir,
         src_names as _src_names,
     )
@@ -55,10 +58,13 @@ else:
         pack_snapshot_hash,
 )
     from vset_oracle_grade import grade_suite as _grade_suite
-    from vset_oracle_ids import declared_test_ids as _declared_test_ids
+    from vset_oracle_ids import declared_ids_from_text as _declared_ids_from_text
     from vset_oracle_layout import (
+        clear_pack as _clear_pack,
         drop_added_src as _drop_added_src,
-        pack_sources as _pack_sources,
+        freeze_pack as _freeze_pack,
+        frozen_folder as _frozen_folder,
+        frozen_text as _frozen_text,
         restore_suite_dir as _restore_suite_dir,
         src_names as _src_names,
     )
@@ -136,20 +142,22 @@ def _load_suite(path: Path, relative: str) -> unittest.TestSuite:
 def _prepare_module(work: Path, pack_dir: Path, relative: str) -> tuple[dict[str, str], list[str]]:
     _restore_suite_dir(pack_dir, work, relative)
     _restore_oracle_file(pack_dir, work, relative)
-    source_path = _resolve_under_work(pack_dir, relative, code=ERR_ORACLE_EXECUTION_MISMATCH)
-    if not source_path.is_file():
-        raise VSetValidationError(ERR_ORACLE_EXECUTION_MISMATCH, f"missing test module {relative}")
     module_name = _oracle_module_name(relative)
     try:
-        source = source_path.read_text(encoding="utf-8")
-        expected = _declared_test_ids(source_path, module_name)
+        source = _frozen_text(relative)
+    except KeyError:
+        raise VSetValidationError(
+            ERR_ORACLE_EXECUTION_MISMATCH, f"missing test module {relative}"
+        ) from None
+    try:
+        expected = _declared_ids_from_text(source, relative, module_name)
     except (OSError, SyntaxError, UnicodeDecodeError) as exc:
         raise VSetValidationError(
             ERR_ORACLE_EXECUTION_MISMATCH,
             f"test module {relative} failed to load: {exc}",
         ) from exc
     spec = {
-        "path": str(source_path),
+        "path": str(pack_dir / relative),
         "module": module_name,
         "relative": relative,
         "source": source,
@@ -168,14 +176,15 @@ def _run_modules(work: Path, pack_dir: Path, relatives: Iterable[str]) -> dict[s
         spec, ids = _prepare_module(work, pack_dir, relative)
         folder = spec["folder"]
         if folder not in sources:
-            sources[folder] = _pack_sources(pack_dir, folder)
+            sources[folder] = _frozen_folder(folder)
         modules.append(spec)
         expected.extend(ids)
-    src_names = _src_names(work)
+    routed = _src_names(pack_dir)
+    present = _src_names(work)
     try:
-        return _grade_suite(work, modules, expected, (sources, src_names))
+        return _grade_suite(work, modules, expected, (sources, routed))
     finally:
-        _drop_added_src(work, src_names)
+        _drop_added_src(work, present)
 
 
 def _cached_bytecode(names: list[str]) -> set[str]:
@@ -288,24 +297,28 @@ def run_oracle(
     pack_dir = Path(pack_dir)
     if not pack_dir.is_dir():
         raise VSetValidationError(ERR_ORACLE_EXECUTION_MISMATCH, f"not a pack directory: {pack_dir}")
+    _freeze_pack(pack_dir)
     plan = _mapping_or_empty(hidden_suite)
     reference_list = list(reference_tests)
     hidden_list = list(plan.get("tests") or ())
     protected = list(reference_list) + list(hidden_list)
-    with tempfile.TemporaryDirectory(prefix="vset-oracle-") as tmp:
-        work = Path(tmp) / "pack"
-        _copy_pack(pack_dir, work)
-        return _oracle_report(
-            work,
-            pack_dir,
-            {
-                "patch": patch,
-                "plan": plan,
-                "reference": reference_list,
-                "hidden": hidden_list,
-                "protected": protected,
-            },
-        )
+    try:
+        with tempfile.TemporaryDirectory(prefix="vset-oracle-") as tmp:
+            work = Path(tmp) / "pack"
+            _copy_pack(pack_dir, work)
+            return _oracle_report(
+                work,
+                pack_dir,
+                {
+                    "patch": patch,
+                    "plan": plan,
+                    "reference": reference_list,
+                    "hidden": hidden_list,
+                    "protected": protected,
+                },
+            )
+    finally:
+        _clear_pack()
 
 
 def execution_result_hash(execution: Mapping[str, Any]) -> str:
