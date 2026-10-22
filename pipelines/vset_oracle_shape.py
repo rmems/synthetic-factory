@@ -156,38 +156,50 @@ def _environ_delta(before: dict[str, str], after: dict[str, str]) -> tuple[dict[
     return changed, dropped
 
 
+def _enter_environ(saved: tuple[object, object], client: object, patcher: object) -> object:
+    before = None
+    if _targets_environ(patcher):
+        before = dict(os.environ)
+    entered = saved[0](patcher)
+    if before is None:
+        return entered
+    if getattr(patcher, "in_dict", None) is not os.environ:
+        return entered
+    changed, dropped = _environ_delta(before, dict(os.environ))
+    client.shift_environ(changed, dropped)  # type: ignore[attr-defined]
+    return entered
+
+
+def _leave_environ(
+    saved: tuple[object, object], client: object, patcher: object, args: tuple[object, ...]
+) -> object:
+    before = None
+    if getattr(patcher, "in_dict", None) is os.environ:
+        before = dict(os.environ)
+    result = saved[1](patcher, *args)
+    if before is None:
+        return result
+    changed, dropped = _environ_delta(before, dict(os.environ))
+    try:
+        client.shift_environ(changed, dropped)  # type: ignore[attr-defined]
+    except Exception:
+        return result
+    return result
+
+
 def install_dict_patches(client: object) -> tuple[object, object]:
     """Mirror ``patch.dict(os.environ)`` into the child."""
 
     patch_cls = unittest.mock._patch_dict
     saved = (patch_cls.__enter__, patch_cls.__exit__)
 
-    def enter(self: object) -> object:
-        before = None
-        if _targets_environ(self):
-            before = dict(os.environ)
-        entered = saved[0](self)
-        if before is None:
-            return entered
-        if getattr(self, "in_dict", None) is not os.environ:
-            return entered
-        changed, dropped = _environ_delta(before, dict(os.environ))
-        client.shift_environ(changed, dropped)  # type: ignore[attr-defined]
-        return entered
+    def enter(self: object, _saved: tuple[object, object] = saved, _client: object = client) -> object:
+        return _enter_environ(_saved, _client, self)
 
-    def leave(self: object, *args: object) -> object:
-        before = None
-        if getattr(self, "in_dict", None) is os.environ:
-            before = dict(os.environ)
-        result = saved[1](self, *args)
-        if before is None:
-            return result
-        changed, dropped = _environ_delta(before, dict(os.environ))
-        try:
-            client.shift_environ(changed, dropped)  # type: ignore[attr-defined]
-        except Exception:
-            return result
-        return result
+    def leave(
+        self: object, *args: object, _saved: tuple[object, object] = saved, _client: object = client
+    ) -> object:
+        return _leave_environ(_saved, _client, self, args)
 
     patch_cls.__enter__ = enter  # type: ignore[method-assign]
     patch_cls.__exit__ = leave  # type: ignore[method-assign]

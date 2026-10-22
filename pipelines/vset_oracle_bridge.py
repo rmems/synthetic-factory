@@ -19,14 +19,14 @@ if __package__:  # pragma: no cover - package-child import path
     from . import _assert_direct_sibling, _expose_package_sibling
 
     _assert_direct_sibling("vset_oracle_bridge")
-    from .vset_oracle_codec import plain_callback_result as _plain_callback_result
+    from .vset_oracle_codec import encode as _encode
     from . import vset_oracle_shape as shape
     from . import vset_oracle_values as values
 else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
         "vset_oracle_bridge"
     )
-    from vset_oracle_codec import plain_callback_result as _plain_callback_result
+    from vset_oracle_codec import encode as _encode
     import vset_oracle_shape as shape
     import vset_oracle_values as values
 
@@ -125,9 +125,28 @@ def _receive(client: object, proc: object) -> object:
         return values.interpret(client, reply)
 
 
+_CLOSED_ATTRS = {
+    "gi_frame",
+    "gi_code",
+    "cr_frame",
+    "cr_code",
+    "f_globals",
+    "f_locals",
+    "f_back",
+    "func_globals",
+    "func_code",
+}
+
+
+def _closed_attr(name: str) -> bool:
+    if name.startswith("_"):
+        return True
+    return name in _CLOSED_ATTRS
+
+
 def _answer(client: object, message: dict[str, object]) -> dict[str, object]:
     try:
-        encoded = _plain_callback_result(_invoke(client, message))
+        encoded = _encode(_invoke(client, message))
     except Exception as exc:
         return {
             "cb_result": True,
@@ -154,11 +173,15 @@ def _named(client: object, message: dict[str, object]) -> dict[str, object]:
 
 def _invoke(client: object, message: dict[str, object]) -> object:
     target = values.take_callback(int(message["cb"]))  # type: ignore[arg-type]
-    if message.get("op") != "call":
+    op = message.get("op")
+    if op == "get":
+        attr = str(message.get("attr"))
+        if _closed_attr(attr):
+            raise AttributeError(attr)
+        return getattr(target, attr)
+    if op != "call":
         raise TypeError("oracle callback is not readable")
-    args = _positional(client, message)
-    kwargs = _named(client, message)
-    return target(*args, **kwargs)
+    return target(*_positional(client, message), **_named(client, message))
 
 
 def install_patches(client: object) -> tuple[object, object]:

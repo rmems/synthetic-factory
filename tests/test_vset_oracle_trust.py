@@ -356,6 +356,35 @@ class OracleTrustBoundaryTests(unittest.TestCase):
             )
         self.assertIn("do not match unittest collection", str(ctx.exception))
 
+    def test_callback_attributes_and_namedtuples(self) -> None:
+        self._ok_files(
+            "use.py",
+            {
+                "src/c.py": (
+                    "def send(svc, msg):\n"
+                    "    svc.send(msg)\n"
+                    "    svc.send.assert_called_once_with(msg)\n"
+                    "def norm(point):\n"
+                    "    return point.x + point.y\n"
+                    "def read_clock(clock):\n"
+                    "    return clock.now\n"
+                ),
+                "tests/use.py": (
+                    "import unittest\nfrom collections import namedtuple\n"
+                    "from unittest.mock import Mock\nimport c\n"
+                    "P = namedtuple('P', 'x y')\n"
+                    "class Fake:\n    now = 5\n"
+                    "class T(unittest.TestCase):\n"
+                    "    def test_mock(self):\n"
+                    "        c.send(Mock(), 'ping')\n"
+                    "    def test_point(self):\n"
+                    "        self.assertEqual(c.norm(P(1, 2)), 3)\n"
+                    "    def test_fake(self):\n"
+                    "        self.assertEqual(c.read_clock(Fake()), 5)\n"
+                ),
+            },
+        )
+
     def test_parent_captures_output_logs_and_environ(self) -> None:
         self._ok_files(
             "use.py",
