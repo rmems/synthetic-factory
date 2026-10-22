@@ -10,6 +10,7 @@ from __future__ import annotations
 import base64
 import builtins
 import sys
+from collections import deque
 from datetime import date, datetime
 from decimal import Decimal
 from fractions import Fraction
@@ -297,9 +298,6 @@ def _encode_date(value: date) -> dict[str, str]:
 
 
 _ENCODE = {
-    list: _encode_list,
-    tuple: _encode_tuple,
-    dict: _encode_map,
     set: _encode_set,
     frozenset: _encode_frozen,
     bytes: _encode_bytes,
@@ -311,12 +309,24 @@ _ENCODE = {
 }
 
 
+def _encode_fallback(value: object) -> object:
+    if isinstance(value, dict):
+        return _encode_map(dict(value))
+    if isinstance(value, tuple):
+        return _encode_tuple(tuple(value))
+    if isinstance(value, list):
+        return _encode_list(list(value))
+    if isinstance(value, deque):
+        return _encode_list(list(value))
+    return value
+
+
 def encode(value: object) -> object:
     if isinstance(value, RemoteObject):
         return {"ref": value.oid}
     handler = _ENCODE.get(type(value))
     if handler is None:
-        return value
+        return _encode_fallback(value)
     return handler(value)
 
 
