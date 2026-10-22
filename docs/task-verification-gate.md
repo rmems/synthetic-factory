@@ -76,3 +76,35 @@ reprs differ between the original and the mutant run.
 This is a harness, not a security sandbox: the network block is in-process and best effort, and
 a hostile program can forge the report line. For untrusted catalogs use the bwrap/Landlock
 executor in `code_repair`; `Gate` accepts any object with `run(program_text, function)`.
+
+## Difficulty band (#497)
+
+After the gate, `pipelines/task_gate/band_run.py` measures how hard each **kept** task is for
+the current student and keeps only the learnable band (FrogNano/BugPilot-style: a task the
+student always solves adds nothing, one it never solves is outside its support). The stage
+reads `tasks.jsonl`, skips (and counts) every non-`kept` row, and for each kept task runs the
+student `attempts_per_task` times.
+
+* **Contract, not constants.** `band_contract.load_contract` reads
+  `{"format": "difficulty-band-contract/1", "attempts_per_task", "pass_rate_min",
+  "pass_rate_max"}`. A missing, unreadable or malformed contract refuses the run before any
+  attempt. `attempts_per_task` is an integer in [2, 64]; the bounds satisfy
+  `0 < min <= max < 1` and are compared as exact fractions, so `1/10` sits on `0.1`.
+* **Pluggable solver.** `band_solver.Solver.solve(task, attempt) -> candidate module text`. The
+  solver sees only the broken module. The stage scores the candidate: it must be a legal
+  rewrite of the target body (`mutation.candidate_problem`, so it cannot edit the doctests) and
+  the reference harness must run it to a pass with at least one doctest attempted. A solver
+  that raises refuses the run. No real student adapter is wired yet (follow-up); the tests use
+  a deterministic scripted solver.
+* **Rows.** Every evaluated row is the gate row plus `generator`, `attempts`, `successes`,
+  `pass_rate` and `band` (`band_kept` | `too_easy` | `too_hard` | `seed_needed`).
+  `band_provenance.check_row` makes `attempts`/`successes`/`pass_rate` required, and exactly
+  consistent, for any `generator=self` row; the writer applies it to every row it emits.
+* **Files** (new destination, staged and renamed with no replace): `band-rows.jsonl` (all),
+  `band-kept.jsonl` (in band), `seed_needed.jsonl` (zero-pass rows, kept for teacher or
+  procedural seeding rather than discarded) and `band-summary.json` (band counts, contract
+  digest and its bounds as exact rationals such as `"1/10"`, input digests and the difficulty histogram: task count per success count
+  `0..attempts_per_task`, each marked with its band).
+* **Integrity.** Each kept row is rebuilt through the gate's own `mutation.resolve` and must
+  match the recorded program and mutant sha256, so a tasks file cannot be scored against a
+  different catalog than the one that verified it; this refuses before any attempt runs.

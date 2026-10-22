@@ -23,7 +23,7 @@ from . import vocabulary as cv
 from ._contract import bind_import_twin
 from .proposal import GateProgram, GateProposal
 
-__all__ = ["Resolved", "resolve"]
+__all__ = ["Resolved", "candidate_problem", "resolve"]
 
 PROGRAM_FILENAME = "program.py"
 _PROTECTED_ATTRS = frozenset({"__doc__", "__test__"})
@@ -275,6 +275,20 @@ def _mutant_problem(program: GateProgram, mutant: str | None) -> str | None:
     if _escapes_target_body(program, mutant):
         return cv.DETAIL_MUTANT_ESCAPES_BODY
     return None
+
+
+def candidate_problem(program: GateProgram, candidate_text: str) -> str | None:
+    """Why ``candidate_text`` is not a legal rewrite of the target body, or None when it is.
+
+    The same confinement a mutant must satisfy: it compiles, and everything but the target's
+    body (including its docstring and doctests) is unchanged and untampered. Solver output is
+    untrusted, so a candidate larger than ``MAX_PROGRAM_BYTES`` (the cap a program itself
+    obeys) is refused before it is parsed.
+    """
+
+    if len(candidate_text.encode("utf-8")) > cv.MAX_PROGRAM_BYTES:
+        return cv.DETAIL_MUTANT_ESCAPES_BODY
+    return _mutant_problem(program, candidate_text)
 
 
 def resolve(program: GateProgram, proposal: GateProposal) -> Resolved | str:
