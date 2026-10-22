@@ -115,6 +115,32 @@ class ParentOracleTests(unittest.TestCase):
             },
         )
 
+    def test_generators_and_dataclasses_round_trip(self) -> None:
+        self._ok_files(
+            "use.py",
+            {
+                "src/c.py": (
+                    "import dataclasses\n"
+                    "@dataclasses.dataclass\n"
+                    "class Box:\n"
+                    "    n: int\n"
+                    "def gen(count):\n"
+                    "    yield from range(count)\n"
+                    "def mk():\n"
+                    "    return Box(3)\n"
+                ),
+                "tests/use.py": (
+                    "import dataclasses\nimport unittest\nimport c\n"
+                    "class T(unittest.TestCase):\n"
+                    "    def test_gen(self):\n"
+                    "        self.assertEqual(list(c.gen(3)), [0, 1, 2])\n"
+                    "        self.assertEqual(tuple(c.gen(2)), (0, 1))\n"
+                    "    def test_box(self):\n"
+                    "        self.assertEqual(dataclasses.asdict(c.mk()), {'n': 3})\n"
+                ),
+            },
+        )
+
     def test_suite_path_reads_a_sibling_file(self) -> None:
         self._ok_files(
             "use.py",

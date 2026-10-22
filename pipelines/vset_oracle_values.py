@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import base64
 import builtins
+import dataclasses
 import sys
 from datetime import date, datetime
 from decimal import Decimal
@@ -160,7 +161,7 @@ def _forward(name: str):
             func = self.client.get(self.oid, name)
         except AttributeError:
             if name in _STRICT:
-                raise
+                raise TypeError(name) from None
             return NotImplemented
         return func(*args)
 
@@ -348,6 +349,16 @@ def _callback(_client: object, payload: dict[str, object]) -> object:
     return take_callback(int(payload["cb"]))
 
 
+def _dataclass(client: object, payload: dict[str, object]) -> object:
+    raw = payload.get("fields")
+    if not isinstance(raw, dict):
+        raise EOFError("bad worker reply")
+    names = [str(key) for key in raw]
+    cls = dataclasses.make_dataclass(str(payload.get("name")), names)
+    values = {str(key): interpret(client, item) for key, item in raw.items()}
+    return cls(**values)
+
+
 def _class(client: object, payload: dict[str, object]) -> type:
     return _class_from(client, payload)
 
@@ -392,6 +403,7 @@ _KINDS = {
     "frozenset": _frozenset, "bytes": _bytes, "class": _class, "obj": _wrap,
     "exc_type": _exc_type, "error": _error, "decimal": _decimal,
     "fraction": _fraction, "datetime": _datetime, "date": _date, "cb": _callback,
+    "dataclass": _dataclass,
 }
 
 
