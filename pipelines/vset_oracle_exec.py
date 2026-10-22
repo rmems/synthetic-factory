@@ -89,6 +89,49 @@ def _restore_suite_dir(pack_dir: Path, work: Path, relative: str) -> None:
         shutil.copyfile(path, dest_dir / path.name)
 
 
+def _src_names(work: Path) -> frozenset[str]:
+    folder = work / "src"
+    names: set[str] = set()
+    if not folder.is_dir():
+        return frozenset()
+    for path in folder.glob("*.py"):
+        names.add(path.stem)
+    for path in folder.iterdir():
+        if not path.is_dir():
+            continue
+        init = path / "__init__.py"
+        if not init.is_file():
+            continue
+        names.add(path.name)
+    return frozenset(names)
+
+
+def _drop_added_modules(folder: Path, keep: frozenset[str]) -> None:
+    for path in folder.glob("*.py"):
+        if path.stem not in keep:
+            path.unlink()
+
+
+def _drop_added_packages(folder: Path, keep: frozenset[str]) -> None:
+    for path in list(folder.iterdir()):
+        if not path.is_dir():
+            continue
+        if path.name in keep:
+            continue
+        init = path / "__init__.py"
+        if not init.is_file():
+            continue
+        shutil.rmtree(path)
+
+
+def _drop_added_src(work: Path, keep: frozenset[str]) -> None:
+    folder = work / "src"
+    if not folder.is_dir():
+        return
+    _drop_added_modules(folder, keep)
+    _drop_added_packages(folder, keep)
+
+
 def _pack_sources(pack_dir: Path, folder: str) -> dict[str, str]:
     """Suite text from the pristine pack, never from the candidate worktree."""
 
@@ -195,7 +238,11 @@ def _run_modules(work: Path, pack_dir: Path, relatives: Iterable[str]) -> dict[s
             sources[folder] = _pack_sources(pack_dir, folder)
         modules.append(spec)
         expected.extend(ids)
-    return _grade_suite(work, modules, expected, sources)
+    src_names = _src_names(work)
+    try:
+        return _grade_suite(work, modules, expected, (sources, src_names))
+    finally:
+        _drop_added_src(work, src_names)
 
 
 def _cached_bytecode(names: list[str]) -> set[str]:

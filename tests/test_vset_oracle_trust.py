@@ -241,6 +241,10 @@ class OracleTrustBoundaryTests(unittest.TestCase):
             (PACK / "src" / "counter.py").read_text(encoding="utf-8"),
         )
 
+    def _ok_files(self, filename: str, files: dict[str, str]) -> None:
+        report = self._run_reference_files(filename, files)
+        self.assertTrue(report["reference"]["ok"], report["reference"])
+
     def _run_reference_files(self, filename: str, files: dict[str, str]):
         with tempfile.TemporaryDirectory() as tmp:
             pack = Path(tmp)
@@ -346,7 +350,7 @@ class OracleTrustBoundaryTests(unittest.TestCase):
         self.assertIn("do not match unittest collection", str(ctx.exception))
 
     def test_remote_values_and_helpers_round_trip(self) -> None:
-        report = self._run_reference_files(
+        self._ok_files(
             "use.py",
             {
                 "src/counter.py": (
@@ -392,10 +396,9 @@ class OracleTrustBoundaryTests(unittest.TestCase):
                 ),
             },
         )
-        self.assertTrue(report["reference"]["ok"], report["reference"])
 
     def test_common_values_round_trip(self) -> None:
-        report = self._run_reference_files(
+        self._ok_files(
             "use.py",
             {
                 "src/counter.py": (
@@ -437,10 +440,9 @@ class OracleTrustBoundaryTests(unittest.TestCase):
                 ),
             },
         )
-        self.assertTrue(report["reference"]["ok"], report["reference"])
 
     def test_src_shadowing_stdlib_is_the_candidate(self) -> None:
-        report = self._run_reference_files(
+        self._ok_files(
             "use.py",
             {
                 "src/statistics.py": "def mean(values):\n    return 42\n",
@@ -453,7 +455,6 @@ class OracleTrustBoundaryTests(unittest.TestCase):
                 ),
             },
         )
-        self.assertTrue(report["reference"]["ok"], report["reference"])
 
     def test_candidate_base_exception_does_not_escape(self) -> None:
         report = self._run_reference_files(
