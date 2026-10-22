@@ -364,6 +364,26 @@ class OracleTrustBoundaryTests(unittest.TestCase):
     def test_src_shadowing_stdlib_is_the_candidate(self) -> None:
         self._ok_files("use.py", _pack("shadow"))
 
+    def test_patch_cannot_replace_a_stdlib_import(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            pack = Path(tmp)
+            (pack / "src").mkdir()
+            (pack / "tests").mkdir()
+            (pack / "src" / "counter.py").write_text("VALUE = 1\n", encoding="utf-8")
+            (pack / "tests" / "use.py").write_text(
+                "import statistics\nimport unittest\n"
+                "class T(unittest.TestCase):\n"
+                "    def test_mean(self):\n"
+                "        self.assertEqual(statistics.mean([2, 4]), 3)\n",
+                encoding="utf-8",
+            )
+            report = vset.run_oracle(
+                pack,
+                patch={"files": {"src/statistics.py": "def mean(values):\n    return 0\n"}},
+                reference_tests=["tests/use.py"],
+            )
+        self.assertTrue(report["reference"]["ok"], report["reference"])
+
     def test_candidate_hierarchy_is_preserved(self) -> None:
         self._ok_files("use.py", _pack("hierarchy"))
 
