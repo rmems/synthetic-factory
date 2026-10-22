@@ -351,8 +351,4 @@ def interpret(client: object, payload: object) -> object:
 
 
 if __package__:  # pragma: no cover - package-child import path
-    from .vset_oracle_codec import encode as encode
-
     _expose_package_sibling(__name__)
-else:
-    from vset_oracle_codec import encode as encode

@@ -26,12 +26,14 @@ if __package__:  # pragma: no cover - package-child import path
 
     _assert_direct_sibling("vset_oracle_remote")
     from .vset_constants import ERR_ORACLE_EXECUTION_MISMATCH, VSetValidationError
+    from .vset_oracle_codec import encode as _encode
     from . import vset_oracle_values as values
 else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
         "vset_oracle_remote"
     )
     from vset_constants import ERR_ORACLE_EXECUTION_MISMATCH, VSetValidationError
+    from vset_oracle_codec import encode as _encode
     import vset_oracle_values as values
 
 _CHILD_TIMEOUT_S = 30.0
@@ -120,6 +122,17 @@ _WORKER_SOURCE = textwrap.dedent(
             return {"kind": "datetime", "data": value.isoformat()}
         if isinstance(value, date):
             return {"kind": "date", "data": value.isoformat()}
+        if type(value) is list:
+            return {"kind": "list", "items": [put(item) for item in value]}
+        if type(value) is tuple:
+            return {"kind": "tuple", "items": [put(item) for item in value]}
+        if type(value) is dict:
+            pairs = [[put(key), put(item)] for key, item in value.items()]
+            return {"kind": "dict", "items": pairs}
+        if type(value) is set:
+            return {"kind": "set", "items": [put(item) for item in value]}
+        if type(value) is frozenset:
+            return {"kind": "frozenset", "items": [put(item) for item in value]}
         if is_exception(value):
             return {"kind": "exc_type", "name": value.__name__, "chain": exc_chain(value)}
         if isinstance(value, type):
@@ -263,7 +276,7 @@ class _Client:
 
     def set_attr(self, oid: int, name: str, value: object) -> None:
         self.exchange(
-            {"op": "set", "oid": oid, "attr": name, "value": values.encode(value)}
+            {"op": "set", "oid": oid, "attr": name, "value": _encode(value)}
         )
 
     def call(self, oid: int, args: tuple[object, ...], kwargs: dict[str, object]) -> object:
@@ -271,8 +284,8 @@ class _Client:
             {
                 "op": "call",
                 "oid": oid,
-                "args": [values.encode(arg) for arg in args],
-                "kwargs": {key: values.encode(val) for key, val in kwargs.items()},
+                "args": [_encode(arg) for arg in args],
+                "kwargs": {key: _encode(val) for key, val in kwargs.items()},
             }
         )
 
