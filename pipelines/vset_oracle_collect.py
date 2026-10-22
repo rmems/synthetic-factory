@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import importlib.util
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -62,10 +63,6 @@ class _StubFinder:
         return importlib.util.spec_from_loader(fullname, self._loader)
 
 
-def _local_names(folder: Path) -> set[str]:
-    return {item.stem for item in folder.glob("*.py")}
-
-
 def _walk(suite: unittest.TestSuite, found: list[str]) -> None:
     for item in suite:
         if isinstance(item, unittest.TestSuite):
@@ -74,8 +71,8 @@ def _walk(suite: unittest.TestSuite, found: list[str]) -> None:
         found.append(item.id())
 
 
-def _load_ids(spec: dict[str, str]) -> set[str]:
-    module_spec = importlib.util.spec_from_file_location(spec["module"], spec["path"])
+def _load_ids(spec: dict[str, str], path: Path) -> set[str]:
+    module_spec = importlib.util.spec_from_file_location(spec["module"], path)
     if module_spec is None:
         raise VSetValidationError(
             ERR_ORACLE_EXECUTION_MISMATCH,
@@ -109,14 +106,23 @@ def _restore_collection(folder: str, finder: _StubFinder, before: set[str]) -> N
     _drop_new(before)
 
 
-def _collect(spec: dict[str, str]) -> set[str]:
-    folder = str(Path(spec["path"]).parent)
+def _write_sources(sources: dict[str, str]) -> tempfile.TemporaryDirectory[str]:
+    temp = tempfile.TemporaryDirectory(prefix="vset-collect-")
+    root = Path(temp.name)
+    for name, text in sources.items():
+        (root / name).write_text(text, encoding="utf-8")
+    return temp
+
+
+def _collect(spec: dict[str, str], sources: dict[str, str]) -> set[str]:
+    temp = _write_sources(sources)
+    folder = temp.name
     before = set(sys.modules)
-    finder = _StubFinder(_local_names(Path(spec["path"]).parent))
+    finder = _StubFinder({Path(name).stem for name in sources})
     sys.meta_path.insert(0, finder)
     sys.path.insert(0, folder)
     try:
-        return _load_ids(spec)
+        return _load_ids(spec, Path(folder) / Path(spec["relative"]).name)
     except VSetValidationError:
         raise
     except Exception as exc:
@@ -126,6 +132,7 @@ def _collect(spec: dict[str, str]) -> set[str]:
         ) from exc
     finally:
         _restore_collection(folder, finder, before)
+        temp.cleanup()
 
 
 def _declared(spec: dict[str, str], expected: list[str]) -> set[str]:
@@ -133,10 +140,12 @@ def _declared(spec: dict[str, str], expected: list[str]) -> set[str]:
     return {item for item in expected if item.startswith(prefix)}
 
 
-def require_match(spec: dict[str, str], expected: list[str]) -> None:
+def require_match(
+    spec: dict[str, str], expected: list[str], sources: dict[str, str]
+) -> None:
     """Refuse a suite whose source walk and unittest collection disagree."""
 
-    if _collect(spec) == _declared(spec, expected):
+    if _collect(spec, sources) == _declared(spec, expected):
         return
     raise VSetValidationError(
         ERR_ORACLE_EXECUTION_MISMATCH,
