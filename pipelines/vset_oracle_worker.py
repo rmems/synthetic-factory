@@ -27,6 +27,7 @@ WORKER_SOURCE = textwrap.dedent(
     import logging
     import os
     import sys
+    import types
     from datetime import date, datetime
     from decimal import Decimal
     from fractions import Fraction
@@ -128,6 +129,9 @@ WORKER_SOURCE = textwrap.dedent(
     def decode(value):
         if not isinstance(value, dict):
             return value
+        if "record" in value:
+            fields = {key: decode(item) for key, item in value["record"].items()}
+            return types.SimpleNamespace(**fields)
         if "cb" in value:
             return ParentProxy(value["cb"])
         if "ref" in value:
@@ -206,16 +210,6 @@ WORKER_SOURCE = textwrap.dedent(
                 "cb": self._cb,
                 "args": [put(arg) for arg in args],
                 "kwargs": {key: put(val) for key, val in kwargs.items()},
-            })
-
-        def __getattr__(self, name):
-            if name.startswith("_"):
-                raise AttributeError(name)
-            return ask({
-                "kind": "callback",
-                "op": "get",
-                "cb": self._cb,
-                "attr": name,
             })
 
 

@@ -17,10 +17,12 @@ if __package__:  # pragma: no cover - package-child import path
     from . import _assert_direct_sibling, _expose_package_sibling
 
     _assert_direct_sibling("vset_oracle_codec")
+    from .vset_oracle_record import data_record as _data_record
 else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
         "vset_oracle_codec"
     )
+    from vset_oracle_record import data_record as _data_record
 
 
 def _host():
@@ -164,6 +166,9 @@ def encode(value: object) -> object:
         return encoded
     if _plain(value):
         return value
+    recorded = _data_record(value)
+    if recorded is not None:
+        return recorded
     return {"cb": _host().remember_callback(value)}
 
 

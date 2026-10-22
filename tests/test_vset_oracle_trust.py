@@ -361,13 +361,12 @@ class OracleTrustBoundaryTests(unittest.TestCase):
             "use.py",
             {
                 "src/c.py": (
-                    "def send(svc, msg):\n"
-                    "    svc.send(msg)\n"
-                    "    svc.send.assert_called_once_with(msg)\n"
                     "def norm(point):\n"
                     "    return point.x + point.y\n"
                     "def read_clock(clock):\n"
                     "    return clock.now\n"
+                    "def apply(fn, value):\n"
+                    "    return fn(value)\n"
                 ),
                 "tests/use.py": (
                     "import unittest\nfrom collections import namedtuple\n"
@@ -375,12 +374,12 @@ class OracleTrustBoundaryTests(unittest.TestCase):
                     "P = namedtuple('P', 'x y')\n"
                     "class Fake:\n    now = 5\n"
                     "class T(unittest.TestCase):\n"
-                    "    def test_mock(self):\n"
-                    "        c.send(Mock(), 'ping')\n"
                     "    def test_point(self):\n"
                     "        self.assertEqual(c.norm(P(1, 2)), 3)\n"
                     "    def test_fake(self):\n"
                     "        self.assertEqual(c.read_clock(Fake()), 5)\n"
+                    "    def test_mock_call(self):\n"
+                    "        self.assertEqual(c.apply(Mock(return_value=4), 1), 4)\n"
                 ),
             },
         )
@@ -443,6 +442,38 @@ class OracleTrustBoundaryTests(unittest.TestCase):
         with unittest.mock.patch("time.time", return_value=1.0):
             self.assertEqual(time.time(), 1.0)
         self.assertNotEqual(time.time(), 1.0)
+
+    def test_testcase_listener_cannot_rewrite_assertions(self) -> None:
+        original = unittest.TestCase.assertEqual
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                pack = Path(tmp)
+                (pack / "src").mkdir()
+                (pack / "tests").mkdir()
+                (pack / "src" / "c.py").write_text(
+                    "def add(left, right):\n"
+                    "    return 0\n"
+                    "def listen(case):\n"
+                    "    case.addTypeEqualityFunc(int, lambda *args: None)\n"
+                    "    return add(1, 1)\n",
+                    encoding="utf-8",
+                )
+                (pack / "tests" / "reference.py").write_text(
+                    "import unittest\nimport c\n"
+                    "class T(unittest.TestCase):\n"
+                    "    def test_sum(self):\n"
+                    "        c.listen(self)\n"
+                    "        self.assertEqual(c.add(1, 1), 2)\n",
+                    encoding="utf-8",
+                )
+                report = vset.run_oracle(pack, reference_tests=["tests/reference.py"])
+            self.assertFalse(report["reference"]["ok"], report["reference"])
+            probe = unittest.TestCase(methodName="run")
+            with self.assertRaises(AssertionError):
+                probe.assertEqual(0, 2)
+            self.assertIs(unittest.TestCase.assertEqual, original)
+        finally:
+            unittest.TestCase.assertEqual = original
 
     def test_callback_cannot_rewrite_grader_assertions(self) -> None:
         original = unittest.TestCase.assertEqual
