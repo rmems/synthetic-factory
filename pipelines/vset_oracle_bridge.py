@@ -144,8 +144,22 @@ def _named(client: object, message: dict[str, object]) -> dict[str, object]:
     return {str(key): values.interpret(client, item) for key, item in kwargs.items()}
 
 
+_MOCK_SETTINGS = {
+    "configure_mock",
+    "attach_mock",
+    "mock_add_spec",
+    "reset_mock",
+    "side_effect",
+    "return_value",
+}
+
+
 def _closed_name(name: str) -> bool:
-    return name.startswith("_")
+    if name.startswith("_"):
+        return True
+    if name.startswith("assert_"):
+        return True
+    return name in _MOCK_SETTINGS
 
 
 def _read_collaborator(target: object, name: str) -> object:
