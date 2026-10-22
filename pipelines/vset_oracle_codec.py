@@ -164,6 +164,10 @@ def encode(value: object) -> object:
     encoded = _encode_known(value)
     if encoded is not None:
         return encoded
+    return _encode_other(value)
+
+
+def _encode_other(value: object) -> object:
     if _plain(value):
         return value
     recorded = _data_record(value)
