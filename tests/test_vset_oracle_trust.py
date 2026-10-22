@@ -225,32 +225,38 @@ class OracleTrustBoundaryTests(unittest.TestCase):
             (PACK / "src" / "counter.py").read_text(encoding="utf-8"),
         )
 
-    def test_child_cannot_drop_a_declared_test_and_still_pass(self) -> None:
+    def _run_reference_files(self, filename: str, files: dict[str, str]):
         with tempfile.TemporaryDirectory() as tmp:
             pack = Path(tmp)
             (pack / "src").mkdir()
             (pack / "tests").mkdir()
-            (pack / "tests" / "partial.py").write_text(
-                "import unittest\n"
-                "from unittest import TestCase\n"
-                "class NotATest:\n"
-                "    def test_ignored(self):\n"
-                "        pass\n"
-                "class Real(TestCase):\n"
-                "    helper = 1\n"
-                "    def not_a_test(self):\n"
-                "        return 1\n"
-                "    def test_visible(self):\n"
-                "        print('oracle-capture')\n"
-                "        self.assertTrue(True)\n"
-                "    def test_hidden_failure(self):\n"
-                "        self.assertTrue(False)\n"
-                "def load_tests(loader, tests, pattern):\n"
-                "    return unittest.TestSuite([Real('test_visible')])\n",
-                encoding="utf-8",
+            for name, text in files.items():
+                target = pack / name
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text(text, encoding="utf-8")
+            return vset.run_oracle(pack, reference_tests=[f"tests/{filename}"])
+
+    def test_child_cannot_drop_a_declared_test_and_still_pass(self) -> None:
+        with self.assertRaises(vset.VSetValidationError) as ctx:
+            self._run_reference_files(
+                "partial.py",
+                {
+                    "tests/partial.py": (
+                        "import unittest\n"
+                        "from unittest import TestCase\n"
+                        "class NotATest:\n"
+                        "    def test_ignored(self):\n"
+                        "        pass\n"
+                        "class Real(TestCase):\n"
+                        "    def test_visible(self):\n"
+                        "        self.assertTrue(True)\n"
+                        "    def test_hidden_failure(self):\n"
+                        "        self.assertTrue(False)\n"
+                        "def load_tests(loader, tests, pattern):\n"
+                        "    return unittest.TestSuite([Real('test_visible')])\n"
+                    )
+                },
             )
-            with self.assertRaises(vset.VSetValidationError) as ctx:
-                vset.run_oracle(pack, reference_tests=["tests/partial.py"])
         self.assertIn("do not match unittest collection", str(ctx.exception))
 
     def test_missing_or_unparseable_suite_fails_closed(self) -> None:
@@ -289,36 +295,99 @@ class OracleTrustBoundaryTests(unittest.TestCase):
         self.assertEqual(proc.returncode, 0, proc.stderr + proc.stdout)
 
     def test_uncollected_suite_tests_fail_closed(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            pack = Path(tmp)
-            (pack / "src").mkdir()
-            (pack / "tests").mkdir()
-            (pack / "tests" / "helper.py").write_text(
-                "import unittest\nclass Base(unittest.TestCase):\n    pass\n",
-                encoding="utf-8",
+        with self.assertRaises(vset.VSetValidationError) as ctx:
+            self._run_reference_files(
+                "gap.py",
+                {
+                    "tests/helper.py": (
+                        "import unittest\nclass Base(unittest.TestCase):\n    pass\n"
+                    ),
+                    "tests/gap.py": (
+                        "import unittest\n"
+                        "from helper import Base\n"
+                        "class A(unittest.TestCase):\n"
+                        "    def test_ok(self):\n"
+                        "        self.assertTrue(True)\n"
+                        "class B(unittest.IsolatedAsyncioTestCase):\n"
+                        "    async def test_async_fails(self):\n"
+                        "        self.fail('async')\n"
+                        "class C(Base):\n"
+                        "    def test_helper_fails(self):\n"
+                        "        self.fail('helper')\n"
+                        "class D(unittest.TestCase):\n"
+                        "    pass\n"
+                        "def _fail(self):\n"
+                        "    self.fail('generated')\n"
+                        "D.test_generated = _fail\n"
+                    ),
+                },
             )
-            (pack / "tests" / "gap.py").write_text(
-                "import unittest\n"
-                "from helper import Base\n"
-                "class A(unittest.TestCase):\n"
-                "    def test_ok(self):\n"
-                "        self.assertTrue(True)\n"
-                "class B(unittest.IsolatedAsyncioTestCase):\n"
-                "    async def test_async_fails(self):\n"
-                "        self.fail('async')\n"
-                "class C(Base):\n"
-                "    def test_helper_fails(self):\n"
-                "        self.fail('helper')\n"
-                "class D(unittest.TestCase):\n"
-                "    pass\n"
-                "def _fail(self):\n"
-                "    self.fail('generated')\n"
-                "D.test_generated = _fail\n",
-                encoding="utf-8",
-            )
-            with self.assertRaises(vset.VSetValidationError) as ctx:
-                vset.run_oracle(pack, reference_tests=["tests/gap.py"])
         self.assertIn("do not match unittest collection", str(ctx.exception))
+
+    def test_remote_values_and_helpers_round_trip(self) -> None:
+        report = self._run_reference_files(
+            "use.py",
+            {
+                "src/counter.py": (
+                    "class CounterError(ValueError):\n"
+                    "    pass\n"
+                    "class Counter:\n"
+                    "    def __init__(self, value=0):\n"
+                    "        self.value = value\n"
+                    "    def add(self, delta):\n"
+                    "        if delta < 0:\n"
+                    "            raise CounterError('neg')\n"
+                    "        self.value += delta\n"
+                    "        return [self.value]\n"
+                    "    def __len__(self):\n"
+                    "        return self.value\n"
+                    "    def __bool__(self):\n"
+                    "        return self.value != 0\n"
+                ),
+                "tests/helper.py": "START = 0\n",
+                "tests/use.py": (
+                    "import unittest\n"
+                    "from helper import START\n"
+                    "from counter import Counter, CounterError\n"
+                    "class T(unittest.TestCase):\n"
+                    "    def test_list(self):\n"
+                    "        self.assertEqual(Counter().add(1), [1])\n"
+                    "    def test_raises(self):\n"
+                    "        with self.assertRaises(CounterError):\n"
+                    "            Counter().add(-1)\n"
+                    "    def test_len_and_type(self):\n"
+                    "        item = Counter(3)\n"
+                    "        self.assertEqual(len(item), 3)\n"
+                    "        self.assertIsInstance(item, Counter)\n"
+                    "    def test_bool(self):\n"
+                    "        self.assertFalse(Counter(0))\n"
+                    "        self.assertTrue(Counter(1))\n"
+                    "    def test_set(self):\n"
+                    "        item = Counter(1)\n"
+                    "        item.value = 4\n"
+                    "        self.assertEqual(item.value, 4)\n"
+                    "    def test_helper(self):\n"
+                    "        self.assertEqual(START, 0)\n"
+                ),
+            },
+        )
+        self.assertTrue(report["reference"]["ok"], report["reference"])
+
+    def test_candidate_base_exception_does_not_escape(self) -> None:
+        report = self._run_reference_files(
+            "boom.py",
+            {
+                "src/counter.py": "def boom():\n    raise KeyboardInterrupt('x')\n",
+                "tests/boom.py": (
+                    "import unittest\n"
+                    "import counter\n"
+                    "class T(unittest.TestCase):\n"
+                    "    def test_x(self):\n"
+                    "        counter.boom()\n"
+                ),
+            },
+        )
+        self.assertFalse(report["reference"]["ok"])
 
     def test_aliased_and_inherited_cases_are_counted(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
