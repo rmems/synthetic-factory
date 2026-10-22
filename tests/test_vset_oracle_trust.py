@@ -8,6 +8,7 @@ and a forged result hash must not become validated evidence.
 from __future__ import annotations
 
 import shutil
+import subprocess  # nosec B404
 import sys
 import tempfile
 import unittest
@@ -36,9 +37,8 @@ def _passing_suite(name: str = "tests.reference") -> str:
     )
 
 
-# No ``sub``. The hook calls the original ``__init_subclass__`` and then
-# replaces every test method; a check that the hook was swapped is not enough.
-_FORGED_COUNTER_WITHOUT_SUB = '''\
+# Shared body: add and get only. Each forge appends a different hook.
+_COUNTER_WITHOUT_SUB = '''\
 """Tiny hardware-independent counter used by VSET oracle fixtures."""
 
 
@@ -52,7 +52,10 @@ class Counter:
 
     def get(self) -> int:
         return self._value
+'''
 
+# Calls the original __init_subclass__, then replaces every test method.
+_INIT_SUBCLASS_HOOK = '''
 import unittest as _ut
 
 _orig = _ut.TestCase.__init_subclass__
@@ -69,23 +72,8 @@ def _init_subclass(cls, **kwargs):
 _ut.TestCase.__init_subclass__ = classmethod(_init_subclass)
 '''
 
-# No ``sub``. Replacing TestCase.run makes every result look successful
-# without running the test body.
-_FORGED_COUNTER_RUN_OVERRIDE = '''\
-"""Tiny hardware-independent counter used by VSET oracle fixtures."""
-
-
-class Counter:
-    def __init__(self, value: int = 0) -> None:
-        self._value = int(value)
-
-    def add(self, delta: int) -> int:
-        self._value += int(delta)
-        return self._value
-
-    def get(self) -> int:
-        return self._value
-
+# Reports every test successful without running the body.
+_RUN_OVERRIDE = '''
 import unittest as _ut
 
 def _run(self, result=None):
@@ -96,22 +84,8 @@ def _run(self, result=None):
 _ut.TestCase.run = _run
 '''
 
-# No ``sub``. Speaks the pass handshake using fd numbers taken from argv.
-_FORGED_COUNTER_ARGV_HANDSHAKE = '''\
-"""Tiny hardware-independent counter used by VSET oracle fixtures."""
-
-
-class Counter:
-    def __init__(self, value: int = 0) -> None:
-        self._value = int(value)
-
-    def add(self, delta: int) -> int:
-        self._value += int(delta)
-        return self._value
-
-    def get(self) -> int:
-        return self._value
-
+# Replays the pass handshake when fd numbers are on argv.
+_ARGV_HANDSHAKE = '''
 import os as _os, sys as _sys
 if len(_sys.argv) >= 8:
     _nfd, _sfd = int(_sys.argv[6]), int(_sys.argv[7])
@@ -122,6 +96,23 @@ if len(_sys.argv) >= 8:
     _os.write(_sfd, _n)
     _os._exit(0)
 '''
+
+_FORGED_COUNTER_WITHOUT_SUB = _COUNTER_WITHOUT_SUB + _INIT_SUBCLASS_HOOK
+_FORGED_COUNTER_RUN_OVERRIDE = _COUNTER_WITHOUT_SUB + _RUN_OVERRIDE
+_FORGED_COUNTER_ARGV_HANDSHAKE = _COUNTER_WITHOUT_SUB + _ARGV_HANDSHAKE
+
+# Looks for a nonce local on the caller's stack and writes it to fd 4.
+_STACK_NONCE = '''
+import os as _os, sys as _sys
+_f = _sys._getframe()
+while _f is not None:
+    _n = _f.f_locals.get("nonce")
+    if isinstance(_n, bytes) and len(_n) == 16:
+        _os.write(4, b"P" + _n)
+        _os._exit(0)
+    _f = _f.f_back
+'''
+_FORGED_COUNTER_STACK_NONCE = _COUNTER_WITHOUT_SUB + _STACK_NONCE
 
 
 class OracleTrustBoundaryTests(unittest.TestCase):
@@ -172,16 +163,20 @@ class OracleTrustBoundaryTests(unittest.TestCase):
         if execution is not None:
             self.assertFalse(execution["reference"]["ok"])
 
-    def test_init_subclass_hook_cannot_neuter_hidden_suite(self) -> None:
-        hook = unittest.TestCase.__init_subclass__.__func__
+    def _rejected_without_sub(self, body: str):
         record = _load(ACCEPT / "issue-patch-validated.json")
-        record["payload"]["patch"] = {"files": {"src/counter.py": _FORGED_COUNTER_WITHOUT_SUB}}
+        record["payload"]["patch"] = {"files": {"src/counter.py": body}}
         errors, execution = vset.validate_record_with_oracle(record, PACK)
-        self.assertIs(unittest.TestCase.__init_subclass__.__func__, hook)
         self.assertIn("vset.oracle_execution_mismatch", _codes(errors))
         self.assertIsNotNone(execution)
         self.assertTrue(execution["reference"]["ok"])
         self.assertFalse(execution["hidden"]["ok"])
+        return errors, execution
+
+    def test_init_subclass_hook_cannot_neuter_hidden_suite(self) -> None:
+        hook = unittest.TestCase.__init_subclass__.__func__
+        self._rejected_without_sub(_FORGED_COUNTER_WITHOUT_SUB)
+        self.assertIs(unittest.TestCase.__init_subclass__.__func__, hook)
         self.assertNotIn(
             "__init_subclass__",
             (PACK / "src" / "counter.py").read_text(encoding="utf-8"),
@@ -235,20 +230,14 @@ class OracleTrustBoundaryTests(unittest.TestCase):
 
     def test_run_override_cannot_certify_a_missing_sub(self) -> None:
         original = unittest.TestCase.run
-        record = _load(ACCEPT / "issue-patch-validated.json")
-        record["payload"]["patch"] = {"files": {"src/counter.py": _FORGED_COUNTER_RUN_OVERRIDE}}
-        errors, execution = vset.validate_record_with_oracle(record, PACK)
+        self._rejected_without_sub(_FORGED_COUNTER_RUN_OVERRIDE)
         self.assertIs(unittest.TestCase.run, original)
-        self.assertIn("vset.oracle_execution_mismatch", _codes(errors))
-        self.assertIsNotNone(execution)
-        self.assertTrue(execution["reference"]["ok"])
-        self.assertFalse(execution["hidden"]["ok"])
 
     def test_pass_requires_the_parent_nonce(self) -> None:
         nonce = b"0123456789abcdef"
-        self.assertEqual(grade._status_for(b"P", nonce, nonce, 0), "ok")
-        self.assertEqual(grade._status_for(b"P", b"", nonce, 0), "ERROR")
-        self.assertEqual(grade._status_for(b"P", nonce, nonce, 1), "ERROR")
+        self.assertEqual(grade._status_for(b"D", nonce, nonce, 0), "ok")
+        self.assertEqual(grade._status_for(b"D", b"", nonce, 0), "ERROR")
+        self.assertEqual(grade._status_for(b"D", nonce, nonce, 1), "ERROR")
         self.assertEqual(grade._status_for(b"", b"", nonce, 0), "ERROR")
         self.assertEqual(grade._status_for(b"F", b"", nonce, 1), "FAIL")
         self.assertEqual(grade._status_for(b"S", b"", nonce, 1), "SKIP")
@@ -259,15 +248,23 @@ class OracleTrustBoundaryTests(unittest.TestCase):
         self.assertIn("failed to load", message)
 
     def test_argv_handshake_cannot_certify_a_missing_sub(self) -> None:
-        record = _load(ACCEPT / "issue-patch-validated.json")
-        record["payload"]["patch"] = {
-            "files": {"src/counter.py": _FORGED_COUNTER_ARGV_HANDSHAKE}
-        }
-        errors, execution = vset.validate_record_with_oracle(record, PACK)
-        self.assertIn("vset.oracle_execution_mismatch", _codes(errors))
-        self.assertIsNotNone(execution)
-        self.assertTrue(execution["reference"]["ok"])
-        self.assertFalse(execution["hidden"]["ok"])
+        self._rejected_without_sub(_FORGED_COUNTER_ARGV_HANDSHAKE)
+
+    def test_stack_nonce_cannot_certify_a_missing_sub(self) -> None:
+        self._rejected_without_sub(_FORGED_COUNTER_STACK_NONCE)
+
+    def test_accept_fixture_passes_in_a_fresh_process(self) -> None:
+        repo = PACK.parents[3]
+        validator = repo / "pipelines" / "validate_vset.py"
+        record = ACCEPT / "issue-patch-validated.json"
+        proc = subprocess.run(
+            [sys.executable, str(validator), "--oracle", "--pack", str(PACK), str(record)],
+            cwd=repo,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(proc.returncode, 0, proc.stderr + proc.stdout)
 
     def test_aliased_and_inherited_cases_are_counted(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -297,52 +294,49 @@ class OracleTrustBoundaryTests(unittest.TestCase):
         )
         self.assertTrue(report["reference"]["ok"])
 
+    def _oracle_failure(self, filename: str, source: str) -> str:
+        with tempfile.TemporaryDirectory() as tmp:
+            pack = Path(tmp)
+            (pack / "src").mkdir()
+            (pack / "tests").mkdir()
+            (pack / "tests" / filename).write_text(source, encoding="utf-8")
+            with self.assertRaises(vset.VSetValidationError) as ctx:
+                vset.run_oracle(pack, reference_tests=[f"tests/{filename}"])
+        return str(ctx.exception)
+
     def test_hung_child_fails_closed(self) -> None:
         original = grade._CHILD_TIMEOUT_S
         grade._CHILD_TIMEOUT_S = 0.2
         try:
-            with tempfile.TemporaryDirectory() as tmp:
-                pack = Path(tmp)
-                (pack / "src").mkdir()
-                (pack / "tests").mkdir()
-                (pack / "tests" / "hang.py").write_text(
-                    "import time\n"
-                    "import unittest\n"
-                    "class T(unittest.TestCase):\n"
-                    "    def test_hang(self):\n"
-                    "        time.sleep(30)\n",
-                    encoding="utf-8",
-                )
-                with self.assertRaises(vset.VSetValidationError) as ctx:
-                    vset.run_oracle(pack, reference_tests=["tests/hang.py"])
-            self.assertIn("timed out", str(ctx.exception))
+            message = self._oracle_failure(
+                "hang.py",
+                "import time\nimport unittest\n"
+                "class T(unittest.TestCase):\n"
+                "    def test_hang(self):\n"
+                "        time.sleep(30)\n",
+            )
         finally:
             grade._CHILD_TIMEOUT_S = original
+        self.assertIn("timed out", message)
 
     def test_runner_spawn_failure_fails_closed(self) -> None:
-        original = grade._posix_spawn
+        original = grade._start_child
 
         def boom(*_args: object, **_kwargs: object) -> None:
             raise OSError("spawn failed")
 
-        grade._posix_spawn = boom
+        grade._start_child = boom
         try:
-            with tempfile.TemporaryDirectory() as tmp:
-                pack = Path(tmp)
-                (pack / "src").mkdir()
-                (pack / "tests").mkdir()
-                (pack / "tests" / "ok.py").write_text(
-                    "import unittest\n"
-                    "class T(unittest.TestCase):\n"
-                    "    def test_ok(self):\n"
-                    "        self.assertTrue(True)\n",
-                    encoding="utf-8",
-                )
-                with self.assertRaises(vset.VSetValidationError) as ctx:
-                    vset.run_oracle(pack, reference_tests=["tests/ok.py"])
-            self.assertIn("spawn failed", str(ctx.exception))
+            message = self._oracle_failure(
+                "ok.py",
+                "import unittest\n"
+                "class T(unittest.TestCase):\n"
+                "    def test_ok(self):\n"
+                "        self.assertTrue(True)\n",
+            )
         finally:
-            grade._posix_spawn = original
+            grade._start_child = original
+        self.assertIn("spawn failed", message)
 
     def test_root_module_cannot_shadow_src(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
