@@ -229,10 +229,8 @@ _FLIP_COUNTER = textwrap.dedent(
 )
 
 
-_REBIND = textwrap.dedent(
+_ALWAYS_EQ = textwrap.dedent(
     """\
-    import __main__
-    __main__.user_compares = lambda obj: []
     class Any:
         def __eq__(self, other):
             return True
@@ -244,19 +242,35 @@ _REBIND = textwrap.dedent(
     """
 )
 
-_REBIND_FIELDS = textwrap.dedent(
-    """\
-    import __main__
-    __main__.plain_fields = lambda obj: {"n": 999}
-    class Any:
-        def __eq__(self, other):
-            return True
-        __hash__ = None
-    def add(a, b):
-        return Any()
-    def total(a, b):
-        return a + b
-    """
+_REBIND = (
+    "import __main__\n__main__.user_compares = lambda obj: []\n" + _ALWAYS_EQ
+)
+
+_REBIND_FIELDS = (
+    "import __main__\n__main__.plain_fields = lambda obj: {'n': 999}\n" + _ALWAYS_EQ
+)
+
+_REBIND_NS = (
+    "import __main__\n"
+    "ns = getattr(__main__, '_NS', None)\n"
+    "if isinstance(ns, dict):\n"
+    "    ns['user_compares'] = lambda obj: []\n"
+    "    ns['plain_fields'] = lambda obj: {'n': 999}\n"
+    + _ALWAYS_EQ
+)
+
+_REBIND_GC = (
+    "import gc, types\n"
+    "for item in gc.get_objects():\n"
+    "    if not isinstance(item, types.FunctionType):\n"
+    "        continue\n"
+    "    globs = getattr(item, '__globals__', None)\n"
+    "    if not isinstance(globs, dict) or 'user_compares' not in globs:\n"
+    "        continue\n"
+    "    globs['user_compares'] = lambda obj: []\n"
+    "    globs['plain_fields'] = lambda obj: {'n': 999}\n"
+    "    globs['object_state'] = lambda obj: {'kind': 'state', 'fields': {}, 'user': []}\n"
+    + _ALWAYS_EQ
 )
 
 _REBIND_TESTS = textwrap.indent(
@@ -275,12 +289,23 @@ _REBIND_COUNTER = (
     "import __main__\n__main__.user_compares = lambda obj: []\n" + _USERLIST
 )
 
+_REBIND_NS_COUNTER = (
+    "import __main__\n"
+    "ns = getattr(__main__, '_NS', None)\n"
+    "if isinstance(ns, dict):\n"
+    "    ns['user_compares'] = lambda obj: []\n"
+    + _USERLIST
+)
+
 
 class StructuralForgeTests(unittest.TestCase):
     def test_worker_rebind_cannot_force_equality(self) -> None:
         _expect_refused(self, _REBIND, _REBIND_TESTS, ("test_equal",))
         _expect_refused(self, _REBIND_FIELDS, _REBIND_TESTS, ("test_equal",))
+        _expect_refused(self, _REBIND_NS, _REBIND_TESTS, ("test_equal",))
+        _expect_refused(self, _REBIND_GC, _REBIND_TESTS, ("test_equal",))
         self.assertGreater(_error_count(_record(_REBIND_COUNTER)), 0)
+        self.assertGreater(_error_count(_record(_REBIND_NS_COUNTER)), 0)
 
     def test_flipping_bool_cannot_force_equality(self) -> None:
         _expect_refused(self, _FLIP, _FLIP_TESTS, ("test_equal",))
