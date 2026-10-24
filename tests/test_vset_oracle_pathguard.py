@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import importlib._bootstrap_external as _bootstrap_external
+import importlib.util
 import json
 import os
 import subprocess  # nosec B404
@@ -131,12 +133,20 @@ class PathGuardTests(unittest.TestCase):
                 seen = pathguard.snapshot()
                 kept = (root / "kept.py").resolve()
                 self.assertFalse(pathguard._changed(kept, seen))
+                self.assertIsNone(pathguard._py_for_pyc(kept))
+                self.assertFalse(pathguard._same_source(kept, seen))
                 (cache / "kept.cpython-314.pyc").write_bytes(b"pyc")
                 self.assertIsNotNone(pathguard._root_of(cache / "kept.cpython-314.pyc"))
                 self.assertIsNone(pathguard._root_of(Path("/no/such/place.py")))
-                self.assertEqual(pathguard.drift(seen), "")
+                self.assertIn("kept.cpython-314.pyc", pathguard.drift(seen))
+                self.assertTrue(pathguard._changed(cache / "kept.cpython-314.pyc", seen))
                 self.assertIsNone(pathguard._py_for_pyc(cache / "kept.py"))
-                self.assertIsNone(pathguard.PathGuard(seen).find_spec("kept"))
+                spec = pathguard.PathGuard(seen).find_spec("kept")
+                module = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(module)
+                self.assertEqual(module.x, 1)
+                self.assertTrue(pathguard._same_source(cache / "kept.cpython-314.pyc", seen))
+                self.assertIsNone(pathguard.PathGuard(seen).find_spec("math"))
                 (root / "kept.py").unlink()
                 self.assertFalse(pathguard._same_source(cache / "kept.cpython-314.pyc", seen))
                 planted = root / "planted_mod.py"
@@ -179,6 +189,7 @@ class PathGuardTests(unittest.TestCase):
                 self.assertIsNone(pathguard._root_of(source))
                 self.assertIsNone(pathguard._origin_path(str(source)))
                 self.assertFalse(pathguard._changed(source, {}))
+                self.assertFalse(pathguard._trusted(source, b"x", {}))
         spec = mock.Mock()
         spec.origin = None
         finder = "vset_oracle_pathguard.importlib.machinery.PathFinder.find_spec"
@@ -196,6 +207,43 @@ class PathGuardTests(unittest.TestCase):
                 path.write_text("x = 1\n", encoding="utf-8")
                 with mock.patch.object(Path, "stat", side_effect=OSError):
                     self.assertFalse(pathguard._changed(path, {}))
+            finally:
+                sys.path.remove(tmp)
+
+    def test_forged_pyc_body_is_not_executed(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "census_mod.py"
+            source.write_text("VALUE = 1\n", encoding="utf-8")
+            sys.path.insert(0, tmp)
+            try:
+                seen = pathguard.snapshot()
+                info = source.stat()
+                code = compile("VALUE = 2\n", str(source), "exec")
+                payload = _bootstrap_external._code_to_timestamp_pyc(
+                    code, info.st_mtime, info.st_size
+                )
+                cached = Path(importlib.util.cache_from_source(str(source)))
+                cached.parent.mkdir(exist_ok=True)
+                cached.write_bytes(bytes(payload))
+                self.assertTrue(pathguard._changed(cached, seen))
+                self.assertIn(cached.name, pathguard.drift(seen))
+                guard = pathguard.PathGuard(seen)
+                sys.meta_path.insert(0, guard)
+                try:
+                    spec = importlib.util.find_spec("census_mod")
+                    module = importlib.util.module_from_spec(spec)
+                    spec.loader.exec_module(module)
+                    self.assertEqual(module.VALUE, 1)
+                    self.assertFalse(pathguard._trusted(source, b"", seen))
+                    self.assertFalse(pathguard._trusted(Path("not-in-seen.py"), b"x", seen))
+                    source.write_text("VALUE = 3\n", encoding="utf-8")
+                    with self.assertRaises(ImportError):
+                        spec.loader.get_code("census_mod")
+                finally:
+                    if guard in sys.meta_path:
+                        sys.meta_path.remove(guard)
+                    sys.modules.pop("census_mod", None)
             finally:
                 sys.path.remove(tmp)
 

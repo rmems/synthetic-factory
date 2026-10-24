@@ -1,15 +1,17 @@
 """Fail closed when a grade changes a module the parent can import.
 
 The worker is the same user as the grader. A candidate can write a new
-``.py`` inside a package, or rewrite a helper and put its modification
-time back. Snapshot every code file under ``sys.path`` before the suite
-runs. A new bytecode file is harmless only when its source was already
-there and did not change.
+``.py`` inside a package, rewrite a helper and put its modification time
+back, or drop a ``.pyc`` whose header names an unchanged source. Snapshot
+every code file under ``sys.path``. Python source is compiled from the
+snapshotted bytes, so a bytecode cache is never executed.
 """
 
 from __future__ import annotations
 
+import hashlib
 import importlib.machinery
+import importlib.util
 import sys
 from pathlib import Path
 
@@ -107,9 +109,19 @@ def _changed(path: Path, seen: dict[str, Stamp]) -> bool:
     stamp = _stamp(path)
     if stamp is None:
         return False
-    if not _fresh(key, stamp, seen):
+    return _fresh(key, stamp, seen)
+
+
+def _trusted(path: Path, data: bytes, seen: dict[str, Stamp]) -> bool:
+    key = _key(path)
+    if key is None:
         return False
-    return not _same_source(path, seen)
+    stamp = seen.get(key)
+    if stamp is None:
+        return False
+    if stamp[0] != len(data):
+        return False
+    return hashlib.sha256(data).hexdigest() == stamp[2]
 
 
 def drift(seen: dict[str, Stamp]) -> str:
@@ -117,11 +129,8 @@ def drift(seen: dict[str, Stamp]) -> str:
 
     after = snapshot()
     for path, stamp in after.items():
-        if not _fresh(path, stamp, seen):
-            continue
-        if _same_source(Path(path), seen):
-            continue
-        return path
+        if _fresh(path, stamp, seen):
+            return path
     return ""
 
 
@@ -138,6 +147,21 @@ def _origin_path(origin: object) -> Path | None:
         return None
 
 
+class _SourceLoader(importlib.machinery.SourceFileLoader):
+    """Compile snapshotted source. Never read or write a bytecode cache."""
+
+    def __init__(self, fullname: str, path: str, seen: dict[str, Stamp]) -> None:
+        super().__init__(fullname, path)
+        self._seen = seen
+
+    def get_code(self, fullname: str):
+        path = Path(self.get_filename(fullname))
+        data = self.get_data(str(path))
+        if not _trusted(path, data, self._seen):
+            raise ImportError("oracle import path changed")
+        return self.source_to_code(data, str(path))
+
+
 class PathGuard:
     """Reject an import whose file was not in the grade snapshot."""
 
@@ -149,7 +173,7 @@ class PathGuard:
         fullname: str,
         path: object = None,
         target: object = None,
-    ) -> None:
+    ):
         spec = importlib.machinery.PathFinder.find_spec(fullname, path)
         if spec is None:
             return None
@@ -158,7 +182,10 @@ class PathGuard:
             return None
         if _changed(origin, self._seen):
             raise ImportError("oracle import path changed")
-        return None
+        if origin.suffix != ".py":
+            return None
+        loader = _SourceLoader(fullname, str(origin), self._seen)
+        return importlib.util.spec_from_loader(fullname, loader, origin=str(origin))
 
 
 if __package__:  # pragma: no cover - package-child import path
