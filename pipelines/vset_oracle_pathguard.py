@@ -1,10 +1,10 @@
 """Fail closed when a grade changes a module the parent can import.
 
 The worker is the same user as the grader. A candidate can write a new
-``.py`` or ``.pyc`` onto ``sys.path`` and the next parent import will run
-it. Snapshot the code files before the suite runs, refuse a changed
-top-level file, and treat a new bytecode file as harmless only when its
-source was already there and did not change.
+``.py`` inside a package, or rewrite a helper and put its modification
+time back. Snapshot every code file under ``sys.path`` before the suite
+runs. A new bytecode file is harmless only when its source was already
+there and did not change.
 """
 
 from __future__ import annotations
@@ -17,89 +17,65 @@ if __package__:  # pragma: no cover - package-child import path
     from . import _assert_direct_sibling, _expose_package_sibling
 
     _assert_direct_sibling("vset_oracle_pathguard")
+    from . import vset_oracle_pathsnap as pathsnap
 else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
         "vset_oracle_pathguard"
     )
+    import vset_oracle_pathsnap as pathsnap
 
 
-_CODE = frozenset({".py", ".pyc", ".so"})
+Stamp = pathsnap.Stamp
+_resolved = pathsnap._resolved
+_stamp = pathsnap._stamp
+_files = pathsnap._files
+_note = pathsnap._note
+snapshot = pathsnap.snapshot
 
 
-def _resolved(raw: str) -> Path | None:
-    if raw:
-        path = Path(raw)
-    else:
-        path = Path.cwd()
+def _fresh(path: str, stamp: Stamp, seen: dict[str, Stamp]) -> bool:
+    if path not in seen:
+        return True
+    return seen[path] != stamp
+
+
+def _anchor(path: Path) -> Path | None:
     try:
-        if path.is_dir():
-            return path.resolve()
+        resolved = path.resolve()
     except OSError:
         return None
-    return None
+    parent = resolved.parent
+    if parent.name == "__pycache__":
+        return parent.parent
+    return parent
 
 
-def _stamp(path: Path) -> tuple[int, int] | None:
-    try:
-        info = path.stat()
-    except OSError:
-        return None
-    return info.st_size, info.st_mtime_ns
+def _parents(path: Path) -> list[Path]:
+    anchor = _anchor(path)
+    if anchor is None:
+        return []
+    return [anchor, *anchor.parents]
 
 
-def _code(path: Path) -> bool:
-    return path.suffix in _CODE
-
-
-def _files(root: Path, found: list[Path]) -> None:
-    try:
-        entries = list(root.iterdir())
-    except OSError:
-        return
-    for path in entries:
-        if path.is_file():
-            if _code(path):
-                found.append(path)
-            continue
-        if path.name != "__pycache__":
-            continue
-        _cache(path, found)
-
-
-def _cache(root: Path, found: list[Path]) -> None:
-    try:
-        entries = list(root.iterdir())
-    except OSError:
-        return
-    for path in entries:
-        if path.is_file():
-            if _code(path):
-                found.append(path)
-
-
-def _note(found: dict[str, tuple[int, int]], path: Path) -> None:
-    stamp = _stamp(path)
-    if stamp is None:
-        return
-    try:
-        found[str(path.resolve())] = stamp
-    except OSError:
-        return
-
-
-def snapshot() -> dict[str, tuple[int, int]]:
-    """Code files currently visible on ``sys.path``, including bytecode."""
-
-    found: dict[str, tuple[int, int]] = {}
+def _matching_root(parents: list[Path]) -> Path | None:
     for raw in sys.path:
         root = _resolved(raw)
         if root is None:
             continue
-        paths: list[Path] = []
-        _files(root, paths)
-        for path in paths:
-            _note(found, path)
-    return found
+        if root in parents:
+            return root
+    return None
+
+
+def _root_of(path: Path) -> Path | None:
+    return _matching_root(_parents(path))
+
+
+def _key(path: Path) -> str | None:
+    try:
+        return str(path.resolve())
+    except OSError:
+        return None
 
 
 def _py_for_pyc(path: Path) -> Path | None:
@@ -111,53 +87,32 @@ def _py_for_pyc(path: Path) -> Path | None:
     return path.parent.parent / f"{stem}.py"
 
 
-def _same_source(path: Path, seen: dict[str, tuple[int, int]]) -> bool:
+def _same_source(path: Path, seen: dict[str, Stamp]) -> bool:
     source = _py_for_pyc(path)
     if source is None:
         return False
     stamp = _stamp(source)
     if stamp is None:
         return False
-    try:
-        key = str(source.resolve())
-    except OSError:
+    key = _key(source)
+    if key is None:
         return False
     return seen.get(key) == stamp
 
 
-def _fresh(path: str, stamp: tuple[int, int], seen: dict[str, tuple[int, int]]) -> bool:
-    if path not in seen:
-        return True
-    return seen[path] != stamp
-
-
-def _root_of(path: Path) -> Path | None:
-    parent = path.parent
-    if parent.name == "__pycache__":
-        parent = parent.parent
-    try:
-        resolved = parent.resolve()
-    except OSError:
-        return None
-    for raw in sys.path:
-        root = _resolved(raw)
-        if root == resolved:
-            return root
-    return None
-
-
-def _changed(path: Path, seen: dict[str, tuple[int, int]]) -> bool:
-    if _root_of(path) is None:
+def _changed(path: Path, seen: dict[str, Stamp]) -> bool:
+    key = _key(path)
+    if key is None:
         return False
     stamp = _stamp(path)
     if stamp is None:
         return False
-    if not _fresh(str(path), stamp, seen):
+    if not _fresh(key, stamp, seen):
         return False
     return not _same_source(path, seen)
 
 
-def drift(seen: dict[str, tuple[int, int]]) -> str:
+def drift(seen: dict[str, Stamp]) -> str:
     """Return one changed path, or an empty string when the snapshot holds."""
 
     after = snapshot()
@@ -184,9 +139,9 @@ def _origin_path(origin: object) -> Path | None:
 
 
 class PathGuard:
-    """Reject a top-level import whose file was not in the grade snapshot."""
+    """Reject an import whose file was not in the grade snapshot."""
 
-    def __init__(self, seen: dict[str, tuple[int, int]]) -> None:
+    def __init__(self, seen: dict[str, Stamp]) -> None:
         self._seen = seen
 
     def find_spec(
