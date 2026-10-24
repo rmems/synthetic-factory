@@ -114,6 +114,11 @@ class FreshInterpreter(unittest.TestCase):
                     probe.isolated_report, order, probe.flat_modules()
                 )
                 assert_only_allowlisted_modules_split(self, report)
+                self.assertEqual(
+                    report["preloaded"],
+                    [],
+                    "an earlier sibling chose this module's first import",
+                )
 
     def test_each_thin_shim_only_re_exports_its_one_cli(self):
         for order in probe.ORDERS:
@@ -143,6 +148,7 @@ class InProcess(unittest.TestCase):
     def test_only_allowlisted_modules_split_in_process(self):
         report = probe.isolated_report("direct_first", probe.flat_modules())
         assert_only_allowlisted_modules_split(self, report)
+        self.assertEqual(report["preloaded"], [])
 
 
 if __name__ == "__main__":
