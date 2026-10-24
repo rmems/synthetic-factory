@@ -7,23 +7,30 @@ import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-# Same split as ``tool_world_cli``: the finalizer import and its call share
-# ``if __package__``, and type checkers take the package spelling on their own.
+# Type checkers take the package spelling. The finalizer import stays on
+# ``if __package__`` so pylint can see the later call is assigned.
+if TYPE_CHECKING:
+    from .honest_stop import cli as _cli
 if __package__:
     from . import _assert_direct_sibling, _expose_package_sibling
 
     _assert_direct_sibling("honest_stop_cli")
     from .honest_stop import cli as _cli
-elif TYPE_CHECKING:
-    from .honest_stop import cli as _cli
 else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
         "honest_stop_cli"
     )
-    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    parent = str(Path(__file__).resolve().parent)
+    if parent not in sys.path:
+        sys.path.insert(0, parent)
     from honest_stop import cli as _cli
 
-main = _cli.run
+
+def main() -> int:
+    """Run the honest-stop CLI."""
+
+    return _cli.run()
+
 
 if __package__:
     _expose_package_sibling(__name__)
