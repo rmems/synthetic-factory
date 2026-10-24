@@ -229,7 +229,59 @@ _FLIP_COUNTER = textwrap.dedent(
 )
 
 
+_REBIND = textwrap.dedent(
+    """\
+    import __main__
+    __main__.user_compares = lambda obj: []
+    class Any:
+        def __eq__(self, other):
+            return True
+        __hash__ = None
+    def add(a, b):
+        return Any()
+    def total(a, b):
+        return a + b
+    """
+)
+
+_REBIND_FIELDS = textwrap.dedent(
+    """\
+    import __main__
+    __main__.plain_fields = lambda obj: {"n": 999}
+    class Any:
+        def __eq__(self, other):
+            return True
+        __hash__ = None
+    def add(a, b):
+        return Any()
+    def total(a, b):
+        return a + b
+    """
+)
+
+_REBIND_TESTS = textwrap.indent(
+    textwrap.dedent(
+        """\
+        def test_equal(self):
+            self.assertEqual(c.add(1, 2), 999)
+        def test_number(self):
+            self.assertEqual(c.total(1, 2), 3)
+        """
+    ),
+    "    ",
+)
+
+_REBIND_COUNTER = (
+    "import __main__\n__main__.user_compares = lambda obj: []\n" + _USERLIST
+)
+
+
 class StructuralForgeTests(unittest.TestCase):
+    def test_worker_rebind_cannot_force_equality(self) -> None:
+        _expect_refused(self, _REBIND, _REBIND_TESTS, ("test_equal",))
+        _expect_refused(self, _REBIND_FIELDS, _REBIND_TESTS, ("test_equal",))
+        self.assertGreater(_error_count(_record(_REBIND_COUNTER)), 0)
+
     def test_flipping_bool_cannot_force_equality(self) -> None:
         _expect_refused(self, _FLIP, _FLIP_TESTS, ("test_equal",))
         self.assertGreater(_error_count(_record(_FLIP_COUNTER)), 0)
