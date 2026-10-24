@@ -11,7 +11,9 @@ final-output evidence authentication, the identity/provenance mapping gate,
 ``validate_run.py`` and ``check_records.py --strict`` in-process (both modules
 are already imported for the audit gates, so their ``main`` entry points run
 under redirected streams rather than in a fresh interpreter), the training
-audit with its duplicate and canonical-id findings, and the two reward gates.
+audit with its duplicate and canonical-id findings, the factory-label gate
+(a record's ``meta.factory`` or reviewed id-prefix home must agree with the
+factory slug of its file path), and the two reward gates.
 Every failure becomes a blocker string, and the corpus is ready only when the
 blocker list is empty.
 
@@ -45,6 +47,7 @@ if __package__:
     from . import curate_gate_bindings as _bindings
     from . import curate_gate_contract as _contract
     from . import curate_gate_digest as _digest
+    from . import curate_gate_factory_label as _factory_label
     from . import curate_gate_identity_mapping as _identity_mapping
     from . import curate_gate_reward as _reward
     from . import curate_gate_reward_sidecars as _reward_sidecars
@@ -61,6 +64,7 @@ else:
     import curate_gate_bindings as _bindings
     import curate_gate_contract as _contract
     import curate_gate_digest as _digest
+    import curate_gate_factory_label as _factory_label
     import curate_gate_identity_mapping as _identity_mapping
     import curate_gate_reward as _reward
     import curate_gate_reward_sidecars as _reward_sidecars
@@ -255,6 +259,15 @@ def _audit_gates(report: dict[str, Any], log: _GateLog) -> None:
         log.blockers.append(f"CANONICAL_ID_COVERAGE:{missing_ids} records lack a top-level id")
 
 
+def _factory_label_gate(cleaned: Path, log: _GateLog) -> None:
+    """Refuse a record whose factory label disagrees with its file path."""
+
+    report = _factory_label.factory_label_gate(cleaned)
+    log.gates[_factory_label.FACTORY_LABEL_GATE] = report
+    if not report["passed"]:
+        log.blockers.append(f"{_factory_label.FACTORY_LABEL_MISMATCH}:{report['count']}")
+
+
 def _rights_gate(identity_mappings, log: _GateLog, prepared_lanes=()) -> None:
     report, blockers = evaluate_rights(identity_mappings, prepared_lanes)
     log.gates["rights"] = report
@@ -298,6 +311,7 @@ def run_gates(cleaned: Path, *, inputs: GateInputs) -> dict[str, Any]:
     normalized_bindings = _evidence_gates(cleaned, inputs, log)
     report = _tool_gates(cleaned, log, _completion_source(inputs))
     _audit_gates(report, log)
+    _factory_label_gate(cleaned, log)
     _rights_gate(inputs.lane_manifests.get("identity_mappings") or [], log, inputs.prepared_lanes)
     _reward_gates(cleaned, normalized_bindings, inputs.prepared_lanes, log)
 
