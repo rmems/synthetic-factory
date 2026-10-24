@@ -183,9 +183,11 @@ def _closed_name(name: str) -> bool:
 
 
 def _read_collaborator(target: object, name: str) -> object:
-    if not _live_collaborator(target):
-        raise AttributeError(name)
     if _closed_name(name):
+        raise AttributeError(name)
+    # Protocol dunders stay open on every callback. Generators and map/filter/zip
+    # are not live collaborators, and their other attributes stay closed.
+    if name not in _PROTOCOL and not _live_collaborator(target):
         raise AttributeError(name)
     return getattr(target, name)
 

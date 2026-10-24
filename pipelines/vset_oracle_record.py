@@ -54,23 +54,41 @@ def _plain_field(value: object) -> object:
     return _UNPLAIN
 
 
-def _namedtuple_record(value: object) -> dict[str, object] | None:
-    fields = getattr(value, "_fields", None)
-    if not isinstance(value, tuple) or type(value) is tuple:
-        return None
+def _tuple_subclass(value: object) -> bool:
+    return isinstance(value, tuple) and value.__class__ is not tuple
+
+
+def _name_tuple(fields: object) -> tuple[str, ...] | None:
     if not isinstance(fields, tuple) or not fields:
         return None
-    if not all(isinstance(name, str) for name in fields):
+    names: list[str] = []
+    for name in fields:
+        if not isinstance(name, str):
+            return None
+        names.append(name)
+    return tuple(names)
+
+
+def _encoded_items(value: tuple[object, ...]) -> list[object] | None:
+    encoded: list[object] = []
+    for item in value:
+        try:
+            encoded.append(_codec().encode(item))
+        except Exception:
+            return None
+    return encoded
+
+
+def _namedtuple_record(value: object) -> dict[str, object] | None:
+    if not _tuple_subclass(value):
         return None
-    try:
-        items = [_codec().encode(item) for item in value]
-    except Exception:
+    fields = _name_tuple(getattr(value, "_fields", None))
+    if fields is None:
         return None
-    return {
-        "namedtuple": type(value).__name__,
-        "fields": list(fields),
-        "items": items,
-    }
+    items = _encoded_items(value)  # type: ignore[arg-type]
+    if items is None:
+        return None
+    return {"namedtuple": type(value).__name__, "fields": list(fields), "items": items}
 
 
 def live_collaborator(value: object) -> bool:

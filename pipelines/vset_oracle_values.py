@@ -9,9 +9,8 @@ from __future__ import annotations
 
 import base64
 import builtins
-import dataclasses
 import sys
-from collections import Counter, OrderedDict, defaultdict, namedtuple
+from collections import Counter, OrderedDict, defaultdict
 from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 from fractions import Fraction
@@ -22,7 +21,10 @@ if __package__:  # pragma: no cover - package-child import path
 
     _assert_direct_sibling("vset_oracle_values")
     from .vset_oracle_codec import apply_slots as _apply_slots
+    from .vset_oracle_shape import attach_dataclass_fields as _attach_dataclass_fields
     from .vset_oracle_shape import blank_instance as _blank_instance
+    from .vset_oracle_shape import clear_named as _clear_named
+    from .vset_oracle_shape import rebuild_namedtuple as _rebuild_namedtuple
     from .vset_oracle_shape import builtin_type as _builtin_type
     from .vset_oracle_shape import parent_types as _parent_types
     from .vset_oracle_shape import remote_hash as _remote_hash
@@ -32,7 +34,10 @@ else:
         "vset_oracle_values"
     )
     from vset_oracle_codec import apply_slots as _apply_slots
+    from vset_oracle_shape import attach_dataclass_fields as _attach_dataclass_fields
     from vset_oracle_shape import blank_instance as _blank_instance
+    from vset_oracle_shape import clear_named as _clear_named
+    from vset_oracle_shape import rebuild_namedtuple as _rebuild_namedtuple
     from vset_oracle_shape import builtin_type as _builtin_type
     from vset_oracle_shape import parent_types as _parent_types
     from vset_oracle_shape import remote_hash as _remote_hash
@@ -44,8 +49,6 @@ _CLASSES: dict[tuple[int, int], type] = {}
 _OBJECTS: dict[tuple[int, int], RemoteObject] = {}
 _SLOTS: dict[int, object] = {}
 _CALLBACKS: dict[int, object] = {}
-_NAMED: dict[tuple[str, tuple[str, ...]], type] = {}
-_DATACLASSES: dict[tuple[int, int], type] = {}
 _FACTORIES = {
     "int": int,
     "list": list,
@@ -279,6 +282,7 @@ def _class_from(client: object, info: dict[str, object]) -> type:
     _CLASSES[key] = created
     created._vset_client = client  # type: ignore[attr-defined]
     created._vset_oid = oid  # type: ignore[attr-defined]
+    _attach_dataclass_fields(created, info)
     return created
 
 
@@ -289,8 +293,7 @@ def reset_identity() -> None:
     _CLASSES.clear()
     _SLOTS.clear()
     _CALLBACKS.clear()
-    _NAMED.clear()
-    _DATACLASSES.clear()
+    _clear_named()
     _EXC_OID.clear()
 
 
@@ -409,12 +412,15 @@ def _time(_client: object, payload: dict[str, object]) -> time:
     return time.fromisoformat(str(payload["data"]))
 
 
+def _path_type(name: str) -> type[PurePath]:
+    found = getattr(sys.modules["pathlib"], name, None)
+    if isinstance(found, type) and issubclass(found, PurePath):
+        return found
+    return PurePath
+
+
 def _path(_client: object, payload: dict[str, object]) -> PurePath:
-    name = str(payload.get("cls") or "")
-    cls = getattr(sys.modules["pathlib"], name, None)
-    if not isinstance(cls, type):
-        return PurePath(str(payload.get("data")))
-    return cls(str(payload.get("data")))
+    return _path_type(str(payload.get("cls") or ""))(str(payload.get("data")))
 
 
 def _mapped(client: object, payload: dict[str, object]) -> dict[object, object]:
@@ -435,35 +441,6 @@ def _ordered(client: object, payload: dict[str, object]) -> OrderedDict[object, 
 def _default(client: object, payload: dict[str, object]) -> defaultdict[object, object]:
     factory = _FACTORIES.get(str(payload.get("factory") or ""))
     return defaultdict(factory, _mapped(client, payload))
-
-
-def _namedtuple(client: object, payload: dict[str, object]) -> tuple[object, ...]:
-    raw_fields = payload.get("fields")
-    fields = tuple(str(item) for item in raw_fields) if isinstance(raw_fields, list) else ()
-    name = str(payload.get("name") or "Record")
-    key = (name, fields)
-    cls = _NAMED.get(key)
-    if cls is None:
-        cls = namedtuple(name, fields)  # type: ignore[misc]
-        _NAMED[key] = cls
-    raw_items = payload.get("items")
-    items = raw_items if isinstance(raw_items, list) else []
-    return cls(*(interpret(client, item) for item in items))
-
-
-def _dataclass(client: object, payload: dict[str, object]) -> object:
-    raw = payload.get("fields")
-    fields = raw if isinstance(raw, dict) else {}
-    key = (id(client), int(payload.get("oid") or 0))
-    cls = _DATACLASSES.get(key)
-    if cls is None:
-        cls = dataclasses.make_dataclass(
-            str(payload.get("name") or "Record"),
-            [(str(name), object) for name in fields],
-        )
-        _DATACLASSES[key] = cls
-    values = {str(name): interpret(client, item) for name, item in fields.items()}
-    return cls(**values)
 
 
 def _callback(_client: object, payload: dict[str, object]) -> object:
@@ -524,7 +501,7 @@ _KINDS = {
     "fraction": _fraction, "datetime": _datetime, "date": _date, "cb": _callback,
     "complex": _complex, "range": _range, "slice": _slice, "timedelta": _timedelta,
     "time": _time, "path": _path, "counter": _counter, "ordered": _ordered,
-    "default": _default, "namedtuple": _namedtuple, "dataclass": _dataclass,
+    "default": _default, "namedtuple": _rebuild_namedtuple,
 }
 
 
