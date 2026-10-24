@@ -4,17 +4,19 @@
 ``run_gates`` used to take the factory from the file path alone
 (``curate_gate_review`` strata, ``curate_gate_identity_gate`` canonical ids)
 and never compared that slug with the record. A thalamic file could carry
-``meta.factory`` naming another factory, or an id prefix whose reviewed home
-is another factory, and still integrate.
+``meta.factory`` naming another factory and still integrate.
 
 This gate reads each cleaned record after composition:
 
 * ``meta.factory``, when the payload states one (wrapper, or the preference
-  sides the rest of the mill code already treats as the declaration), must
-  not name a different factory than the slug of the file path.
+  sides the rest of the mill code already treats as the declaration) and
+  that value names a different known factory than the file-path slug, fails
+  the gate. ``FACTORY_LABEL_MISMATCH`` is raised only for that disagreement.
 * The record id's mill prefix, when ``REVIEWED_MILL_PREFIX_HOMES`` already
-  maps that prefix, must not name a different factory than that same slug.
-  A prefix with no reviewed mapping is not evidence. This gate does not
+  maps that prefix to another factory, is recorded as a non-blocking note.
+  A borrowed prefix whose ``meta.factory`` matches the folder (``dbc-``
+  inside ``api-contract-migration-factory``) does not fail the gate. A
+  prefix with no reviewed mapping is not evidence. This gate does not
   infer a home from the corpus.
 
 A string in ``meta.factory`` is a factory label when the registry, the
@@ -121,12 +123,20 @@ def _prefix_conflict(record: Any, path_slug: str) -> tuple[str, str] | None:
     return prefix, home
 
 
-def _mismatch(
+def _label_finding(
     relative: str,
     number: int,
     record: Any,
     known: frozenset[str],
 ) -> dict[str, Any] | None:
+    """One record's meta disagreement and any borrowed-prefix note.
+
+    A finding blocks only when ``meta_factory`` is present. A reviewed
+    prefix whose home is another factory is attached either to that
+    blocking finding or, when ``meta.factory`` agrees with the path, as a
+    note by itself.
+    """
+
     if not isinstance(record, dict):
         return None
     path_slug = path_factory(relative)
@@ -146,19 +156,33 @@ def _mismatch(
     return finding
 
 
+def _is_blocking(finding: dict[str, Any]) -> bool:
+    return "meta_factory" in finding
+
+
 def factory_label_gate(cleaned: Path) -> dict[str, Any]:
-    """Report records whose factory label disagrees with the file-path slug."""
+    """Report records whose ``meta.factory`` disagrees with the file-path slug.
+
+    A reviewed id prefix that names another factory is listed under
+    ``prefix_notes`` and does not fail the gate on its own.
+    """
 
     known = known_factory_labels(Path(cleaned))
     mismatches: list[dict[str, Any]] = []
+    notes: list[dict[str, Any]] = []
     for relative, number, record in iter_records(Path(cleaned)):
-        finding = _mismatch(relative, number, record, known)
-        if finding is not None:
+        finding = _label_finding(relative, number, record, known)
+        if finding is None:
+            continue
+        if _is_blocking(finding):
             mismatches.append(finding)
+        else:
+            notes.append(finding)
     return {
         "passed": not mismatches,
         "count": len(mismatches),
         "examples": mismatches[:_EXAMPLE_LIMIT],
+        "prefix_notes": notes[:_EXAMPLE_LIMIT],
     }
 
 

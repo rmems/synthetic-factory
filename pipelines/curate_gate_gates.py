@@ -12,8 +12,9 @@ final-output evidence authentication, the identity/provenance mapping gate,
 are already imported for the audit gates, so their ``main`` entry points run
 under redirected streams rather than in a fresh interpreter), the training
 audit with its duplicate and canonical-id findings, the factory-label gate
-(a record's ``meta.factory`` or reviewed id-prefix home must agree with the
-factory slug of its file path), and the two reward gates.
+(a record's ``meta.factory``, when it names another known factory, must
+agree with the factory slug of its file path; a reviewed id-prefix home
+that differs is a note and does not block), and the two reward gates.
 Every failure becomes a blocker string, and the corpus is ready only when the
 blocker list is empty.
 

@@ -84,25 +84,50 @@ class FactoryLabelGateTests(unittest.TestCase):
         self.assertEqual(example["meta_factory"], ["bridge-factory"])
         self.assertNotIn("id_prefix", example)
 
-    def test_reviewed_prefix_home_must_match_the_path(self):
+    def test_borrowed_prefix_with_matching_meta_factory_passes(self):
+        """A leftover id may borrow another mill's prefix when meta.factory matches."""
+        root = temp_root(self)
+        _write_jsonl(
+            root / "api-contract-migration-factory" / "batch.jsonl",
+            [
+                {
+                    "id": "dbc-r3714-buildkit-cache-mount-id-leftover",
+                    "meta": {"factory": "api-contract-migration-factory"},
+                }
+            ],
+        )
+        report = factory_label.factory_label_gate(root)
+        self.assertTrue(report["passed"])
+        self.assertEqual(report["count"], 0)
+        self.assertEqual(report["examples"], [])
+        note = report["prefix_notes"][0]
+        self.assertEqual(note["id_prefix"], "dbc")
+        self.assertEqual(note["prefix_home"], "docker-build-cache-factory")
+        self.assertEqual(note["path_factory"], "api-contract-migration-factory")
+        self.assertNotIn("meta_factory", note)
+
+    def test_prefix_without_a_meta_disagreement_is_a_note(self):
         foreign = temp_root(self)
         _write_jsonl(
             foreign / "thalamic-mini" / "batch.jsonl",
             [{"id": "gql-r12-spill"}],
         )
         foreign_report = factory_label.factory_label_gate(foreign)
-        self.assertFalse(foreign_report["passed"])
-        example = foreign_report["examples"][0]
-        self.assertEqual(example["id_prefix"], "gql")
-        self.assertEqual(example["prefix_home"], "graphql-nplusone-factory")
-        self.assertNotIn("meta_factory", example)
+        self.assertTrue(foreign_report["passed"])
+        self.assertEqual(foreign_report["count"], 0)
+        note = foreign_report["prefix_notes"][0]
+        self.assertEqual(note["id_prefix"], "gql")
+        self.assertEqual(note["prefix_home"], "graphql-nplusone-factory")
+        self.assertNotIn("meta_factory", note)
 
         native = temp_root(self)
         _write_jsonl(
             native / "graphql-nplusone-factory" / "batch.jsonl",
             [{"id": "gql-r12-native", "meta": {"factory": "graphql-nplusone-factory"}}],
         )
-        self.assertTrue(factory_label.factory_label_gate(native)["passed"])
+        native_report = factory_label.factory_label_gate(native)
+        self.assertTrue(native_report["passed"])
+        self.assertEqual(native_report["prefix_notes"], [])
 
     def test_unmapped_prefix_does_not_invent_a_home(self):
         root = temp_root(self)
@@ -142,13 +167,16 @@ class FactoryLabelIntegrateTests(unittest.TestCase):
         self.assertEqual(gate["examples"][0]["meta_factory"], ["bridge-factory"])
         self.assertEqual(gate["examples"][0]["path_factory"], "thalamic-mini")
         self.assertFalse(manifest["training_ready"])
-        self.assertIn("FACTORY_LABEL_MISMATCH:1", manifest["blockers"])
+        self.assertIn(f"{factory_label.FACTORY_LABEL_MISMATCH}:1", manifest["blockers"])
         review = fixture.accepted_review()
         code, report, stderr = fixture.promote_report(review)
         self.assertEqual(code, 1, stderr)
         self.assertFalse(report["promoted"])
         self.assertTrue(
-            any(blocker.startswith("FACTORY_LABEL_MISMATCH:") for blocker in report["blockers"])
+            any(
+                blocker.startswith(f"{factory_label.FACTORY_LABEL_MISMATCH}:")
+                for blocker in report["blockers"]
+            )
         )
 
 
