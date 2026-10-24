@@ -90,6 +90,26 @@ def _gate_stage(rule: str, identity: Any, evaluation: Any) -> dict[str, Any]:
     }
 
 
+def _is_do_not_train_repo(match: Mapping[str, Any]) -> bool:
+    """A payload repository name on the do-not-train list, not an id hit."""
+
+    return match["list"] == "do_not_train" and match["key"] == "repos"
+
+
+def _kept_payload_matches(evaluation: Any) -> tuple[Any, ...]:
+    return tuple(match for match in evaluation.matches if not _is_do_not_train_repo(match))
+
+
+def _codes_besides_list_hits(reason_codes: Any) -> frozenset[str]:
+    listed = frozenset((_policy.REASON_DO_NOT_TRAIN, _policy.REASON_EVAL_DENYLISTED))
+    return frozenset(code for code in reason_codes if code not in listed)
+
+
+def _ordered_reason_codes(listed: frozenset[str], extra: frozenset[str]) -> tuple[str, ...]:
+    present = listed | extra
+    return tuple(code for code in _policy.REASON_ORDER if code in present)
+
+
 def _without_payload_do_not_train_repos(evaluation: Any) -> Any:
     """Drop do-not-train repository hits on a payload scan; keep id hits.
 
@@ -99,18 +119,11 @@ def _without_payload_do_not_train_repos(evaluation: Any) -> Any:
     matches are never removed.
     """
 
-    kept = tuple(
-        match for match in evaluation.matches
-        if match["list"] != "do_not_train" or match["key"] != "repos"
-    )
+    kept = _kept_payload_matches(evaluation)
     if len(kept) == len(evaluation.matches):
         return evaluation
-    listed = {_policy.REASON_BY_SLOT[match["list"]] for match in kept}
-    extra = {
-        code for code in evaluation.reason_codes
-        if code not in (_policy.REASON_DO_NOT_TRAIN, _policy.REASON_EVAL_DENYLISTED)
-    }
-    ordered = tuple(code for code in _policy.REASON_ORDER if code in listed | extra)
+    listed = frozenset(_policy.REASON_BY_SLOT[match["list"]] for match in kept)
+    ordered = _ordered_reason_codes(listed, _codes_besides_list_hits(evaluation.reason_codes))
     return _policy.Evaluation(ordered, evaluation.canonical_repo, kept)
 
 
