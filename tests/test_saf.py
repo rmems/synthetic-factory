@@ -28,6 +28,8 @@ from saf._contract import (  # noqa: E402
     FINDING_CATALOG_SHA256_MISMATCH,
     FINDING_DESTINATION_EXISTS,
     FINDING_DESTINATION_UNDER_RAW,
+    FINDING_PLANT_FIELD_INVALID,
+    FINDING_PLANT_FIELD_MISSING,
     FINDING_PLANT_NOT_FOUND,
     FINDING_SOURCE_NOT_PARSEABLE,
     FINDING_USAGE,
@@ -189,6 +191,90 @@ class AstExtract(unittest.TestCase):
         )
 
 
+def _refusal(call, *args, **kwargs):
+    """``(code, message)`` of the SafRefusal ``call`` raises."""
+
+    try:
+        call(*args, **kwargs)
+    except SafRefusal as exc:
+        return exc.code, exc.message
+    raise AssertionError(f"{call.__name__} did not refuse")
+
+
+class PairShapeRefusals(unittest.TestCase):
+    @staticmethod
+    def extract(text):
+        return _refusal(catalog.plants_from_source, text, mill_id="saf_r0001", source="m.py")
+
+    def test_a_600_deep_minus_chain_still_reaches_the_pairs_check(self):
+        source = "BASE = " + "-" * 600 + "7\nPAIRS = []\n"
+        self.assertEqual(
+            self.extract(source), (FINDING_SOURCE_NOT_PARSEABLE, "m.py has no PAIRS list")
+        )
+
+    def test_constant_dicts_evaluate_and_unpacking_or_names_are_refused(self):
+        self.assertEqual(
+            self.extract("BASE = {1: [2]}\nPAIRS = []\n"),
+            (FINDING_SOURCE_NOT_PARSEABLE, "m.py has no PAIRS list"),
+        )
+        self.assertEqual(
+            self.extract("BASE = {**x}\n"),
+            (FINDING_SOURCE_NOT_PARSEABLE, "pair source uses dict unpacking"),
+        )
+        self.assertEqual(
+            self.extract("BASE = x\n"),
+            (FINDING_SOURCE_NOT_PARSEABLE, "pair source is not a constant (Name)"),
+        )
+
+    def test_an_annotated_base_counts_like_a_plain_one(self):
+        source = TINY_SOURCE.replace("BASE = 7", "BASE: int = 9")
+        rows = catalog.plants_from_source(source, mill_id="saf_r0001", source="m.py")
+        self.assertEqual(rows[0]["base_round"], 9)
+
+    def test_base_defaults_to_the_mill_number(self):
+        source = TINY_SOURCE.replace("BASE = 7\n", "")
+        rows = catalog.plants_from_source(source, mill_id="saf_r0012", source="m.py")
+        self.assertEqual(rows[0]["base_round"], 12)
+
+    def test_base_must_be_a_positive_int(self):
+        for value in ("True", "0", "'7'"):
+            with self.subTest(value=value):
+                self.assertEqual(
+                    self.extract(TINY_SOURCE.replace("BASE = 7", f"BASE = {value}")),
+                    (FINDING_PLANT_FIELD_INVALID, "m.py BASE must be a positive int"),
+                )
+
+    def test_pairs_must_be_a_nonempty_list_of_complete_objects(self):
+        self.assertEqual(
+            self.extract("PAIRS = []\n"), (FINDING_SOURCE_NOT_PARSEABLE, "m.py has no PAIRS list")
+        )
+        self.assertEqual(
+            self.extract("PAIRS = ['sops']\n"),
+            (FINDING_SOURCE_NOT_PARSEABLE, "m.py PAIRS[0] is not an object"),
+        )
+        self.assertEqual(
+            self.extract("PAIRS = [dict(flavor='tool-output')]\n"),
+            (FINDING_PLANT_FIELD_MISSING, "m.py PAIRS[0] missing slug"),
+        )
+
+    def test_a_catalog_row_must_join_saf_ids_into_its_plant_id(self):
+        line = (FIXTURE / "plants.jsonl").read_text(encoding="utf-8").splitlines()[0]
+        row = json.loads(line)
+        expected = repr(row["plant_id"])
+        self.assertEqual(
+            _refusal(catalog._plant_from_row, dict(row, mill_id="r0001"), "p"),
+            (FINDING_PLANT_FIELD_INVALID, "p.mill_id is not saf_rNNN"),
+        )
+        self.assertEqual(
+            _refusal(catalog._plant_from_row, dict(row, slug="sops decrypt"), "p"),
+            (FINDING_PLANT_FIELD_INVALID, "p.slug is not a plant slug"),
+        )
+        self.assertEqual(
+            _refusal(catalog._plant_from_row, dict(row, plant_id="saf_r0001:other"), "p"),
+            (FINDING_PLANT_FIELD_INVALID, f"p.plant_id must be {expected}"),
+        )
+
+
 class GeneratePairs(unittest.TestCase):
     def setUp(self):
         self.root = Path(tempfile.mkdtemp(prefix="saf-gen-"))
@@ -250,6 +336,16 @@ class GeneratePairs(unittest.TestCase):
             [record["case_type"] for record in readme],
             ["correct_refusal", "missed_refusal"],
         )
+
+    def test_the_fixture_mill_numbers_rounds_from_its_base(self):
+        summary = generate.run(
+            generate.GenerateRequest(FIXTURE, self.root / "mill", mill_id="saf_r0001")
+        )
+        self.assertEqual(summary["records"], 2)
+        first = (self.root / "mill" / generate.RECORDS_FILENAME).read_text(encoding="utf-8")
+        record = json.loads(first.splitlines()[0])
+        self.assertEqual(record["id"], "saf-r0001-sops-decrypt-paste")
+        self.assertEqual(record["meta"]["round"], 1)
 
     def test_existing_destination_is_refused(self):
         dest = self.root / "exists"

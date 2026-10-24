@@ -23,7 +23,7 @@ from . import vocabulary as cv
 from ._contract import bind_import_twin
 from .proposal import GateProgram, GateProposal
 
-__all__ = ["Resolved", "resolve"]
+__all__ = ["Resolved", "candidate_problem", "resolve"]
 
 PROGRAM_FILENAME = "program.py"
 _PROTECTED_ATTRS = frozenset({"__doc__", "__test__"})
@@ -202,11 +202,12 @@ def _writes(node: ast.AST) -> bool:
 
 
 def _tamper_through(node: ast.Attribute | ast.Subscript, function: str) -> str | None:
-    """A store or delete through the target's own name, or onto ``__doc__``/``__test__``."""
+    """A store or delete through the target's own name, or onto ``__doc__``/``__test__``; or
+    a read of a docstring or code object (see ``_SOURCE_ATTRS``)."""
 
-    if not _writes(node):
-        return None
     attr = getattr(node, "attr", None)
+    if not _writes(node):
+        return f"Read:{attr}" if attr in _SOURCE_ATTRS else None
     hit = _root_name(node) == function or attr in _PROTECTED_ATTRS
     return f"{type(node).__name__}:{attr}" if hit else None
 
@@ -224,13 +225,33 @@ def _tamper_global(node: ast.Global | ast.Nonlocal, protected: frozenset[str]) -
 _REFLECTIVE_CALLS = frozenset({
     "globals", "vars", "setattr", "delattr", "exec", "eval", "compile", "__import__",
 })
+# The sandboxed harness empties the target's docstring before the program loads, so the expected
+# outputs never enter the sandbox. A body that newly reads a docstring, a code object or source
+# text could behave differently there than under ``SubprocessHarness``, so it is refused too.
+_SOURCE_ATTRS = frozenset({"__doc__", "__code__"})
+_SOURCE_CALLS = frozenset({"getdoc", "getsource", "getsourcelines", "findsource", "getcomments"})
+
+
+def _called_name(node: ast.Call) -> str | None:
+    func = node.func
+    return func.id if isinstance(func, ast.Name) else getattr(func, "attr", None)
+
+
+def _tamper_literal(node: ast.Constant) -> str | None:
+    """A ``"__doc__"``/``"__code__"`` string literal: whatever reads by name (``getattr``,
+    ``__getattribute__``, ``operator.attrgetter``, ``vars(x)[...]``) has to spell it."""
+
+    value = node.value
+    return f"Literal:{value}" if isinstance(value, str) and value in _SOURCE_ATTRS else None
 
 
 def _tamper_call(node: ast.Call) -> str | None:
-    """A call that can rebind names or code without an AST store (``globals().update`` …)."""
+    """A call that can rebind names or code without an AST store (``globals().update`` …), or
+    one that reads source text or a docstring (``inspect.getsource`` …)."""
 
-    name = node.func.id if isinstance(node.func, ast.Name) else None
-    return f"Call:{name}" if name in _REFLECTIVE_CALLS else None
+    name = _called_name(node)
+    reflective = isinstance(node.func, ast.Name) and name in _REFLECTIVE_CALLS
+    return f"Call:{name}" if reflective or name in _SOURCE_CALLS else None
 
 
 def _tamper_of(node: ast.AST, function: str) -> str | None:
@@ -240,6 +261,7 @@ def _tamper_of(node: ast.AST, function: str) -> str | None:
         ((ast.Attribute, ast.Subscript), lambda found: _tamper_through(found, function)),
         ((ast.Global, ast.Nonlocal), lambda found: _tamper_global(found, protected)),
         (ast.Call, _tamper_call),
+        (ast.Constant, _tamper_literal),
     )
     return next((check(node) for kinds, check in checks if isinstance(node, kinds)), None)
 
@@ -275,6 +297,20 @@ def _mutant_problem(program: GateProgram, mutant: str | None) -> str | None:
     if _escapes_target_body(program, mutant):
         return cv.DETAIL_MUTANT_ESCAPES_BODY
     return None
+
+
+def candidate_problem(program: GateProgram, candidate_text: str) -> str | None:
+    """Why ``candidate_text`` is not a legal rewrite of the target body, or None when it is.
+
+    The same confinement a mutant must satisfy: it compiles, and everything but the target's
+    body (including its docstring and doctests) is unchanged and untampered. Solver output is
+    untrusted, so a candidate larger than ``MAX_PROGRAM_BYTES`` (the cap a program itself
+    obeys) is refused before it is parsed.
+    """
+
+    if len(candidate_text.encode("utf-8")) > cv.MAX_PROGRAM_BYTES:
+        return cv.DETAIL_MUTANT_ESCAPES_BODY
+    return _mutant_problem(program, candidate_text)
 
 
 def resolve(program: GateProgram, proposal: GateProposal) -> Resolved | str:

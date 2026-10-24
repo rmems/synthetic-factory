@@ -9,7 +9,8 @@ gets one verdict, so survival rate by reason is reportable.
 
 __all__ = (
     "_contract vocabulary checks denylist proposal mutation harness dedup_index gate report "
-    "procedural runner cli"
+    "procedural runner cli band_vocabulary band_contract band_solver band_provenance band_tasks "
+    "band_report band_run"
 ).split()
 
 from ._contract import bind_import_twin

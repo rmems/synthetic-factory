@@ -30,6 +30,7 @@ from flk._contract import (  # noqa: E402
     FINDING_DESTINATION_EXISTS,
     FINDING_DESTINATION_UNDER_RAW,
     FINDING_FACTORY_NOT_REGISTERED,
+    FINDING_MILL_NOT_FOUND,
     FINDING_PLANT_DUPLICATE_ID,
     FINDING_PLANT_FIELD_INVALID,
     FINDING_PLANT_FIELD_MISSING,
@@ -227,6 +228,81 @@ class CatalogLoading(unittest.TestCase):
         self.assertEqual(caught.exception.code, FINDING_FACTORY_NOT_REGISTERED)
 
 
+class PlantShapeRefusals(unittest.TestCase):
+    """Coded refusals for a mill source or catalog row that is not a flk plant."""
+
+    def test_base_round_defaults_to_the_mill_number_when_base_is_absent(self):
+        source = TINY_SOURCE.replace("BASE = 7\n", "")
+        rows = catalog.plants_from_source(source, mill_id="flk_r0012", source="t.py")
+        self.assertEqual(rows[0]["base_round"], 12)
+
+    def test_a_600_deep_minus_chain_still_reaches_the_plants_check(self):
+        source = "BASE = " + "-" * 600 + "1\n"
+        with self.assertRaises(FlkRefusal) as caught:
+            catalog.plants_from_source(source, mill_id="flk_r100", source="m.py")
+        self.assertEqual(caught.exception.code, FINDING_SOURCE_NOT_PARSEABLE)
+        self.assertEqual(caught.exception.message, "m.py has no PLANTS list")
+
+    def test_dict_unpacking_in_a_constant_is_refused(self):
+        with self.assertRaises(FlkRefusal) as caught:
+            catalog.plants_from_source("BASE = {**x}\n", mill_id="flk_r100", source="m.py")
+        self.assertEqual(caught.exception.message, "plant source uses dict unpacking")
+
+    def test_an_annotated_base_counts_like_a_plain_one(self):
+        source = TINY_SOURCE.replace("BASE = 7", "BASE: int = 9")
+        rows = catalog.plants_from_source(source, mill_id="flk_r0001", source="t.py")
+        self.assertEqual(rows[0]["base_round"], 9)
+
+    def test_source_needs_plants_a_flk_mill_id_and_a_positive_base(self):
+        cases = (
+            ("BASE = 3\n", "flk_r0001", FINDING_SOURCE_NOT_PARSEABLE, "t.py has no PLANTS list"),
+            (TINY_SOURCE, "flk_7", FINDING_PLANT_FIELD_INVALID, "mill_id 'flk_7' is not flk_rNNN"),
+            (
+                TINY_SOURCE.replace("BASE = 7", "BASE = True"),
+                "flk_r0001",
+                FINDING_PLANT_FIELD_INVALID,
+                "t.py BASE must be a positive int",
+            ),
+        )
+        for text, mill_id, code, message in cases:
+            with self.subTest(message=message):
+                with self.assertRaises(FlkRefusal) as caught:
+                    catalog.plants_from_source(text, mill_id=mill_id, source="t.py")
+                self.assertEqual((caught.exception.code, caught.exception.message), (code, message))
+
+    def test_catalog_rows_need_an_object_with_flk_ids(self):
+        good = json.loads((FIXTURE / "plants.jsonl").read_text(encoding="utf-8").splitlines()[0])
+        for row, message in (
+            ([good], "row must be an object"),
+            (dict(good, mill_id="mill_1"), "row.mill_id is not flk_rNNN"),
+            (dict(good, slug="-slug"), "row.slug is not a plant slug"),
+        ):
+            with self.subTest(message=message):
+                with self.assertRaises(FlkRefusal) as caught:
+                    catalog._plant_from_row(row, "row")
+                self.assertEqual(caught.exception.code, FINDING_PLANT_FIELD_INVALID)
+                self.assertEqual(caught.exception.message, message)
+
+    def test_a_factory_missing_from_the_registry_is_refused(self):
+        hooks = catalog.CATALOG_HOOKS
+        catalog.CATALOG_HOOKS = (*hooks[:-1], set)
+        self.addCleanup(setattr, catalog, "CATALOG_HOOKS", hooks)
+        with self.assertRaises(FlkRefusal) as caught:
+            catalog.load_catalog(FIXTURE)
+        self.assertEqual(caught.exception.code, FINDING_FACTORY_NOT_REGISTERED)
+        self.assertEqual(caught.exception.message, f"{FACTORY} is not a registry path_id")
+
+    def test_registry_ids_keep_only_the_string_path_ids_of_object_rows(self):
+        rows = [{"path_id": "ok"}, "row", {"path_id": 3}, {"path_id": ["x"]}, {}, {"path_id": "ok"}]
+        with tempfile.TemporaryDirectory() as tmp:
+            config = Path(tmp) / "config"
+            config.mkdir()
+            registry = json.dumps({"factories": rows})
+            (config / "FACTORY-REGISTRY.json").write_text(registry, encoding="utf-8")
+            with patch.object(catalog, "repo_root", return_value=Path(tmp)):
+                self.assertEqual(catalog._registry_factory_ids(), {"ok"})
+
+
 class AstExtract(unittest.TestCase):
     def test_plants_from_source_reads_literals_and_skips_hop(self):
         rows = catalog.plants_from_source(
@@ -369,6 +445,18 @@ class GeneratePairs(unittest.TestCase):
         with self.assertRaises(FlkRefusal) as caught:
             generate.run(request)
         self.assertEqual(caught.exception.code, FINDING_USAGE)
+
+    def test_mill_and_all_selectors_match_on_a_one_mill_catalog(self):
+        by_mill = generate.run(
+            generate.GenerateRequest(FIXTURE, self.root / "mill", mill_id="flk_r0001")
+        )
+        every = generate.run(generate.GenerateRequest(FIXTURE, self.root / "all", all_plants=True))
+        self.assertEqual(by_mill["records"], 2)
+        self.assertEqual(by_mill["records_sha256"], every["records_sha256"])
+        unknown_mill = generate.GenerateRequest(FIXTURE, self.root / "x", mill_id="flk_r9999")
+        with self.assertRaises(FlkRefusal) as caught:
+            generate.run(unknown_mill)
+        self.assertEqual(caught.exception.code, FINDING_MILL_NOT_FOUND)
 
     def test_call_style_assign_without_equals_emits_handoff(self):
         loaded = catalog.load_catalog(COMMITTED)

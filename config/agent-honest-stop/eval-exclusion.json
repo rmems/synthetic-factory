@@ -1,0 +1,8 @@
+{
+  "list": "held_out",
+  "note": "Held-out task ids for agent-honest-stop-episodes. Train export skips these ids. Infrastructure only; no records are published.",
+  "schema_version": "agent-honest-stop-exclusion-v1",
+  "task_ids": [
+    "honest-stop-underspecified-request"
+  ]
+}
