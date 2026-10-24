@@ -8,10 +8,10 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from task_gate import runner
 from task_gate_test_support import (
     ADD, PASSED, PROGRAMS, REPO, FakeHarness, cv, denylist, proposal_for, refused,
 )
+from task_gate import runner
 
 
 class VendoredDenylist(unittest.TestCase):

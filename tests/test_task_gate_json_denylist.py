@@ -10,11 +10,11 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from task_gate import runner
 from task_gate_test_support import (
     ADD, DENY, PASSED, PROGRAMS, FakeHarness, cv, denylist, lists, proposal_for, refused,
     write_denylist_json,
 )
+from task_gate import runner
 
 
 class JsonDenylistRefusals(unittest.TestCase):
