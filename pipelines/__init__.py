@@ -208,6 +208,7 @@ _PACKAGE_SIBLING_NAMES = frozenset((
     "export_viewer_writer",
     "strict_jsonl",
     "training_audit_record",
+    "training_audit_content",
     "training_audit_reasoning",
     "training_audit_snapshot",
     "training_audit_completion",
