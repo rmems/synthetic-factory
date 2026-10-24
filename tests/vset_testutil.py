@@ -36,7 +36,9 @@ __all__ = [
 ]
 
 
-def reference_report(filename: str, files: dict[str, str]):
+def reference_report(
+    filename: str, files: dict[str, str], *, tests: Iterable[str] | None = None
+):
     with tempfile.TemporaryDirectory() as tmp:
         pack = Path(tmp)
         (pack / "src").mkdir()
@@ -45,7 +47,8 @@ def reference_report(filename: str, files: dict[str, str]):
             target = pack / name
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text(text, encoding="utf-8")
-        return vset.run_oracle(pack, reference_tests=[f"tests/{filename}"])
+        chosen = [f"tests/{filename}"] if tests is None else list(tests)
+        return vset.run_oracle(pack, reference_tests=chosen)
 
 
 def load_record(path: Path) -> dict:
