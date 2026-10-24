@@ -32,6 +32,7 @@ if __package__:  # pragma: no cover - package-child import path
     from .vset_oracle_shape import parent_types as _parent_types
     from .vset_oracle_shape import remote_hash as _remote_hash
     from .vset_oracle_shape import truth as _truth
+    from . import vset_oracle_subclass as _subclass
 else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
         "vset_oracle_values"
@@ -49,6 +50,7 @@ else:
     from vset_oracle_shape import parent_types as _parent_types
     from vset_oracle_shape import remote_hash as _remote_hash
     from vset_oracle_shape import truth as _truth
+    import vset_oracle_subclass as _subclass
 
 _CLASSES: dict[tuple[int, int], type] = {}
 _OBJECTS: dict[tuple[int, int], RemoteObject] = {}
@@ -76,6 +78,7 @@ _FORWARDED = (
     "__xor__ __rxor__ __ixor__ __invert__ "
     "__lshift__ __rlshift__ __ilshift__ __rshift__ __rrshift__ __irshift__"
 ).split()
+_HELD = frozenset({"client", "oid", "_vset_ready"})
 _STRICT = {
     "__enter__",
     "__exit__",
@@ -96,8 +99,14 @@ _STRICT = {
 
 
 class RemoteObject:
+    def __init_subclass__(cls, **kwargs: object) -> None:
+        super().__init_subclass__(**kwargs)
+        if "_vset_remote_new" in cls.__dict__:
+            return
+        _subclass.adopt(cls)
+
     def __init__(self, *args: object, **kwargs: object) -> None:
-        return None
+        _subclass.initialize(self, args, kwargs)
 
     def __call__(self, *args: object, **kwargs: object) -> object:
         return self.client.call(self.oid, args, kwargs)
@@ -106,19 +115,13 @@ class RemoteObject:
         return self.client.get(self.oid, name)
 
     def __setattr__(self, name: str, value: object) -> None:
-        if name == "client":
-            object.__setattr__(self, name, value)
-            return
-        if name == "oid":
+        if name in _HELD:
             object.__setattr__(self, name, value)
             return
         self.client.set_attr(self.oid, name, value)
 
     def __delattr__(self, name: str) -> None:
-        if name == "client":
-            object.__delattr__(self, name)
-            return
-        if name == "oid":
+        if name in _HELD:
             object.__delattr__(self, name)
             return
         self.client.delete_attr(self.oid, name)
@@ -150,9 +153,11 @@ for _name in _FORWARDED:
 
 def _namespace(client: object, oid: int) -> dict[str, object]:
     def new(cls: type, *args: object, **kwargs: object) -> object:
-        return client.call(oid, args, kwargs)  # type: ignore[attr-defined]
+        if cls.__dict__.get("_vset_oid") == oid:
+            return client.call(oid, args, kwargs)  # type: ignore[attr-defined]
+        return _subclass.spawn(cls, args, kwargs)
 
-    return {"__new__": new}
+    return {"__new__": new, "_vset_remote_new": True}
 
 
 class _RemoteMeta(type):
@@ -227,6 +232,7 @@ def reset_identity() -> None:
     _CLASSES.clear()
     _SLOTS.clear()
     _CALLBACKS.clear()
+    _subclass.clear_live()
     _clear_named()
     _clear_exception_oids()
 
@@ -262,6 +268,7 @@ def _wrap(client: object, payload: dict[str, object]) -> RemoteObject:
     obj = _blank_instance(cls)
     object.__setattr__(obj, "client", client)
     object.__setattr__(obj, "oid", oid)
+    _subclass.mark_ready(obj)
     _OBJECTS[key] = obj
     return obj
 
