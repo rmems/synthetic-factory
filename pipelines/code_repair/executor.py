@@ -54,8 +54,9 @@ REPORT_FILENAME = _harness_report.REPORT_FILENAME
 REPORT_FD_ENV = _harness_report.REPORT_FD_ENV
 
 __all__ = [
-    "CHILD_ENV", "HARNESS_PATH", "INTERPRETER_FLAGS", "Executor", "Job", "PhaseReport",
-    "executor_for", "harness_sha256", "landlock_applied", "rows_of",
+    "CHILD_ENV", "HARNESS_PATH", "INTERPRETER_FLAGS", "SANDBOX_PATH", "SANDBOX_PATHS_PATH",
+    "Executor", "Job", "PhaseReport", "executor_for", "harness_sha256", "landlock_applied",
+    "rows_of",
 ]
 
 

@@ -37,11 +37,16 @@ __all__ = [
 ]
 
 
-def load_strict_json(text: str) -> Any:
-    """Parse one JSON value, refusing duplicate keys and ``NaN``/``Infinity`` constants."""
+def load_strict_json(text: str, parse_float: Any = None) -> Any:
+    """Parse one JSON value, refusing duplicate keys and ``NaN``/``Infinity`` constants.
+
+    ``parse_float`` is passed to :func:`json.loads`; a caller that needs the decimal token
+    exactly (not its nearest double) passes ``fractions.Fraction``.
+    """
 
     return json.loads(
         text, object_pairs_hook=reject_duplicate_object_keys, parse_constant=reject_json_constant,
+        parse_float=parse_float,
     )
 
 

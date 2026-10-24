@@ -28,7 +28,7 @@ BLOCKED_SOCKET_FUNCTIONS = (
 )
 
 
-def _limit(cpu_seconds):
+def apply_limits(cpu_seconds):
     try:
         import resource
 
@@ -79,7 +79,7 @@ def _emit(stream, report):
     stream.flush()
 
 
-def _load(workdir):
+def load_program(workdir):
     path = os.path.join(workdir, "program.py")
     spec = importlib.util.spec_from_file_location("task_gate_program", path)
     module = importlib.util.module_from_spec(spec)
@@ -101,7 +101,7 @@ def _doctests(module, function):
     return attempted, failed
 
 
-def _silence_stdout():
+def silence_stdout():
     """Point fd 1 at ``os.devnull`` so the program's output never mixes with the report."""
 
     sink = os.open(os.devnull, os.O_WRONLY)
@@ -114,13 +114,13 @@ def _silence_stdout():
 def main(argv):
     workdir, function, cpu_seconds = argv[1], argv[2], int(argv[3])
     report_stream = os.fdopen(os.dup(1), "w", encoding="utf-8")
-    _silence_stdout()
-    if not _limit(cpu_seconds):
+    silence_stdout()
+    if not apply_limits(cpu_seconds):
         _emit(report_stream, _report("crashed", detail="limits_not_applied"))
         return 0
     _block_network()
     try:
-        module = _load(workdir)
+        module = load_program(workdir)
         attempted, failed = _doctests(module, function)
     except BaseException as exc:  # the program may raise anything, including SystemExit
         _emit(report_stream, _report("load_error", detail=type(exc).__name__))

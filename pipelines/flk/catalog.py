@@ -203,14 +203,7 @@ def _require_text(value: Any, where: str, code: str) -> str:
 
 
 def _plant_from_row(row: Any, where: str) -> Plant:
-    if not isinstance(row, dict):
-        raise FlkRefusal(FINDING_PLANT_FIELD_INVALID, f"{where} must be an object")
-    mill_id = _require_text(row.get("mill_id"), f"{where}.mill_id", FINDING_PLANT_FIELD_INVALID)
-    slug = _require_text(row.get("slug"), f"{where}.slug", FINDING_PLANT_FIELD_INVALID)
-    if not MILL_ID_RE.fullmatch(mill_id):
-        raise FlkRefusal(FINDING_PLANT_FIELD_INVALID, f"{where}.mill_id is not flk_rNNN")
-    if not SLUG_RE.fullmatch(slug):
-        raise FlkRefusal(FINDING_PLANT_FIELD_INVALID, f"{where}.slug is not a plant slug")
+    mill_id, slug = _plant_mill_and_slug(row, where)
     plant_id = _require_text(row.get("plant_id"), f"{where}.plant_id", FINDING_PLANT_FIELD_INVALID)
     expected = f"{mill_id}:{slug}"
     if plant_id != expected:
@@ -247,6 +240,19 @@ def _plant_from_row(row: Any, where: str) -> Plant:
         ci=fields["ci"],
         ticket=fields["ticket"],
     )
+
+def _plant_mill_and_slug(row: Any, where: str) -> tuple[str, str]:
+    """An object row whose mill_id and slug are well-formed."""
+
+    if not isinstance(row, dict):
+        raise FlkRefusal(FINDING_PLANT_FIELD_INVALID, f"{where} must be an object")
+    mill_id = _require_text(row.get("mill_id"), f"{where}.mill_id", FINDING_PLANT_FIELD_INVALID)
+    slug = _require_text(row.get("slug"), f"{where}.slug", FINDING_PLANT_FIELD_INVALID)
+    if not MILL_ID_RE.fullmatch(mill_id):
+        raise FlkRefusal(FINDING_PLANT_FIELD_INVALID, f"{where}.mill_id is not flk_rNNN")
+    if not SLUG_RE.fullmatch(slug):
+        raise FlkRefusal(FINDING_PLANT_FIELD_INVALID, f"{where}.slug is not a plant slug")
+    return mill_id, slug
 
 
 def _mill_from_row(row: Any, where: str) -> Mill:
@@ -317,7 +323,6 @@ def load_catalog(directory: Path | None = None) -> Catalog:
     """Load a catalog directory and refuse unless every pin holds."""
 
     return load_pinned_catalog(directory, sys.modules[__name__], _contract, FlkRefusal)
-
 
 
 def catalog_check(directory: Path | None = None) -> list[dict[str, str]]:

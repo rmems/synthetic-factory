@@ -34,6 +34,10 @@ def _parser() -> argparse.ArgumentParser:
         command.add_argument("--prior-index", type=Path, action="append", default=[])
         command.add_argument("--out", type=Path, required=True, help="a new directory")
         command.add_argument("--timeout", type=float, default=cv.DEFAULT_TIMEOUT_S)
+        command.add_argument(
+            "--sandbox", action="store_true",
+            help="run doctests in the code_repair bwrap/Landlock executor; refuses if unavailable",
+        )
         if name == "verify":
             command.add_argument("--proposals", type=Path, required=True)
         else:
@@ -62,6 +66,16 @@ def _proposals(args: argparse.Namespace, catalog) -> tuple[list, dict]:
     }}
 
 
+def _harness(args: argparse.Namespace):
+    """The sandboxed harness when asked for (never a silent fallback), else the default."""
+
+    if not args.sandbox:
+        return None
+    from .sandboxed import SandboxedHarness
+
+    return SandboxedHarness(args.timeout)
+
+
 def run(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     try:
@@ -71,7 +85,7 @@ def run(argv: Sequence[str] | None = None) -> int:
             programs=procedural.programs_from_catalog(catalog), proposals=proposals,
             denylist=args.denylist, out=args.out, prior_index_paths=args.prior_index,
             timeout_s=args.timeout, provenance=provenance,
-        ))
+        ), _harness(args))
     except cv.GateRefusal as exc:
         print(f"refused: {exc}", file=sys.stderr)
         return 2

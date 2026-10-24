@@ -3,7 +3,9 @@
 
 from __future__ import annotations
 
+import ast
 import contextlib
+import enum
 import io
 import json
 import shutil
@@ -18,7 +20,7 @@ PIPELINES = REPO / "pipelines"
 sys.path.insert(0, str(PIPELINES))
 
 from crp import catalog as cat  # noqa: E402
-from crp import cli, generate  # noqa: E402
+from crp import cli, generate, wave_catalog  # noqa: E402
 from crp._contract import (  # noqa: E402
     FINDING_DESTINATION_EXISTS,
     FINDING_DESTINATION_UNDER_RAW,
@@ -193,11 +195,12 @@ class Generate(unittest.TestCase):
         def interrupt(*_args, **_kwargs):
             raise KeyboardInterrupt
 
-        with mock.patch.object(generate, "_fsync_destination", interrupt):
-            with self.assertRaises(KeyboardInterrupt):
-                generate.run(generate.RunRequest(729, out))
+        request = generate.RunRequest(729, out)
+        interrupted = mock.patch.object(generate, "_fsync_destination", interrupt)
+        with interrupted, self.assertRaises(KeyboardInterrupt):
+            generate.run(request)
         self.assertFalse(out.exists())
-        summary = generate.run(generate.RunRequest(729, out))
+        summary = generate.run(request)
         self.assertEqual(summary["records"], 3)
 
     def test_batch_jsonl_uses_literal_lf_record_boundaries(self):
@@ -213,6 +216,84 @@ class Generate(unittest.TestCase):
         with self.assertRaises(CrpRefusal) as ctx:
             cat.plants_for_round(728)
         self.assertEqual(ctx.exception.code, FINDING_ROUND_OUT_OF_DOMAIN)
+
+
+class RawEnumerateShapes(unittest.TestCase):
+    """``_RAW`` + ``enumerate`` expansion only accepts the pinned literal shapes."""
+
+    def test_raw_rows_must_be_a_nonempty_list_of_tuples(self):
+        for source in ("obj.attr = 1\n", "_RAW = []\n", "_RAW = [('a',), ['b']]\n"):
+            with self.subTest(source=source):
+                self.assertIsNone(cat._raw_rows_from_tree(ast.parse(source)))
+        tree = ast.parse("first = _RAW = [('fam', 1)]\n_RAW = [('later',)]\n")
+        self.assertEqual(cat._raw_rows_from_tree(tree), [("later",)])
+        tree = ast.parse("other: int = 3\n_RAW: list = [('fam', 1)]\n")
+        self.assertEqual(cat._raw_rows_from_tree(tree), [("fam", 1)])
+
+    def test_raw_rows_without_an_indexed_noun_loop_are_refused(self):
+        with self.assertRaises(CrpRefusal) as ctx:
+            cat.plants_from_source("P(**row)\n_RAW = [('fam',)]\n")
+        self.assertEqual(
+            ctx.exception.message, "_RAW expand loop has no indexed {{prefix}}{{base + i}} noun"
+        )
+
+    def test_the_noun_base_must_be_an_int_plus_i(self):
+        for noun in ("f'keel{800 - i}'", "f'keel{x + i}'", "f'keel{800 + j}'"):
+            with self.subTest(noun=noun):
+                self.assertIsNone(cat._indexed_noun_base(ast.parse(noun, mode="eval").body))
+        found = cat._indexed_noun_base(ast.parse("f'atoll{12 + i}'", mode="eval").body)
+        self.assertEqual(found, ("atoll", 12))
+
+    def test_a_missing_git_is_a_coded_refusal(self):
+        no_git = mock.patch.object(wave_catalog.shutil, "which", return_value=None)
+        with no_git, self.assertRaises(CrpRefusal) as ctx:
+            wave_catalog._git_executable()
+        self.assertEqual(ctx.exception.message, "git executable not found on PATH")
+
+    def test_the_noun_loop_skips_every_non_plant_append(self):
+        loop = (
+            "for i in range(3):\n    PLANTS.append(P(a, b, f'keel{800 + i}'))\n"
+            "for i, row in rows.enumerate():\n    PLANTS.append(P(a, b, f'keel{801 + i}'))\n"
+            "for i, row in enumerate(_RAW):\n"
+            "    PLANTS.extend(row)\n"
+            "    OTHER.append(P(a, b, f'keel{802 + i}'))\n"
+            "    PLANTS.append()\n"
+            "    PLANTS.append(mod.P(a, b, f'keel{803 + i}'))\n"
+            "    PLANTS.append(Q(a, b, f'keel{804 + i}'))\n"
+            "    PLANTS.append(_p(a, b))\n"
+        )
+        self.assertIsNone(cat._raw_noun_base_from_tree(ast.parse(loop)))
+        found = loop + "    PLANTS.append(_p(a, b, f'reef{805 + i}'))\n"
+        self.assertEqual(cat._raw_noun_base_from_tree(ast.parse(found)), ("reef", 805))
+
+
+class _Round(enum.IntEnum):
+    R432 = 432
+
+
+class WaveRouting(unittest.TestCase):
+    def test_only_a_plain_int_round_reaches_a_wave(self):
+        for round_n, shown in ((_Round.R432, "<_Round.R432: 432>"), (True, "True")):
+            with self.subTest(round_n=round_n), tempfile.TemporaryDirectory() as tmp:
+                out = Path(tmp) / "run"
+                request = generate.RunRequest(round_n, out)
+                with self.assertRaises(CrpRefusal) as ctx:
+                    generate.run(request)
+                self.assertEqual(ctx.exception.code, FINDING_ROUND_OUT_OF_DOMAIN)
+                self.assertEqual(ctx.exception.message, f"round must be an int, got {shown}")
+                self.assertFalse(out.exists())
+
+    def test_a_round_owned_by_no_wave_falls_through_to_the_leftover3_refusal(self):
+        for round_n, message in (
+            (4000, "round must lie in [729, 744], got 4000"),
+            (True, "round must be an int, got True"),
+            (729.0, "round must be an int, got 729.0"),
+        ):
+            with self.subTest(round_n=round_n):
+                with self.assertRaises(CrpRefusal) as ctx:
+                    generate._wave_for_round(round_n)
+                self.assertEqual(ctx.exception.code, FINDING_ROUND_OUT_OF_DOMAIN)
+                self.assertEqual(ctx.exception.message, message)
 
 
 class Cli(unittest.TestCase):

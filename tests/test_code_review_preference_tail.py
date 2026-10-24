@@ -21,7 +21,12 @@ from pipelines import code_review_preference_tail as crp_tail_pkg  # noqa: E402
 class DummyPlant:
     repo: str = "rmems/mock-repo"
     core: str = "src/core.py"
+    boot: str = "src/boot.py"
     test: str = "tests/test_core.py"
+    title: str = "feat: mock handler"
+    slug: str = "mock-handler"
+    family: str = "authz"
+    notfam: str = "style"
     line: int = 42
     defect: str = "unauthenticated admin endpoint"
     fix: str = "require session token"
@@ -37,6 +42,13 @@ class CodeReviewPreferenceTailTests(unittest.TestCase):
 
     def test_direct_and_package_import_are_one_module(self):
         self.assertIs(crp_tail, crp_tail_pkg)
+
+    def test_inventory_steps_structure(self):
+        steps = crp_tail.inventory_steps(self.plant, self.pr)
+        self.assertEqual([s["n"] for s in steps], [1, 2, 3])
+        self.assertIn("gh pr view", steps[0]["tool_call"]["args"]["command"])
+        self.assertEqual(steps[2]["tool_call"]["name"], "read_file")
+        self.assertIn(self.plant.defect, steps[2]["observation"])
 
     def test_chosen_tail_structure_and_safe_repro_path(self):
         steps = crp_tail.chosen_tail(self.plant, self.pr, self.rid)

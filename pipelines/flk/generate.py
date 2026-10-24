@@ -101,6 +101,12 @@ def _assign_lhs(plant: cat.Plant) -> str:
 
 
 def _success_repro(plant: cat.Plant) -> list[dict[str, Any]]:
+    return _success_diagnose(plant) + _success_isolate(plant)
+
+
+def _success_diagnose(plant: cat.Plant) -> list[dict[str, Any]]:
+    """Steps 1-3: reproduce the leftover in both orders, read test and helper."""
+
     return [
         _step(
             1,
@@ -124,6 +130,13 @@ def _success_repro(plant: cat.Plant) -> list[dict[str, Any]]:
             {"path": plant.source_file},
             f"helper reads leftover {plant.cause} state; no fixture restore",
         ),
+    ]
+
+
+def _success_isolate(plant: cat.Plant) -> list[dict[str, Any]]:
+    """Steps 4-8: the naive skip is tried and rejected, then the leftover is isolated."""
+
+    return [
         _step(
             4,
             f"Plan: first apply — naive {plant.naive} on {plant.ok}.",
@@ -168,6 +181,12 @@ def _success_repro(plant: cat.Plant) -> list[dict[str, Any]]:
 
 
 def _success_confirm(plant: cat.Plant) -> list[dict[str, Any]]:
+    return _success_verify(plant) + _success_close_out(plant)
+
+
+def _success_verify(plant: cat.Plant) -> list[dict[str, Any]]:
+    """Steps 9-12: suite, CI runner flag, helper, and isolate fixture all still hold."""
+
     return [
         _step(
             9,
@@ -197,6 +216,13 @@ def _success_confirm(plant: cat.Plant) -> list[dict[str, Any]]:
             {"path": plant.test_file, "pattern": "Cleanup|afterEach|tearDown|TempDir|isolate"},
             plant.isolate,
         ),
+    ]
+
+
+def _success_close_out(plant: cat.Plant) -> list[dict[str, Any]]:
+    """Steps 13-16: ticket note, refuse the drop flag, final check."""
+
+    return [
         _step(
             13,
             "Observation: fixture (step 12). Ticket note.",
@@ -230,6 +256,12 @@ def _success_confirm(plant: cat.Plant) -> list[dict[str, Any]]:
 
 
 def _fail_repro(plant: cat.Plant) -> list[dict[str, Any]]:
+    return _fail_diagnose(plant) + _fail_mask(plant)
+
+
+def _fail_diagnose(plant: cat.Plant) -> list[dict[str, Any]]:
+    """Steps 1-3: reproduce the leftover, read test and src."""
+
     return [
         _step(
             1,
@@ -252,6 +284,13 @@ def _fail_repro(plant: cat.Plant) -> list[dict[str, Any]]:
             {"path": plant.source_file},
             "helper trusts process-global leftover",
         ),
+    ]
+
+
+def _fail_mask(plant: cat.Plant) -> list[dict[str, Any]]:
+    """Steps 4-8: drop the runner flag, add the skip, and the nightly flakes again."""
+
+    return [
         _step(
             4,
             f"Plan: first apply — {plant.drop}.",
@@ -293,6 +332,12 @@ def _fail_repro(plant: cat.Plant) -> list[dict[str, Any]]:
 
 
 def _fail_handoff(plant: cat.Plant) -> list[dict[str, Any]]:
+    return _fail_open_handoff(plant) + _fail_escalate(plant)
+
+
+def _fail_open_handoff(plant: cat.Plant) -> list[dict[str, Any]]:
+    """Steps 9-12: no fixture owner, handoff written, policy and CI read back."""
+
     return [
         _step(
             9,
@@ -326,6 +371,13 @@ def _fail_handoff(plant: cat.Plant) -> list[dict[str, Any]]:
             {"path": plant.ci},
             plant.drop_cmd,
         ),
+    ]
+
+
+def _fail_escalate(plant: cat.Plant) -> list[dict[str, Any]]:
+    """Steps 13-17: skip remains, sibling still flakes, page and stop."""
+
+    return [
         _step(
             13,
             "Observation: CI dropped (step 12). Confirm skip remains.",
@@ -461,16 +513,23 @@ def _jobs(loaded: cat.Catalog, request: GenerateRequest) -> list[tuple[int, cat.
         return [(_require_round(request.round, plant.base_round), plant)]
     if request.round is not None:
         raise FlkRefusal(FINDING_USAGE, "round applies only with plant_id")
-    if request.mill_id is not None:
-        mills = [mill for mill in loaded.mills if mill.mill_id == request.mill_id]
-        loaded.mill_plants(request.mill_id)
-    else:
-        mills = list(loaded.mills)
+    mills = _selected_mills(loaded, request)
     jobs: list[tuple[int, cat.Plant]] = []
     for mill in mills:
         for index, plant in enumerate(loaded.mill_plants(mill.mill_id)):
             jobs.append((mill.base_round + index, plant))
     return jobs
+
+
+def _selected_mills(loaded: cat.Catalog, request: GenerateRequest) -> list[cat.Mill]:
+    """Every mill, or the one named (refusing a mill_id with no plants)."""
+
+    if request.mill_id is not None:
+        mills = [mill for mill in loaded.mills if mill.mill_id == request.mill_id]
+        loaded.mill_plants(request.mill_id)
+    else:
+        mills = list(loaded.mills)
+    return mills
 
 
 def _check_destination(out_dir: Path) -> None:

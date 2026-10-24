@@ -31,6 +31,8 @@ from rag._contract import (  # noqa: E402
     FINDING_CATALOG_SHA256_MISMATCH,
     FINDING_DESTINATION_EXISTS,
     FINDING_DESTINATION_UNDER_RAW,
+    FINDING_FACTORY_NOT_REGISTERED,
+    FINDING_PLANT_FIELD_INVALID,
     FINDING_PLANT_NOT_FOUND,
     FINDING_SOURCE_NOT_PARSEABLE,
     FINDING_USAGE,
@@ -202,6 +204,90 @@ class AstExtract(unittest.TestCase):
                         forbidden_calls,
                         msg=f"{path.name} calls {node.func.id}",
                     )
+
+
+class MillAndRowRefusals(unittest.TestCase):
+    """P() literals, the mill header, and catalog rows each refuse with a code."""
+
+    FIXTURE_ROW = json.loads(
+        (FIXTURE / "plants.jsonl").read_text(encoding="utf-8").splitlines()[0]
+    )
+
+    def source_refusal(self, text, mill_id="rag_r0001"):
+        with self.assertRaises(RagRefusal) as caught:
+            catalog.plants_from_source(text, mill_id=mill_id, source="s.py")
+        return caught.exception
+
+    def test_a_600_deep_minus_chain_is_still_a_constant(self):
+        chained = TINY_SOURCE.replace("CATALOG_FIRST = 7", "CATALOG_FIRST = " + "-" * 600 + "7")
+        rows = catalog.plants_from_source(chained, mill_id="rag_r0007", source="s.py")
+        self.assertEqual(rows[0]["base_round"], 7)
+        refused = self.source_refusal("CATALOG_FIRST = " + "-" * 600 + "x\n")
+        self.assertEqual(refused.message, "plant source is not a constant (Name)")
+
+    def test_constant_containers_evaluate_and_unpacking_is_refused(self):
+        value = catalog._const_eval(ast.parse("[(1, -2), {'a': [3]}]", mode="eval").body)
+        self.assertEqual(value, [(1, -2), {"a": [3]}])
+        refused = self.source_refusal("CATALOG_FIRST = {'a': 1, **x}\n")
+        self.assertEqual(refused.message, "plant source uses dict unpacking")
+
+    def test_an_annotated_catalog_first_counts_like_a_plain_one(self):
+        source = TINY_SOURCE.replace("CATALOG_FIRST = 7", "CATALOG_FIRST: int = 9")
+        rows = catalog.plants_from_source(source, mill_id="rag_r0001", source="s.py")
+        self.assertEqual(rows[0]["base_round"], 9)
+
+    def test_catalog_first_defaults_to_the_mill_number(self):
+        source = TINY_SOURCE.replace("CATALOG_FIRST = 7\n", "")
+        rows = catalog.plants_from_source(source, mill_id="rag_r0012", source="s.py")
+        self.assertEqual(rows[0]["base_round"], 12)
+
+    def test_catalog_first_must_be_a_positive_int(self):
+        for value in ("True", "0", "'7'"):
+            with self.subTest(value=value):
+                source = TINY_SOURCE.replace("CATALOG_FIRST = 7", f"CATALOG_FIRST = {value}")
+                refused = self.source_refusal(source)
+                self.assertEqual(refused.message, "s.py CATALOG_FIRST must be a positive int")
+
+    def test_p_arguments_must_be_string_constants(self):
+        for arg, message in (
+            ("('qdrant',)", "P() arguments must be non-empty strings"),
+            ("-1", "P() arguments must be non-empty strings"),
+            ("qdrant", "plant source is not a constant (Name)"),
+        ):
+            with self.subTest(arg=arg):
+                refused = self.source_refusal(f'PAIRS = [P({arg}, "payload", "A-1", "A-2")]\n')
+                self.assertEqual(refused.code, FINDING_SOURCE_NOT_PARSEABLE)
+                self.assertEqual(refused.message, message)
+
+    def test_the_factory_header_and_mill_id_must_be_rag(self):
+        other = self.source_refusal(TINY_SOURCE.replace("rag-retrieval", "other-retrieval"))
+        self.assertEqual(
+            other.message, "s.py FACTORY 'other-retrieval-debug-factory' is not " + FACTORY
+        )
+        bad_mill = self.source_refusal(TINY_SOURCE, mill_id="rag_7")
+        self.assertEqual(bad_mill.code, FINDING_PLANT_FIELD_INVALID)
+        self.assertEqual(bad_mill.message, "mill_id 'rag_7' is not rag_rNNN")
+
+    def test_row_round_and_tokens_must_rebuild_the_slug(self):
+        for change, message in (
+            ({"base_round": 0}, "r.base_round must be a positive int"),
+            ({"eng": "q-drant"}, "r.eng is not a token"),
+            ({"leftover": "9payload"}, "r.leftover is not a token"),
+            ({"eng": "milvus"}, "r.slug must be milvus-payload"),
+        ):
+            with self.subTest(change=change):
+                with self.assertRaises(RagRefusal) as caught:
+                    catalog._plant_from_row({**self.FIXTURE_ROW, **change}, "r")
+                self.assertEqual(caught.exception.code, FINDING_PLANT_FIELD_INVALID)
+                self.assertEqual(caught.exception.message, message)
+
+    def test_an_unregistered_factory_is_refused(self):
+        hooks = catalog.CATALOG_HOOKS
+        catalog.CATALOG_HOOKS = (*hooks[:-1], set)
+        self.addCleanup(setattr, catalog, "CATALOG_HOOKS", hooks)
+        with self.assertRaises(RagRefusal) as caught:
+            catalog.load_catalog(FIXTURE)
+        self.assertEqual(caught.exception.code, FINDING_FACTORY_NOT_REGISTERED)
 
 
 class GeneratePairs(unittest.TestCase):

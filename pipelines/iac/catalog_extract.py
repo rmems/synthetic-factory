@@ -126,226 +126,334 @@ def _extract_shape(tree: ast.AST, *, path: str) -> dict[str, Any]:
 def _rebuild_literal_pairs(tree: ast.AST) -> dict[str, Any] | None:
     """r609: literal ``PAIRS``, drop-by-slug listcomp, then ``_EXTRA*`` extends."""
 
-    pairs: list[Any] | None = None
-    extras: dict[str, list[Any]] = {}
-    drop: set[Any] | None = None
-    saw_filter = False
+    return _fold_module(tree, _LiteralPairsRebuild())
+
+
+def _fold_module(tree: ast.AST, scan: Any) -> dict[str, Any] | None:
+    """Feed each top-level statement to ``scan``; None as soon as one refuses the shape."""
+
     for node in getattr(tree, "body", ()):
+        if not scan.apply(node):
+            return None
+    return scan.record()
+
+
+class _LiteralPairsRebuild:
+    """Replays r609's module-level ``PAIRS`` edits in source order."""
+
+    def __init__(self) -> None:
+        self.pairs: list[Any] | None = None
+        self.extras: dict[str, list[Any]] = {}
+        self.drop: set[Any] | None = None
+        self.saw_filter = False
+
+    def apply(self, node: ast.stmt) -> bool:
         names = assignment_names(node)
         _, value = assignment_of(node)
         if "PAIRS" in names and isinstance(value, ast.List):
-            resolved = literal_value(value)
-            if not isinstance(resolved, list):
-                return None
-            pairs = resolved
-            continue
+            return self._assign_pairs(value)
         if "PAIRS" in names and isinstance(value, ast.ListComp):
-            if pairs is None or drop is None or not _is_drop_listcomp(value):
-                return None
-            pairs = [
-                pair
-                for pair in pairs
-                if _pair_identity(pair)["success_slug"] not in drop
-            ]
-            saw_filter = True
-            continue
+            return self._filter_pairs(value)
         if "_DROP_SUCCESS" in names and value is not None:
-            resolved = literal_value(value)
-            if not isinstance(resolved, set):
-                return None
-            drop = resolved
-            continue
+            return self._assign_drop(value)
+        return self._apply_extra_or_extend(node, names, value)
+
+    def _apply_extra_or_extend(
+        self, node: ast.stmt, names: tuple[str, ...], value: ast.AST | None
+    ) -> bool:
         extra_name = next((name for name in names if name.startswith("_EXTRA")), None)
         if extra_name is not None and isinstance(value, ast.List):
-            resolved = literal_value(value)
-            if not isinstance(resolved, list):
-                return None
-            extras[extra_name] = resolved
-            continue
+            return self._assign_extra(extra_name, value)
         if isinstance(node, ast.Expr) and isinstance(node.value, ast.Call):
-            call = node.value
-            if not isinstance(call.func, ast.Attribute) or call.func.attr != "extend":
-                continue
-            if not isinstance(call.func.value, ast.Name) or call.func.value.id != "PAIRS":
-                continue
-            if pairs is None or len(call.args) != 1 or not isinstance(call.args[0], ast.Name):
-                return None
-            src_name = call.args[0].id
-            if src_name not in extras:
-                return None
-            pairs.extend(extras[src_name])
-    if pairs is None or not saw_filter or drop is None:
+            return self._extend_pairs(node.value)
+        return True
+
+    def _assign_pairs(self, value: ast.List) -> bool:
+        resolved = literal_value(value)
+        if not isinstance(resolved, list):
+            return False
+        self.pairs = resolved
+        return True
+
+    def _filter_pairs(self, value: ast.ListComp) -> bool:
+        if self.pairs is None or self.drop is None:
+            return False
+        if not _is_drop_listcomp(value):
+            return False
+        drop = self.drop
+        self.pairs = [
+            pair
+            for pair in self.pairs
+            if _pair_identity(pair)["success_slug"] not in drop
+        ]
+        self.saw_filter = True
+        return True
+
+    def _assign_drop(self, value: ast.AST) -> bool:
+        resolved = literal_value(value)
+        if not isinstance(resolved, set):
+            return False
+        self.drop = resolved
+        return True
+
+    def _assign_extra(self, name: str, value: ast.List) -> bool:
+        resolved = literal_value(value)
+        if not isinstance(resolved, list):
+            return False
+        self.extras[name] = resolved
+        return True
+
+    def _extend_pairs(self, call: ast.Call) -> bool:
+        """``PAIRS.extend(_EXTRA...)``; any other top-level call is ignored."""
+
+        if not _is_pairs_extend(call):
+            return True
+        src_name = _single_name_arg(call)
+        if self.pairs is None or src_name is None:
+            return False
+        if src_name not in self.extras:
+            return False
+        self.pairs.extend(self.extras[src_name])
+        return True
+
+    def record(self) -> dict[str, Any] | None:
+        if self.pairs is None or self.drop is None:
+            return None
+        if not self.saw_filter:
+            return None
+        rows = [_pair_identity(pair) for pair in self.pairs]
+        if not rows or any(row["success_slug"] is None for row in rows):
+            return None
+        return _rows_record(SHAPE_LITERAL, rows)
+
+
+def _is_pairs_extend(call: ast.Call) -> bool:
+    func = call.func
+    if not isinstance(func, ast.Attribute) or func.attr != "extend":
+        return False
+    return isinstance(func.value, ast.Name) and func.value.id == "PAIRS"
+
+
+def _single_name_arg(call: ast.Call) -> str | None:
+    if len(call.args) != 1 or not isinstance(call.args[0], ast.Name):
         return None
-    rows = [_pair_identity(pair) for pair in pairs]
-    return _rows_record(SHAPE_LITERAL, rows)
+    return call.args[0].id
 
 
 def _is_drop_listcomp(node: ast.ListComp) -> bool:
     if len(node.generators) != 1:
         return False
     gen = node.generators[0]
+    return _yields_its_target(node, gen) and _filters_pairs_by_not_in(gen)
+
+
+def _yields_its_target(node: ast.ListComp, gen: ast.comprehension) -> bool:
     if not isinstance(node.elt, ast.Name) or not isinstance(gen.target, ast.Name):
         return False
-    if node.elt.id != gen.target.id or not isinstance(gen.iter, ast.Name):
+    return node.elt.id == gen.target.id
+
+
+def _filters_pairs_by_not_in(gen: ast.comprehension) -> bool:
+    if not isinstance(gen.iter, ast.Name) or gen.iter.id != "PAIRS":
         return False
-    if gen.iter.id != "PAIRS" or len(gen.ifs) != 1:
+    if len(gen.ifs) != 1:
         return False
     test = gen.ifs[0]
     return isinstance(test, ast.Compare) and isinstance(test.ops[0], ast.NotIn)
 
 
+def _assigned_nonempty_list(node: ast.stmt, wanted: str) -> ast.List | None:
+    """The value of a top-level ``wanted = [...]`` with at least one element."""
+
+    name, value = assignment_of(node)
+    if name != wanted or not isinstance(value, ast.List):
+        return None
+    return value if value.elts else None
+
+
+def _collect_or_none(items, convert) -> list[Any] | None:
+    """``convert`` every item, or None as soon as one item does not convert."""
+
+    out: list[Any] = []
+    for item in items:
+        converted = convert(item)
+        if converted is None:
+            return None
+        out.append(converted)
+    return out
+
+
 def _suc_fail_list(tree: ast.AST) -> dict[str, Any] | None:
     for node in getattr(tree, "body", ()):
-        name, value = assignment_of(node)
-        if name != "PAIRS" or not isinstance(value, ast.List) or not value.elts:
-            continue
-        if not all(_is_suc_fail_tuple(elt) for elt in value.elts):
+        value = _assigned_nonempty_list(node, "PAIRS")
+        if value is None or not all(_is_suc_fail_tuple(elt) for elt in value.elts):
             continue
         rows = [_suc_fail_identity(elt) for elt in value.elts]
-        record = _rows_record(SHAPE_SUC_FAIL, rows)
-        if record is not None:
-            return record
+        if rows and rows[0]["success_slug"]:
+            return _rows_record(SHAPE_SUC_FAIL, rows)
     return None
 
 
 def _leftover_pair_list(tree: ast.AST) -> dict[str, Any] | None:
     for node in getattr(tree, "body", ()):
-        name, value = assignment_of(node)
-        if name != "PAIRS" or not isinstance(value, ast.List) or not value.elts:
+        value = _assigned_nonempty_list(node, "PAIRS")
+        if value is None or not all(call_name(elt) == "leftover_pair" for elt in value.elts):
             continue
-        if not all(call_name(elt) == "leftover_pair" for elt in value.elts):
-            continue
-        rows = []
-        for elt in value.elts:
-            kwargs = call_kwargs(elt)
-            if kwargs is None or "s" not in kwargs or "fs" not in kwargs:
-                return None
-            gem = kwargs.get("g")
-            rows.append(
-                {
-                    "success_slug": kwargs["s"],
-                    "fail_slug": kwargs["fs"],
-                    "success_plant": f"{gem}-prod" if isinstance(gem, str) else None,
-                    "fail_plant": f"{gem}-jobs" if isinstance(gem, str) else None,
-                    "fail_handoff": True,
-                }
-            )
-        return _rows_record(SHAPE_LEFTOVER, rows)
+        rows = _collect_or_none(value.elts, _leftover_pair_identity)
+        return None if rows is None else _rows_record(SHAPE_LEFTOVER, rows)
     return None
 
 
-def _keep_extend(tree: ast.AST) -> dict[str, Any] | None:
-    keep: set[str] | None = None
-    extra_rows: list[dict[str, Any]] = []
-    saw_empty_pairs = False
-    for node in getattr(tree, "body", ()):
-        name, value = assignment_of(node)
-        if name == "KEEP" and value is not None:
-            resolved = literal_value(value)
-            if not isinstance(resolved, set) or not all(isinstance(item, str) for item in resolved):
-                return None
-            keep = {str(item) for item in resolved}
-            continue
-        if name == "PAIRS" and isinstance(value, ast.List) and not value.elts:
-            saw_empty_pairs = True
-            continue
-        if name is not None and name.startswith("_EXTRA") and isinstance(value, ast.List):
-            if not all(_is_suc_fail_tuple(elt) for elt in value.elts):
-                return None
-            extra_rows.extend(_suc_fail_identity(elt) for elt in value.elts)
-    if keep is None or not saw_empty_pairs or not extra_rows:
+def _leftover_pair_identity(node: ast.AST) -> dict[str, Any] | None:
+    kwargs = call_kwargs(node)
+    if kwargs is None or not {"s", "fs"}.issubset(kwargs):
         return None
+    return _gem_handoff_row(kwargs["s"], kwargs["fs"], kwargs.get("g"))
+
+
+def _gem_handoff_row(success_slug: Any, fail_slug: Any, gem: Any) -> dict[str, Any]:
+    """Pair identity whose plants are the ``{gem}-prod`` / ``{gem}-jobs`` services."""
+
     return {
-        "shape": SHAPE_KEEP_EXTEND,
-        "n_rows": len(keep) + len(extra_rows),
-        "n_keep": len(keep),
-        "n_extra": len(extra_rows),
-        "keep_slugs": sorted(keep),
-        "first_slug": extra_rows[0]["success_slug"],
-        "last_slug": extra_rows[-1]["success_slug"],
-        "pairs": extra_rows,
-    }
-
-
-def _literal_nonempty_list(value: ast.AST) -> list[Any] | None:
-    resolved = literal_value(value)
-    if isinstance(resolved, list) and resolved:
-        return resolved
-    return None
-
-
-def _file_pair_row(kwargs: Mapping[str, Any]) -> dict[str, Any]:
-    slug = kwargs["s"]
-    gem = kwargs.get("g")
-    return {
-        "success_slug": slug,
-        "fail_slug": slug.replace("-vs-old", "-old-leftover"),
+        "success_slug": success_slug,
+        "fail_slug": fail_slug,
         "success_plant": f"{gem}-prod" if isinstance(gem, str) else None,
         "fail_plant": f"{gem}-jobs" if isinstance(gem, str) else None,
         "fail_handoff": True,
     }
 
 
-def _file_pair_table(value: ast.List) -> list[dict[str, Any]] | None:
-    if not value.elts or not all(call_name(elt) == "file_pair" for elt in value.elts):
-        return None
-    rows: list[dict[str, Any]] = []
-    for elt in value.elts:
-        kwargs = call_kwargs(elt)
-        if kwargs is None or "s" not in kwargs:
-            return None
-        rows.append(_file_pair_row(kwargs))
-    return rows
+def _keep_extend(tree: ast.AST) -> dict[str, Any] | None:
+    return _fold_module(tree, _KeepExtendScan())
 
 
-def _assignment_values(tree: ast.AST) -> dict[str, ast.AST]:
-    values: dict[str, ast.AST] = {}
-    for node in getattr(tree, "body", ()):
+class _KeepExtendScan:
+    """``KEEP`` slug set, an empty ``PAIRS``, and ``_EXTRA*`` lists of ``(_suc, _fail)``."""
+
+    def __init__(self) -> None:
+        self.keep: set[str] | None = None
+        self.extra_rows: list[dict[str, Any]] = []
+        self.saw_empty_pairs = False
+
+    def apply(self, node: ast.stmt) -> bool:
         name, value = assignment_of(node)
-        if name is not None and value is not None:
-            values[name] = value
-    return values
+        if name == "KEEP" and value is not None:
+            self.keep = _literal_str_set(value)
+            return self.keep is not None
+        if name == "PAIRS" and _is_empty_list(value):
+            self.saw_empty_pairs = True
+            return True
+        if _is_extra_name(name) and isinstance(value, ast.List):
+            return self._extend_extras(value.elts)
+        return True
 
+    def _extend_extras(self, elts: list[ast.expr]) -> bool:
+        if not all(_is_suc_fail_tuple(elt) for elt in elts):
+            return False
+        self.extra_rows.extend(_suc_fail_identity(elt) for elt in elts)
+        return True
 
-def _k8s_cli_bindings(
-    tree: ast.AST,
-) -> tuple[list[Any], list[Any] | None, list[dict[str, Any]] | None] | None:
-    values = _assignment_values(tree)
-    if "K8S" not in values:
-        return None
-    k8s = _literal_nonempty_list(values["K8S"])
-    if k8s is None:
-        return None
-    cli_spec: list[Any] | None = None
-    if "CLI_SPEC" in values:
-        cli_spec = _literal_nonempty_list(values["CLI_SPEC"])
-        if cli_spec is None:
+    def record(self) -> dict[str, Any] | None:
+        if self.keep is None or not self.saw_empty_pairs:
             return None
-    cli_rows: list[dict[str, Any]] | None = None
-    cli_value = values.get("CLI")
-    if isinstance(cli_value, ast.List):
-        cli_rows = _file_pair_table(cli_value)
-    return k8s, cli_spec, cli_rows
+        if not self.extra_rows:
+            return None
+        keep, extra_rows = self.keep, self.extra_rows
+        return {
+            "shape": SHAPE_KEEP_EXTEND,
+            "n_rows": len(keep) + len(extra_rows),
+            "n_keep": len(keep),
+            "n_extra": len(extra_rows),
+            "keep_slugs": sorted(keep),
+            "first_slug": extra_rows[0]["success_slug"],
+            "last_slug": extra_rows[-1]["success_slug"],
+            "pairs": extra_rows,
+        }
 
 
-def _k8s_table_record(
-    shape: str, k8s: list[Any], extra: list[dict[str, Any]]
-) -> dict[str, Any] | None:
-    rows = [_k8s_identity(row) for row in k8s] + extra
-    return _rows_record(shape, rows)
+def _is_empty_list(value: ast.AST | None) -> bool:
+    return isinstance(value, ast.List) and not value.elts
+
+
+def _is_extra_name(name: str | None) -> bool:
+    return name is not None and name.startswith("_EXTRA")
+
+
+def _literal_str_set(value: ast.AST) -> set[str] | None:
+    resolved = literal_value(value)
+    if not isinstance(resolved, set) or not all(isinstance(item, str) for item in resolved):
+        return None
+    return {str(item) for item in resolved}
 
 
 def _k8s_cli_tables(tree: ast.AST) -> dict[str, Any] | None:
-    bindings = _k8s_cli_bindings(tree)
-    if bindings is None:
+    return _fold_module(tree, _K8sCliScan())
+
+
+class _K8sCliScan:
+    """``K8S`` rows plus either a ``CLI_SPEC`` table or a ``CLI`` list of ``file_pair``."""
+
+    def __init__(self) -> None:
+        self.k8s: list[Any] | None = None
+        self.cli_spec: list[Any] | None = None
+        self.cli_rows: list[dict[str, Any]] | None = None
+
+    def apply(self, node: ast.stmt) -> bool:
+        name, value = assignment_of(node)
+        if name == "K8S" and value is not None:
+            self.k8s = _nonempty_literal_list(value)
+            return self.k8s is not None
+        if name == "CLI_SPEC" and value is not None:
+            self.cli_spec = _nonempty_literal_list(value)
+            return self.cli_spec is not None
+        if name == "CLI":
+            elts = _file_pair_elts(value)
+            if elts is not None:
+                return self._assign_cli_rows(elts)
+        return True
+
+    def _assign_cli_rows(self, elts: list[ast.expr]) -> bool:
+        rows = _collect_or_none(elts, _file_pair_identity)
+        if rows is None:
+            return False
+        self.cli_rows = rows
+        return True
+
+    def record(self) -> dict[str, Any] | None:
+        if self.k8s is None:
+            return None
+        k8s_rows = [_k8s_identity(row) for row in self.k8s]
+        if self.cli_spec is not None:
+            cli_ident = [_cli_spec_identity(row) for row in self.cli_spec]
+            return _rows_record(SHAPE_K8S_CLI_SPEC, k8s_rows + cli_ident)
+        if self.cli_rows is not None:
+            return _rows_record(SHAPE_K8S_FILE, k8s_rows + self.cli_rows)
         return None
-    k8s, cli_spec, cli_rows = bindings
-    if cli_spec is not None:
-        extra = [_cli_spec_identity(row) for row in cli_spec]
-        return _k8s_table_record(SHAPE_K8S_CLI_SPEC, k8s, extra)
-    if cli_rows is not None:
-        return _k8s_table_record(SHAPE_K8S_FILE, k8s, cli_rows)
-    return None
+
+
+def _nonempty_literal_list(value: ast.AST) -> list[Any] | None:
+    resolved = literal_value(value)
+    if not isinstance(resolved, list) or not resolved:
+        return None
+    return resolved
+
+
+def _file_pair_elts(value: ast.AST | None) -> list[ast.expr] | None:
+    """The elements of a non-empty list made only of ``file_pair(...)`` calls."""
+
+    if not isinstance(value, ast.List) or not value.elts:
+        return None
+    if not all(call_name(elt) == "file_pair" for elt in value.elts):
+        return None
+    return value.elts
+
+
+def _file_pair_identity(node: ast.AST) -> dict[str, Any] | None:
+    kwargs = call_kwargs(node)
+    if kwargs is None or "s" not in kwargs:
+        return None
+    slug = kwargs["s"]
+    return _gem_handoff_row(slug, slug.replace("-vs-old", "-old-leftover"), kwargs.get("g"))
 
 
 def _is_suc_fail_tuple(node: ast.AST) -> bool:
@@ -434,9 +542,7 @@ def _cli_spec_identity(row: Any) -> dict[str, Any]:
     }
 
 
-def _rows_record(shape: str, rows: list[dict[str, Any]]) -> dict[str, Any] | None:
-    if not rows or any(row["success_slug"] is None for row in rows):
-        return None
+def _rows_record(shape: str, rows: list[dict[str, Any]]) -> dict[str, Any]:
     return {
         "shape": shape,
         "n_rows": len(rows),
