@@ -10,18 +10,27 @@ candidate methods: ``super()`` reads the parent MRO, not the child class.
 from __future__ import annotations
 
 import sys
-import types
 
 if __package__:  # pragma: no cover - package-child import path
     from . import _assert_direct_sibling, _expose_package_sibling
 
     _assert_direct_sibling("vset_oracle_subclass")
     from .vset_oracle_codec import encode as _encode
+    from .vset_oracle_subclass_bind import args_of as _args
+    from .vset_oracle_subclass_bind import candidate as _candidate
+    from .vset_oracle_subclass_bind import extend as _extend
+    from .vset_oracle_subclass_bind import kwargs_of as _kwargs
+    from .vset_oracle_subclass_bind import members as _members
 else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
         "vset_oracle_subclass"
     )
     from vset_oracle_codec import encode as _encode
+    from vset_oracle_subclass_bind import args_of as _args
+    from vset_oracle_subclass_bind import candidate as _candidate
+    from vset_oracle_subclass_bind import extend as _extend
+    from vset_oracle_subclass_bind import kwargs_of as _kwargs
+    from vset_oracle_subclass_bind import members as _members
 
 
 def _values():
@@ -75,85 +84,6 @@ def _bound(obj: object) -> bool:
     return "oid" in state
 
 
-def _client_from(cls: type) -> object | None:
-    for base in cls.__mro__:
-        client = base.__dict__.get("_vset_client")
-        if client is not None:
-            return client
-    return None
-
-
-def _candidate(cls: type) -> tuple[object, int] | None:
-    for base in cls.__mro__[1:]:
-        oid = base.__dict__.get("_vset_oid")
-        client = base.__dict__.get("_vset_client")
-        if isinstance(oid, int) and client is not None:
-            return client, oid
-    return None
-
-
-def _extend(cls: type) -> tuple[object, int] | None:
-    for base in cls.__mro__[1:]:
-        child = base.__dict__.get("_vset_child")
-        if isinstance(child, int):
-            client = _client_from(base)
-            if client is not None:
-                return client, child
-        oid = base.__dict__.get("_vset_oid")
-        client = base.__dict__.get("_vset_client")
-        if isinstance(oid, int) and client is not None:
-            return client, oid
-    return None
-
-
-_SKIP = frozenset(
-    {
-        "__dict__",
-        "__weakref__",
-        "__module__",
-        "__qualname__",
-        "__doc__",
-        "__init__",
-        "__new__",
-        "__init_subclass__",
-    }
-)
-
-
-def _skipped(name: str) -> bool:
-    if name in _SKIP:
-        return True
-    return name.startswith("_vset_")
-
-
-def _kind(value: object) -> str:
-    if isinstance(value, classmethod):
-        return "class"
-    if isinstance(value, staticmethod):
-        return "static"
-    if isinstance(value, property):
-        return "prop"
-    if isinstance(value, types.FunctionType):
-        return "func"
-    return ""
-
-
-def _members(cls: type) -> tuple[list[dict[str, str]], dict[str, object]]:
-    methods: list[dict[str, str]] = []
-    attrs: dict[str, object] = {}
-    for name, value in cls.__dict__.items():
-        if _skipped(name):
-            continue
-        kind = _kind(value)
-        if kind:
-            methods.append({"name": name, "kind": kind})
-            continue
-        if isinstance(value, type):
-            continue
-        attrs[name] = _encode(value)
-    return methods, attrs
-
-
 def _encoded(values: tuple[object, ...] | object) -> list[object]:
     if isinstance(values, tuple):
         return [_encode(item) for item in values]
@@ -189,18 +119,6 @@ def _resolve(cls: type, child: object) -> object:
     if isinstance(found, cls):
         return found
     return _view(cls, child)
-
-
-def _args(args: object) -> tuple[object, ...]:
-    if isinstance(args, tuple):
-        return args
-    return ()
-
-
-def _kwargs(kwargs: object) -> dict[str, object]:
-    if isinstance(kwargs, dict):
-        return kwargs
-    return {}
 
 
 def _invoke(cls: type, func: object, call: tuple[object, tuple[object, ...], dict[str, object]]) -> object:
