@@ -8,10 +8,15 @@ from __future__ import annotations
 import json
 import subprocess  # nosec B404
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+from vset_testutil import vset  # noqa: E402
+
 PACK = ROOT / "fixtures/vset/repo-pack-counter"
 RECORD = ROOT / "fixtures/vset/records/accept/issue-patch-validated.json"
 
@@ -83,3 +88,31 @@ class InProcessForgeTests(unittest.TestCase):
         for name, source in FORGES.items():
             with self.subTest(forge=name):
                 self.assertGreater(_error_count(_record(source)), 0, f"{name} forge was accepted")
+
+    def test_always_equal_object_cannot_satisfy_assert_equal(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            pack = Path(tmp)
+            (pack / "src").mkdir()
+            (pack / "tests").mkdir()
+            (pack / "src" / "c.py").write_text(
+                "class E:\n"
+                "    def __eq__(self, other):\n"
+                "        return True\n"
+                "    def __ne__(self, other):\n"
+                "        return False\n"
+                "def add(left, right):\n"
+                "    return E()\n",
+                encoding="utf-8",
+            )
+            (pack / "tests" / "use.py").write_text(
+                "import unittest\nimport c\n"
+                "class T(unittest.TestCase):\n"
+                "    def test_left(self):\n"
+                "        self.assertEqual(c.add(1, 2), 3)\n"
+                "    def test_right(self):\n"
+                "        self.assertEqual(3, c.add(2, 2))\n",
+                encoding="utf-8",
+            )
+            report = vset.run_oracle(pack, reference_tests=["tests/use.py"])
+        self.assertFalse(report["reference"]["ok"], report["reference"])
+        self.assertGreater(report["reference"]["failures"], 0)

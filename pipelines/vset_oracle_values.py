@@ -79,6 +79,7 @@ _FORWARDED = (
     "__lshift__ __rlshift__ __ilshift__ __rshift__ __rrshift__ __irshift__"
 ).split()
 _HELD = frozenset({"client", "oid", "_vset_ready"})
+_ORDERING = frozenset({"__eq__", "__ne__", "__lt__", "__le__", "__gt__", "__ge__"})
 _STRICT = {
     "__enter__",
     "__exit__",
@@ -133,8 +134,18 @@ class RemoteObject:
         return _remote_hash(self)
 
 
+def _native_order(name: str, args: tuple[object, ...]) -> bool:
+    if name not in _ORDERING:
+        return False
+    if not args:
+        return True
+    return not isinstance(args[0], RemoteObject)
+
+
 def _forward(name: str):
     def method(self: RemoteObject, *args: object) -> object:
+        if _native_order(name, args):
+            return NotImplemented
         try:
             func = self.client.get(self.oid, name)
         except AttributeError:
