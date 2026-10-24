@@ -137,6 +137,7 @@ class ParentOracleTests(unittest.TestCase):
             {
                 "src/c.py": (
                     "import decimal\nimport json\n"
+                    "from json import JSONDecodeError as Decode\n"
                     "def parse(text):\n    return json.loads(text)\n"
                     "def dec(text):\n    return decimal.Decimal(text)\n"
                 ),
@@ -145,6 +146,8 @@ class ParentOracleTests(unittest.TestCase):
                     "class T(unittest.TestCase):\n"
                     "    def test_json(self):\n"
                     "        with self.assertRaises(json.JSONDecodeError):\n"
+                    "            c.parse('{')\n"
+                    "        with self.assertRaises(c.Decode):\n"
                     "            c.parse('{')\n"
                     "    def test_decimal(self):\n"
                     "        with self.assertRaises(decimal.InvalidOperation):\n"

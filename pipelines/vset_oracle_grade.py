@@ -94,6 +94,30 @@ def _class_and_method(test_id: str, module_name: str) -> tuple[str, str]:
     return class_name, method_name
 
 
+def _group_ids(
+    modules: list[dict[str, str]], expected: list[str]
+) -> tuple[list[str], dict[str, list[str]]]:
+    grouped: dict[str, list[str]] = {}
+    order: list[str] = []
+    for test_id in expected:
+        spec = _spec_for(test_id, modules)
+        key = spec["module"]
+        if key not in grouped:
+            order.append(key)
+            grouped[key] = []
+        grouped[key].append(test_id)
+    return order, grouped
+
+
+def _record_group(
+    rows: list[dict[str, str]], ids: list[str], statuses: list[str]
+) -> None:
+    if len(statuses) != len(ids):
+        statuses = ["ERROR"] * len(ids)
+    for test_id, status in zip(ids, statuses, strict=True):
+        rows.append({"id": test_id, "status": status})
+
+
 def grade_suite(
     work: Path,
     modules: list[dict[str, str]],
@@ -107,15 +131,7 @@ def grade_suite(
     captured: list[str] = []
     for spec in modules:
         _require_match(spec, expected, sources[spec["folder"]])
-    grouped: dict[str, list[str]] = {}
-    order: list[str] = []
-    for test_id in expected:
-        spec = _spec_for(test_id, modules)
-        key = spec["module"]
-        if key not in grouped:
-            order.append(key)
-            grouped[key] = []
-        grouped[key].append(test_id)
+    order, grouped = _group_ids(modules, expected)
     for key in order:
         ids = grouped[key]
         spec = _spec_for(ids[0], modules)
@@ -123,10 +139,7 @@ def grade_suite(
         statuses, text = _grade_cases(
             work, spec, cases, (sources[spec["folder"]], src_names)
         )
-        if len(statuses) != len(ids):
-            statuses = ["ERROR"] * len(ids)
-        for test_id, status in zip(ids, statuses, strict=True):
-            rows.append({"id": test_id, "status": status})
+        _record_group(rows, ids, statuses)
         captured.append(text)
     return _suite_report(rows, expected, "".join(captured))
 

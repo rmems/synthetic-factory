@@ -36,6 +36,10 @@ def _affirms(result: object) -> bool:
     return bool(result)
 
 
+def _closed(name: str) -> dict[str, object]:
+    return {"fields": {}, "user": [name]}
+
+
 def preview(obj: object, name: str) -> dict[str, object] | None:
     """Read plain fields before the candidate comparison can change them."""
 
@@ -44,10 +48,10 @@ def preview(obj: object, name: str) -> dict[str, object] | None:
     try:
         found = obj.client.exchange({"op": "state", "oid": obj.oid})  # type: ignore[attr-defined]
     except Exception:
-        return None
+        return _closed(name)
     if isinstance(found, dict):
         return found
-    return None
+    return _closed(name)
 
 
 def _same(left: object, right: object) -> bool:
