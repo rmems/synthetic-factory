@@ -135,7 +135,12 @@ class Judge(unittest.TestCase):
 
     def test_stdout_around_the_expected_value_is_not_a_real_miss(self):
         doc = ">>> f(2)\n4\n>>> f(3)\n6\n"
-        noisy = self.judged(doc, *outputs("noise\n4\n", "noise\n6\n"), record.end(2))
+        noisy = self.judged(
+            doc,
+            record.observation(record.BRANCH_OUTPUT, b"noise\n4\n", displayed="4"),
+            record.observation(record.BRANCH_OUTPUT, b"noise\n6\n", displayed="6"),
+            record.end(2),
+        )
         self.assertEqual(
             noisy, harness.HarnessResult(cv.OUTCOME_FAILED, 2, 2, cv.DETAIL_STDOUT_EQUIVALENT),
         )
