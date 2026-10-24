@@ -123,9 +123,11 @@ def take(fn):
 '''
 
 _SUITE = '''
+import array
 import collections
 import dataclasses
 import unittest
+import uuid
 from collections import OrderedDict, defaultdict, deque, namedtuple
 from datetime import date, datetime, time, timedelta
 from decimal import Decimal
@@ -197,12 +199,23 @@ class T(unittest.TestCase):
         self.assertEqual(m.ident(b"ab"), b"ab")
         self.assertEqual(m.ident({1, 2}), {1, 2})
         self.assertEqual(m.ident(frozenset({1})), frozenset({1}))
+
+    def test_stdlib_instances(self):
+        self.assertEqual(m.ident(uuid.UUID(int=5)), uuid.UUID(int=5))
+        self.assertEqual(m.ident(array.array("i", [1, 2])), array.array("i", [1, 2]))
 '''
 
 
 class OracleBoundaryTests(unittest.TestCase):
     def test_stdlib_values_and_callbacks_pass(self) -> None:
         report = _run({"src/m.py": _SRC, "tests/use.py": _SUITE})
+        self.assertTrue(report["reference"]["ok"], report["reference"])
+
+    def test_large_return_values_grade(self) -> None:
+        report = _grade(
+            "def many():\n    return list(range(40000))\ndef big():\n    return 'x' * 2000000\n",
+            "self.assertEqual(len(m.many()), 40000)\nself.assertEqual(len(m.big()), 2000000)",
+        )
         self.assertTrue(report["reference"]["ok"], report["reference"])
 
     def test_failed_and_crashed_references(self) -> None:

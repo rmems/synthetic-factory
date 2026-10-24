@@ -37,6 +37,7 @@ else:
     import vset_oracle_values as values
 
 _REPLY_LIMIT = 1_000_000
+_SPAN_MAX = 256
 
 
 class RemoteModule(types.ModuleType):
@@ -74,13 +75,35 @@ def remote_module(spec: importlib.machinery.ModuleSpec, client: object) -> Remot
     return module
 
 
-def _read_reply(stdout: object) -> object:
+def _read_line(stdout: object) -> object:
     line = stdout.readline(_REPLY_LIMIT)  # type: ignore[attr-defined]
     if not line:
         raise EOFError("oracle worker exited")
     if len(line) >= _REPLY_LIMIT:
         raise EOFError("oracle worker reply is too large")
     return json.loads(line)
+
+
+def _join_span(stdout: object, count: object) -> object:
+    if type(count) is not int or not 1 <= count <= _SPAN_MAX:
+        raise EOFError("oracle worker reply is too large")
+    parts: list[str] = []
+    for _ in range(count):
+        piece = _read_line(stdout)
+        if not isinstance(piece, dict):
+            raise EOFError("oracle worker reply is too large")
+        data = piece.get("data")
+        if not isinstance(data, str):
+            raise EOFError("oracle worker reply is too large")
+        parts.append(data)
+    return json.loads("".join(parts))
+
+
+def _read_reply(stdout: object) -> object:
+    message = _read_line(stdout)
+    if isinstance(message, dict) and message.get("kind") == "span":
+        return _join_span(stdout, message.get("n"))
+    return message
 
 
 def _send(proc: object, payload: dict[str, object]) -> None:
