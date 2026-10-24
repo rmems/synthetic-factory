@@ -23,8 +23,8 @@ if __package__:  # pragma: no cover - package-child import path
     from .vset_oracle_codec import apply_slots as _apply_slots
     from .vset_oracle_shape import attach_dataclass_fields as _attach_dataclass_fields
     from .vset_oracle_shape import blank_instance as _blank_instance
-    from .vset_oracle_shape import clear_named as _clear_named
-    from .vset_oracle_shape import rebuild_namedtuple as _rebuild_namedtuple
+    from .vset_oracle_rebuild import clear_named as _clear_named
+    from .vset_oracle_rebuild import rebuild_namedtuple as _rebuild_namedtuple
     from .vset_oracle_shape import builtin_type as _builtin_type
     from .vset_oracle_shape import parent_types as _parent_types
     from .vset_oracle_shape import remote_hash as _remote_hash
@@ -36,8 +36,8 @@ else:
     from vset_oracle_codec import apply_slots as _apply_slots
     from vset_oracle_shape import attach_dataclass_fields as _attach_dataclass_fields
     from vset_oracle_shape import blank_instance as _blank_instance
-    from vset_oracle_shape import clear_named as _clear_named
-    from vset_oracle_shape import rebuild_namedtuple as _rebuild_namedtuple
+    from vset_oracle_rebuild import clear_named as _clear_named
+    from vset_oracle_rebuild import rebuild_namedtuple as _rebuild_namedtuple
     from vset_oracle_shape import builtin_type as _builtin_type
     from vset_oracle_shape import parent_types as _parent_types
     from vset_oracle_shape import remote_hash as _remote_hash

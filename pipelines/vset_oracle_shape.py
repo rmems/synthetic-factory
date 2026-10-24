@@ -11,7 +11,6 @@ import dataclasses
 import os
 import sys
 import unittest.mock
-from collections import namedtuple
 
 if __package__:  # pragma: no cover - package-child import path
     from . import _assert_direct_sibling, _expose_package_sibling
@@ -148,42 +147,6 @@ def _fresh(cls: type) -> object:
     except TypeError:
         remote = _values().RemoteObject
         return remote.__new__(remote)
-
-
-_NAMED: dict[tuple[str, tuple[str, ...]], type] = {}
-
-
-def clear_named() -> None:
-    """Drop namedtuple classes rebuilt for the previous child."""
-
-    _NAMED.clear()
-
-
-def _named_fields(raw: object) -> tuple[str, ...]:
-    if not isinstance(raw, list):
-        return ()
-    return tuple(str(item) for item in raw)
-
-
-def _named_items(client: object, payload: dict[str, object]) -> list[object]:
-    raw = payload.get("items")
-    if not isinstance(raw, list):
-        return []
-    host = _values()
-    return [host.interpret(client, item) for item in raw]
-
-
-def rebuild_namedtuple(client: object, payload: dict[str, object]) -> tuple[object, ...]:
-    """Rebuild one child namedtuple from field names and encoded items."""
-
-    fields = _named_fields(payload.get("fields"))
-    name = str(payload.get("name") or "Record")
-    key = (name, fields)
-    cls = _NAMED.get(key)
-    if cls is None:
-        cls = namedtuple(name, fields)  # type: ignore[misc]
-        _NAMED[key] = cls
-    return cls(*_named_items(client, payload))
 
 
 def _parent_field(name: str) -> dataclasses.Field[object]:
