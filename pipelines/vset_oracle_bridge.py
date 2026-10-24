@@ -84,16 +84,24 @@ def _read_line(stdout: object) -> object:
     return json.loads(line)
 
 
-def _span_count(count: object) -> int:
+def _span_int(count: object) -> int:
     if isinstance(count, bool):
         raise EOFError("oracle worker reply is too large")
     if not isinstance(count, int):
         raise EOFError("oracle worker reply is too large")
+    return count
+
+
+def _span_bounds(count: int) -> int:
     if count < 1:
         raise EOFError("oracle worker reply is too large")
     if count > _SPAN_MAX:
         raise EOFError("oracle worker reply is too large")
     return count
+
+
+def _span_count(count: object) -> int:
+    return _span_bounds(_span_int(count))
 
 
 def _span_piece(stdout: object) -> str:

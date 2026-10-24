@@ -80,11 +80,31 @@ def plain_tree(encoded: object) -> bool:
     return False
 
 
+def _drop_list(encoded: list[object]) -> list[object]:
+    return [drop_slots(item) for item in encoded]
+
+
+def _drop_item(key: object, item: object) -> tuple[object, object] | None:
+    if key == "slot":
+        return None
+    return key, drop_slots(item)
+
+
+def _drop_dict(encoded: dict[object, object]) -> dict[object, object]:
+    kept: dict[object, object] = {}
+    for key, item in encoded.items():
+        pair = _drop_item(key, item)
+        if pair is None:
+            continue
+        kept[pair[0]] = pair[1]
+    return kept
+
+
 def drop_slots(encoded: object) -> object:
     if isinstance(encoded, list):
-        return [drop_slots(item) for item in encoded]
+        return _drop_list(encoded)
     if isinstance(encoded, dict):
-        return {key: drop_slots(item) for key, item in encoded.items() if key != "slot"}
+        return _drop_dict(encoded)
     return encoded
 
 

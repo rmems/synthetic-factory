@@ -218,6 +218,38 @@ class InProcessForgeTests(unittest.TestCase):
         self.assertNotEqual(by_name["test_almost"], "ok")
         self.assertFalse(report["reference"]["ok"])
 
+    def test_module_label_and_failing_state_cannot_force_equality(self) -> None:
+        report, by_name = _reference(
+            "class Liar:\n"
+            "    __module__ = 'json'\n"
+            "    def __eq__(self, other):\n"
+            "        return True\n"
+            "    __hash__ = None\n"
+            "class Hidden:\n"
+            "    @property\n"
+            "    def __dict__(self):\n"
+            "        raise RuntimeError('no')\n"
+            "    def __eq__(self, other):\n"
+            "        return True\n"
+            "    __hash__ = None\n"
+            "def liar():\n"
+            "    return Liar()\n"
+            "def hidden():\n"
+            "    return Hidden()\n"
+            "def total(a, b):\n"
+            "    return a + b\n",
+            "    def test_module(self):\n"
+            "        self.assertEqual(c.liar(), 1)\n"
+            "    def test_state(self):\n"
+            "        self.assertEqual(c.hidden(), 1)\n"
+            "    def test_number(self):\n"
+            "        self.assertEqual(c.total(1, 2), 3)\n",
+        )
+        self.assertEqual(by_name["test_number"], "ok")
+        self.assertNotEqual(by_name["test_module"], "ok")
+        self.assertNotEqual(by_name["test_state"], "ok")
+        self.assertFalse(report["reference"]["ok"])
+
     def test_import_time_print_stays_inside_the_json_report(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             pack = Path(tmp) / "pack"

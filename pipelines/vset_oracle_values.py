@@ -460,7 +460,11 @@ def _chain(payload: dict[str, object]) -> tuple[str, ...]:
 
 
 def _exc_type(client: object, payload: dict[str, object]) -> type[Exception]:
-    if "builtin" in payload or "oid" in payload:
+    if "module" in payload:
+        return exc_from(client, payload)
+    if "builtin" in payload:
+        return exc_from(client, payload)
+    if "oid" in payload:
         return exc_from(client, payload)
     return exception_type(str(payload.get("name")), _chain(payload))
 
