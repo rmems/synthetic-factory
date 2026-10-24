@@ -176,28 +176,61 @@ class InProcessForgeTests(unittest.TestCase):
                 _expect_refused(self, _eq_source(result), tests, refused)
 
     def test_alternating_eq_cannot_bypass_a_second_probe(self) -> None:
-        report, by_name = _reference(
-            "class E:\n" "    n = 0\n" "    def __eq__(self, other):\n" "        E.n += 1\n" "        return E.n % 2 == 1\n" "    def __sub__(self, other):\n"
-            "        return 0\n" "    def __rsub__(self, other):\n" "        return 0\n" "def add(a, b):\n" "    return E()\n" "def total(a, b):\n"
-            "    return a + b\n", "    def test_equal(self):\n" "        self.assertEqual(c.add(1, 2), 999)\n" "    def test_almost(self):\n" "        self.assertAlmostEqual(c.add(1, 2), 999)\n" "    def test_number(self):\n"
-            "        self.assertAlmostEqual(c.total(1, 2), 3)\n",
+        source = (
+            "class E:\n"
+            "    n = 0\n"
+            "    def __eq__(self, other):\n"
+            "        E.n += 1\n"
+            "        return E.n % 2 == 1\n"
+            "    def __sub__(self, other):\n"
+            "        return 0\n"
+            "    def __rsub__(self, other):\n"
+            "        return 0\n"
+            "def add(a, b):\n"
+            "    return E()\n"
+            "def total(a, b):\n"
+            "    return a + b\n"
         )
-        self.assertEqual(by_name["test_number"], "ok")
-        self.assertNotEqual(by_name["test_equal"], "ok")
-        self.assertNotEqual(by_name["test_almost"], "ok")
-        self.assertFalse(report["reference"]["ok"])
+        tests = (
+            "    def test_equal(self):\n"
+            "        self.assertEqual(c.add(1, 2), 999)\n"
+            "    def test_almost(self):\n"
+            "        self.assertAlmostEqual(c.add(1, 2), 999)\n"
+            "    def test_number(self):\n"
+            "        self.assertAlmostEqual(c.total(1, 2), 3)\n"
+        )
+        _expect_refused(self, source, tests, ("test_equal", "test_almost"))
 
     def test_module_label_and_failing_state_cannot_force_equality(self) -> None:
-        report, by_name = _reference(
-            "class Liar:\n" "    __module__ = 'json'\n" "    def __eq__(self, other):\n" "        return True\n" "    __hash__ = None\n" "class Hidden:\n"
-            "    @property\n" "    def __dict__(self):\n" "        raise RuntimeError('no')\n" "    def __eq__(self, other):\n" "        return True\n" "    __hash__ = None\n"
-            "def liar():\n" "    return Liar()\n" "def hidden():\n" "    return Hidden()\n" "def total(a, b):\n" "    return a + b\n",
-            "    def test_module(self):\n" "        self.assertEqual(c.liar(), 1)\n" "    def test_state(self):\n" "        self.assertEqual(c.hidden(), 1)\n" "    def test_number(self):\n" "        self.assertEqual(c.total(1, 2), 3)\n",
+        source = (
+            "class Liar:\n"
+            "    __module__ = 'json'\n"
+            "    def __eq__(self, other):\n"
+            "        return True\n"
+            "    __hash__ = None\n"
+            "class Hidden:\n"
+            "    @property\n"
+            "    def __dict__(self):\n"
+            "        raise RuntimeError('no')\n"
+            "    def __eq__(self, other):\n"
+            "        return True\n"
+            "    __hash__ = None\n"
+            "def liar():\n"
+            "    return Liar()\n"
+            "def hidden():\n"
+            "    return Hidden()\n"
+            "def total(a, b):\n"
+            "    return a + b\n"
         )
-        self.assertEqual(by_name["test_number"], "ok")
-        self.assertNotEqual(by_name["test_module"], "ok")
-        self.assertNotEqual(by_name["test_state"], "ok")
-        self.assertFalse(report["reference"]["ok"])
+        tests = (
+            "    def test_module(self):\n"
+            "        self.assertEqual(c.liar(), 1)\n"
+            "    def test_state(self):\n"
+            "        self.assertEqual(c.hidden(), 1)\n"
+            "    def test_number(self):\n"
+            "        self.assertEqual(c.total(1, 2), 3)\n"
+        )
+        _expect_refused(self, source, tests, ("test_module", "test_state"))
 
     def test_many_fields_cannot_cover_every_expected_value(self) -> None:
         source = "".join(
@@ -298,47 +331,64 @@ class InProcessForgeTests(unittest.TestCase):
         self.assertTrue(report["reference"]["ok"], report["reference"])
 
     def test_one_true_answer_and_known_samples_cannot_force_equality(self) -> None:
-        once = "".join(
-            [
-                "class E:\n",
-                "    def __init__(self):\n",
-                "        self.spent = False\n",
-                "    def __eq__(self, other):\n",
-                "        if self.spent:\n",
-                "            return False\n",
-                "        self.spent = True\n",
-                "        return True\n",
-                "    __hash__ = None\n",
-                "def add(a, b):\n",
-                "    return E()\n",
-                "def total(a, b):\n",
-                "    return a + b\n",
-            ]
+        tail = "__hash__ = None\ndef add(a, b):\n    return E()\ndef total(a, b):\n    return a + b\n"
+        once = (
+            "class E:\n"
+            "    def __init__(self):\n"
+            "        self.spent = False\n"
+            "    def __eq__(self, other):\n"
+            "        if self.spent:\n"
+            "            return False\n"
+            "        self.spent = True\n"
+            "        return True\n"
+            + tail
         )
-        known = "".join(
-            [
-                "class E:\n",
-                "    def __eq__(self, other):\n",
-                "        if other in ('\\x00vset', (), 0, 1, 10 ** 9):\n",
-                "            return False\n",
-                "        return True\n",
-                "    __hash__ = None\n",
-                "def add(a, b):\n",
-                "    return E()\n",
-                "def total(a, b):\n",
-                "    return a + b\n",
-            ]
+        known = (
+            "class E:\n"
+            "    def __eq__(self, other):\n"
+            "        samples = ('\\x00vset', (), 0, 1, 10 ** 9)\n"
+            "        return other not in samples\n"
+            + tail
         )
-        tests = "".join(
-            [
-                "    def test_equal(self):\n",
-                "        self.assertEqual(c.add(1, 2), 999)\n",
-                "    def test_number(self):\n",
-                "        self.assertEqual(c.total(1, 2), 3)\n",
-            ]
+        tests = (
+            "    def test_equal(self):\n"
+            "        self.assertEqual(c.add(1, 2), 999)\n"
+            "    def test_number(self):\n"
+            "        self.assertEqual(c.total(1, 2), 3)\n"
         )
         _expect_refused(self, once, tests, ("test_equal",))
         _expect_refused(self, known, tests, ("test_equal",))
+
+    def test_codeless_callables_cannot_force_equality(self) -> None:
+        tail = "    __hash__ = None\ndef add(a, b):\n    return E()\ndef total(a, b):\n    return a + b\n"
+        checks = (
+            "    def test_equal(self):\n"
+            "        self.assertEqual(c.add(1, 2), 999)\n"
+            "        self.assertEqual(999, c.add(1, 2))\n"
+            "        self.assertEqual(c.add(1, 2), 'anything')\n"
+            "    def test_number(self):\n"
+            "        self.assertEqual(c.total(4, 5), 9)\n"
+        )
+        bodies = {
+            "bool": "class E:\n    __eq__ = bool\n" + tail,
+            "partial": (
+                "import functools\n"
+                "class E:\n"
+                "    __eq__ = functools.partialmethod(lambda self, other: True)\n"
+                + tail
+            ),
+            "callable": (
+                "class Caller:\n"
+                "    def __call__(self, other):\n"
+                "        return True\n"
+                "class E:\n"
+                "    __eq__ = Caller()\n"
+                + tail
+            ),
+        }
+        for label, source in bodies.items():
+            with self.subTest(kind=label):
+                _expect_refused(self, source, checks, ("test_equal",))
 
     def test_unittest_stop_is_not_a_passing_exception(self) -> None:
         source = "\n".join(
