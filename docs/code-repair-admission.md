@@ -186,8 +186,10 @@ the bundle, which only ever targets a brand-new destination outside
 publication remains a separate, owner-gated step.
 
 Generator 2.1.0 (`code_repair.planning.ProposalPlan`) draws train-split programs
-only. A run stamped 2.0.0 replays the earlier draw, which still includes
-`validation` and `held_out` programs. Those programs stay in the catalog, and
+only. A run stamped 2.0.0 validates and replays the earlier draw, which still
+includes `validation` and `held_out` programs. Admission compares the record
+with the sealed row, so a 2.0.0 record is `PROCEDURAL_GENERATOR_MISMATCH` and
+is not a training candidate. Those programs stay in the catalog, and
 the task gate still denies those ids, but a generated run's consumer files for
 those splits are empty. The Hub bundle omits the empty splits. Every export records
 the evaluation limitation `TRAIN_ONLY_DRAW_OMITS_EVAL_SPLITS`, and the bundle
