@@ -213,66 +213,16 @@ class OracleBoundaryTests(unittest.TestCase):
 
     def test_shared_containers_private_patches_and_fixtures(self) -> None:
         report = _grade(
-            "CONFIG = {'enabled': False}\n"
-            "class Counter:\n"
-            "    _limit = 1\n"
-            "    def read(self):\n"
-            "        return Counter._limit\n"
-            "class Bag(dict):\n"
-            "    pass\n"
-            "class Stack:\n"
-            "    def __init__(self):\n"
-            "        self.items = []\n"
-            "    def pop(self):\n"
-            "        return self.items.pop()\n"
-            "class Reg:\n"
-            "    def take(self, data):\n"
-            "        self.seen = data\n"
-            "def fill(a, b):\n"
-            "    a.append(1)\n"
-            "    return b\n"
-            "def grow(xs):\n"
-            "    xs.append(1)\n"
-            "    raise ValueError('x')\n"
-            "def flag():\n"
-            "    return CONFIG['enabled']\n"
-            "def limit():\n"
-            "    return Counter().read()\n"
-            "def keys():\n"
-            "    return sorted(Bag(a=1).keys())\n"
-            "def token():\n"
-            "    import os\n"
-            "    return os.environ.get('HF_TOKEN')\n",
-            "import os\n"
-            "from unittest import mock\n"
-            "xs = []\n"
-            "self.assertEqual(m.fill(xs, xs), [1])\n"
-            "self.assertEqual(xs, [1])\n"
-            "grown = []\n"
-            "with self.assertRaises(ValueError):\n"
-            "    m.grow(grown)\n"
-            "self.assertEqual(grown, [1])\n"
-            "stack = m.Stack()\n"
-            "stack.items.append(5)\n"
-            "self.assertEqual(stack.pop(), 5)\n"
-            "reg = m.Reg()\n"
-            "data = [1]\n"
-            "reg.take(data)\n"
-            "data.append(2)\n"
-            "self.assertEqual(reg.seen, [1, 2])\n"
-            "with mock.patch.dict(m.CONFIG, {'enabled': True}):\n"
-            "    self.assertTrue(m.flag())\n"
-            "self.assertFalse(m.flag())\n"
-            "with mock.patch.object(m.Counter, '_limit', 3):\n"
-            "    self.assertEqual(m.limit(), 3)\n"
-            "self.assertEqual(m.keys(), ['a'])\n"
-            "key = 'HF_' + 'TOKEN'\n"
-            "os.environ[key] = 'parent-only'\n"
-            "try:\n"
-            "    with mock.patch.dict(os.environ, {}, clear=True):\n"
-            "        self.assertIsNone(m.token())\n"
-            "    self.assertIsNone(m.token())\n"
-            "finally:\n"
+            "CONFIG = {'enabled': False}\n" "class Counter:\n" "    _limit = 1\n" "    def read(self):\n" "        return Counter._limit\n" "class Bag(dict):\n"
+            "    pass\n" "class Stack:\n" "    def __init__(self):\n" "        self.items = []\n" "    def pop(self):\n" "        return self.items.pop()\n"
+            "class Reg:\n" "    def take(self, data):\n" "        self.seen = data\n" "def fill(a, b):\n" "    a.append(1)\n" "    return b\n"
+            "def grow(xs):\n" "    xs.append(1)\n" "    raise ValueError('x')\n" "def flag():\n" "    return CONFIG['enabled']\n" "def limit():\n"
+            "    return Counter().read()\n" "def keys():\n" "    return sorted(Bag(a=1).keys())\n" "def token():\n" "    import os\n" "    return os.environ.get('HF_TOKEN')\n",
+            "import os\n" "from unittest import mock\n" "xs = []\n" "self.assertEqual(m.fill(xs, xs), [1])\n" "self.assertEqual(xs, [1])\n" "grown = []\n"
+            "with self.assertRaises(ValueError):\n" "    m.grow(grown)\n" "self.assertEqual(grown, [1])\n" "stack = m.Stack()\n" "stack.items.append(5)\n" "self.assertEqual(stack.pop(), 5)\n"
+            "reg = m.Reg()\n" "data = [1]\n" "reg.take(data)\n" "data.append(2)\n" "self.assertEqual(reg.seen, [1, 2])\n" "with mock.patch.dict(m.CONFIG, {'enabled': True}):\n"
+            "    self.assertTrue(m.flag())\n" "self.assertFalse(m.flag())\n" "with mock.patch.object(m.Counter, '_limit', 3):\n" "    self.assertEqual(m.limit(), 3)\n" "self.assertEqual(m.keys(), ['a'])\n" "key = 'HF_' + 'TOKEN'\n"
+            "os.environ[key] = 'parent-only'\n" "try:\n" "    with mock.patch.dict(os.environ, {}, clear=True):\n" "        self.assertIsNone(m.token())\n" "    self.assertIsNone(m.token())\n" "finally:\n"
             "    os.environ.pop(key, None)\n",
         )
         self.assertTrue(report["reference"]["ok"], report["reference"])
@@ -282,18 +232,8 @@ class OracleBoundaryTests(unittest.TestCase):
             {
                 "src/m.py": "def value():\n    return 1\n",
                 "tests/use.py": (
-                    "import sys\nimport unittest\nimport m\n"
-                    "def setUpModule():\n"
-                    "    if getattr(sys, '_vset_fix_once', False):\n"
-                    "        raise RuntimeError('twice')\n"
-                    "    sys._vset_fix_once = True\n"
-                    "def tearDownModule():\n"
-                    "    del sys._vset_fix_once\n"
-                    "class T(unittest.TestCase):\n"
-                    "    def test_a(self):\n"
-                    "        self.assertEqual(m.value(), 1)\n"
-                    "    def test_b(self):\n"
-                    "        self.assertEqual(m.value(), 1)\n"
+                    "import sys\nimport unittest\nimport m\n" "def setUpModule():\n" "    if getattr(sys, '_vset_fix_once', False):\n" "        raise RuntimeError('twice')\n" "    sys._vset_fix_once = True\n" "def tearDownModule():\n"
+                    "    del sys._vset_fix_once\n" "class T(unittest.TestCase):\n" "    def test_a(self):\n" "        self.assertEqual(m.value(), 1)\n" "    def test_b(self):\n" "        self.assertEqual(m.value(), 1)\n"
                 ),
             }
         )
@@ -401,6 +341,44 @@ class OracleBoundaryTests(unittest.TestCase):
         self.assertEqual(statuses["test_same"], "ok")
         self.assertNotEqual(statuses["test_cross"], "ok")
         self.assertFalse(report["reference"]["ok"])
+
+    def test_fixture_subtest_and_container_edges(self) -> None:
+        report = _run(
+            {
+                "src/m.py": (
+                    "import re\n" "kept = []\n" "def save(xs):\n" "    kept.append(xs)\n" "    return len(xs)\n" "def grow():\n"
+                    "    kept[0].append(1)\n" "    return kept[0]\n" "def make_list():\n" "    return [1, 2]\n" "def boom():\n" "    raise re.error('bad')\n"
+                ),
+                "tests/use.py": (
+                    "import re\nimport unittest\nimport m\n" "class T(unittest.TestCase):\n" "    def test_list(self):\n" "        made = m.make_list()\n" "        self.assertIsInstance(made, list)\n" "        self.assertEqual(made, [1, 2])\n"
+                    "    def test_keep(self):\n" "        xs = []\n" "        self.assertEqual(m.save(xs), 0)\n" "        self.assertEqual(m.grow(), [1])\n" "        self.assertEqual(xs, [1])\n" "    def test_re(self):\n"
+                    "        with self.assertRaises(re.error):\n" "            m.boom()\n" "    def test_sub(self):\n" "        with self.subTest(i=1):\n" "            self.assertEqual(1, 2)\n"
+                ),
+            }
+        )
+        statuses = {
+            row["id"].rsplit(".", 1)[-1]: row["status"] for row in report["reference"]["tests"]
+        }
+        self.assertEqual(statuses["test_list"], "ok")
+        self.assertEqual(statuses["test_keep"], "ok")
+        self.assertEqual(statuses["test_re"], "ok")
+        self.assertNotEqual(statuses["test_sub"], "ok")
+        failed = _run(
+            {
+                "src/m.py": "def value():\n    return 1\n",
+                "tests/use.py": (
+                    "import unittest\nimport m\n"
+                    "class T(unittest.TestCase):\n"
+                    "    @classmethod\n"
+                    "    def setUpClass(cls):\n"
+                    "        raise RuntimeError('fixture')\n"
+                    "    def test_value(self):\n"
+                    "        self.assertEqual(m.value(), 1)\n"
+                ),
+            }
+        )
+        self.assertNotEqual(failed["reference"]["tests"][0]["status"], "ok")
+        self.assertFalse(failed["reference"]["ok"])
 
     def test_custom_exception_ancestry_is_preserved(self) -> None:
         report = _run(

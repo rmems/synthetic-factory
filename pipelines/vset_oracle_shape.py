@@ -31,6 +31,35 @@ def _values():
     return values
 
 
+_PROXIES: dict[type, type] = {}
+
+
+def _proxy(builtin: type) -> type:
+    found = _PROXIES.get(builtin)
+    if found is not None:
+        return found
+    remote = _values().RemoteObject
+    created = type(
+        "Remote" + builtin.__name__.capitalize(),
+        (remote, builtin),
+        {"__hash__": None},
+    )
+    _PROXIES[builtin] = created
+    return created
+
+
+def container_proxy(builtin: type) -> type | None:
+    """List, dict, and set stay real containers while methods still forward."""
+
+    if builtin is list:
+        return _proxy(list)
+    if builtin is dict:
+        return _proxy(dict)
+    if builtin is set:
+        return _proxy(set)
+    return None
+
+
 def builtin_type(info: dict[str, object]) -> type | None:
     """Real builtin when the child describes one, instead of a proxy class."""
 

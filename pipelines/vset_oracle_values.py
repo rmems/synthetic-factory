@@ -29,6 +29,7 @@ if __package__:  # pragma: no cover - package-child import path
     from .vset_oracle_shape import attach_dataclass_fields as _attach_dataclass_fields
     from .vset_oracle_shape import blank_instance as _blank_instance
     from .vset_oracle_shape import builtin_type as _builtin_type
+    from .vset_oracle_shape import container_proxy as _container_proxy
     from .vset_oracle_shape import parent_types as _parent_types
     from .vset_oracle_shape import remote_hash as _remote_hash
     from .vset_oracle_shape import truth as _truth
@@ -48,6 +49,7 @@ else:
     from vset_oracle_shape import attach_dataclass_fields as _attach_dataclass_fields
     from vset_oracle_shape import blank_instance as _blank_instance
     from vset_oracle_shape import builtin_type as _builtin_type
+    from vset_oracle_shape import container_proxy as _container_proxy
     from vset_oracle_shape import parent_types as _parent_types
     from vset_oracle_shape import remote_hash as _remote_hash
     from vset_oracle_shape import truth as _truth
@@ -269,6 +271,9 @@ class _RemoteMeta(type):
 def _class_from(client: object, info: dict[str, object]) -> type:
     builtin = _builtin_type(info)
     if builtin is not None:
+        proxy = _container_proxy(builtin)
+        if proxy is not None:
+            return proxy
         return builtin
     oid = int(info["oid"])
     key = (id(client), oid)

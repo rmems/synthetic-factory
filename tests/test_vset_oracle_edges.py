@@ -457,6 +457,9 @@ class EdgeTests(unittest.TestCase):
         bare = values._RemoteMeta("Bare", (values.RemoteObject,), {})
         bare.label = "local"
         del bare.label
+
+    def test_payload_edges(self) -> None:
+        client = _Client()
         self.assertEqual(values._mapped(client, {}), {})
         self.assertEqual(
             values.interpret(client, {"kind": "path", "data": "a", "cls": "Nope"}),

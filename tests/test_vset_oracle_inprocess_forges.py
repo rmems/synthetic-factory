@@ -133,29 +133,10 @@ class InProcessForgeTests(unittest.TestCase):
 
     def test_candidate_values_compare_with_literals(self) -> None:
         report, _statuses = _reference(
-            "class Money:\n"
-            "    def __init__(self, cents):\n"
-            "        self.cents = cents\n"
-            "    def __eq__(self, other):\n"
-            "        if isinstance(other, Money):\n"
-            "            return self.cents == other.cents\n"
-            "        if isinstance(other, (int, float)):\n"
-            "            return self.cents == other\n"
-            "        return NotImplemented\n"
-            "    def __lt__(self, other):\n"
-            "        if isinstance(other, Money):\n"
-            "            return self.cents < other.cents\n"
-            "        return self.cents < other\n"
-            "def money():\n"
-            "    return Money(5)\n"
-            "def huge():\n"
-            "    return Money(1e20 + 1.0)\n",
-            "    def test_equal(self):\n"
-            "        self.assertEqual(c.money(), 5)\n"
-            "        self.assertAlmostEqual(c.money(), 5)\n"
-            "        self.assertEqual(c.huge(), 1e20)\n"
-            "    def test_less(self):\n"
-            "        self.assertLess(c.money(), 10)\n",
+            "class Money:\n" "    def __init__(self, cents):\n" "        self.cents = cents\n" "    def __eq__(self, other):\n" "        if isinstance(other, Money):\n" "            return self.cents == other.cents\n"
+            "        if isinstance(other, (int, float)):\n" "            return self.cents == other\n" "        return NotImplemented\n" "    def __lt__(self, other):\n" "        if isinstance(other, Money):\n" "            return self.cents < other.cents\n"
+            "        return self.cents < other\n" "def money():\n" "    return Money(5)\n" "def huge():\n" "    return Money(1e20 + 1.0)\n", "    def test_equal(self):\n"
+            "        self.assertEqual(c.money(), 5)\n" "        self.assertAlmostEqual(c.money(), 5)\n" "        self.assertEqual(c.huge(), 1e20)\n" "    def test_less(self):\n" "        self.assertLess(c.money(), 10)\n",
         )
         self.assertTrue(report["reference"]["ok"], report["reference"])
 
@@ -196,24 +177,9 @@ class InProcessForgeTests(unittest.TestCase):
 
     def test_alternating_eq_cannot_bypass_a_second_probe(self) -> None:
         report, by_name = _reference(
-            "class E:\n"
-            "    n = 0\n"
-            "    def __eq__(self, other):\n"
-            "        E.n += 1\n"
-            "        return E.n % 2 == 1\n"
-            "    def __sub__(self, other):\n"
-            "        return 0\n"
-            "    def __rsub__(self, other):\n"
-            "        return 0\n"
-            "def add(a, b):\n"
-            "    return E()\n"
-            "def total(a, b):\n"
-            "    return a + b\n",
-            "    def test_equal(self):\n"
-            "        self.assertEqual(c.add(1, 2), 999)\n"
-            "    def test_almost(self):\n"
-            "        self.assertAlmostEqual(c.add(1, 2), 999)\n"
-            "    def test_number(self):\n"
+            "class E:\n" "    n = 0\n" "    def __eq__(self, other):\n" "        E.n += 1\n" "        return E.n % 2 == 1\n" "    def __sub__(self, other):\n"
+            "        return 0\n" "    def __rsub__(self, other):\n" "        return 0\n" "def add(a, b):\n" "    return E()\n" "def total(a, b):\n"
+            "    return a + b\n", "    def test_equal(self):\n" "        self.assertEqual(c.add(1, 2), 999)\n" "    def test_almost(self):\n" "        self.assertAlmostEqual(c.add(1, 2), 999)\n" "    def test_number(self):\n"
             "        self.assertAlmostEqual(c.total(1, 2), 3)\n",
         )
         self.assertEqual(by_name["test_number"], "ok")
@@ -223,35 +189,62 @@ class InProcessForgeTests(unittest.TestCase):
 
     def test_module_label_and_failing_state_cannot_force_equality(self) -> None:
         report, by_name = _reference(
-            "class Liar:\n"
-            "    __module__ = 'json'\n"
-            "    def __eq__(self, other):\n"
-            "        return True\n"
-            "    __hash__ = None\n"
-            "class Hidden:\n"
-            "    @property\n"
-            "    def __dict__(self):\n"
-            "        raise RuntimeError('no')\n"
-            "    def __eq__(self, other):\n"
-            "        return True\n"
-            "    __hash__ = None\n"
-            "def liar():\n"
-            "    return Liar()\n"
-            "def hidden():\n"
-            "    return Hidden()\n"
-            "def total(a, b):\n"
-            "    return a + b\n",
-            "    def test_module(self):\n"
-            "        self.assertEqual(c.liar(), 1)\n"
-            "    def test_state(self):\n"
-            "        self.assertEqual(c.hidden(), 1)\n"
-            "    def test_number(self):\n"
-            "        self.assertEqual(c.total(1, 2), 3)\n",
+            "class Liar:\n" "    __module__ = 'json'\n" "    def __eq__(self, other):\n" "        return True\n" "    __hash__ = None\n" "class Hidden:\n"
+            "    @property\n" "    def __dict__(self):\n" "        raise RuntimeError('no')\n" "    def __eq__(self, other):\n" "        return True\n" "    __hash__ = None\n"
+            "def liar():\n" "    return Liar()\n" "def hidden():\n" "    return Hidden()\n" "def total(a, b):\n" "    return a + b\n",
+            "    def test_module(self):\n" "        self.assertEqual(c.liar(), 1)\n" "    def test_state(self):\n" "        self.assertEqual(c.hidden(), 1)\n" "    def test_number(self):\n" "        self.assertEqual(c.total(1, 2), 3)\n",
         )
         self.assertEqual(by_name["test_number"], "ok")
         self.assertNotEqual(by_name["test_module"], "ok")
         self.assertNotEqual(by_name["test_state"], "ok")
         self.assertFalse(report["reference"]["ok"])
+
+    def test_many_fields_cannot_cover_every_expected_value(self) -> None:
+        source = (
+            "class E:\n" "    def __init__(self):\n" "        for i in range(-50, 51):\n" "            setattr(self, 'f%d' % (i + 50), i)\n" "    def __eq__(self, other):\n" "        return True\n"
+            "    def __lt__(self, other):\n" "        return True\n" "    __hash__ = None\n" "def add(a, b):\n" "    return E()\n" "def total(a, b):\n"
+            "    return a + b\n"
+        )
+        tests = (
+            "    def test_equal(self):\n"
+            "        self.assertEqual(c.add(1, 2), 3)\n"
+            "    def test_less(self):\n"
+            "        self.assertLess(c.add(1, 2), 10)\n"
+            "    def test_number(self):\n"
+            "        self.assertEqual(c.total(1, 2), 3)\n"
+        )
+        _expect_refused(self, source, tests, ("test_equal", "test_less"))
+
+    def test_one_decoy_field_does_not_confirm_equality(self) -> None:
+        source = (
+            "class E:\n"
+            "    def __init__(self):\n"
+            "        self.cents = 5\n"
+            "        self.extra = 9\n"
+            "    def __eq__(self, other):\n"
+            "        return True\n"
+            "    __hash__ = None\n"
+            "def add(a, b):\n"
+            "    return E()\n"
+            "def total(a, b):\n"
+            "    return a + b\n"
+        )
+        tests = (
+            "    def test_equal(self):\n"
+            "        self.assertEqual(c.add(1, 2), 5)\n"
+            "    def test_number(self):\n"
+            "        self.assertEqual(c.total(1, 2), 3)\n"
+        )
+        _expect_refused(self, source, tests, ("test_equal",))
+
+    def test_private_and_slot_fields_still_compare(self) -> None:
+        report, _statuses = _reference(
+            "class Hidden:\n" "    def __init__(self, cents):\n" "        self._cents = cents\n" "    def __eq__(self, other):\n" "        return self._cents == other\n" "    def __lt__(self, other):\n"
+            "        return self._cents < other\n" "class Coin:\n" "    __slots__ = ('cents',)\n" "    def __init__(self, cents):\n" "        self.cents = cents\n" "    def __eq__(self, other):\n"
+            "        return self.cents == other\n" "def hidden():\n" "    return Hidden(5)\n" "def coin():\n" "    return Coin(5)\n", "    def test_hidden(self):\n"
+            "        self.assertEqual(c.hidden(), 5)\n" "        self.assertLess(c.hidden(), 10)\n" "    def test_coin(self):\n" "        self.assertEqual(c.coin(), 5)\n",
+        )
+        self.assertTrue(report["reference"]["ok"], report["reference"])
 
     def test_import_time_print_stays_inside_the_json_report(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

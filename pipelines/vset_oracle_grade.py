@@ -42,29 +42,51 @@ else:
 _CAPTURE_LIMIT = 4000
 
 
+def _ids(rows: list[dict[str, str]]) -> list[str]:
+    return sorted(row["id"] for row in rows)
+
+
+def _passed(row: dict[str, str]) -> bool:
+    return row["status"] == "ok"
+
+
 def _suite_ok(rows: list[dict[str, str]], expected: list[str]) -> bool:
-    reported = sorted(row["id"] for row in rows)
-    declared = sorted(expected)
-    if reported != declared:
+    if _ids(rows) != sorted(expected):
         return False
-    if not declared:
+    if not expected:
         return False
-    return all(row["status"] == "ok" for row in rows)
+    return all(_passed(row) for row in rows)
+
+
+def _ordered(rows: list[dict[str, str]]) -> list[dict[str, str]]:
+    return sorted(rows, key=_row_id)
+
+
+def _row_id(row: dict[str, str]) -> str:
+    return row["id"]
+
+
+def _count(rows: list[dict[str, str]], status: str) -> int:
+    return sum(item["status"] == status for item in rows)
+
+
+def _attach_capture(report: dict[str, Any], captured: str) -> None:
+    if captured.strip():
+        report["captured_output"] = captured[-_CAPTURE_LIMIT:]
 
 
 def _suite_report(
     rows: list[dict[str, str]], expected: list[str], captured: str
 ) -> dict[str, Any]:
-    ordered = sorted(rows, key=lambda item: item["id"])
+    ordered = _ordered(rows)
     report: dict[str, Any] = {
         "tests": ordered,
-        "failures": sum(item["status"] == "FAIL" for item in ordered),
-        "errors": sum(item["status"] == "ERROR" for item in ordered),
+        "failures": _count(ordered, "FAIL"),
+        "errors": _count(ordered, "ERROR"),
         "ok": _suite_ok(ordered, expected),
     }
     report["result_hash"] = _sha256_text(_canonical_json(report["tests"]))
-    if captured.strip():
-        report["captured_output"] = captured[-_CAPTURE_LIMIT:]
+    _attach_capture(report, captured)
     return report
 
 
@@ -77,21 +99,32 @@ def _spec_for(test_id: str, modules: list[dict[str, str]]) -> dict[str, str]:
     )
 
 
+def _bad_test_id(test_id: str) -> VSetValidationError:
+    return VSetValidationError(
+        ERR_ORACLE_EXECUTION_MISMATCH, f"oracle runner failed: bad test id {test_id}"
+    )
+
+
+def _id_piece(part: str, dot: str, test_id: str) -> str:
+    if not dot:
+        raise _bad_test_id(test_id)
+    if not part:
+        raise _bad_test_id(test_id)
+    return part
+
+
 def _class_and_method(test_id: str, module_name: str) -> tuple[str, str]:
     class_name, dot, method_name = test_id[len(module_name) + 1 :].rpartition(".")
-    if not dot:
-        raise VSetValidationError(
-            ERR_ORACLE_EXECUTION_MISMATCH, f"oracle runner failed: bad test id {test_id}"
-        )
-    if not class_name:
-        raise VSetValidationError(
-            ERR_ORACLE_EXECUTION_MISMATCH, f"oracle runner failed: bad test id {test_id}"
-        )
-    if not method_name:
-        raise VSetValidationError(
-            ERR_ORACLE_EXECUTION_MISMATCH, f"oracle runner failed: bad test id {test_id}"
-        )
+    _id_piece(class_name, dot, test_id)
+    _id_piece(method_name, dot, test_id)
     return class_name, method_name
+
+
+def _bucket(grouped: dict[str, list[str]], order: list[str], key: str) -> list[str]:
+    if key not in grouped:
+        order.append(key)
+        grouped[key] = []
+    return grouped[key]
 
 
 def _group_ids(
@@ -101,11 +134,7 @@ def _group_ids(
     order: list[str] = []
     for test_id in expected:
         spec = _spec_for(test_id, modules)
-        key = spec["module"]
-        if key not in grouped:
-            order.append(key)
-            grouped[key] = []
-        grouped[key].append(test_id)
+        _bucket(grouped, order, spec["module"]).append(test_id)
     return order, grouped
 
 

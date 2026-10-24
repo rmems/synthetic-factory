@@ -1,9 +1,11 @@
 """Parent-side check for comparisons against candidate objects.
 
 An affirmative ``__eq__`` or ordering result is a pass channel when the
-other operand is a parent value: the child can answer True, then False.
-Builtin and standard-library comparisons are real data comparisons. A
-candidate class must also hold plain data that agrees with the answer.
+other operand is a parent value: the child can answer True for every
+input. Builtin and standard-library comparisons are real data comparisons.
+A candidate comparison is kept only when every plain field agrees with
+that same parent value. One matching field among many is not agreement:
+the candidate chooses the fields and can plant every expected answer.
 """
 
 from __future__ import annotations
@@ -40,11 +42,7 @@ def _closed(name: str) -> dict[str, object]:
     return {"fields": {}, "user": [name]}
 
 
-def preview(obj: object, name: str) -> dict[str, object] | None:
-    """Read plain fields before the candidate comparison can change them."""
-
-    if name not in _CHECKED:
-        return None
+def _state(obj: object, name: str) -> dict[str, object]:
     try:
         found = obj.client.exchange({"op": "state", "oid": obj.oid})  # type: ignore[attr-defined]
     except Exception:
@@ -54,6 +52,14 @@ def preview(obj: object, name: str) -> dict[str, object] | None:
     return _closed(name)
 
 
+def preview(obj: object, name: str) -> dict[str, object] | None:
+    """Read plain fields before the candidate comparison can change them."""
+
+    if name not in _CHECKED:
+        return None
+    return _state(obj, name)
+
+
 def _same(left: object, right: object) -> bool:
     try:
         return bool(left == right)
@@ -61,20 +67,17 @@ def _same(left: object, right: object) -> bool:
         return False
 
 
-def _one_field(fields: dict[str, object], other: object) -> bool:
+def _matches_all(fields: dict[str, object], other: object) -> bool:
     for item in fields.values():
-        if _same(item, other):
-            return True
-    return False
+        if not _same(item, other):
+            return False
+    return True
 
 
 def _equal_data(fields: dict[str, object], other: object) -> bool:
-    if _one_field(fields, other):
-        return True
-    values = tuple(fields.values())
-    if not values:
+    if not fields:
         return False
-    return _same(values, other)
+    return _matches_all(fields, other)
 
 
 def _comparable(op: object, item: object, other: object) -> bool:
@@ -85,23 +88,36 @@ def _comparable(op: object, item: object, other: object) -> bool:
     return True
 
 
+def _rejects(op: object, item: object, other: object) -> bool:
+    if not _comparable(op, item, other):
+        return True
+    if not op(item, other):  # type: ignore[operator]
+        return True
+    return False
+
+
 def _ordered(name: str, fields: dict[str, object], other: object) -> bool:
-    op = _ORDER[name]
-    comparable = [item for item in fields.values() if _comparable(op, item, other)]
-    if not comparable:
+    if not fields:
         return False
-    for item in comparable:
-        if not op(item, other):
+    op = _ORDER[name]
+    for item in fields.values():
+        if _rejects(op, item, other):
             return False
     return True
 
 
-def _agrees(name: str, fields: dict[str, object], other: object) -> bool:
+def _relation(name: str, fields: dict[str, object], other: object) -> bool:
     if name == "__ne__":
         return not _equal_data(fields, other)
     if name == "__eq__":
         return _equal_data(fields, other)
     return _ordered(name, fields, other)
+
+
+def _agrees(name: str, fields: dict[str, object], other: object) -> bool:
+    if not fields:
+        return False
+    return _relation(name, fields, other)
 
 
 def _user_defined(info: dict[str, object], name: str) -> bool:
@@ -120,14 +136,18 @@ def _agreed(name: str, info: dict[str, object], result: object, other: object) -
     return NotImplemented
 
 
+def _needs_data(result: object, info: dict[str, object], name: str) -> bool:
+    if not _affirms(result):
+        return False
+    return _user_defined(info, name)
+
+
 def decide(name: str, result: object, info: dict[str, object] | None, other: object) -> object:
-    """Keep a candidate comparison only when its data agrees."""
+    """Keep a candidate comparison only when every plain field agrees."""
 
     if info is None:
         return result
-    if not _affirms(result):
-        return result
-    if not _user_defined(info, name):
+    if not _needs_data(result, info, name):
         return result
     return _agreed(name, info, result, other)
 

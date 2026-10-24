@@ -19,34 +19,53 @@ else:
     )
 
 
-def _load_text(module_name: str) -> object | None:
-    if module_name == "json":
-        return importlib.import_module("json")
-    if module_name == "json.decoder":
-        return importlib.import_module("json.decoder")
-    if module_name == "decimal":
-        return importlib.import_module("decimal")
-    return None
+def _load_json() -> object:
+    return importlib.import_module("json")
 
 
-def _load_data(module_name: str) -> object | None:
-    if module_name == "uuid":
-        return importlib.import_module("uuid")
-    if module_name == "array":
-        return importlib.import_module("array")
-    if module_name == "copyreg":
-        return importlib.import_module("copyreg")
-    return None
+def _load_json_decoder() -> object:
+    return importlib.import_module("json.decoder")
+
+
+def _load_decimal() -> object:
+    return importlib.import_module("decimal")
+
+
+def _load_uuid() -> object:
+    return importlib.import_module("uuid")
+
+
+def _load_array() -> object:
+    return importlib.import_module("array")
+
+
+def _load_copyreg() -> object:
+    return importlib.import_module("copyreg")
+
+
+def _load_re() -> object:
+    return importlib.import_module("re")
+
+
+_LOADERS = {
+    "json": _load_json,
+    "json.decoder": _load_json_decoder,
+    "decimal": _load_decimal,
+    "uuid": _load_uuid,
+    "array": _load_array,
+    "copyreg": _load_copyreg,
+    "re": _load_re,
+}
 
 
 def load_module(module_name: str) -> object | None:
     """Import one reviewed standard-library module, by a literal name."""
 
+    loader = _LOADERS.get(module_name)
+    if loader is None:
+        return None
     try:
-        found = _load_text(module_name)
-        if found is not None:
-            return found
-        return _load_data(module_name)
+        return loader()
     except ImportError:
         return None
 
