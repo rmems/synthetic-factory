@@ -21,6 +21,7 @@ if __package__:
     from . import training_audit_reasoning as _reasoning
     from .exact_json import dumps_exact_json
     from .quality_gate_identity import canonical_numeric_value
+    from .record_kind import SUPPORTED_RECORD_KINDS, classify_kind
     from .validate_run import episode_like
 else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
@@ -29,6 +30,7 @@ else:
     import training_audit_reasoning as _reasoning
     from exact_json import dumps_exact_json
     from quality_gate_identity import canonical_numeric_value
+    from record_kind import SUPPORTED_RECORD_KINDS, classify_kind
     from validate_run import episode_like
 
 
@@ -90,6 +92,98 @@ def embedded_episode_errors(obj, kind, where, readers):
 
 def canonical_blob(value):
     return dumps_exact_json(value, sort_keys=True, ensure_ascii=False)
+
+
+# The canonical id is stamped from the source coordinate, and the reward
+# sidecar id hashes that coordinate together with the source record id.
+# Neither is training content, so copies that differ only there share one key.
+_CONTENT_IDENTITY_KEYS = frozenset({"id", "source_sidecar_id"})
+
+
+def _content_without_identity(value):
+    """Drop identity bookkeeping and surrounding whitespace from ``value``."""
+    if isinstance(value, dict):
+        return {
+            key: _content_without_identity(child)
+            for key, child in value.items()
+            if key not in _CONTENT_IDENTITY_KEYS
+        }
+    if isinstance(value, list):
+        return [_content_without_identity(child) for child in value]
+    if isinstance(value, str):
+        return value.strip()
+    return value
+
+
+def content_identity_blob(value):
+    """Canonical JSON of training content, without ids or edge whitespace."""
+    return canonical_blob(_content_without_identity(value))
+
+
+_HUMAN_VERIFIED_SOURCE = "human_verified"
+
+
+def _text_claim(value: Any) -> str | None:
+    if not isinstance(value, str):
+        return None
+    text = value.strip()
+    return text or None
+
+
+def _claim_texts(values: tuple[Any, ...]) -> list[str]:
+    texts: list[str] = []
+    for value in values:
+        text = _text_claim(value)
+        if text is not None:
+            texts.append(text)
+    return texts
+
+
+def _nested_mapping(record: dict[str, Any], key: str) -> dict[str, Any]:
+    value = record.get(key)
+    if isinstance(value, dict):
+        return value
+    return {}
+
+
+def _kind_claims(record: dict[str, Any]) -> list[str]:
+    meta = _nested_mapping(record, "meta")
+    return _claim_texts((record.get("record_kind"), meta.get("kind"), meta.get("record_kind")))
+
+
+def _source_kind_claims(record: dict[str, Any]) -> list[str]:
+    meta = _nested_mapping(record, "meta")
+    provenance = _nested_mapping(record, "provenance")
+    return _claim_texts(
+        (record.get("source_kind"), meta.get("source_kind"), provenance.get("source_kind"))
+    )
+
+
+def _kind_disagrees(claim: str, kind: str) -> bool:
+    return claim in SUPPORTED_RECORD_KINDS and claim != kind
+
+
+def declared_label_errors(obj: Any) -> list[str]:
+    """Refuse a self-declared kind or a human-verified source claim.
+
+    Payload classification stays the authority. A ``meta.kind`` or
+    ``record_kind`` that names a different supported kind is a label, not
+    evidence, and ``source_kind`` ``human_verified`` is not a factory product.
+    """
+    if not isinstance(obj, dict):
+        return []
+    kind = classify_kind(obj)
+    errors = [
+        f"DECLARED_KIND_MISMATCH:{claim}!={kind}"
+        for claim in _kind_claims(obj)
+        if _kind_disagrees(claim, kind)
+    ]
+    errors.extend(
+        f"DECLARED_SOURCE_KIND:{claim}"
+        for claim in _source_kind_claims(obj)
+        if claim == _HUMAN_VERIFIED_SOURCE or _kind_disagrees(claim, kind)
+    )
+    return errors
 
 
 def dict_field(value, key):
