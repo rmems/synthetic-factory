@@ -16,7 +16,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from task_gate_test_support import (
     ADD, BROKEN, DENY, NO_DOCTESTS, PROGRAMS, REPO, FakeHarness, cv, gate, harness, denylist,
-    proposal, proposal_for, refused, rules,
+    proposal, proposal_for, refused, rules, write_denylist_json,
 )
 from task_gate import procedural, runner
 
@@ -253,10 +253,10 @@ class Cli(unittest.TestCase):
             code = cli.run(list(argv))
         return code, out.getvalue(), err.getvalue()
 
-    def test_procedural_subcommand_writes_summary_and_requires_the_denylist(self):
+    def test_procedural_subcommand_writes_summary_and_refuses_a_missing_denylist(self):
         with tempfile.TemporaryDirectory() as tmp:
-            deny = Path(tmp) / "deny.txt"
-            deny.write_text("eval-only-program\n")
+            deny = Path(tmp) / "deny.json"
+            write_denylist_json(deny, ["eval-only-program"])
             out = Path(tmp) / "run"
             code, stdout, _ = self.invoke(
                 "procedural", "--catalog", str(FIXTURE), "--denylist", str(deny), "--seed", "3",
@@ -266,13 +266,6 @@ class Cli(unittest.TestCase):
             summary = json.loads((out / cv.SUMMARY_FILENAME).read_text())
             self.assertEqual(json.loads(stdout)["verdicts"], summary["verdicts"])
             code, _, stderr = self.invoke(
-                "procedural", "--catalog", str(FIXTURE), "--seed", "3", "--count", "2",
-                "--out", str(Path(tmp) / "no-deny"),
-            )
-            self.assertEqual(code, 2)
-            self.assertIn(cv.REFUSE_DENYLIST_MISSING, stderr)
-            self.assertFalse((Path(tmp) / "no-deny").exists())
-            code, _, stderr = self.invoke(
                 "procedural", "--catalog", str(FIXTURE), "--denylist", str(Path(tmp) / "missing.txt"),
                 "--seed", "3", "--count", "2", "--out", str(Path(tmp) / "gone"),
             )
@@ -281,8 +274,8 @@ class Cli(unittest.TestCase):
     def test_verify_subcommand_reads_model_style_rows(self):
         program = next(iter(procedural.programs_from_catalog(procedural.load_catalog(FIXTURE)).values()))
         with tempfile.TemporaryDirectory() as tmp:
-            deny = Path(tmp) / "deny.txt"
-            deny.write_text("eval-only-program\n")
+            deny = Path(tmp) / "deny.json"
+            write_denylist_json(deny, ["eval-only-program"])
             rows = Path(tmp) / "rows.jsonl"
             rows.write_text(
                 json.dumps({"program_id": program.program_id, "replacement_text": "0",
@@ -306,6 +299,7 @@ class Cli(unittest.TestCase):
         )
         self.assertEqual(done.returncode, 0, done.stderr)
         self.assertIn("--denylist", done.stdout)
+        self.assertIn("config/eval-exclusion/", done.stdout)
 
 
 class ImportTwins(unittest.TestCase):

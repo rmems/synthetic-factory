@@ -96,6 +96,7 @@ class Rules(NamedTuple):
 
     denylist: Denylist
     prior: PriorIndex
+    eval_program_ids: frozenset[str] = frozenset()
 
 
 def _check_rules(rules: Rules) -> None:
@@ -124,6 +125,7 @@ class Gate:
             selfcheck()
         self.programs, self.harness = programs, harness
         self.denylist, self.prior = rules.denylist, rules.prior
+        self.eval_program_ids = frozenset(rules.eval_program_ids)
         self.kept: dict[str, dict[str, Any]] = {}
         self._originals: dict[str, str | None] = {}
         self._mutants: dict[str, HarnessResult] = {}
@@ -131,9 +133,14 @@ class Gate:
     def run(self, items: Iterable[GateProposal | MalformedProposal]) -> list[Decision]:
         return [self.decide(item) for item in items]
 
+    def _denylisted(self, program_id: str | None) -> bool:
+        if program_id is None:
+            return False
+        return program_id in self.denylist or program_id in self.eval_program_ids
+
     def decide(self, item: GateProposal | MalformedProposal) -> Decision:
         source = item.source if isinstance(item, GateProposal) else None
-        if item.program_id is not None and item.program_id in self.denylist:
+        if self._denylisted(item.program_id):
             return Decision(item.proposal_id, item.program_id, source, cv.VERDICT_DENYLISTED,
                             cv.DETAIL_ON_DENYLIST)
         if isinstance(item, MalformedProposal):

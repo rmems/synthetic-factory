@@ -116,7 +116,7 @@ class ExportOutput(unittest.TestCase):
         self.assertEqual((code, err), (0, ""))
         self.assertEqual(
             out,
-            f"exported 0 rows from 5 positives "
+            f"exported 0 rows from 6 positives "
             f"({{'train': 0, 'validation': 0, 'held_out': 0}}) "
             f"into {destination}; training export blocked: REGISTRY_ROW_MISSING, "
             "RIGHTS_PROFILE_MISSING, RECORD_KIND_UNSUPPORTED, REPLAY_NOT_RUN, "
@@ -135,7 +135,7 @@ class GenerateAndRender(unittest.TestCase):
         ])
         self.assertEqual(code, 0)
         summary = json.loads(text)["summary"]
-        self.assertEqual(summary["outcomes"], {"accepted": 7, "rejected": 3})
+        self.assertEqual(summary["outcomes"], {"accepted": 6, "rejected": 4})
         record_id = required_item(r['id'] for _, r in oc.iter_jsonl(out / generate.CANDIDATES_FILENAME)
                          if views.is_positive(r))
         code, text, _err = invoke(["render", str(out), record_id, "--json"])
@@ -160,11 +160,12 @@ class GenerateAndRender(unittest.TestCase):
         finding = json.loads(text)["findings"][0]
         self.assertEqual(finding["code"], cv.FINDING_RECORD_NOT_A_POSITIVE_EXAMPLE)
         self.assertEqual(finding["reason_codes"], [cv.REASON_MUTANT_NO_OBSERVED_FAILURE])
-        provisional = required_item(r for r in records if r['result']['oracle_status'] == cv.STATUS_PROVISIONAL)
-        code, text, _err = invoke(["render", str(run_dir), provisional['id'], "--json"])
+        timed_out = required_item(r for r in records if cv.REASON_MUTANT_TIMEOUT in r['result']['reason_codes'])
+        code, text, _err = invoke(["render", str(run_dir), timed_out['id'], "--json"])
         self.assertEqual(code, 1)
         finding = json.loads(text)["findings"][0]
-        self.assertEqual(finding["oracle_status"], cv.STATUS_PROVISIONAL)
+        self.assertEqual(finding["code"], cv.FINDING_RECORD_NOT_A_POSITIVE_EXAMPLE)
+        self.assertIn(cv.REASON_MUTANT_TIMEOUT, finding["reason_codes"])
         code, _text, err = invoke(["render", str(run_dir), "pfr-0-99999"])
         self.assertEqual(code, 2)
         self.assertTrue(err.startswith(cv.FINDING_RECORD_NOT_FOUND))

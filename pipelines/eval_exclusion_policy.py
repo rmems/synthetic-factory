@@ -151,10 +151,22 @@ class ExclusionPolicy:
             for match in (*_repo_matches(listed, canonical), *_id_matches(listed, ids))
         ]
 
-    def evaluate(self, identity: SourceIdentity) -> Evaluation:
+    def _repo_verdict(
+        self, identity: SourceIdentity, require_repo: bool,
+    ) -> tuple[str | None, str | None]:
+        """Resolve ``identity.repo``; payload scans skip unresolved-repo reasons."""
+
+        if not require_repo and identity.repo is None:
+            return None, None
+        canonical, unresolved = self.resolve_repo(identity.repo)
+        if not require_repo:
+            return canonical, None
+        return canonical, unresolved
+
+    def evaluate(self, identity: SourceIdentity, *, require_repo: bool = True) -> Evaluation:
         """Match one source identity on whole canonical values; never on substrings."""
 
-        canonical, unresolved = self.resolve_repo(identity.repo)
+        canonical, unresolved = self._repo_verdict(identity, require_repo)
         matches = self._matches(canonical, identity)
         reasons = {REASON_BY_SLOT[match["list"]] for match in matches}
         if unresolved is not None:

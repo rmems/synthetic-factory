@@ -11,7 +11,7 @@ The procedural row has no hosted provider or channel. Runtime implementation
 ownership (`project_owned`), generation method (`deterministic_execution`),
 and source-license evidence are separate fields. AI-assisted implementation
 does not make runtime generation model-generated. The approved mutator version
-is 2.0.0, including repeat execution evidence and catalog-bound record IDs.
+is 2.1.0, including repeat execution evidence and catalog-bound record IDs.
 
 ## Source authority
 
@@ -184,3 +184,15 @@ viewer projection is read back before anything is written; a mismatch refuses
 the bundle, which only ever targets a brand-new destination outside
 `outputs/raw/`. The command creates no Hub repository and uploads nothing;
 publication remains a separate, owner-gated step.
+
+Generator 2.1.0 (`code_repair.planning.ProposalPlan`) draws train-split programs
+only. A run stamped 2.0.0 validates and replays the earlier draw, which still
+includes `validation` and `held_out` programs. Admission compares the record
+with the sealed row, so a 2.0.0 record is `PROCEDURAL_GENERATOR_MISMATCH` and
+is not a training candidate. Those programs stay in the catalog, and
+the task gate still denies those ids, but a generated run's consumer files for
+those splits are empty. The Hub bundle omits the empty splits. Every export records
+the evaluation limitation `TRAIN_ONLY_DRAW_OMITS_EVAL_SPLITS`, and the bundle
+summary carries a warning when train rows exist and held-out rows do not.
+Programs whose catalog `split` is null (no split policy) stay eligible; only
+the explicit `validation` and `held_out` splits are left out of the draw.

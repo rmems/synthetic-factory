@@ -273,7 +273,7 @@ class Integrity(unittest.TestCase):
             export.run(request(run_dir, self.root / "out", replay_dir))
         manifest, _out = export_of(run_dir, self.root / "plain")
         self.assertGreater(manifest["tables"]["outcomes"]["rejected"], 0)
-        self.assertGreater(manifest["tables"]["oracle_statuses"]["provisional"], 0)
+        self.assertGreater(sum(manifest["tables"]["oracle_statuses"].values()), 0)
         self.assertEqual(manifest["tables"]["dispositions"]["exported"], 0)
 
     def test_a_lineage_in_two_splits_or_a_moved_split_refuses(self):

@@ -16,7 +16,7 @@ from ._contract import bind_import_twin, load_strict_json
 ROOT = Path(__file__).resolve().parents[2]
 POLICY_PATH = ROOT / "schemas/procedural-source-policy-v1.json"
 # Independent trust anchor: update only with the reviewed catalog/policy change.
-POLICY_SHA256 = "b8d1621798eb13eed8e5d73de365dc1028b08cef9645d08aff9d909630b23b1b"
+POLICY_SHA256 = "c517874c7fe74bbaaefd13f938be162fac328c9704e378a937f1c080eb8b6cd4"
 PROCEDURAL_FIELDS = frozenset({
     "source_type", "generator_ownership", "generation_method", "source_license_evidence",
     "procedural_policy_sha256", "catalog_id", "catalog_sha256", "programs_sha256",

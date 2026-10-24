@@ -62,8 +62,13 @@ class CommittedPolicyTests(unittest.TestCase):
             with self.subTest(slot=listed.slot):
                 self.assertEqual(listed.status, lists.STATUS_REVIEWED)
                 self.assertEqual(len(listed.repos), expected_counts[listed.slot])
-                self.assertEqual((listed.program_ids, listed.task_ids),
-                                 (frozenset(), frozenset()))
+                if listed.slot == lists.LIST_EVAL_DENYLIST:
+                    self.assertEqual(len(listed.program_ids), 19)
+                    self.assertTrue(all(item.startswith("tap-") for item in listed.program_ids))
+                    self.assertEqual(listed.task_ids, frozenset())
+                else:
+                    self.assertEqual((listed.program_ids, listed.task_ids),
+                                     (frozenset(), frozenset()))
         self.assertEqual(active.aliases.updated_at, "2026-10-19T01:28:28Z")
         self.assertEqual(len(active.aliases.canonical_by_name), 381)
         self.assertEqual(
@@ -377,6 +382,14 @@ class PolicyMatchingTests(unittest.TestCase):
         unresolved_listed_id = self._evaluate(None, task_id="clap-rs__clap-941")
         self.assertEqual(unresolved_listed_id.reason_codes,
                          (policy.REASON_REPO_UNRESOLVED, policy.REASON_EVAL_DENYLISTED))
+        payload = self.policy.evaluate(
+            policy.SourceIdentity(None, program_id="tap-fixture-held-out"), require_repo=False,
+        )
+        self.assertEqual(payload.reason_codes, (policy.REASON_EVAL_DENYLISTED,))
+        unknown_repo = self.policy.evaluate(
+            policy.SourceIdentity("someone/unknown", program_id="tap-clean"), require_repo=False,
+        )
+        self.assertFalse(unknown_repo.excluded)
 
     def test_a_list_that_names_a_repository_by_its_old_name_is_refused(self):
         with tempfile.TemporaryDirectory() as temp:
