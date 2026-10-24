@@ -197,7 +197,7 @@ def _forward(name: str):
         info = None
         if other is not None:
             info = _compare.preview(self, name)
-        return _compare.decide(self, name, func(*args), info, args[0] if args else None)
+        return _compare.decide(name, func(*args), info, args[0] if args else None)
 
     method.__name__ = name
     return method
