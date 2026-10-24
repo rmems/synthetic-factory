@@ -8,6 +8,7 @@ file-complexity gate.
 from __future__ import annotations
 
 import builtins
+import importlib
 import sys
 
 if __package__:  # pragma: no cover - package-child import path
@@ -63,9 +64,33 @@ def _exc_bases(client: object, info: dict[str, object]) -> tuple[type[Exception]
     return tuple(bases)
 
 
+def _stdlib_exception(info: dict[str, object]) -> type[Exception] | None:
+    module_name = info.get("module")
+    qualname = info.get("qualname")
+    if not isinstance(module_name, str) or not isinstance(qualname, str):
+        return None
+    root = module_name.split(".", 1)[0]
+    if root not in sys.stdlib_module_names:
+        return None
+    try:
+        found: object = importlib.import_module(module_name)
+    except ImportError:
+        return None
+    for part in qualname.split("."):
+        found = getattr(found, part, None)
+        if found is None:
+            return None
+    if isinstance(found, type) and issubclass(found, Exception):
+        return found
+    return None
+
+
 def exc_from(client: object, info: dict[str, object]) -> type[Exception]:
     """One parent class per candidate exception class, keyed by child identity."""
 
+    stdlib = _stdlib_exception(info)
+    if stdlib is not None:
+        return stdlib
     builtin_name = info.get("builtin")
     if isinstance(builtin_name, str):
         builtin = _builtin_exception(builtin_name)
@@ -88,7 +113,11 @@ def raise_remote(
 ) -> None:
     """Raise a candidate error without ever raising BaseException."""
 
-    exc = cls(*args)
+    try:
+        exc = cls(*args)
+    except TypeError:
+        exc = cls.__new__(cls)
+        Exception.__init__(exc, *args)
     for key, value in attrs.items():
         setattr(exc, key, value)
     raise exc

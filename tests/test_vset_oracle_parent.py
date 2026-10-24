@@ -135,6 +135,28 @@ class ParentOracleTests(unittest.TestCase):
             },
         )
 
+    def test_stdlib_exceptions_match_assert_raises(self) -> None:
+        self._ok_files(
+            "use.py",
+            {
+                "src/c.py": (
+                    "import decimal\nimport json\n"
+                    "def parse(text):\n    return json.loads(text)\n"
+                    "def dec(text):\n    return decimal.Decimal(text)\n"
+                ),
+                "tests/use.py": (
+                    "import decimal\nimport json\nimport unittest\nimport c\n"
+                    "class T(unittest.TestCase):\n"
+                    "    def test_json(self):\n"
+                    "        with self.assertRaises(json.JSONDecodeError):\n"
+                    "            c.parse('{')\n"
+                    "    def test_decimal(self):\n"
+                    "        with self.assertRaises(decimal.InvalidOperation):\n"
+                    "            c.dec('x')\n"
+                ),
+            },
+        )
+
     def test_parent_captures_output_logs_and_environ(self) -> None:
         self._ok_files(
             "use.py",
