@@ -137,13 +137,21 @@ def sha256_bytes(payload: bytes) -> str:
 
 
 def _const_eval(node: ast.AST) -> Any:
-    """Literal values and keyword-only ``dict(...)`` calls. Never exec."""
+    """Literal values and keyword-only ``dict(...)`` calls. Never exec.
+
+    Nested values recurse straight back into this function, one frame per level
+    (two for a tuple's generator) as before; the helpers it calls never recurse.
+    A ``{...}`` literal goes through ``const_dict``, which refuses ``**`` unpacking.
+    """
 
     if isinstance(node, ast.Constant):
         return node.value
     if isinstance(node, (ast.List, ast.Tuple)):
-        values = [_const_eval(item) for item in node.elts]
-        return values if isinstance(node, ast.List) else tuple(values)
+        return (
+            list(map(_const_eval, node.elts))
+            if isinstance(node, ast.List)
+            else tuple(_const_eval(item) for item in node.elts)
+        )
     if isinstance(node, ast.Dict):
         return const_dict(
             node,
@@ -152,27 +160,38 @@ def _const_eval(node: ast.AST) -> Any:
                 FINDING_SOURCE_NOT_PARSEABLE, "pair source uses dict unpacking"
             ),
         )
+    call = _dict_call_parts(node)
+    if call is not None:
+        return dict(zip(call[0], map(_const_eval, call[1])))
+    operand = _negated_operand(node)
+    if operand is None:
+        raise SafRefusal(FINDING_SOURCE_NOT_PARSEABLE, _not_literal_message(node))
+    return -_const_eval(operand)
+
+
+def _dict_call_parts(node: ast.AST) -> tuple[list[str | None], list[ast.expr]] | None:
+    """Names and value nodes of a keyword-only ``dict(...)`` call."""
+
+    if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Name):
+        return None
+    if node.func.id != "dict" or node.args:
+        return None
+    names = [keyword.arg for keyword in node.keywords]
+    return None if None in names else (names, [keyword.value for keyword in node.keywords])
+
+
+def _negated_operand(node: ast.AST) -> ast.expr | None:
     if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
-        return -_const_eval(node.operand)
+        return node.operand
+    return None
+
+
+def _not_literal_message(node: ast.AST) -> str:
+    """A call other than keyword-only ``dict(...)``, or any other non-literal."""
+
     if isinstance(node, ast.Call):
-        func = node.func
-        if (
-            isinstance(func, ast.Name)
-            and func.id == "dict"
-            and not node.args
-            and all(keyword.arg is not None for keyword in node.keywords)
-        ):
-            return {
-                keyword.arg: _const_eval(keyword.value) for keyword in node.keywords
-            }
-        raise SafRefusal(
-            FINDING_SOURCE_NOT_PARSEABLE,
-            f"pair source uses a non-literal call ({type(node).__name__})",
-        )
-    raise SafRefusal(
-        FINDING_SOURCE_NOT_PARSEABLE,
-        f"pair source is not a constant ({type(node).__name__})",
-    )
+        return f"pair source uses a non-literal call ({type(node).__name__})"
+    return f"pair source is not a constant ({type(node).__name__})"
 
 
 _SOURCE_SPEC = {
@@ -226,17 +245,7 @@ def _plant_from_row(row: Any, where: str) -> Plant:
         raise SafRefusal(FINDING_PLANT_FIELD_INVALID, f"{where} must be an object")
     mill_id = _require_text(row.get("mill_id"), f"{where}.mill_id", FINDING_PLANT_FIELD_INVALID)
     slug = _require_text(row.get("slug"), f"{where}.slug", FINDING_PLANT_FIELD_INVALID)
-    if not MILL_ID_RE.fullmatch(mill_id):
-        raise SafRefusal(FINDING_PLANT_FIELD_INVALID, f"{where}.mill_id is not saf_rNNN")
-    if not SLUG_RE.fullmatch(slug):
-        raise SafRefusal(FINDING_PLANT_FIELD_INVALID, f"{where}.slug is not a plant slug")
-    plant_id = _require_text(row.get("plant_id"), f"{where}.plant_id", FINDING_PLANT_FIELD_INVALID)
-    expected = f"{mill_id}:{slug}"
-    if plant_id != expected:
-        raise SafRefusal(
-            FINDING_PLANT_FIELD_INVALID,
-            f"{where}.plant_id must be {expected!r}",
-        )
+    plant_id = _checked_plant_id(row, where, mill_id, slug)
     base_round = row.get("base_round")
     if not isinstance(base_round, int) or isinstance(base_round, bool) or base_round < 1:
         raise SafRefusal(FINDING_PLANT_FIELD_INVALID, f"{where}.base_round must be a positive int")
@@ -268,6 +277,22 @@ def _plant_from_row(row: Any, where: str) -> Plant:
         dest=fields["dest"],
         extra=fields["extra"],
     )
+
+def _checked_plant_id(row: dict[str, Any], where: str, mill_id: str, slug: str) -> str:
+    """Well-formed mill_id and slug, and a plant_id that joins them."""
+
+    if not MILL_ID_RE.fullmatch(mill_id):
+        raise SafRefusal(FINDING_PLANT_FIELD_INVALID, f"{where}.mill_id is not saf_rNNN")
+    if not SLUG_RE.fullmatch(slug):
+        raise SafRefusal(FINDING_PLANT_FIELD_INVALID, f"{where}.slug is not a plant slug")
+    plant_id = _require_text(row.get("plant_id"), f"{where}.plant_id", FINDING_PLANT_FIELD_INVALID)
+    expected = f"{mill_id}:{slug}"
+    if plant_id != expected:
+        raise SafRefusal(
+            FINDING_PLANT_FIELD_INVALID,
+            f"{where}.plant_id must be {expected!r}",
+        )
+    return plant_id
 
 
 def _mill_from_row(row: Any, where: str) -> Mill:
@@ -338,7 +363,6 @@ def load_catalog(directory: Path | None = None) -> Catalog:
     """Load a catalog directory and refuse unless every pin holds."""
 
     return load_pinned_catalog(directory, sys.modules[__name__], _contract, SafRefusal)
-
 
 
 def catalog_check(directory: Path | None = None) -> list[dict[str, str]]:

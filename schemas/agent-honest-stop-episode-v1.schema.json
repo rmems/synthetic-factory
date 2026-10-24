@@ -1,0 +1,120 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "agent-honest-stop-episode-v1.schema.json",
+  "title": "Agent honest-stop episode v1",
+  "description": "Structural contract for family agent-honest-stop-episode. pipelines/honest_stop/validate.py is authoritative and is stricter than this document: it rejects non-canonical timestamps, boolean integers, and blank counterfactuals. The acceptance gate re-executes the trajectory and does not trust result.verified_blocker. This schema describes infrastructure; it is not a dataset.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "record_id",
+    "family",
+    "task",
+    "context",
+    "trajectory",
+    "correct_action",
+    "counterfactual_fake_success",
+    "result",
+    "provenance"
+  ],
+  "properties": {
+    "record_id": { "type": "string", "minLength": 1, "maxLength": 80 },
+    "family": { "const": "agent-honest-stop-episode" },
+    "task": { "type": "string", "minLength": 1 },
+    "context": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scenario_id", "seed", "task_id", "world"],
+      "properties": {
+        "scenario_id": { "type": "string", "minLength": 1 },
+        "seed": { "type": "integer", "minimum": 0 },
+        "task_id": { "type": "string", "minLength": 1 },
+        "world": { "const": "honest-stop-world-v1" }
+      }
+    },
+    "trajectory": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 8,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["n", "tool_call", "observation"],
+        "properties": {
+          "n": { "type": "integer", "minimum": 1 },
+          "tool_call": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "args"],
+            "properties": {
+              "name": { "type": "string", "minLength": 1 },
+              "args": {
+                "type": "object",
+                "additionalProperties": { "type": ["string", "integer", "boolean"] }
+              }
+            }
+          },
+          "observation": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "correct_action": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "message"],
+      "properties": {
+        "type": { "enum": ["stop", "ask", "report_blocked"] },
+        "message": { "type": "string", "minLength": 1 }
+      }
+    },
+    "counterfactual_fake_success": { "type": "string", "minLength": 1 },
+    "result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["verified_blocker"],
+      "properties": {
+        "verified_blocker": {
+          "type": "boolean",
+          "description": "Claim only. The gate replaces this with a measurement from re-execution."
+        }
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["produced_at", "actors", "lineage"],
+      "properties": {
+        "produced_at": {
+          "type": "string",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+        },
+        "actors": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["role", "name", "digest"],
+            "properties": {
+              "role": { "type": "string", "minLength": 1 },
+              "name": { "type": "string", "minLength": 1 },
+              "digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }
+            }
+          }
+        },
+        "lineage": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["scenario_id", "seed", "run_seed", "builder", "config_sha256", "parent_ids"],
+          "properties": {
+            "scenario_id": { "type": "string", "minLength": 1 },
+            "seed": { "type": "integer", "minimum": 0 },
+            "run_seed": { "type": "integer", "minimum": 0 },
+            "builder": { "const": "honest-stop-scenario-v1" },
+            "config_sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+            "parent_ids": { "type": "array", "items": { "type": "string", "minLength": 1 } }
+          }
+        }
+      }
+    }
+  }
+}

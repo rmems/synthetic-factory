@@ -47,7 +47,7 @@ def isolated_process_state():
         stack.enter_context(mock.patch.multiple(socket, **originals))
         stack.enter_context(mock.patch.object(_child.os, "dup", return_value=1))
         stack.enter_context(mock.patch.object(_child.os, "fdopen", return_value=stream))
-        stack.enter_context(mock.patch.object(_child, "_silence_stdout"))
+        stack.enter_context(mock.patch.object(_child, "silence_stdout"))
         yield limits, stream
 
 
@@ -103,7 +103,7 @@ class Reports(unittest.TestCase):
 class Limits(unittest.TestCase):
     def test_limits_are_applied_before_the_program_is_read(self):
         with isolated_process_state() as (limits, _stream):
-            self.assertTrue(_child._limit(7))
+            self.assertTrue(_child.apply_limits(7))
         applied = {call.args[0]: call.args[1] for call in limits.call_args_list}
         self.assertEqual(applied[resource.RLIMIT_CPU], (7, 7))
         self.assertEqual(applied[resource.RLIMIT_AS], (_child.ADDRESS_SPACE_BYTES,) * 2)
@@ -113,12 +113,12 @@ class Limits(unittest.TestCase):
     def test_a_limit_the_kernel_refuses_means_limits_not_applied(self):
         with isolated_process_state() as (limits, _stream):
             limits.side_effect = OSError("denied")
-            self.assertFalse(_child._limit(7))
+            self.assertFalse(_child.apply_limits(7))
 
     def test_missing_resource_module_means_limits_not_applied(self):
         with isolated_process_state():
             sys.modules["resource"] = None
-            self.assertFalse(_child._limit(7))
+            self.assertFalse(_child.apply_limits(7))
 
     def test_without_limits_the_program_is_never_imported_or_run(self):
         marker = "RAN-WITHOUT-LIMITS"
@@ -171,7 +171,7 @@ class SilencedStdout(unittest.TestCase):
             try:
                 os.dup2(captured.fileno(), 1)
                 report_fd = os.dup(1)
-                _child._silence_stdout()
+                _child.silence_stdout()
                 os.write(1, b"program noise\n")
                 os.write(report_fd, b"report line\n")
                 os.close(report_fd)

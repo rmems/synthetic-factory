@@ -89,40 +89,16 @@ def _bash(command: str) -> dict[str, Any]:
 
 
 def _prefix(plant: cat.Plant, pr: int) -> list[dict[str, Any]]:
-    repo, core, boot, test = plant.repo, plant.core, plant.boot, plant.test
+    return crp_tail.inventory_steps(plant, pr) + _reach_steps(plant) + _evidence_steps(plant, pr)
+
+
+def _reach_steps(plant: cat.Plant) -> list[dict[str, Any]]:
+    """Steps 4-5: the caller/schema for reachability, then the new tests."""
+
+    boot = plant.boot
+    test = plant.test
     feat = plant.title.split(":", 1)[-1].strip()
     return [
-        _step(
-            1,
-            (
-                f"Observation: operator asked for a merge-blocking review of "
-                f"{repo} PR {pr} if the change has a real defect."
-            ),
-            _bash(f"gh pr view {pr} --repo {repo} --json number,title,files,additions,headRefName"),
-            (
-                f'designed: {{"number":{pr},"title":"{plant.title}","additions":{8},'
-                f'"files":[{{"path": "{core}"}}, {{"path": "{boot}"}}, '
-                f'{{"path": "{test}"}}],"headRefName":"feat/{plant.slug}"}}'
-            ),
-            "Inventory the PR before commenting.",
-        ),
-        _step(
-            2,
-            "Observation: core file named in the files list. Diff that hunk.",
-            _bash(f"gh pr diff {pr} --repo {repo} -- {core}"),
-            f"designed: +{feat}  # {plant.defect}",
-            "Read the implementation next, not just the hunk.",
-        ),
-        _step(
-            3,
-            "Observation: diff shows the suspect pattern. Read the full function.",
-            {"name": "read_file", "args": {"path": core}},
-            (
-                f"designed: {plant.defect}. this is {plant.family}, not the "
-                f"{plant.notfam}. serial tests never cover {plant.missing}."
-            ),
-            "Confirm callers and tests before verdict.",
-        ),
         _step(
             4,
             (
@@ -143,6 +119,17 @@ def _prefix(plant: cat.Plant, pr: int) -> list[dict[str, Any]]:
             f"designed: tests {feat} resolves. no case for {plant.missing}. serial green.",
             "Serial tests are not a concurrency or authz proof.",
         ),
+    ]
+
+
+def _evidence_steps(plant: cat.Plant, pr: int) -> list[dict[str, Any]]:
+    """Steps 6-7: search for the missing primitive, then the PR body."""
+
+    repo = plant.repo
+    core = plant.core
+    boot = plant.boot
+    test = plant.test
+    return [
         _step(
             6,
             (
@@ -178,26 +165,8 @@ def _rejected_tail(plant: cat.Plant, pr: int) -> list[dict[str, Any]]:
     return crp_tail.rejected_tail(plant, pr)
 
 
-def pair(plant: cat.Plant, round_n: int, slot: int) -> dict[str, Any]:
-    """One leftover3 preference pair. Catalog ``noun`` is in ``meta`` and ``repo``."""
-
-    pr = 1900 + (round_n - cat.PAIR_FIRST_ROUND) * 3 + slot
-    rid = 900000 + pr
-    pq = round(0.86 + (slot * 0.02) + ((round_n % 5) * 0.002), 3)
-    vr = round(0.87 + (slot * 0.01) + ((round_n % 7) * 0.001), 3)
-    ds = round(0.88 + (slot * 0.015), 3)
-    margin = round(0.72 + (slot * 0.03) + ((round_n % 4) * 0.01), 3)
-    feat = plant.title.split(":", 1)[-1].strip()
-    prefix = _prefix(plant, pr)
-    # Slot only affects reward arithmetic and the designed additions count.
-    prefix[0]["observation"] = (
-        f'designed: {{"number":{pr},"title":"{plant.title}","additions":{8 + slot},'
-        f'"files":[{{"path": "{plant.core}"}}, {{"path": "{plant.boot}"}}, '
-        f'{{"path": "{plant.test}"}}],"headRefName":"feat/{plant.slug}"}}'
-    )
-    chosen_steps = prefix + _chosen_tail(plant, pr, rid)
-    rejected_steps = prefix + _rejected_tail(plant, pr)
-    critique = (
+def _pair_critique(plant: cat.Plant, pr: int, feat: str) -> str:
+    return (
         f"Same {plant.repo} PR {pr} and the same seven-step prefix: pr view, {feat}, "
         f"{plant.defect}, {plant.reach}, tests resolve, rg, PR body. Divergence is "
         f"step 8. Chosen posts issue (blocking) REQUEST_CHANGES on {plant.defect} in "
@@ -211,6 +180,19 @@ def pair(plant: cat.Plant, round_n: int, slot: int) -> dict[str, Any]:
         f"not cover {plant.defect}. The first differing tool_call is the review "
         f"verdict (REQUEST_CHANGES vs a nit comment)."
     )
+
+
+def pair(plant: cat.Plant, round_n: int, slot: int) -> dict[str, Any]:
+    """One leftover3 preference pair. Catalog ``noun`` is in ``meta`` and ``repo``."""
+
+    pr = 1900 + (round_n - cat.PAIR_FIRST_ROUND) * 3 + slot
+    rid = 900000 + pr
+    pq, vr, ds, margin = _pair_scores(round_n, slot)
+    feat = plant.title.split(":", 1)[-1].strip()
+    prefix = _slot_prefix(plant, pr, slot)
+    chosen_steps = prefix + _chosen_tail(plant, pr, rid)
+    rejected_steps = prefix + _rejected_tail(plant, pr)
+    critique = _pair_critique(plant, pr, feat)
     refuse_when(
         len(critique) < 400,
         FINDING_CRITIQUE_TOO_SHORT,
@@ -240,34 +222,67 @@ def pair(plant: cat.Plant, round_n: int, slot: int) -> dict[str, Any]:
                 "defect_specificity": ds,
             },
         },
-        "rejected": {
-            "steps": rejected_steps,
-            "outcome": f"Nit on the {plant.nit} name, APPROVE. Missed {plant.defect}.",
-            "reward": {
-                "success": False,
-                "process_quality": 0.16,
-                "verify_rigor": 0.07,
-                "defect_specificity": 0.05,
-            },
-        },
+        "rejected": _rejected_side(plant, rejected_steps),
         "critique": critique,
         "reward": {"success": True, "preference_margin": margin, "same_goal": 1.0},
-        "meta": {
-            "factory": cat.FACTORY,
-            "round": round_n,
-            "generator": cat.GENERATOR,
-            "kind": "preference",
-            "plant": "designed",
-            "rejected_sin": "missed defect / nitpicks",
-            "divergence_step": 8,
-            "construction": "divergence-point-shared-prefix",
-            "chosen_steps": 13,
-            "rejected_steps": 12,
-            "review_lesson": f"{plant.family}-blocking-vs-nit",
-            "family": plant.family,
-            "noun": plant.noun,
-            "slug": plant.slug,
+        "meta": _pair_meta(plant, round_n),
+    }
+
+
+def _rejected_side(plant: cat.Plant, rejected_steps: list[dict[str, Any]]) -> dict[str, Any]:
+    """The nit-and-APPROVE side that misses the defect."""
+
+    return {
+        "steps": rejected_steps,
+        "outcome": f"Nit on the {plant.nit} name, APPROVE. Missed {plant.defect}.",
+        "reward": {
+            "success": False,
+            "process_quality": 0.16,
+            "verify_rigor": 0.07,
+            "defect_specificity": 0.05,
         },
+    }
+
+
+def _pair_scores(round_n: int, slot: int) -> tuple[float, float, float, float]:
+    """Chosen-side reward scores and the preference margin for one slot."""
+
+    pq = round(0.86 + (slot * 0.02) + ((round_n % 5) * 0.002), 3)
+    vr = round(0.87 + (slot * 0.01) + ((round_n % 7) * 0.001), 3)
+    ds = round(0.88 + (slot * 0.015), 3)
+    margin = round(0.72 + (slot * 0.03) + ((round_n % 4) * 0.01), 3)
+    return pq, vr, ds, margin
+
+
+def _slot_prefix(plant: cat.Plant, pr: int, slot: int) -> list[dict[str, Any]]:
+    """The shared seven-step prefix; the slot only changes step 1's additions count."""
+
+    prefix = _prefix(plant, pr)
+    # Slot only affects reward arithmetic and the designed additions count.
+    prefix[0]["observation"] = (
+        f'designed: {{"number":{pr},"title":"{plant.title}","additions":{8 + slot},'
+        f'"files":[{{"path": "{plant.core}"}}, {{"path": "{plant.boot}"}}, '
+        f'{{"path": "{plant.test}"}}],"headRefName":"feat/{plant.slug}"}}'
+    )
+    return prefix
+
+
+def _pair_meta(plant: cat.Plant, round_n: int) -> dict[str, Any]:
+    return {
+        "factory": cat.FACTORY,
+        "round": round_n,
+        "generator": cat.GENERATOR,
+        "kind": "preference",
+        "plant": "designed",
+        "rejected_sin": "missed defect / nitpicks",
+        "divergence_step": 8,
+        "construction": "divergence-point-shared-prefix",
+        "chosen_steps": 13,
+        "rejected_steps": 12,
+        "review_lesson": f"{plant.family}-blocking-vs-nit",
+        "family": plant.family,
+        "noun": plant.noun,
+        "slug": plant.slug,
     }
 
 
@@ -276,90 +291,88 @@ def _leftover3_last_round() -> int:
     return cat.WAVE_FIRST_ROUND + len(plants) // cat.PLANTS_PER_ROUND - 1
 
 
+# The one round type the waves accept: exactly ``int``, as main's ``type(x) is int`` was.
+_PLAIN_INT = frozenset({int})
+
+
 def _wave_for_round(round_n: int) -> tuple[tuple[cat.Plant, ...], str, str, str]:
-    if (
-        type(round_n) is int
-        and r432_cat.WAVE_FIRST_ROUND <= round_n <= r432_cat.WAVE_LAST_ROUND
-    ):
-        return (
-            r432_cat.plants_for_round(round_n),
-            r432_cat.CATALOG_ID,
-            r432_cat.RUN_FORMAT,
-            "r432 application-bug stretch",
-        )
-    if (
-        type(round_n) is int
-        and leftover3_prior_cat.WAVE_FIRST_ROUND
-        <= round_n
-        <= leftover3_prior_cat.WAVE_LAST_ROUND
-    ):
-        return (
-            leftover3_prior_cat.plants_for_round(round_n),
-            leftover3_prior_cat.CATALOG_ID,
-            leftover3_prior_cat.RUN_FORMAT,
-            "leftover leftover leftover IaC/policy stretch (prior wave)",
-        )
-    if (
-        type(round_n) is int
-        and r538_cat.WAVE_FIRST_ROUND <= round_n <= r538_cat.WAVE_LAST_ROUND
-        and round_n > r432_cat.WAVE_LAST_ROUND
-    ):
-        return (
-            r538_cat.plants_for_round(round_n),
-            r538_cat.CATALOG_ID,
-            r538_cat.RUN_FORMAT,
-            "r538 orchestration/data-platform stretch",
-        )
+    """The wave owning ``round_n``: earlier slices first, leftover3, then later slices."""
+
+    wave = _wave_before_leftover3(round_n)
+    if wave is not None:
+        return wave
     leftover3_last = _leftover3_last_round()
-    if (
-        type(round_n) is int
-        and cat.WAVE_FIRST_ROUND <= round_n <= leftover3_last
-    ):
-        return (
-            cat.plants_for_round(round_n),
-            cat.CATALOG_ID,
-            RUN_FORMAT,
-            "leftover leftover leftover stretch",
-        )
-    if (
-        type(round_n) is int
-        and r729_cat.WAVE_FIRST_ROUND <= round_n <= r729_cat.WAVE_LAST_ROUND
-        and round_n > leftover3_last
-    ):
-        return (
-            r729_cat.plants_for_round(round_n),
-            r729_cat.CATALOG_ID,
-            r729_cat.RUN_FORMAT,
-            "r729 commerce/platform stretch",
-        )
-    if (
-        type(round_n) is int
-        and r817_cat.WAVE_FIRST_ROUND <= round_n <= r817_cat.WAVE_LAST_ROUND
-        and round_n > r729_cat.WAVE_LAST_ROUND
-    ):
-        return (
-            r817_cat.plants_for_round(round_n),
-            r817_cat.CATALOG_ID,
-            r817_cat.RUN_FORMAT,
-            "r817 GIS/feature-flag/IoT stretch",
-        )
-    if (
-        type(round_n) is int
-        and r995_cat.WAVE_FIRST_ROUND <= round_n <= r995_cat.WAVE_LAST_ROUND
-        and round_n > r817_cat.WAVE_LAST_ROUND
-    ):
-        return (
-            r995_cat.plants_for_round(round_n),
-            r995_cat.CATALOG_ID,
-            r995_cat.RUN_FORMAT,
-            "r995 low-code/BI/CRM stretch",
-        )
+    wave = _wave_from_leftover3(round_n, leftover3_last)
+    if wave is not None:
+        return wave
+    return _leftover3_wave(round_n)
+
+
+def _is_round(round_n: Any) -> bool:
+    """Only a plain ``int`` is a round; ``bool`` and every other ``int`` subclass are not."""
+
+    return type(round_n) in _PLAIN_INT
+
+
+def _round_in_wave(round_n: int, wave: Any, after: int | None = None) -> bool:
+    """``round_n`` is an int inside ``wave``'s rounds and, when given, past ``after``."""
+
+    if not _is_round(round_n):
+        return False
+    if not wave.WAVE_FIRST_ROUND <= round_n <= wave.WAVE_LAST_ROUND:
+        return False
+    return after is None or round_n > after
+
+
+def _last_round(wave: Any) -> int:
+    return wave.WAVE_LAST_ROUND
+
+
+def _wave(module: Any, round_n: int, stretch: str) -> tuple[tuple[cat.Plant, ...], str, str, str]:
+    return module.plants_for_round(round_n), module.CATALOG_ID, module.RUN_FORMAT, stretch
+
+
+def _leftover3_wave(round_n: int) -> tuple[tuple[cat.Plant, ...], str, str, str]:
     return (
         cat.plants_for_round(round_n),
         cat.CATALOG_ID,
         RUN_FORMAT,
         "leftover leftover leftover stretch",
     )
+
+
+def _wave_before_leftover3(round_n: int) -> tuple[tuple[cat.Plant, ...], str, str, str] | None:
+    """r432, the prior leftover3 wave, then r538 (only past r432's last round)."""
+
+    if _round_in_wave(round_n, r432_cat):
+        return _wave(r432_cat, round_n, "r432 application-bug stretch")
+    if _round_in_wave(round_n, leftover3_prior_cat):
+        return _wave(
+            leftover3_prior_cat,
+            round_n,
+            "leftover leftover leftover IaC/policy stretch (prior wave)",
+        )
+    if _round_in_wave(round_n, r538_cat, _last_round(r432_cat)):
+        return _wave(r538_cat, round_n, "r538 orchestration/data-platform stretch")
+    return None
+
+
+def _wave_from_leftover3(
+    round_n: int, leftover3_last: int
+) -> tuple[tuple[cat.Plant, ...], str, str, str] | None:
+    """leftover3 itself, then r729, r817, and r995, each only past the previous wave."""
+
+    if _is_round(round_n) and cat.WAVE_FIRST_ROUND <= round_n <= leftover3_last:
+        return _leftover3_wave(round_n)
+    later = (
+        (r729_cat, leftover3_last, "r729 commerce/platform stretch"),
+        (r817_cat, _last_round(r729_cat), "r817 GIS/feature-flag/IoT stretch"),
+        (r995_cat, _last_round(r817_cat), "r995 low-code/BI/CRM stretch"),
+    )
+    for module, after, stretch in later:
+        if _round_in_wave(round_n, module, after):
+            return _wave(module, round_n, stretch)
+    return None
 
 
 def notes_for(
