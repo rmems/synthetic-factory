@@ -339,7 +339,6 @@ _PACKAGE_SIBLING_NAMES = frozenset((
     "vset_patch",
     "vset_record",
     "vset_record_checks",
-    "vset_training_view",
     "vset_oracle",
     "vset_oracle_exec",
     "vset_manifest_entries",
