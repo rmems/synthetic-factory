@@ -118,6 +118,7 @@ class InProcessForgeTests(unittest.TestCase):
                 "class T(unittest.TestCase):\n"
                 "    def test_equal(self):\n"
                 "        self.assertEqual(c.money(), 5)\n"
+                "        self.assertAlmostEqual(c.money(), 5)\n"
                 "    def test_less(self):\n"
                 "        self.assertLess(c.money(), 10)\n",
                 encoding="utf-8",
@@ -166,6 +167,50 @@ class InProcessForgeTests(unittest.TestCase):
         }
         self.assertEqual(by_name["test_number"], "ok")
         for name in ("test_almost", "test_places", "test_right", "test_delta"):
+            self.assertNotEqual(by_name[name], "ok", name)
+        self.assertFalse(report["reference"]["ok"])
+
+    def test_always_equal_does_not_short_circuit_assert_almost_equal(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            pack = Path(tmp)
+            (pack / "src").mkdir()
+            (pack / "tests").mkdir()
+            (pack / "src" / "c.py").write_text(
+                "class E:\n"
+                "    def __eq__(self, other):\n"
+                "        return True\n"
+                "    def __sub__(self, other):\n"
+                "        return 0\n"
+                "    def __rsub__(self, other):\n"
+                "        return 0\n"
+                "def add(a, b):\n"
+                "    return E()\n"
+                "def total(a, b):\n"
+                "    return a + b\n",
+                encoding="utf-8",
+            )
+            (pack / "tests" / "use.py").write_text(
+                "import unittest\nimport c\n"
+                "class T(unittest.TestCase):\n"
+                "    def test_almost(self):\n"
+                "        self.assertAlmostEqual(c.add(1, 2), 3)\n"
+                "    def test_almost_right(self):\n"
+                "        self.assertAlmostEqual(3, c.add(1, 2))\n"
+                "    def test_equal(self):\n"
+                "        self.assertEqual(c.add(1, 2), 3)\n"
+                "    def test_equal_right(self):\n"
+                "        self.assertEqual(3, c.add(1, 2))\n"
+                "    def test_number(self):\n"
+                "        self.assertAlmostEqual(c.total(1, 2), 3)\n",
+                encoding="utf-8",
+            )
+            report = vset.run_oracle(pack, reference_tests=["tests/use.py"])
+        by_name = {
+            row["id"].rsplit(".", 1)[-1]: row["status"]
+            for row in report["reference"]["tests"]
+        }
+        self.assertEqual(by_name["test_number"], "ok")
+        for name in ("test_almost", "test_almost_right", "test_equal", "test_equal_right"):
             self.assertNotEqual(by_name[name], "ok", name)
         self.assertFalse(report["reference"]["ok"])
 

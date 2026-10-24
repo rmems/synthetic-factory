@@ -144,6 +144,45 @@ def _parent_difference(name: str, args: tuple[object, ...]) -> bool:
     return not isinstance(args[0], RemoteObject)
 
 
+def _affirms(result: object) -> bool:
+    # NotImplemented is truthy. Only a real comparison result can short-circuit.
+    if result is NotImplemented:
+        return False
+    return bool(result)
+
+
+def _probe_value(other: object) -> object:
+    # A parent value `other` does not equal. Money affirms one literal;
+    # an __eq__ that also affirms this one is the always-true forge.
+    if isinstance(other, bool):
+        return not other
+    if isinstance(other, int):
+        return other + 1
+    if isinstance(other, float):
+        if other != other or other in (float("inf"), float("-inf")):
+            return 0.0
+        return other + 1.0
+    if isinstance(other, str):
+        return other + "\x00"
+    if isinstance(other, bytes):
+        return other + b"\x00"
+    if isinstance(other, complex):
+        return other + 1
+    if other == 0:
+        return 1
+    return 0
+
+
+def _unconditional_equal(func: object, other: object, result: object) -> bool:
+    if not _affirms(result):
+        return False
+    try:
+        again = func(_probe_value(other))  # type: ignore[operator]
+    except Exception:
+        return False
+    return _affirms(again)
+
+
 def _forward(name: str):
     def method(self: RemoteObject, *args: object) -> object:
         if _parent_difference(name, args):
@@ -154,7 +193,13 @@ def _forward(name: str):
             if name in _STRICT:
                 raise TypeError(name) from None
             return NotImplemented
-        return func(*args)
+        result = func(*args)
+        if name != "__eq__" or not args or isinstance(args[0], RemoteObject):
+            return result
+        # assertAlmostEqual returns on the first true ==, before subtraction.
+        if _unconditional_equal(func, args[0], result):
+            return NotImplemented
+        return result
 
     method.__name__ = name
     return method
