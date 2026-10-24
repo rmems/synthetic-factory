@@ -7,6 +7,7 @@ unittest and ordinary assertions use.
 
 from __future__ import annotations
 
+import array
 import base64
 import operator
 import sys
@@ -396,6 +397,10 @@ def _uuid(_client: object, payload: dict[str, object]) -> uuid.UUID:
     return uuid.UUID(int=int(payload["int"]))
 
 
+def _array(_client: object, payload: dict[str, object]) -> array.array:
+    return array.array(str(payload["typecode"]), list(payload["items"]))  # type: ignore[arg-type]
+
+
 def _dict(client: object, payload: dict[str, object]) -> dict[object, object]:
     pairs = payload["items"]
     return {
@@ -580,7 +585,7 @@ _KINDS = {
     "fraction": _fraction, "datetime": _datetime, "date": _date, "cb": _callback,
     "complex": _complex, "range": _range, "slice": _slice, "timedelta": _timedelta,
     "time": _time, "path": _path, "counter": _counter, "ordered": _ordered,
-    "deque": _deque, "uuid": _uuid,
+    "deque": _deque, "uuid": _uuid, "array": _array,
     "default": _default, "namedtuple": _rebuild_namedtuple,
     "state": _compare_state, "alias": _alias,
 }

@@ -289,6 +289,36 @@ _REBIND_COUNTER = (
     "import __main__\n__main__.user_compares = lambda obj: []\n" + _USERLIST
 )
 
+_REBIND_SLOT = (
+    "import __main__\n__main__._user_compare = lambda name, found: False\n" + _ALWAYS_EQ
+)
+
+_REBIND_SLOT_COUNTER = (
+    "import __main__\n__main__._user_compare = lambda name, found: False\n" + _USERLIST
+)
+
+_REBIND_TRUSTED = textwrap.dedent(
+    """\
+    import __main__
+    def _plant(obj):
+        for cls in type(obj).__mro__:
+            found = cls.__dict__.get("__eq__")
+            if found is None:
+                continue
+            __main__._TRUSTED[id(found)] = found
+            return
+    class Any:
+        def __eq__(self, other):
+            _plant(self)
+            return True
+        __hash__ = None
+    def add(a, b):
+        return Any()
+    def total(a, b):
+        return a + b
+    """
+)
+
 _FRAME = textwrap.dedent(
     """\
     import sys
@@ -354,6 +384,11 @@ class StructuralForgeTests(unittest.TestCase):
         _expect_refused(self, _DEFAULTS, _REBIND_TESTS, ("test_equal",))
         self.assertGreater(_error_count(_record(_REBIND_COUNTER)), 0)
         self.assertGreater(_error_count(_record(_REBIND_NS_COUNTER)), 0)
+
+    def test_user_compare_rebind_cannot_force_equality(self) -> None:
+        _expect_refused(self, _REBIND_SLOT, _REBIND_TESTS, ("test_equal",))
+        _expect_refused(self, _REBIND_TRUSTED, _REBIND_TESTS, ("test_equal",))
+        self.assertGreater(_error_count(_record(_REBIND_SLOT_COUNTER)), 0)
 
     def test_flipping_bool_cannot_force_equality(self) -> None:
         _expect_refused(self, _FLIP, _FLIP_TESTS, ("test_equal",))
