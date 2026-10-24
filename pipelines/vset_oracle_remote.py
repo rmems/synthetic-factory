@@ -68,13 +68,19 @@ class _Client:
     def delete_attr(self, oid: int, name: str) -> None:
         self.exchange({"op": "del", "oid": oid, "attr": name})
 
-    def patch_module(self, name: str, attr: str, value: object) -> None:
+    def patch_module(self, name: str, attr: str, value: object, token: int) -> None:
         self.exchange(
-            {"op": "patch", "name": name, "attr": attr, "value": _encode(value)}
+            {
+                "op": "patch",
+                "name": name,
+                "attr": attr,
+                "value": _encode(value),
+                "token": token,
+            }
         )
 
-    def unpatch_module(self) -> None:
-        self.exchange({"op": "unpatch"})
+    def unpatch_module(self, token: int) -> None:
+        self.exchange({"op": "unpatch", "token": token})
 
     def shift_environ(self, changed: dict[str, str], dropped: list[str]) -> None:
         self.exchange({"op": "environ", "set": changed, "drop": dropped})

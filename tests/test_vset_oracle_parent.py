@@ -163,6 +163,47 @@ class ParentOracleTests(unittest.TestCase):
             },
         )
 
+    def test_live_iterators_and_patch_stop_order(self) -> None:
+        self._ok_files(
+            "use.py",
+            {
+                "src/c.py": (
+                    "import os\n"
+                    "def collect(it):\n"
+                    "    return list(it)\n"
+                    "def pid():\n"
+                    "    return os.getpid()\n"
+                    "def ident(value):\n"
+                    "    return value\n"
+                ),
+                "tests/use.py": (
+                    "import sys\nimport time\nimport unittest\n"
+                    "from unittest import mock\nimport c\n"
+                    "K = 0\n"
+                    "class T(unittest.TestCase):\n"
+                    "    def test_list(self):\n"
+                    "        self.assertEqual(c.collect(x for x in [1, 2]), [1, 2])\n"
+                    "        self.assertEqual(c.collect(map(int, ['3'])), [3])\n"
+                    "    def test_mock_spec(self):\n"
+                    "        sample = mock.Mock(spec=complex)\n"
+                    "        self.assertIs(c.ident(sample), sample)\n"
+                    "    def test_stop_order(self):\n"
+                    "        first = mock.patch('time.time', return_value=1.0)\n"
+                    "        second = mock.patch('os.getpid', return_value=7)\n"
+                    "        first.start()\n"
+                    "        second.start()\n"
+                    "        first.stop()\n"
+                    "        self.assertNotEqual(time.time(), 1.0)\n"
+                    "        self.assertEqual(c.pid(), 7)\n"
+                    "        second.stop()\n"
+                    "        self.assertNotEqual(c.pid(), 7)\n"
+                    "    def test_parent_module(self):\n"
+                    "        with mock.patch.object(sys.modules[__name__], 'K', 2):\n"
+                    "            self.assertIsInstance(c.pid(), int)\n"
+                ),
+            },
+        )
+
     def test_suite_path_reads_a_sibling_file(self) -> None:
         self._ok_files(
             "use.py",

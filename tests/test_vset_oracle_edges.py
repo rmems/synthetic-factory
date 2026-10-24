@@ -208,6 +208,7 @@ class EdgeTests(unittest.TestCase):
         self.assertIn("seq", codec.encode(iter([1, 2])))
         self.assertIn("cb", codec.encode(k for k in [1]))
         self.assertIn("cb", codec.encode(map(int, ["1"])))
+        self.assertIn("cb", codec.encode(unittest.mock.Mock(spec=complex)))
         self.assertIn("map", codec.encode(defaultdict(lambda: 0, {1: 2})))
         values.reset_identity()
 
