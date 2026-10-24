@@ -311,6 +311,14 @@ class Duplicates(unittest.TestCase):
         key = dedup_index.dedup_key("prog-import", text, text.replace("a + b", "a - b"))[0]
         self.assertEqual(key, "21e95b41b4a7a06a5fe060af23ce7d2152546ddb683d5f9f776b93326e19d3ff")
 
+    def test_a_long_binop_chain_keeps_one_key(self):
+        original = "def add(a, b):\n    return a + b\n"
+        wide = " + ".join(["a"] * 700) + " - b"
+        tight = "+".join(["a"] * 700) + "-b"
+        left = dedup_index.dedup_key("prog", original, original.replace("a + b", wide))[0]
+        right = dedup_index.dedup_key("prog", original, original.replace("a + b", tight))[0]
+        self.assertEqual(left, right)
+
     def test_a_literal_that_names_a_default_field_is_not_rewritten(self):
         original = "def add(a, b):\n    return a\n"
         with_field = "def add(a, b):\n    return ', ctx=Load()'\n"

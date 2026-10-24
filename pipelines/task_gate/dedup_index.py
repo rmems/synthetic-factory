@@ -2,7 +2,8 @@
 """The persisted duplicate index: kept-proposal keys across runs, read-only until a new write.
 
 A key is ``sha256(program_id, program_sha256, normalized mutant)``. The mutant is normalized
-with ``ast.dump`` before hashing, so whitespace and redundant parentheses are one mutant.
+by an iterative AST walk before hashing, so whitespace and redundant parentheses are one
+mutant and a long left-nested chain does not overflow the call stack.
 ``minimal_edit`` still returns the raw byte span for the index row. The key also binds the
 program's own sha256, so a key kept against an older catalog text never matches the program
 once its text changes. The hashed bytes are exact JSON of ``[KEY_FORMAT, program_id,
@@ -75,26 +76,60 @@ def _field_value(node: ast.AST, name: str) -> object:
     return value
 
 
-def _dump_fields(node: ast.AST) -> str:
-    parts = []
+def _kept_fields(node: ast.AST) -> list[tuple[str, object]]:
+    kept = []
     for name in node._fields:
         value = _field_value(node, name)
         if value is not _SKIP:
-            parts.append(f"{name}={_dump(value)}")
-    return f"{type(node).__name__}({', '.join(parts)})"
+            kept.append((name, value))
+    return kept
+
+
+def _push_node(stack: list[tuple[str, object]], node: ast.AST) -> None:
+    stack.append(("text", ")"))
+    for index, (name, child) in enumerate(reversed(_kept_fields(node))):
+        if index:
+            stack.append(("text", ", "))
+        stack.append(("value", child))
+        stack.append(("text", f"{name}="))
+    stack.append(("text", f"{type(node).__name__}("))
+
+
+def _push_list(stack: list[tuple[str, object]], items: list) -> None:
+    stack.append(("text", "]"))
+    for index, item in enumerate(reversed(items)):
+        if index:
+            stack.append(("text", ", "))
+        stack.append(("value", item))
+    stack.append(("text", "["))
+
+
+def _push_value(stack: list[tuple[str, object]], value: object) -> None:
+    if isinstance(value, ast.AST):
+        _push_node(stack, value)
+    elif isinstance(value, list):
+        _push_list(stack, value)
+    else:
+        stack.append(("text", repr(value)))
 
 
 def _dump(node: object) -> str:
     """``ast.dump`` with those defaults removed from the tree, not from the text.
 
-    A string replace would also edit a literal that happens to contain ``ctx=Load()``.
+    The walk is a stack, not recursion: a left-nested ``BinOp`` chain is as deep as the
+    expression is long, and a recursive walk raised ``RecursionError`` on one proposal and
+    aborted the run. A string replace would also edit a literal that contains ``ctx=Load()``.
     """
 
-    if isinstance(node, ast.AST):
-        return _dump_fields(node)
-    if isinstance(node, list):
-        return "[" + ", ".join(_dump(item) for item in node) + "]"
-    return repr(node)
+    stack: list[tuple[str, object]] = [("value", node)]
+    parts: list[str] = []
+    while stack:
+        kind, value = stack.pop()
+        if kind == "text":
+            parts.append(str(value))
+            continue
+        _push_value(stack, value)
+    return "".join(parts)
 
 
 def normalized_text(text: str) -> str:

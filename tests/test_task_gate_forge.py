@@ -72,6 +72,13 @@ class TaskGateForges(unittest.TestCase):
         self.assertEqual(decision.source, "unspecified")
         self.assertEqual(decision.verdict, "kept")
 
+    def test_forge_long_binop_chain_is_judged(self):
+        wide = " + ".join(["a"] * 700) + " - b"
+        tight = "+".join(["a"] * 700) + "-b"
+        first, second = decide([proposal_for(wide), proposal_for(tight, proposal_id="p-tight")])
+        self.assertEqual(first.verdict, "kept")
+        self.assertEqual(second.verdict, "duplicate")
+
     def test_forge_printed_off_by_one_is_kept(self):
         text = (
             "def count(n):\n"
