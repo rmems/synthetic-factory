@@ -3,12 +3,12 @@
 
 Compose applies this gate to every line after the lanes (and after any oracle
 training selection) have decided it, exactly as export replays it. A retained
-record is scanned for a source identity on every record kind (see
-``eval_exclusion_subject``). A denylist or do-not-train hit refuses the shard
-instead of dropping the row. A public-source claimant whose repository cannot
-be resolved offline is still excluded with the matching reason codes and no
-output, id, or reward sidecar. Records without a governed identity, and lines
-already excluded, pass through unchanged.
+record that makes a public-source claim (see ``eval_exclusion_subject``) gets
+an ``eval_exclusion`` stage. When its canonical repository, ``program_id``, or
+``task_id`` is on the vendored eval denylist or do-not-train list, or when its
+repository cannot be resolved offline, the record is excluded with the
+matching reason codes and no output, id, or reward sidecar. Records without a
+public-source claim, and lines already excluded, pass through unchanged.
 
 Every compose summary records the policy it ran under (both list sha256 values
 and the alias-cache sha256) under ``eval_exclusion``; export refuses a summary
@@ -27,14 +27,14 @@ if __package__:
     _assert_direct_sibling("compose_eval_gate")
     from . import eval_exclusion_policy as _policy
     from .compose_contract import ACTION_EXCLUDED, ACTION_RETAINED, LANE_ORDER, ComposeError
-    from .eval_exclusion_subject import RULE_PAYLOAD, requires_repo, source_identities
+    from .eval_exclusion_subject import source_identity
 else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
         "compose_eval_gate"
     )
     import eval_exclusion_policy as _policy
     from compose_contract import ACTION_EXCLUDED, ACTION_RETAINED, LANE_ORDER, ComposeError
-    from eval_exclusion_subject import RULE_PAYLOAD, requires_repo, source_identities
+    from eval_exclusion_subject import source_identity
 
 NAME = "eval-exclusion-gate"
 VERSION = 1
@@ -43,7 +43,6 @@ SUMMARY_KEY = "eval_exclusion"
 # Lanes whose stage actions COMPOSE.json totals under ``lane_actions``: the five
 # curation lanes plus this gate, counted identically by compose and export replay.
 ACCOUNTED_LANES = (*LANE_ORDER, LANE)
-LIST_HIT_REASONS = frozenset((_policy.REASON_EVAL_DENYLISTED, _policy.REASON_DO_NOT_TRAIN))
 
 
 def active_policy(policy: Any = None) -> Any:
@@ -90,87 +89,25 @@ def _gate_stage(rule: str, identity: Any, evaluation: Any) -> dict[str, Any]:
     }
 
 
-def _is_do_not_train_repo(match: Mapping[str, Any]) -> bool:
-    """A payload repository name on the do-not-train list, not an id hit."""
-
-    return match["list"] == "do_not_train" and match["key"] == "repos"
-
-
-def _kept_payload_matches(evaluation: Any) -> tuple[Any, ...]:
-    return tuple(match for match in evaluation.matches if not _is_do_not_train_repo(match))
-
-
-def _codes_besides_list_hits(reason_codes: Any) -> frozenset[str]:
-    listed = frozenset((_policy.REASON_DO_NOT_TRAIN, _policy.REASON_EVAL_DENYLISTED))
-    return frozenset(code for code in reason_codes if code not in listed)
-
-
-def _ordered_reason_codes(listed: frozenset[str], extra: frozenset[str]) -> tuple[str, ...]:
-    present = listed | extra
-    return tuple(code for code in _policy.REASON_ORDER if code in present)
-
-
-def _without_payload_do_not_train_repos(evaluation: Any) -> Any:
-    """Drop do-not-train repository hits on a payload scan; keep id hits.
-
-    A nested ``repository`` is not a public-source claim, so a do-not-train
-    repo name alone does not refuse the shard. A payload ``program_id`` or
-    ``task_id`` that is on the do-not-train list still does. Eval-denylist
-    matches are never removed.
-    """
-
-    kept = _kept_payload_matches(evaluation)
-    if len(kept) == len(evaluation.matches):
-        return evaluation
-    listed = frozenset(_policy.REASON_BY_SLOT[match["list"]] for match in kept)
-    ordered = _ordered_reason_codes(listed, _codes_besides_list_hits(evaluation.reason_codes))
-    return _policy.Evaluation(ordered, evaluation.canonical_repo, kept)
-
-
-def _evaluation_for_rule(loaded: Any, rule: str, identity: Any) -> Any:
-    evaluation = loaded.evaluate(identity, require_repo=requires_repo(rule))
-    if rule != RULE_PAYLOAD:
-        return evaluation
-    return _without_payload_do_not_train_repos(evaluation)
-
-
-def _refuse_listed_hit(evaluation: Any) -> None:
-    hits = tuple(code for code in evaluation.reason_codes if code in LIST_HIT_REASONS)
-    if hits:
-        raise ComposeError(
-            "eval_exclusion: retained record matches the committed denylist or "
-            f"do-not-train list ({', '.join(hits)}); refuse the shard rather than drop the row"
-        )
-
-
 def apply_gate(decision: Any, policy: Any = None) -> Any:
-    """Refuse a listed eval hit; exclude an unresolvable public-source record.
-
-    A denylist or do-not-train match is a shard-level policy refusal (#508), not
-    the per-record quarantine used for unknown factories. Unresolved repositories
-    on public-source claimants still exclude that row only.
-    """
+    """Exclude a retained public-source record that the exclusion policy refuses."""
 
     if decision.action != ACTION_RETAINED or decision.record is None:
         return decision
-    subjects = source_identities(decision.record)
-    if not subjects:
+    subject = source_identity(decision.record)
+    if subject is None:
         return decision
-    loaded = active_policy(policy)
-    stages = list(decision.stages)
-    evaluation = None
-    for rule, identity in subjects:
-        evaluation = _evaluation_for_rule(loaded, rule, identity)
-        _refuse_listed_hit(evaluation)
-        stages.append(_gate_stage(rule, identity, evaluation))
-    if evaluation is None or not evaluation.excluded:
-        return replace(decision, stages=tuple(stages))
+    rule, identity = subject
+    evaluation = active_policy(policy).evaluate(identity)
+    stages = (*decision.stages, _gate_stage(rule, identity, evaluation))
+    if not evaluation.excluded:
+        return replace(decision, stages=stages)
     return replace(
         decision,
         action=ACTION_EXCLUDED,
         record=None,
         reason_codes=evaluation.reason_codes,
-        stages=tuple(stages),
+        stages=stages,
         output_id=None,
         reward_sidecar=None,
     )

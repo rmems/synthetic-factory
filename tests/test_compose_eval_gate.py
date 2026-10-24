@@ -50,6 +50,18 @@ def _jsonl(path):
     return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line]
 
 
+def _replayed(summary):
+    """Replay the published source through export's compose replay."""
+
+    import export_replay
+    from curate_identity_simulator_process import replay_session
+
+    source_root = Path(summary["source_run"])
+    catalog = export_replay._authenticated_calibration_state(summary, source_root)[0]
+    with replay_session():
+        return export_replay._replay_source_lines(source_root, catalog)
+
+
 def write_policy(root, *, denylist=None, do_not_train=None):
     """A reviewed policy in ``root`` carrying the given entries over the committed cache."""
 
@@ -92,80 +104,35 @@ class GateDecisionTests(unittest.TestCase):
         self.assertEqual(stage["detail"]["source_repo"], "TheAlgorithms/Python")
         self.assertEqual(stage["detail"]["rule"], "code_repair_upstream")
 
-    def test_denylisted_program_refuses_the_shard_instead_of_dropping_the_row(self):
-        with self.assertRaisesRegex(ComposeError, "refuse the shard"):
-            gate.apply_gate(
-                retained(code_repair_record(program_id="tap-fixture-held-out")), self.policy
-            )
+    def test_denylisted_program_is_excluded_with_no_output(self):
+        decision = gate.apply_gate(
+            retained(code_repair_record(program_id="tap-fixture-held-out")), self.policy
+        )
+        self.assertEqual(decision.action, "excluded")
+        self.assertEqual(decision.reason_codes, (policy.REASON_EVAL_DENYLISTED,))
+        self.assertIsNone(decision.record)
+        self.assertIsNone(decision.output_id)
+        self.assertIsNone(decision.reward_sidecar)
+        self.assertEqual(decision.stages[0], STAGE)
+        self.assertEqual(decision.stages[-1]["detail"]["matches"], [
+            {"list": "eval_denylist", "key": "program_ids", "value": "tap-fixture-held-out"},
+        ])
 
     def test_real_record_is_resolved_through_the_alias_cache_before_matching(self):
         renamed = real_record({"task_id": "clap-rs__clap-941", "source_repo": "kbknapp/clap-rs"})
-        with self.assertRaisesRegex(ComposeError, "refuse the shard"):
-            gate.apply_gate(retained(renamed), self.policy)
-        evaluation = self.policy.evaluate(
-            policy.SourceIdentity("kbknapp/clap-rs", task_id="clap-rs__clap-941")
-        )
-        self.assertEqual(evaluation.canonical_repo, "clap-rs/clap")
-        self.assertEqual(evaluation.reason_codes, (policy.REASON_EVAL_DENYLISTED,))
+        decision = gate.apply_gate(retained(renamed), self.policy)
+        self.assertEqual(decision.action, "excluded")
+        detail = decision.stages[-1]["detail"]
+        self.assertEqual(detail["canonical_repo"], "clap-rs/clap")
+        self.assertEqual(detail["base_commit"], "abc123")
+        self.assertEqual(detail["rule"], "real_public_engineering_environment")
 
     def test_thalamic_relay_does_not_capture_its_trajectories_repo(self):
         trajectories = real_record({"task_id": "t-1",
                                     "source_repo": "rmems/thalamic-relay-trajectories"})
         self.assertEqual(gate.apply_gate(retained(trajectories), self.policy).action, "retained")
         relay = real_record({"task_id": "t-1", "source_repo": "rmems/thalamic-relay"})
-        with self.assertRaisesRegex(ComposeError, "refuse the shard"):
-            gate.apply_gate(retained(relay), self.policy)
-
-    def test_denylist_hit_on_any_record_kind_refuses_the_shard(self):
-        episode = {"goal": "g", "steps": [], "meta": {"program_id": "tap-fixture-held-out"}}
-        preference = {"chosen": {"program_id": "tap-fixture-held-out"}, "rejected": {"x": 1}}
-        for record in (episode, preference):
-            with self.subTest(record=record):
-                with self.assertRaisesRegex(ComposeError, "refuse the shard"):
-                    gate.apply_gate(retained(record), self.policy)
-
-    def test_board_repo_trajectory_refuses_the_shard(self):
-        trajectory = {
-            "goal": "fix the board", "steps": [{"action": "edit"}],
-            "environment": {"source_repo": "clap-rs/clap"},
-        }
-        with self.assertRaisesRegex(ComposeError, "refuse the shard"):
-            gate.apply_gate(retained(trajectory), self.policy)
-
-    def test_preference_board_repo_refuses_the_shard(self):
-        preference = {"chosen": {"source_repo": "clap-rs/clap"}, "rejected": {"goal": "other"}}
-        with self.assertRaisesRegex(ComposeError, "refuse the shard"):
-            gate.apply_gate(retained(preference), self.policy)
-
-    def test_instance_id_maps_to_denylisted_repo_and_refuses_the_shard(self):
-        record = {"instance_id": "clap-rs__clap-5873"}
-        with self.assertRaisesRegex(ComposeError, "refuse the shard"):
-            gate.apply_gate(retained(record), self.policy)
-
-    def test_payload_do_not_train_ids_still_refuse_the_shard(self):
-        task = {"goal": "g", "steps": [], "task_id": "fixture-task-do-not-train"}
-        with self.assertRaisesRegex(ComposeError, "refuse the shard"):
-            gate.apply_gate(retained(task), self.policy)
-        with tempfile.TemporaryDirectory() as tmp:
-            listed = write_policy(tmp, do_not_train={"program_ids": ["tap-secret"]})
-            program = {"goal": "g", "steps": [], "meta": {"program_id": "tap-secret"}}
-            with self.assertRaisesRegex(ComposeError, "refuse the shard"):
-                gate.apply_gate(retained(program), listed)
-
-    def test_a_second_payload_repository_on_the_denylist_refuses_the_shard(self):
-        orders = (
-            {"chosen": {"repository": "someone/else"}, "rejected": {"repository": "clap-rs/clap"}},
-            {"rejected": {"repository": "clap-rs/clap"}, "chosen": {"repository": "someone/else"}},
-        )
-        for record in orders:
-            with self.subTest(record=record):
-                with self.assertRaisesRegex(ComposeError, "refuse the shard"):
-                    gate.apply_gate(retained(record), self.policy)
-
-    def test_spike_viz_episode_is_not_a_denylist_repo_hit(self):
-        episode = {"goal": "g", "steps": [], "meta": {"repository": "rmems/spike-viz"}}
-        self.assertEqual(gate.apply_gate(retained(episode)).action, "retained")
-        self.assertEqual(gate.apply_gate(retained(episode), self.policy).action, "retained")
+        self.assertEqual(gate.apply_gate(retained(relay), self.policy).action, "excluded")
 
     def test_unresolvable_real_or_code_repair_sources_fail_closed(self):
         cases = {
@@ -188,8 +155,7 @@ class GateDecisionTests(unittest.TestCase):
         record = code_repair_record(program_id="tap-fixture-held-out")
         self.assertEqual(gate.apply_gate(retained(record)).action, "retained")
         with mock.patch.object(policy, "ACTIVE_POLICY", self.policy):
-            with self.assertRaisesRegex(ComposeError, "refuse the shard"):
-                gate.apply_gate(retained(record))
+            self.assertEqual(gate.apply_gate(retained(record)).action, "excluded")
             self.assertEqual(gate.descriptor()["eval_denylist"]["status"], "reviewed")
 
     def test_published_summary_must_declare_exactly_the_committed_policy(self):
@@ -273,18 +239,44 @@ class ComposeIntegrationTests(unittest.TestCase):
         ):
             export_hf.export_run(stale_request)
 
-    def test_denylisted_program_refuses_compose_rather_than_dropping_the_row(self):
+    def test_denylisted_program_is_excluded_and_export_replays_the_exclusion(self):
         held_out = self._program_ids()[0]
         listed = write_policy(self.root, denylist={"program_ids": [held_out]})
         with mock.patch.object(policy, "ACTIVE_POLICY", listed):
-            with self.assertRaisesRegex(ComposeError, "refuse the shard"):
-                self._compose("curated")
+            curated, summary = self._compose("curated")
+            self.assertEqual(summary["exclusions"], {policy.REASON_EVAL_DENYLISTED: 1})
+            retained = summary["counts"]["retained"]
+            self.assertEqual(summary["lane_actions"]["eval_exclusion"],
+                             {"excluded": 1, "retained": retained})
+            self.assertEqual(summary["eval_exclusion"]["eval_denylist"]["sha256"],
+                             listed.denylist.sha256)
+            excluded = [e for e in _jsonl(curated / MANIFEST) if e["action"] == "excluded"]
+            self.assertEqual(len(excluded), 1)
+            self.assertIsNone(excluded[0]["output_path"])
+            self.assertEqual(excluded[0]["stages"][-1]["detail"]["program_id"], held_out)
+            emitted = "".join(path.read_text(encoding="utf-8")
+                              for path in sorted((curated / "records").rglob("*.jsonl")))
+            self.assertNotIn(held_out, emitted)
+            replay = _replayed(summary)
+            self.assertEqual(replay.expected_manifest, _jsonl(curated / MANIFEST))
+            self.assertEqual(dict(replay.exclusions), summary["exclusions"])
+            self.assertEqual(dict(replay.lane_actions["eval_exclusion"]),
+                             summary["lane_actions"]["eval_exclusion"])
+            # A completed procedural round with a record removed is no longer complete,
+            # so the training audit refuses export rather than shipping a partial round.
+            request = export_hf.ExportRequest(curated, self.root / "export")
+            with self.assertRaisesRegex(ExportError, "not training_ready"):
+                export_hf.export_run(request)
 
-    def test_a_do_not_train_source_repository_refuses_the_shard(self):
+    def test_a_do_not_train_source_repository_excludes_every_record_from_it(self):
         listed = write_policy(self.root, do_not_train={"repos": ["thealgorithms/python"]})
         with mock.patch.object(policy, "ACTIVE_POLICY", listed):
-            with self.assertRaisesRegex(ComposeError, "refuse the shard"):
-                self._compose("curated")
+            curated, summary = self._compose("curated")
+        self.assertEqual(summary["counts"]["retained"], 0)
+        self.assertEqual(summary["exclusions"],
+                         {policy.REASON_DO_NOT_TRAIN: summary["counts"]["source_records"]})
+        self.assertFalse(summary["audit"]["training_ready"])
+        self.assertEqual(list((curated / "records").rglob("*.jsonl")), [])
 
 
 if __name__ == "__main__":
