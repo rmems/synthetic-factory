@@ -115,6 +115,21 @@ def _note(found: dict[str, Stamp], path: Path) -> None:
         return
 
 
+def _record(found: dict[str, Stamp], root: Path, seen: set[tuple[int, int]]) -> None:
+    paths: list[Path] = []
+    _files(root, paths, seen)
+    for path in paths:
+        _note(found, path)
+
+
+def snapshot_tree(root: Path) -> dict[str, Stamp]:
+    """Code files under one directory. The caller merges this into a baseline."""
+
+    found: dict[str, Stamp] = {}
+    _record(found, root, set())
+    return found
+
+
 def snapshot() -> dict[str, Stamp]:
     """Code files under every ``sys.path`` root, including package files."""
 
@@ -124,10 +139,7 @@ def snapshot() -> dict[str, Stamp]:
         root = _resolved(raw)
         if root is None:
             continue
-        paths: list[Path] = []
-        _files(root, paths, seen)
-        for path in paths:
-            _note(found, path)
+        _record(found, root, seen)
     return found
 
 

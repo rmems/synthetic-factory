@@ -18,7 +18,7 @@ _TESTS = Path(__file__).resolve().parent
 if str(_TESTS) not in sys.path:
     sys.path.insert(0, str(_TESTS))
 
-from vset_testutil import PIPELINES, vset  # noqa: E402
+from vset_testutil import PIPELINES, reference_report, vset  # noqa: E402
 
 import vset_oracle_pathguard as pathguard  # noqa: E402
 
@@ -360,6 +360,128 @@ class PathGuardTests(unittest.TestCase):
                     pathguard.PathGuard(seen).find_spec("helper")
             finally:
                 sys.path.remove(tmp)
+
+    def test_missing_unshare_refuses_to_start(self) -> None:
+        import vset_oracle_remote as remote
+
+        with mock.patch("vset_oracle_remote.shutil.which", return_value=None):
+            with self.assertRaises(OSError):
+                remote._contain(["python"])
+
+    def test_grade_view_keeps_a_later_plant_out_of_the_baseline(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "kept.py").write_text("x = 1\n", encoding="utf-8")
+            suite = root / "suite"
+            suite.mkdir()
+            (suite / "use.py").write_text("y = 1\n", encoding="utf-8")
+            sys.path.insert(0, tmp)
+            try:
+                pathguard.restore_baseline(None)
+                self.assertEqual(pathguard.drift_since_baseline(), "")
+                bare = pathguard.grade_view(tmp)
+                self.assertIn(str((root / "kept.py").resolve()), bare)
+                (root / "kept.py").write_text("x = 2\n", encoding="utf-8")
+                self.assertIn("kept.py", pathguard.drift_since_baseline())
+                previous = pathguard.bind_baseline(pathguard.include_tree(pathguard.snapshot(), root))
+                try:
+                    view = pathguard.grade_view(str(suite))
+                    planted = root / "later.py"
+                    planted.write_text("z = 1\n", encoding="utf-8")
+                    self.assertIn(str((suite / "use.py").resolve()), view)
+                    self.assertNotIn(str(planted.resolve()), view)
+                    self.assertIn("later.py", pathguard.drift_since_baseline())
+                finally:
+                    pathguard.restore_baseline(previous)
+            finally:
+                sys.path.remove(tmp)
+                pathguard.restore_baseline(None)
+
+    def test_escaped_child_cannot_seed_the_next_grade(self) -> None:
+        _clear_plant()
+        target = str(PIPELINES / "statistics.py")
+        source = (
+            "import os, time\n"
+            "def add(a, b):\n"
+            "    return 0\n"
+            "pid = os.fork()\n"
+            "if pid == 0:\n"
+            "    os.setsid()\n"
+            "    while True:\n"
+            "        try:\n"
+            "            os.kill(os.getppid(), 0)\n"
+            "        except OSError:\n"
+            "            break\n"
+            "        time.sleep(0.01)\n"
+            f"    handle = open({target!r}, 'w')\n"
+            "    handle.write('import unittest\\n')\n"
+            "    handle.write('unittest.TestCase.assertEqual = lambda *a, **k: None\\n')\n"
+            "    handle.close()\n"
+            "    os._exit(0)\n"
+        )
+        suite_a = (
+            "import unittest\nimport c\n"
+            "class T(unittest.TestCase):\n"
+            "    def test_a(self):\n"
+            "        self.assertEqual(c.add(1, 2), 0)\n"
+        )
+        suite_b = (
+            "import unittest\nimport c\n"
+            "class T(unittest.TestCase):\n"
+            "    def test_b(self):\n"
+            "        import statistics\n"
+            "        self.assertEqual(c.add(1, 2), 3)\n"
+        )
+        saved = sys.modules.pop("statistics", None)
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                pack = Path(tmp)
+                (pack / "src").mkdir()
+                (pack / "tests").mkdir()
+                (pack / "src" / "c.py").write_text(source, encoding="utf-8")
+                (pack / "tests" / "a.py").write_text(suite_a, encoding="utf-8")
+                (pack / "tests" / "b.py").write_text(suite_b, encoding="utf-8")
+                report = vset.run_oracle(pack, reference_tests=["tests/a.py", "tests/b.py"])
+            statuses = {
+                row["id"].rsplit(".", 1)[-1]: row["status"] for row in report["reference"]["tests"]
+            }
+            self.assertEqual(statuses["test_a"], "ok", report["reference"])
+            self.assertNotEqual(statuses["test_b"], "ok", report["reference"])
+            self.assertFalse(report["reference"]["ok"])
+            self.assertEqual(unittest.TestCase.assertEqual.__name__, "assertEqual")
+            self.assertFalse((PIPELINES / "statistics.py").exists())
+        finally:
+            _clear_plant()
+            sys.modules.pop("statistics", None)
+            if saved is not None:
+                sys.modules["statistics"] = saved
+
+    def test_import_path_write_refuses_the_oracle(self) -> None:
+        _clear_plant()
+        target = PIPELINES / "statistics.py"
+        source = (
+            "def add(left, right):\n"
+            f"    open({str(target)!r}, 'w').write('marker = 1\\n')\n"
+            "    return left\n"
+        )
+        tests = (
+            "import unittest\n"
+            "import c\n"
+            "class Check(unittest.TestCase):\n"
+            "    def test_left(self):\n"
+            "        self.assertEqual(c.add(1, 2), 1)\n"
+        )
+        try:
+            with self.assertRaises(vset.VSetValidationError) as caught:
+                reference_report(
+                    "left.py",
+                    {"src/c.py": source, "tests/left.py": tests},
+                )
+            self.assertIn("oracle import path changed", str(caught.exception))
+            self.assertTrue(target.is_file())
+            self.assertEqual(unittest.TestCase.assertEqual.__name__, "assertEqual")
+        finally:
+            _clear_plant()
 
     def test_nested_package_plant_is_refused(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
