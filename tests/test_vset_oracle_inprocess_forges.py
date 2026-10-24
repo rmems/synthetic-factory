@@ -450,6 +450,30 @@ class InProcessForgeTests(unittest.TestCase):
             with self.subTest(kind=label):
                 _expect_refused(self, source, checks, ("test_equal",))
 
+    def test_rewritten_filenames_cannot_force_equality(self) -> None:
+        forged = (
+            "import sys\n"
+            "class E:\n"
+            "    def __eq__(self, other):\n"
+            "        return True\n"
+            "    __hash__ = None\n"
+        )
+        tail = "def add(a, b):\n    return E()\ndef total(a, b):\n    return a + b\n"
+        variants = [
+            forged + "E.__eq__.__code__ = E.__eq__.__code__.replace(co_filename='<frozen x>')\n" + tail,
+            forged + "E.__eq__.__code__ = E.__eq__.__code__.replace(co_filename=sys.base_prefix + '/lib/x.py')\n" + tail,
+            "ns = {}\nexec(compile('class E:\\n    def __eq__(self, other):\\n        return True\\n', '<frozen y>', 'exec'), ns)\nE = ns['E']\nE.__hash__ = None\n" + tail,
+        ]
+        checks = (
+            "    def test_equal(self):\n"
+            "        self.assertEqual(c.add(1, 2), 999)\n"
+            "        self.assertEqual(c.add(1, 2), 'anything')\n"
+            "    def test_number(self):\n"
+            "        self.assertEqual(c.total(4, 5), 9)\n"
+        )
+        for source in variants:
+            _expect_refused(self, source, checks, ("test_equal",))
+
     def test_unittest_stop_is_not_a_passing_exception(self) -> None:
         source = "\n".join(
             (
