@@ -10,10 +10,22 @@ if __package__:  # pragma: no cover - package-child import path
     from . import _assert_direct_sibling, _expose_package_sibling
 
     _assert_direct_sibling("vset_oracle_layout")
+    from .vset_constants import ERR_ORACLE_EXECUTION_MISMATCH, VSetValidationError
 else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
         "vset_oracle_layout"
     )
+    from vset_constants import ERR_ORACLE_EXECUTION_MISMATCH, VSetValidationError
+
+
+def _read_py(path: Path) -> str:
+    try:
+        return path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as exc:
+        raise VSetValidationError(
+            ERR_ORACLE_EXECUTION_MISMATCH,
+            f"suite file {path.name} failed to load: {exc}",
+        ) from exc
 
 
 def restore_suite_dir(pack_dir: Path, work: Path, relative: str) -> None:
@@ -44,7 +56,7 @@ def pack_sources(pack_dir: Path, folder: str) -> dict[str, str]:
     if not source_dir.is_dir():
         return found
     for path in sorted(source_dir.glob("*.py")):
-        found[path.name] = path.read_text(encoding="utf-8")
+        found[path.name] = _read_py(path)
     return found
 
 
@@ -56,7 +68,7 @@ def freeze_pack(pack_dir: Path) -> None:
 
     frozen: dict[str, str] = {}
     for path in pack_dir.rglob("*.py"):
-        frozen[path.relative_to(pack_dir).as_posix()] = path.read_text(encoding="utf-8")
+        frozen[path.relative_to(pack_dir).as_posix()] = _read_py(path)
     _FROZEN.clear()
     _FROZEN.update(frozen)
 
@@ -125,8 +137,14 @@ def drop_added_src(work: Path, keep: frozenset[str]) -> None:
     folder = work / "src"
     if not folder.is_dir():
         return
-    _drop_added_modules(folder, keep)
-    _drop_added_packages(folder, keep)
+    try:
+        _drop_added_modules(folder, keep)
+        _drop_added_packages(folder, keep)
+    except OSError as exc:
+        raise VSetValidationError(
+            ERR_ORACLE_EXECUTION_MISMATCH,
+            f"oracle runner failed: cannot clean candidate src: {exc}",
+        ) from exc
 
 
 if __package__:  # pragma: no cover - package-child import path

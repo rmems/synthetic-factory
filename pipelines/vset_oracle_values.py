@@ -9,10 +9,13 @@ from __future__ import annotations
 
 import base64
 import builtins
+import dataclasses
 import sys
-from datetime import date, datetime
+from collections import Counter, OrderedDict, defaultdict, namedtuple
+from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 from fractions import Fraction
+from pathlib import PurePath
 
 if __package__:  # pragma: no cover - package-child import path
     from . import _assert_direct_sibling, _expose_package_sibling
@@ -35,11 +38,23 @@ else:
     from vset_oracle_shape import remote_hash as _remote_hash
     from vset_oracle_shape import truth as _truth
 
-_EXC_TYPES: dict[tuple[str, str], type[Exception]] = {}
+_EXC_TYPES: dict[tuple[str, tuple[str, ...]], type[Exception]] = {}
+_EXC_OID: dict[tuple[int, int], type[Exception]] = {}
 _CLASSES: dict[tuple[int, int], type] = {}
 _OBJECTS: dict[tuple[int, int], RemoteObject] = {}
 _SLOTS: dict[int, object] = {}
 _CALLBACKS: dict[int, object] = {}
+_NAMED: dict[tuple[str, tuple[str, ...]], type] = {}
+_DATACLASSES: dict[tuple[int, int], type] = {}
+_FACTORIES = {
+    "int": int,
+    "list": list,
+    "set": set,
+    "dict": dict,
+    "float": float,
+    "str": str,
+    "tuple": tuple,
+}
 _FORWARDED = (
     "__eq__ __ne__ __lt__ __le__ __gt__ __ge__ __len__ __iter__ __next__ "
     "__contains__ __getitem__ __setitem__ __delitem__ "
@@ -102,18 +117,42 @@ def exception_type(name: str, chain: tuple[str, ...]) -> type[Exception]:
     return created
 
 
+def _exc_bases(client: object, info: dict[str, object]) -> tuple[type[Exception], ...]:
+    raw = info.get("bases")
+    if not isinstance(raw, list) or not raw:
+        return (Exception,)
+    bases = [exc_from(client, item) for item in raw if isinstance(item, dict)]
+    if not bases:
+        return (Exception,)
+    return tuple(bases)
+
+
+def exc_from(client: object, info: dict[str, object]) -> type[Exception]:
+    """One parent class per candidate exception class, keyed by child identity."""
+
+    builtin_name = info.get("builtin")
+    if isinstance(builtin_name, str):
+        builtin = _builtin_exception(builtin_name)
+        if builtin is not None:
+            return builtin
+        return Exception
+    key = (id(client), int(info.get("oid") or -1))
+    found = _EXC_OID.get(key)
+    if found is not None:
+        return found
+    created = type(str(info.get("name") or "Error"), _exc_bases(client, info), {})
+    _EXC_OID[key] = created
+    return created
+
+
 def raise_remote(
-    name: str,
-    chain: tuple[str, ...],
+    cls: type[Exception],
     args: tuple[object, ...],
     attrs: dict[str, object],
 ) -> None:
     """Raise a candidate error without ever raising BaseException."""
 
-    builtin = _builtin_exception(name)
-    if builtin is None:
-        builtin = exception_type(name, chain)
-    exc = builtin(*args)
+    exc = cls(*args)
     for key, value in attrs.items():
         setattr(exc, key, value)
     raise exc
@@ -250,6 +289,9 @@ def reset_identity() -> None:
     _CLASSES.clear()
     _SLOTS.clear()
     _CALLBACKS.clear()
+    _NAMED.clear()
+    _DATACLASSES.clear()
+    _EXC_OID.clear()
 
 
 def remember_callback(value: object) -> int:
@@ -344,6 +386,86 @@ def _date(_client: object, payload: dict[str, object]) -> date:
     return date.fromisoformat(str(payload["data"]))
 
 
+def _complex(_client: object, payload: dict[str, object]) -> complex:
+    return complex(payload["real"], payload["imag"])  # type: ignore[arg-type]
+
+
+def _range(_client: object, payload: dict[str, object]) -> range:
+    return range(int(payload["start"]), int(payload["stop"]), int(payload["step"]))
+
+
+def _slice(_client: object, payload: dict[str, object]) -> slice:
+    start = payload.get("start")
+    stop = payload.get("stop")
+    step = payload.get("step")
+    return slice(start, stop, step)  # type: ignore[arg-type]
+
+
+def _timedelta(_client: object, payload: dict[str, object]) -> timedelta:
+    return timedelta(int(payload["days"]), int(payload["seconds"]), int(payload["micro"]))
+
+
+def _time(_client: object, payload: dict[str, object]) -> time:
+    return time.fromisoformat(str(payload["data"]))
+
+
+def _path(_client: object, payload: dict[str, object]) -> PurePath:
+    name = str(payload.get("cls") or "")
+    cls = getattr(sys.modules["pathlib"], name, None)
+    if not isinstance(cls, type):
+        return PurePath(str(payload.get("data")))
+    return cls(str(payload.get("data")))
+
+
+def _mapped(client: object, payload: dict[str, object]) -> dict[object, object]:
+    pairs = payload.get("items")
+    if not isinstance(pairs, list):
+        return {}
+    return {interpret(client, pair[0]): interpret(client, pair[1]) for pair in pairs}
+
+
+def _counter(client: object, payload: dict[str, object]) -> Counter[object]:
+    return Counter(_mapped(client, payload))
+
+
+def _ordered(client: object, payload: dict[str, object]) -> OrderedDict[object, object]:
+    return OrderedDict(_mapped(client, payload))
+
+
+def _default(client: object, payload: dict[str, object]) -> defaultdict[object, object]:
+    factory = _FACTORIES.get(str(payload.get("factory") or ""))
+    return defaultdict(factory, _mapped(client, payload))
+
+
+def _namedtuple(client: object, payload: dict[str, object]) -> tuple[object, ...]:
+    raw_fields = payload.get("fields")
+    fields = tuple(str(item) for item in raw_fields) if isinstance(raw_fields, list) else ()
+    name = str(payload.get("name") or "Record")
+    key = (name, fields)
+    cls = _NAMED.get(key)
+    if cls is None:
+        cls = namedtuple(name, fields)  # type: ignore[misc]
+        _NAMED[key] = cls
+    raw_items = payload.get("items")
+    items = raw_items if isinstance(raw_items, list) else []
+    return cls(*(interpret(client, item) for item in items))
+
+
+def _dataclass(client: object, payload: dict[str, object]) -> object:
+    raw = payload.get("fields")
+    fields = raw if isinstance(raw, dict) else {}
+    key = (id(client), int(payload.get("oid") or 0))
+    cls = _DATACLASSES.get(key)
+    if cls is None:
+        cls = dataclasses.make_dataclass(
+            str(payload.get("name") or "Record"),
+            [(str(name), object) for name in fields],
+        )
+        _DATACLASSES[key] = cls
+    values = {str(name): interpret(client, item) for name, item in fields.items()}
+    return cls(**values)
+
+
 def _callback(_client: object, payload: dict[str, object]) -> object:
     return take_callback(int(payload["cb"]))
 
@@ -359,7 +481,9 @@ def _chain(payload: dict[str, object]) -> tuple[str, ...]:
     return tuple(str(item) for item in raw)  # type: ignore[union-attr]
 
 
-def _exc_type(_client: object, payload: dict[str, object]) -> type[Exception]:
+def _exc_type(client: object, payload: dict[str, object]) -> type[Exception]:
+    if "builtin" in payload or "oid" in payload:
+        return exc_from(client, payload)
     return exception_type(str(payload.get("name")), _chain(payload))
 
 
@@ -377,10 +501,16 @@ def _attrs(client: object, payload: dict[str, object]) -> dict[str, object]:
     return {str(key): interpret(client, value) for key, value in raw.items()}
 
 
+def _error_class(client: object, payload: dict[str, object]) -> type[Exception]:
+    info = payload.get("exc")
+    if isinstance(info, dict):
+        return exc_from(client, info)
+    return exception_type(str(payload.get("type")), _chain(payload))
+
+
 def _error(client: object, payload: dict[str, object]) -> None:
     raise_remote(
-        str(payload.get("type")),
-        _chain(payload),
+        _error_class(client, payload),
         _items(client, payload, "args"),
         _attrs(client, payload),
     )
@@ -392,6 +522,9 @@ _KINDS = {
     "frozenset": _frozenset, "bytes": _bytes, "class": _class, "obj": _wrap,
     "exc_type": _exc_type, "error": _error, "decimal": _decimal,
     "fraction": _fraction, "datetime": _datetime, "date": _date, "cb": _callback,
+    "complex": _complex, "range": _range, "slice": _slice, "timedelta": _timedelta,
+    "time": _time, "path": _path, "counter": _counter, "ordered": _ordered,
+    "default": _default, "namedtuple": _namedtuple, "dataclass": _dataclass,
 }
 
 

@@ -137,6 +137,19 @@ def _worker_argv(work: Path) -> list[str]:
     return [sys.executable, *_INTERPRETER_FLAGS, "-c", _WORKER_SOURCE, str(work)]
 
 
+def _child_environment() -> dict[str, str]:
+    """Keep the worker off the operator environment.
+
+    ``-I`` does not drop ordinary variables, and candidate ``src/`` can read
+    them. Pass only what the interpreter needs to start.
+    """
+
+    env = {"PATH": os.environ.get("PATH", os.defpath)}
+    if os.name == "nt" and "SYSTEMROOT" in os.environ:
+        env["SYSTEMROOT"] = os.environ["SYSTEMROOT"]
+    return env
+
+
 def _start_child(argv: list[str]) -> subprocess.Popen[str]:
     # The program text is the parent constant above, not a worktree path.
     # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit.dangerous-subprocess-use-audit
@@ -147,6 +160,7 @@ def _start_child(argv: list[str]) -> subprocess.Popen[str]:
         stderr=subprocess.DEVNULL,
         text=True,
         start_new_session=True,
+        env=_child_environment(),
     )
 
 

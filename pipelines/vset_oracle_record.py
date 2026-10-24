@@ -55,22 +55,22 @@ def _plain_field(value: object) -> object:
 
 
 def _namedtuple_record(value: object) -> dict[str, object] | None:
-    asdict = getattr(value, "_asdict", None)
-    if not callable(asdict):
+    fields = getattr(value, "_fields", None)
+    if not isinstance(value, tuple) or type(value) is tuple:
+        return None
+    if not isinstance(fields, tuple) or not fields:
+        return None
+    if not all(isinstance(name, str) for name in fields):
         return None
     try:
-        raw = asdict()
+        items = [_codec().encode(item) for item in value]
     except Exception:
         return None
-    if not isinstance(raw, dict):
-        return None
-    fields: dict[str, object] = {}
-    for key, item in raw.items():
-        encoded = _plain_field(item)
-        if encoded is _UNPLAIN:
-            return None
-        fields[str(key)] = encoded
-    return {"record": fields}
+    return {
+        "namedtuple": type(value).__name__,
+        "fields": list(fields),
+        "items": items,
+    }
 
 
 def live_collaborator(value: object) -> bool:

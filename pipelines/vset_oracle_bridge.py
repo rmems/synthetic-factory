@@ -117,6 +117,15 @@ def _receive(client: object, proc: object) -> object:
     return _receive_replies(client, proc, (_read_reply, _send, _answer, _relay))
 
 
+def _exception_chain(exc: Exception) -> list[str]:
+    names: list[str] = []
+    for base in type(exc).__mro__[1:]:
+        if base is BaseException or base is object:
+            break
+        names.append(base.__name__)
+    return names
+
+
 def _answer(client: object, message: dict[str, object]) -> dict[str, object]:
     try:
         encoded = _encode(_invoke(client, message))
@@ -125,6 +134,8 @@ def _answer(client: object, message: dict[str, object]) -> dict[str, object]:
             "cb_result": True,
             "ok": False,
             "type": type(exc).__name__,
+            "chain": _exception_chain(exc),
+            "args": [_encode(arg) for arg in exc.args],
             "message": str(exc),
         }
     return {"cb_result": True, "ok": True, "value": encoded}
@@ -152,9 +163,18 @@ _MOCK_SETTINGS = {
     "side_effect",
     "return_value",
 }
+_PROTOCOL = {
+    "__iter__",
+    "__next__",
+    "__len__",
+    "__getitem__",
+    "__contains__",
+}
 
 
 def _closed_name(name: str) -> bool:
+    if name in _PROTOCOL:
+        return False
     if name.startswith("_"):
         return True
     if name.startswith("assert_"):
