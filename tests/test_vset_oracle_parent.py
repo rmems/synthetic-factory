@@ -144,6 +144,8 @@ class ParentOracleTests(unittest.TestCase):
                     "def hello():\n    print('hi')\n"
                     "def env(name):\n    return os.environ.get(name)\n"
                     "def shout():\n    logging.getLogger('c').warning('boom')\n"
+                    "def info():\n    logging.getLogger('c').info('hi')\n"
+                    "def debug():\n    logging.getLogger('c').debug('lo')\n"
                 ),
                 "tests/use.py": (
                     "import contextlib\nimport io\nimport os\nimport unittest\n"
@@ -163,6 +165,14 @@ class ParentOracleTests(unittest.TestCase):
                     "        with self.assertLogs('c', level='WARNING') as caught:\n"
                     "            c.shout()\n"
                     "        self.assertIn('boom', caught.output[0])\n"
+                    "    def test_info(self):\n"
+                    "        with self.assertLogs('c', level='INFO') as caught:\n"
+                    "            c.info()\n"
+                    "        self.assertIn('hi', caught.output[0])\n"
+                    "    def test_debug(self):\n"
+                    "        with self.assertLogs('c', level='DEBUG') as caught:\n"
+                    "            c.debug()\n"
+                    "        self.assertIn('lo', caught.output[0])\n"
                     "    def test_env(self):\n"
                     "        with mock.patch.dict(os.environ, {'VSET_ORACLE_FLAG': '1'}):\n"
                     "            self.assertEqual(c.env('VSET_ORACLE_FLAG'), '1')\n"
