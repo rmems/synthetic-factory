@@ -13,8 +13,14 @@ GATE_FORMAT = "task-gate/1"
 TASKS_FORMAT = "task-gate-tasks/1"
 SUMMARY_FORMAT = "task-gate-summary/1"
 INDEX_FORMAT = "task-gate-dedup-index/2"
-KEY_FORMAT = "task-gate-key/2"
+KEY_FORMAT = "task-gate-key/3"
 HARNESS_PROTOCOL = "task-gate-harness/1"
+
+# Sources a proposal may record. Anything else is the proposer's own label.
+SOURCE_UNSPECIFIED = "unspecified"
+SOURCE_MODEL = "model"
+SOURCE_PROCEDURAL = "procedural"
+ACCEPTED_SOURCES = frozenset({SOURCE_UNSPECIFIED, SOURCE_MODEL, SOURCE_PROCEDURAL})
 
 TASKS_FILENAME = "tasks.jsonl"
 SUMMARY_FILENAME = "summary.json"
@@ -62,9 +68,13 @@ DETAIL_ORIGINAL_CRASHED = "original_crashed"
 DETAIL_MUTANT_FAILED_DOCTESTS = "mutant_failed_doctests"
 DETAIL_MUTANT_PASSED_ALL = "mutant_passed_all_doctests"
 DETAIL_MUTANT_TIMEOUT = "mutant_timeout"
+DETAIL_MUTANT_EQUIVALENT = "mutant_equivalent_stdout"
 DETAIL_PRIOR_RUN = "kept_in_prior_run"
 DETAIL_THIS_RUN = "kept_earlier_in_this_run"
 DETAIL_ON_DENYLIST = "program_id_on_eval_denylist"
+DETAIL_CONTENT_ON_DENYLIST = "program_text_on_eval_denylist"
+# Harness detail: every doctest miss is extra stdout around the expected value.
+DETAIL_STDOUT_EQUIVALENT = "stdout_equivalent"
 
 DEFAULT_TIMEOUT_S = 10.0
 MAX_TIMEOUT_S = 600.0

@@ -76,12 +76,22 @@ class Reports(unittest.TestCase):
 
     def test_failing_doctests_are_counted_not_raised(self):
         _, report, _ = run_child(program("return 2", 1))
-        self.assertEqual((report["outcome"], report["attempted"], report["failed"]), ("ran", 1, 1))
+        self.assertEqual(
+            (report["outcome"], report["attempted"], report["failed"], report["detail"]),
+            ("ran", 1, 1, ""),
+        )
         self.assertEqual(harness._result_of(report).outcome, cv.OUTCOME_FAILED)
 
     def test_doctest_output_does_not_reach_the_report_stream(self):
-        _, _, raw = run_child(program("print('noise')\nreturn 1", 1))
+        _, report, raw = run_child(program("print('noise')\nreturn 1", 1))
         self.assertNotIn("noise", raw)
+        self.assertEqual(report["failed"], 1)
+        self.assertEqual(report["detail"], cv.DETAIL_STDOUT_EQUIVALENT)
+        self.assertEqual(_child.DETAIL_STDOUT_EQUIVALENT, cv.DETAIL_STDOUT_EQUIVALENT)
+
+    def test_a_printed_expected_value_with_a_different_result_is_a_real_miss(self):
+        _, report, _ = run_child(program("return print(1) or 2", 1))
+        self.assertEqual((report["failed"], report["detail"]), (1, ""))
 
     def test_programs_that_cannot_be_loaded_are_load_errors(self):
         cases = {

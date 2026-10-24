@@ -133,6 +133,15 @@ class Judge(unittest.TestCase):
         self.assertEqual(self.judged(doc, *outputs("4\n", "7\n"), record.end(2)),
                          harness.HarnessResult(cv.OUTCOME_FAILED, 2, 1))
 
+    def test_stdout_around_the_expected_value_is_not_a_real_miss(self):
+        doc = ">>> f(2)\n4\n>>> f(3)\n6\n"
+        noisy = self.judged(doc, *outputs("noise\n4\n", "noise\n6\n"), record.end(2))
+        self.assertEqual(
+            noisy, harness.HarnessResult(cv.OUTCOME_FAILED, 2, 2, cv.DETAIL_STDOUT_EQUIVALENT),
+        )
+        mixed = self.judged(doc, *outputs("noise\n4\n", "7\n"), record.end(2))
+        self.assertEqual(mixed, harness.HarnessResult(cv.OUTCOME_FAILED, 2, 2))
+
     def test_example_options_apply_as_doctest_applies_them(self):
         doc = (">>> g()  # doctest: +ELLIPSIS\n[1, ..., 9]\n"
                ">>> g()  # doctest: +NORMALIZE_WHITESPACE\n[1,   2]\n"
