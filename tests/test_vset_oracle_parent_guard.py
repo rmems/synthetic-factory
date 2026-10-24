@@ -37,23 +37,9 @@ class ParentGuardTests(unittest.TestCase):
         with self.assertRaises(AssertionError):
             fresh.assert_called_once_with("x")
         report = _grade(
-            "def notify(cb):\n"
-            "    cb.configure_mock(**{\n"
-            "        '__class__.__base__.assert_called_once_with.side_effect':\n"
-            "        lambda *args, **kwargs: None,\n"
-            "    })\n"
-            "def work(cb):\n"
-            "    return 0\n",
-            "import unittest\nfrom unittest.mock import Mock\nimport c\n"
-            "class T(unittest.TestCase):\n"
-            "    def test_notify(self):\n"
-            "        c.notify(Mock())\n",
-            "import unittest\nfrom unittest.mock import Mock\nimport c\n"
-            "class T(unittest.TestCase):\n"
-            "    def test_called(self):\n"
-            "        watched = Mock()\n"
-            "        c.work(watched)\n"
-            "        watched.assert_called_once_with('x')\n",
+            "def notify(cb):\n" "    cb.configure_mock(**{\n" "        '__class__.__base__.assert_called_once_with.side_effect':\n" "        lambda *args, **kwargs: None,\n" "    })\n" "def work(cb):\n"
+            "    return 0\n", "import unittest\nfrom unittest.mock import Mock\nimport c\n" "class T(unittest.TestCase):\n" "    def test_notify(self):\n" "        c.notify(Mock())\n", "import unittest\nfrom unittest.mock import Mock\nimport c\n"
+            "class T(unittest.TestCase):\n" "    def test_called(self):\n" "        watched = Mock()\n" "        c.work(watched)\n" "        watched.assert_called_once_with('x')\n",
         )
         self.assertFalse(report["hidden"]["ok"], report["hidden"])
         probe = unittest.mock.Mock()
@@ -87,26 +73,10 @@ class ParentGuardTests(unittest.TestCase):
         original = unittest.TestCase.assertEqual
         try:
             report = _grade(
-                "def apply(fn, value):\n"
-                "    space = fn.__globals__['__builtins__']\n"
-                "    if not isinstance(space, dict):\n"
-                "        space = space.__dict__\n"
-                "    space['exec']("
-                "'import unittest\\n"
-                "def _ok(self, first, second, msg=None):\\n"
-                "    return None\\n"
-                "unittest.TestCase.assertEqual = _ok\\n')"
-                "\n"
-                "def sub(left, right):\n"
-                "    return 0\n",
-                "import unittest\nimport c\n"
-                "class T(unittest.TestCase):\n"
-                "    def test_apply(self):\n"
-                "        self.assertEqual(c.apply(lambda n: n + 1, 1), 2)\n",
-                "import unittest\nimport c\n"
-                "class T(unittest.TestCase):\n"
-                "    def test_sub(self):\n"
-                "        self.assertEqual(c.sub(5, 3), 2)\n",
+                "def apply(fn, value):\n" "    space = fn.__globals__['__builtins__']\n" "    if not isinstance(space, dict):\n" "        space = space.__dict__\n" "    space['exec'](" "'import unittest\\n"
+                "def _ok(self, first, second, msg=None):\\n" "    return None\\n" "unittest.TestCase.assertEqual = _ok\\n')" "\n" "def sub(left, right):\n" "    return 0\n",
+                "import unittest\nimport c\n" "class T(unittest.TestCase):\n" "    def test_apply(self):\n" "        self.assertEqual(c.apply(lambda n: n + 1, 1), 2)\n", "import unittest\nimport c\n" "class T(unittest.TestCase):\n"
+                "    def test_sub(self):\n" "        self.assertEqual(c.sub(5, 3), 2)\n",
             )
             self.assertFalse(report["reference"]["ok"])
             self.assertFalse(report["hidden"]["ok"])

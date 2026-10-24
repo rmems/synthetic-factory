@@ -117,14 +117,18 @@ def _decode_seq(encoded: dict[str, object]) -> object:
     return decoded
 
 
-def decode(encoded: object) -> object:
-    if not isinstance(encoded, dict):
-        return encoded
-    if "cls" in encoded:
-        info = encoded["cls"]
-        module_name = info.get("m") if isinstance(info, dict) else None
-        qualname = info.get("q") if isinstance(info, dict) else None
-        return load_qualified(module_name, qualname)
+def _class_ref(info: object) -> tuple[object, object]:
+    if not isinstance(info, dict):
+        return None, None
+    return info.get("m"), info.get("q")
+
+
+def _decode_class(encoded: dict[str, object]) -> object:
+    module_name, qualname = _class_ref(encoded.get("cls"))
+    return load_qualified(module_name, qualname)
+
+
+def _decode_payload(encoded: dict[str, object]) -> object:
     if "bytes" in encoded:
         return base64.b64decode(str(encoded["bytes"]))
     if "seq" in encoded:
@@ -132,6 +136,14 @@ def decode(encoded: object) -> object:
     if "reduce" in encoded:
         return materialize(encoded)
     raise _Skip
+
+
+def decode(encoded: object) -> object:
+    if not isinstance(encoded, dict):
+        return encoded
+    if "cls" in encoded:
+        return _decode_class(encoded)
+    return _decode_payload(encoded)
 
 
 def _state_map(raw: object) -> object:
