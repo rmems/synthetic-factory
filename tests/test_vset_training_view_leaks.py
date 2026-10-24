@@ -137,14 +137,15 @@ class HiddenSuiteLeakForges(unittest.TestCase):
     def test_unreadable_hidden_suite_is_reported(self) -> None:
         real_read = Path.read_bytes
 
-        def deny_pack_tests(self: Path) -> bytes:
-            if self.parent.name == "tests":
+        def deny_hidden_suite(self: Path) -> bytes:
+            if self.name.startswith("hidden_") and self.suffix == ".py":
                 raise OSError("denied")
             return real_read(self)
 
-        with mock.patch.object(Path, "read_bytes", deny_pack_tests):
+        with mock.patch.object(Path, "read_bytes", deny_hidden_suite):
             errors = vset.validate_record(_record(), pack_dir=PACK)
         self.assertIn("vset.payload_invalid", [item.code for item in errors])
+        self.assertTrue(any("unreadable hidden suite" in item.message for item in errors))
 
     def test_forge_validate_record_refuses_leak(self) -> None:
         for name, extra in FORGES.items():
@@ -182,6 +183,10 @@ class HiddenSuiteLeakForges(unittest.TestCase):
             record = _record({"decision_basis": text})
             record["oracle"]["hidden_tests"] = []
             self.assertTrue(vset.validate_record(record, pack_dir=pack))
+
+    def test_unpaired_surrogate_does_not_stop_the_record(self) -> None:
+        record = _record({"decision_basis": "notes \ud800"})
+        self.assertEqual(vset.validate_record(record, pack_dir=PACK), [])
 
     def test_escaped_hidden_test_path_is_not_read(self) -> None:
         record = _record()

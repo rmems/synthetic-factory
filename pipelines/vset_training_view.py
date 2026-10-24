@@ -157,10 +157,21 @@ def _hidden_suite_pins(
     return frozenset(digests), tuple(snippets), []
 
 
+def _utf8_digest(value: str) -> str | None:
+    """Hash UTF-8 bytes. A lone surrogate cannot be those bytes."""
+
+    try:
+        encoded = value.encode("utf-8")
+    except UnicodeEncodeError:
+        return None
+    return hashlib.sha256(encoded).hexdigest()
+
+
 def _digest_leaks(value: str, digests: frozenset[str]) -> bool:
-    if hashlib.sha256(value.encode("utf-8")).hexdigest() in digests:
+    digest = _utf8_digest(value)
+    if digest is not None and digest in digests:
         return True
-    return any(digest in value for digest in digests)
+    return any(item in value for item in digests)
 
 
 def _text_matches_hidden(
