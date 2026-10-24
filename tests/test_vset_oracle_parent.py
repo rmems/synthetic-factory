@@ -34,6 +34,18 @@ def _shapes(extra: str, tests: str) -> dict[str, str]:
         "        return self.side\n"
         "    def describe(self):\n"
         "        return self.area()\n"
+        "    def tagged(self):\n"
+        "        return self.label\n"
+        "    def scaled(self):\n"
+        "        return self.side * self._scale()\n"
+        "    def show(self):\n"
+        "        return self.unit\n"
+        "    def marked(self):\n"
+        "        return type(self).stamp()\n"
+        "    def born(self):\n"
+        "        return type(self).make(self.side).side\n"
+        "    def cmp(self, other):\n"
+        "        return self == other\n"
     )
     suite = (
         "import unittest\n"
@@ -45,6 +57,19 @@ def _shapes(extra: str, tests: str) -> dict[str, str]:
         "        self.kind = 'square'\n"
         "    def area(self):\n"
         "        return self.side * self.side\n"
+        "    def _scale(self):\n"
+        "        return 2\n"
+        "    @property\n"
+        "    def unit(self):\n"
+        "        return 'cm'\n"
+        "    @staticmethod\n"
+        "    def stamp():\n"
+        "        return 'ok'\n"
+        "    @classmethod\n"
+        "    def make(cls, side):\n"
+        "        return cls(side)\n"
+        "    def __eq__(self, other):\n"
+        "        return getattr(other, 'side', None) == self.side\n"
         + extra
         + "class T(unittest.TestCase):\n"
         + tests
@@ -386,21 +411,15 @@ class ParentOracleTests(unittest.TestCase):
             "import unittest\n"
             "import shapes\n"
             "class Square(shapes.Base):\n"
-            "    def area(self):\n"
-            "        return self.side * self.side\n"
+            "    pass\n"
             "class T(unittest.TestCase):\n"
-            "    def test_square(self):\n"
-            "        self.assertEqual(Square(3).area(), 9)\n"
-            "    def test_plain(self):\n"
+            "    def test_listed(self):\n"
             "        self.assertTrue(True)\n"
         )
         spec = {"module": "vset_oracle_tests_sub", "relative": "tests/sub.py", "source": source}
         collect.require_match(
             spec,
-            [
-                "vset_oracle_tests_sub.T.test_plain",
-                "vset_oracle_tests_sub.T.test_square",
-            ],
+            ["vset_oracle_tests_sub.T.test_listed"],
             {"sub.py": source},
         )
 
@@ -411,9 +430,15 @@ class ParentOracleTests(unittest.TestCase):
             "        self.assertEqual(value.area(), 9)\n"
             "        self.assertEqual(value.describe(), 9)\n"
             "        self.assertEqual(value.kind, 'square')\n"
+            "        self.assertEqual(value.tagged(), 'square')\n"
+            "        self.assertEqual(value.scaled(), 6)\n"
+            "        self.assertEqual(value.show(), 'cm')\n"
+            "        self.assertEqual(value.marked(), 'ok')\n"
             "        self.assertIsInstance(value, Square)\n"
             "        self.assertIsInstance(value, shapes.Base)\n"
             "        self.assertEqual(shapes.Base.built, 1)\n"
+            "        self.assertEqual(value.born(), 3)\n"
+            "        self.assertTrue(value.cmp(Square(3)))\n"
             "    def test_plain(self):\n"
             "        self.assertEqual(shapes.Base(2).area(), 2)\n"
             "        self.assertEqual(shapes.Base.built, 1)\n"
