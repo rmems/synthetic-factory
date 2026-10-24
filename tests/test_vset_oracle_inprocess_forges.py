@@ -96,6 +96,32 @@ def _reference(src: str, tests: str):
     return report, statuses
 
 
+def _eq_source(result: str) -> str:
+    return (
+        "class E:\n"
+        "    def __eq__(self, other):\n"
+        f"        return {result}\n"
+        "    def __sub__(self, other):\n"
+        "        return 0\n"
+        "    def __rsub__(self, other):\n"
+        "        return 0\n"
+        "def add(a, b):\n"
+        "    return E()\n"
+        "def total(a, b):\n"
+        "    return a + b\n"
+    )
+
+
+def _expect_refused(
+    case: unittest.TestCase, source: str, tests: str, refused: tuple[str, ...]
+) -> None:
+    report, by_name = _reference(source, tests)
+    case.assertEqual(by_name["test_number"], "ok")
+    for name in refused:
+        case.assertNotEqual(by_name[name], "ok", name)
+    case.assertFalse(report["reference"]["ok"])
+
+
 class InProcessForgeTests(unittest.TestCase):
     def test_honest_record_passes(self) -> None:
         self.assertEqual(_error_count(_record()), 0)
@@ -133,63 +159,40 @@ class InProcessForgeTests(unittest.TestCase):
         )
         self.assertTrue(report["reference"]["ok"], report["reference"])
 
-    def test_almost_equal_does_not_trust_candidate_subtraction(self) -> None:
-        report, by_name = _reference(
-            "class E:\n"
-            "    def __eq__(self, other):\n"
-            "        return False\n"
-            "    def __sub__(self, other):\n"
-            "        return 0\n"
-            "    def __rsub__(self, other):\n"
-            "        return 0\n"
-            "def add(a, b):\n"
-            "    return E()\n"
-            "def total(a, b):\n"
-            "    return a + b\n",
-            "    def test_almost(self):\n"
-            "        self.assertAlmostEqual(c.add(1, 2), 3)\n"
-            "    def test_places(self):\n"
-            "        self.assertAlmostEqual(c.add(1, 2), 3.0, places=3)\n"
-            "    def test_right(self):\n"
-            "        self.assertAlmostEqual(3, c.add(1, 2))\n"
-            "    def test_delta(self):\n"
-            "        self.assertAlmostEqual(c.add(1, 2), 3, delta=0.1)\n"
-            "    def test_number(self):\n"
-            "        self.assertAlmostEqual(c.total(1, 2), 3)\n",
-        )
-        self.assertEqual(by_name["test_number"], "ok")
-        for name in ("test_almost", "test_places", "test_right", "test_delta"):
-            self.assertNotEqual(by_name[name], "ok", name)
-        self.assertFalse(report["reference"]["ok"])
-
-    def test_always_equal_does_not_short_circuit_assert_almost_equal(self) -> None:
-        report, by_name = _reference(
-            "class E:\n"
-            "    def __eq__(self, other):\n"
-            "        return True\n"
-            "    def __sub__(self, other):\n"
-            "        return 0\n"
-            "    def __rsub__(self, other):\n"
-            "        return 0\n"
-            "def add(a, b):\n"
-            "    return E()\n"
-            "def total(a, b):\n"
-            "    return a + b\n",
-            "    def test_almost(self):\n"
-            "        self.assertAlmostEqual(c.add(1, 2), 3)\n"
-            "    def test_almost_right(self):\n"
-            "        self.assertAlmostEqual(3, c.add(1, 2))\n"
-            "    def test_equal(self):\n"
-            "        self.assertEqual(c.add(1, 2), 3)\n"
-            "    def test_equal_right(self):\n"
-            "        self.assertEqual(3, c.add(1, 2))\n"
-            "    def test_number(self):\n"
-            "        self.assertAlmostEqual(c.total(1, 2), 3)\n",
-        )
-        self.assertEqual(by_name["test_number"], "ok")
-        for name in ("test_almost", "test_almost_right", "test_equal", "test_equal_right"):
-            self.assertNotEqual(by_name[name], "ok", name)
-        self.assertFalse(report["reference"]["ok"])
+    def test_forged_equality_does_not_satisfy_parent_comparisons(self) -> None:
+        cases = {
+            "candidate_subtraction": (
+                "False",
+                "    def test_almost(self):\n"
+                "        self.assertAlmostEqual(c.add(1, 2), 3)\n"
+                "    def test_places(self):\n"
+                "        self.assertAlmostEqual(c.add(1, 2), 3.0, places=3)\n"
+                "    def test_right(self):\n"
+                "        self.assertAlmostEqual(3, c.add(1, 2))\n"
+                "    def test_delta(self):\n"
+                "        self.assertAlmostEqual(c.add(1, 2), 3, delta=0.1)\n"
+                "    def test_number(self):\n"
+                "        self.assertAlmostEqual(c.total(1, 2), 3)\n",
+                ("test_almost", "test_places", "test_right", "test_delta"),
+            ),
+            "always_equal": (
+                "True",
+                "    def test_almost(self):\n"
+                "        self.assertAlmostEqual(c.add(1, 2), 3)\n"
+                "    def test_almost_right(self):\n"
+                "        self.assertAlmostEqual(3, c.add(1, 2))\n"
+                "    def test_equal(self):\n"
+                "        self.assertEqual(c.add(1, 2), 3)\n"
+                "    def test_equal_right(self):\n"
+                "        self.assertEqual(3, c.add(1, 2))\n"
+                "    def test_number(self):\n"
+                "        self.assertAlmostEqual(c.total(1, 2), 3)\n",
+                ("test_almost", "test_almost_right", "test_equal", "test_equal_right"),
+            ),
+        }
+        for label, (result, tests, refused) in cases.items():
+            with self.subTest(forge=label):
+                _expect_refused(self, _eq_source(result), tests, refused)
 
     def test_alternating_eq_cannot_bypass_a_second_probe(self) -> None:
         report, by_name = _reference(
