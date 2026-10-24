@@ -358,29 +358,53 @@ def _total_gate_spikes(checks: list[Any]) -> tuple[int | None, bool]:
     return (total, True) if json_integer_is_bounded(total) else (None, False)
 
 
+def _reject_gate_checks(reason_codes: list[str], evidence: dict[str, Any], error: str) -> None:
+    """Fail closed when per-check evidence is missing, empty, or the wrong type."""
+
+    reason_codes.append(REASON_RASTER_SPIKE_BUDGET)
+    evidence["gate_compute_error"] = error
+    evidence["gate_compute_spike_budget_valid"] = False
+    evidence["gate_compute_total_spikes_valid"] = False
+
+
+def _declared_gate_checks(
+    gate_compute: dict[str, Any],
+    reason_codes: list[str],
+    evidence: dict[str, Any],
+) -> list[Any] | None:
+    """Return the declared checks, or None when that evidence cannot be trusted."""
+
+    if "per_check" not in gate_compute:
+        _reject_gate_checks(reason_codes, evidence, "per_check omitted")
+        return None
+    per_check = gate_compute["per_check"]
+    if not isinstance(per_check, list):
+        _reject_gate_checks(reason_codes, evidence, "per_check must be an array")
+        return None
+    if not per_check:
+        _reject_gate_checks(reason_codes, evidence, "per_check is empty")
+        return None
+    return per_check
+
+
 def _validate_gate_checks(
     gate_compute: dict[str, Any],
     reason_codes: list[str],
     evidence: dict[str, Any],
 ) -> int | None:
-    per_check = gate_compute.get("per_check")
-    if "per_check" in gate_compute and not isinstance(per_check, list):
-        reason_codes.append(REASON_RASTER_SPIKE_BUDGET)
-        evidence["gate_compute_error"] = "per_check must be an array"
-        evidence["gate_compute_spike_budget_valid"] = False
+    checks = _declared_gate_checks(gate_compute, reason_codes, evidence)
+    if checks is None:
         return None
-    checks = per_check if isinstance(per_check, list) else []
-    if checks:
-        results = [
-            _gate_check(
-                check,
-                index,
-                reason_codes=reason_codes,
-                evidence=evidence,
-            )
-            for index, check in enumerate(checks)
-        ]
-        evidence["gate_compute_spike_budget_valid"] = all(results)
+    results = [
+        _gate_check(
+            check,
+            index,
+            reason_codes=reason_codes,
+            evidence=evidence,
+        )
+        for index, check in enumerate(checks)
+    ]
+    evidence["gate_compute_spike_budget_valid"] = all(results)
     total_spikes, total_valid = _total_gate_spikes(checks)
     evidence["gate_compute_total_spikes_valid"] = total_valid
     if not total_valid:
@@ -391,27 +415,48 @@ def _validate_gate_checks(
     return total_spikes
 
 
+_GATE_ENERGY_FIELDS: Final = (
+    ("total_energy_uJ", RASTER_ENERGY_UJ_PER_SPIKE, 1e-9),
+    ("total_energy_pJ", RASTER_ENERGY_PJ_PER_SPIKE, 1e-6),
+)
+
+
+def _gate_energy_field(
+    value: Any,
+    total_spikes: int | None,
+    per_spike: float | int,
+    tolerance: float,
+    reason_codes: list[str],
+) -> bool:
+    expected = _spike_energy(total_spikes, per_spike) if total_spikes is not None else None
+    valid = _raster_energy_field(value, expected, tolerance)
+    if not valid:
+        reason_codes.append(REASON_RASTER_ENERGY)
+    return valid
+
+
 def _validate_gate_energy(
     gate_compute: dict[str, Any],
     total_spikes: int | None,
     reason_codes: list[str],
     evidence: dict[str, Any],
 ) -> None:
-    checks = (
-        ("total_energy_uJ", RASTER_ENERGY_UJ_PER_SPIKE, 1e-9),
-        ("total_energy_pJ", RASTER_ENERGY_PJ_PER_SPIKE, 1e-6),
-    )
-    results = []
-    for key, per_spike, tolerance in checks:
-        if key not in gate_compute:
-            continue
-        expected = _spike_energy(total_spikes, per_spike) if total_spikes is not None else None
-        valid = _raster_energy_field(gate_compute[key], expected, tolerance)
-        results.append(valid)
-        if not valid:
-            reason_codes.append(REASON_RASTER_ENERGY)
-    if results:
-        evidence["gate_compute_energy_valid"] = all(results)
+    declared = tuple(field for field in _GATE_ENERGY_FIELDS if field[0] in gate_compute)
+    if not declared:
+        reason_codes.append(REASON_RASTER_ENERGY)
+        evidence["gate_compute_energy_valid"] = False
+        return
+    results = [
+        _gate_energy_field(
+            gate_compute[key],
+            total_spikes,
+            per_spike,
+            tolerance,
+            reason_codes,
+        )
+        for key, per_spike, tolerance in declared
+    ]
+    evidence["gate_compute_energy_valid"] = all(results)
 
 
 def _validate_gate_compute(
@@ -420,7 +465,12 @@ def _validate_gate_compute(
     reason_codes: list[str],
     evidence: dict[str, Any],
 ) -> None:
-    """Validate per-check spike arithmetic and every declared energy total."""
+    """Validate per-check spike arithmetic and at least one declared energy total.
+
+    An omitted or empty ``per_check`` is not zero spikes, and a gate with no
+    ``total_energy_uJ`` or ``total_energy_pJ`` is not a measured energy of zero.
+    Either gap fails closed. One matching energy total is enough.
+    """
 
     evidence["gate_compute_present"] = True
     if not isinstance(gate_compute, dict):
