@@ -221,7 +221,13 @@ def spawn(cls: type, args: tuple[object, ...], kwargs: dict[str, object]) -> obj
     return inst
 
 
-def _construct(obj: object, client: object, base: int, args: object, kwargs: object) -> None:
+def _construct(
+    obj: object,
+    target: tuple[object, int],
+    incoming: tuple[tuple[object, ...], dict[str, object]],
+) -> None:
+    client, base = target
+    args, kwargs = incoming
     remote = client.call(base, args, kwargs)  # type: ignore[attr-defined]
     object.__setattr__(obj, "client", client)
     object.__setattr__(obj, "oid", remote.oid)
@@ -239,7 +245,7 @@ def initialize(obj: object, args: tuple[object, ...], kwargs: dict[str, object])
         return
     client, base = found
     if not _bound(obj):
-        _construct(obj, client, base, args, kwargs)
+        _construct(obj, (client, base), (args, kwargs))
         return
     client.exchange(  # type: ignore[attr-defined]
         {
