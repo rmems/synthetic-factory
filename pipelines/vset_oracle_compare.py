@@ -3,9 +3,11 @@
 An affirmative ``__eq__`` or ordering result is a pass channel when the
 other operand is a parent value: the child can answer True for every
 input. Builtin and standard-library comparisons are real data comparisons.
-A candidate comparison is kept only when every plain field agrees with
-that same parent value. One matching field among many is not agreement:
-the candidate chooses the fields and can plant every expected answer.
+A candidate comparison is kept when every plain field of the operand's
+kind agrees with that value, or when the tuple of fields is the operand.
+Fields of another kind, such as a currency string beside an amount, are
+not part of that check. One matching number among many numbers is not
+agreement: the candidate can plant every expected answer.
 """
 
 from __future__ import annotations
@@ -67,17 +69,36 @@ def _same(left: object, right: object) -> bool:
         return False
 
 
-def _matches_all(fields: dict[str, object], other: object) -> bool:
-    for item in fields.values():
+def _matches_all(items: list[object], other: object) -> bool:
+    for item in items:
         if not _same(item, other):
             return False
     return True
 
 
+def _number(value: object) -> bool:
+    if isinstance(value, bool):
+        return False
+    return isinstance(value, (int, float))
+
+
+def _same_kind(item: object, other: object) -> bool:
+    if _number(item):
+        return _number(other)
+    return item.__class__ == other.__class__
+
+
+def _related(fields: dict[str, object], other: object) -> list[object]:
+    return [item for item in fields.values() if _same_kind(item, other)]
+
+
 def _equal_data(fields: dict[str, object], other: object) -> bool:
     if not fields:
         return False
-    return _matches_all(fields, other)
+    related = _related(fields, other)
+    if related:
+        return _matches_all(related, other)
+    return _same(tuple(fields.values()), other)
 
 
 def _comparable(op: object, item: object, other: object) -> bool:
@@ -88,22 +109,25 @@ def _comparable(op: object, item: object, other: object) -> bool:
     return True
 
 
-def _rejects(op: object, item: object, other: object) -> bool:
+def _ordered_item(op: object, item: object, other: object) -> bool | None:
     if not _comparable(op, item, other):
-        return True
-    if not op(item, other):  # type: ignore[operator]
-        return True
-    return False
+        return None
+    return bool(op(item, other))  # type: ignore[operator]
 
 
 def _ordered(name: str, fields: dict[str, object], other: object) -> bool:
     if not fields:
         return False
     op = _ORDER[name]
+    seen = False
     for item in fields.values():
-        if _rejects(op, item, other):
+        answer = _ordered_item(op, item, other)
+        if answer is None:
+            continue
+        if not answer:
             return False
-    return True
+        seen = True
+    return seen
 
 
 def _relation(name: str, fields: dict[str, object], other: object) -> bool:
@@ -143,7 +167,7 @@ def _needs_data(result: object, info: dict[str, object], name: str) -> bool:
 
 
 def decide(name: str, result: object, info: dict[str, object] | None, other: object) -> object:
-    """Keep a candidate comparison only when every plain field agrees."""
+    """Keep a candidate comparison when the same-kind fields agree."""
 
     if info is None:
         return result

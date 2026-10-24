@@ -260,6 +260,43 @@ class InProcessForgeTests(unittest.TestCase):
         )
         self.assertTrue(report["reference"]["ok"], report["reference"])
 
+    def test_extra_fields_and_tuples_still_compare(self) -> None:
+        source = "".join(
+            [
+                "class Money:\n",
+                "    def __init__(self, cents, currency='USD'):\n",
+                "        self.cents = cents\n",
+                "        self.currency = currency\n",
+                "    def __eq__(self, other):\n",
+                "        if isinstance(other, int):\n",
+                "            return self.cents == other\n",
+                "        return NotImplemented\n",
+                "    def __lt__(self, other):\n",
+                "        return self.cents < other\n",
+                "class Version:\n",
+                "    def __init__(self, major, minor):\n",
+                "        self.major = major\n",
+                "        self.minor = minor\n",
+                "    def __eq__(self, other):\n",
+                "        return (self.major, self.minor) == tuple(other)\n",
+                "def money():\n",
+                "    return Money(500)\n",
+                "def version():\n",
+                "    return Version(1, 2)\n",
+            ]
+        )
+        tests = "".join(
+            [
+                "    def test_money(self):\n",
+                "        self.assertEqual(c.money(), 500)\n",
+                "        self.assertLess(c.money(), 600)\n",
+                "    def test_version(self):\n",
+                "        self.assertEqual(c.version(), (1, 2))\n",
+            ]
+        )
+        report, _statuses = _reference(source, tests)
+        self.assertTrue(report["reference"]["ok"], report["reference"])
+
     def test_import_time_print_stays_inside_the_json_report(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             pack = Path(tmp) / "pack"
