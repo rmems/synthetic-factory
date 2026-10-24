@@ -174,6 +174,20 @@ class ForgedRecordTests(unittest.TestCase):
             training_audit.content_identity_blob(first),
             training_audit.content_identity_blob(changed),
         )
+        nested = _thalamic("t-4")
+        nested["note"] = {"id": "step-a"}
+        other_nested = _thalamic("t-4")
+        other_nested["note"] = {"id": "step-b"}
+        self.assertNotEqual(
+            training_audit.content_identity_blob(nested),
+            training_audit.content_identity_blob(other_nested),
+        )
+        chosen = {"id": "left", "chosen": {"id": "c1", "text": "a"}, "rejected": {"id": "r1"}}
+        other_chosen = {"id": "right", "chosen": {"id": "c2", "text": "a"}, "rejected": {"id": "r2"}}
+        self.assertEqual(
+            training_audit.content_identity_blob(chosen),
+            training_audit.content_identity_blob(other_chosen),
+        )
 
     def test_matching_kind_and_synthetic_source_kind_are_not_labels(self):
         record = _thalamic("t-1")

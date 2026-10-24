@@ -366,18 +366,13 @@ def _reviewed_at_blocker(review: dict[str, Any]) -> str | None:
     the moment of promotion.
     """
     value = review.get("reviewed_at")
-    if value is None or value == "":
-        return None
-    if not isinstance(value, str):
-        return "REVIEW_REVIEWED_AT_INVALID"
-    text = value.strip()
-    if not text:
-        return "REVIEW_REVIEWED_AT_INVALID"
-    parsed = _parsed_reviewed_at(text)
-    if parsed is None:
-        return "REVIEW_REVIEWED_AT_INVALID"
-    if parsed > datetime.now(timezone.utc):
+    blank = value is None or value == ""
+    text = value.strip() if isinstance(value, str) else ""
+    parsed = None if blank or not text else _parsed_reviewed_at(text)
+    if parsed is not None and parsed > datetime.now(timezone.utc):
         return "REVIEW_REVIEWED_AT_FUTURE"
+    if not blank and parsed is None:
+        return "REVIEW_REVIEWED_AT_INVALID"
     return None
 
 

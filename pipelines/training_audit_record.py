@@ -94,22 +94,28 @@ def canonical_blob(value):
     return dumps_exact_json(value, sort_keys=True, ensure_ascii=False)
 
 
-# The canonical id is stamped from the source coordinate, and the reward
-# sidecar id hashes that coordinate together with the source record id.
-# Neither is training content, so copies that differ only there share one key.
-_CONTENT_IDENTITY_KEYS = frozenset({"id", "source_sidecar_id"})
+# Identity stamps and the reward sidecar id are bookkeeping. A nested ``id``
+# that is not one of these paths is content and stays in the hash.
+_STAMPED_ID_PATHS = frozenset({
+    ("id",),
+    ("chosen", "id"),
+    ("rejected", "id"),
+    ("language_view", "trajectory", "id"),
+})
 
 
-def _content_without_identity(value):
-    """Drop identity bookkeeping and surrounding whitespace from ``value``."""
+def _content_without_identity(value, path=()):
+    """Drop identity stamps and surrounding whitespace from ``value``."""
     if isinstance(value, dict):
-        return {
-            key: _content_without_identity(child)
-            for key, child in value.items()
-            if key not in _CONTENT_IDENTITY_KEYS
-        }
+        cleaned = {}
+        for key, child in value.items():
+            child_path = path + (key,)
+            if key == "source_sidecar_id" or child_path in _STAMPED_ID_PATHS:
+                continue
+            cleaned[key] = _content_without_identity(child, child_path)
+        return cleaned
     if isinstance(value, list):
-        return [_content_without_identity(child) for child in value]
+        return [_content_without_identity(child, path) for child in value]
     if isinstance(value, str):
         return value.strip()
     return value

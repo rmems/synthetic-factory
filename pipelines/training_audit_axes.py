@@ -72,7 +72,7 @@ class AuditAxes:
 
     def _observe_duplicate(self, obj, where):
         # Identity is stamped per source line, so the duplicate key hashes
-        # normalized content with those ids removed.
+        # normalized content with those stamps removed.
         blob = self.api.content_identity_blob(obj)
         digest = hashlib.sha256(blob.encode("utf-8")).hexdigest()
         if digest in self.content_seen:
