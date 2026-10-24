@@ -542,6 +542,10 @@ class EdgeTests(unittest.TestCase):
         self.assertIsNone(lookup.stdlib_exception({}))
         self.assertIsNone(lookup.stdlib_exception({"module": "json", "qualname": "dumps"}))
         self.assertIsNone(lookup.stdlib_exception({"module": "not_a_stdlib", "qualname": "X"}))
+        self.assertIsNone(
+            lookup.stdlib_exception({"module": "unittest.case", "qualname": "_ShouldStop"})
+        )
+        self.assertIsNone(lookup.stdlib_exception({"module": "this", "qualname": "X"}))
         with unittest.mock.patch.object(lookup.importlib, "import_module", side_effect=ImportError):
             self.assertIsNone(
                 lookup.stdlib_exception({"module": "json", "qualname": "JSONDecodeError"})

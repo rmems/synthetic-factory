@@ -340,6 +340,26 @@ class InProcessForgeTests(unittest.TestCase):
         _expect_refused(self, once, tests, ("test_equal",))
         _expect_refused(self, known, tests, ("test_equal",))
 
+    def test_unittest_stop_is_not_a_passing_exception(self) -> None:
+        source = "\n".join(
+            (
+                "import unittest.case",
+                "def value():",
+                "    raise unittest.case._ShouldStop()",
+                "def total(a, b):",
+                "    return a + b",
+            )
+        )
+        body = "\n".join(
+            (
+                "    def test_stop(self):",
+                "        c.value()",
+                "    def test_number(self):",
+                "        self.assertEqual(c.total(1, 2), 3)",
+            )
+        )
+        _expect_refused(self, source, body, ("test_stop",))
+
     def test_import_time_print_stays_inside_the_json_report(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             pack = Path(tmp) / "pack"
