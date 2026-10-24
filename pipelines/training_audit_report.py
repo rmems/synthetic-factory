@@ -10,6 +10,12 @@ if __package__:
     from . import _assert_direct_sibling, _expose_package_sibling
 
     _assert_direct_sibling("training_audit_report")
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "training_audit_report"
+    )
+
+if __package__:
     from .check_records import ALLOWED_PROVENANCE
     from .distillation_audit import (
         BRIDGE_FACTORY_SLUG,
@@ -17,9 +23,6 @@ if __package__:
         THALAMIC_FACTORY_SLUG,
     )
 else:
-    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
-        "training_audit_report"
-    )
     from check_records import ALLOWED_PROVENANCE
     from distillation_audit import (
         BRIDGE_FACTORY_SLUG,
