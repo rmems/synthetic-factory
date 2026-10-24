@@ -127,15 +127,34 @@ _BLANK = (
 )
 
 
-def blank_instance(cls: type) -> object:
-    """Empty instance whose real builtin bases ``isinstance`` still sees."""
-
+def _blank_of(cls: type) -> object | None:
     for base, maker in _BLANK:
         if cls is base:
             continue
-        if issubclass(cls, base):
+        if not issubclass(cls, base):
+            continue
+        try:
             return maker(cls)
-    return object.__new__(cls)
+        except TypeError:
+            return None
+    return None
+
+
+def _fresh(cls: type) -> object:
+    try:
+        return object.__new__(cls)
+    except TypeError:
+        remote = _values().RemoteObject
+        return remote.__new__(remote)
+
+
+def blank_instance(cls: type) -> object:
+    """Empty instance whose real builtin bases ``isinstance`` still sees."""
+
+    made = _blank_of(cls)
+    if made is not None:
+        return made
+    return _fresh(cls)
 
 
 def _targets_environ(patcher: object) -> bool:

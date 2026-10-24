@@ -8,10 +8,11 @@ from __future__ import annotations
 
 import base64
 import sys
-from collections import deque
-from datetime import date, datetime
+from collections import Counter, OrderedDict, defaultdict, deque
+from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 from fractions import Fraction
+from pathlib import PurePath
 
 if __package__:  # pragma: no cover - package-child import path
     from . import _assert_direct_sibling, _expose_package_sibling
@@ -90,6 +91,76 @@ _ENCODE = {
 }
 
 
+_FACTORIES = {
+    "int": int,
+    "list": list,
+    "set": set,
+    "dict": dict,
+    "float": float,
+    "str": str,
+    "tuple": tuple,
+}
+
+
+def _pairs(value: dict[object, object]) -> list[list[object]]:
+    return [[encode(key), encode(item)] for key, item in value.items()]
+
+
+def _factory_name(factory: object) -> str | None:
+    if factory is None:
+        return ""
+    name = getattr(factory, "__name__", "")
+    if name in _FACTORIES:
+        return str(name)
+    return None
+
+
+def _encode_stdlib(value: object) -> object | None:
+    if type(value) is complex:
+        return {"complex": [value.real, value.imag]}
+    if type(value) is range:
+        return {"range": [value.start, value.stop, value.step]}
+    if type(value) is slice:
+        return {"slice": [value.start, value.stop, value.step]}
+    if type(value) is timedelta:
+        return {"timedelta": [value.days, value.seconds, value.microseconds]}
+    if type(value) is time:
+        return {"time": value.isoformat()}
+    if isinstance(value, PurePath):
+        return {"path": str(value), "cls": type(value).__name__}
+    if isinstance(value, Counter):
+        return {"counter": _pairs(value), "slot": _host()._track(value)}
+    if isinstance(value, defaultdict):
+        name = _factory_name(value.default_factory)
+        if name is None:
+            return None
+        return {"default": _pairs(value), "factory": name, "slot": _host()._track(value)}
+    if isinstance(value, OrderedDict):
+        return {"ordered": _pairs(value), "slot": _host()._track(value)}
+    return _encode_iterator(value)
+
+
+def _iterator_types() -> tuple[type, ...]:
+    return (
+        type(iter(())),
+        type(iter([])),
+        type(iter(set())),
+        type({}.keys()),
+        type({}.values()),
+        type({}.items()),
+        type(map(str, ())),
+        type(filter(None, ())),
+        type(zip()),
+        type(item for item in ()),
+    )
+
+
+def _encode_iterator(value: object) -> object | None:
+    if type(value) not in _iterator_types():
+        return None
+    return {"seq": [encode(item) for item in value]}  # type: ignore[union-attr]
+
+
 def _encode_dict_or_list(value: object) -> object | None:
     if isinstance(value, dict):
         return _encode_map(value)  # type: ignore[arg-type]
@@ -110,6 +181,9 @@ def _encode_tuple_or_set(value: object) -> object | None:
 
 
 def _encode_known(value: object) -> object | None:
+    encoded = _encode_stdlib(value)
+    if encoded is not None:
+        return encoded
     encoded = _encode_dict_or_list(value)
     if encoded is not None:
         return encoded

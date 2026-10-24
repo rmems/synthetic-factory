@@ -28,10 +28,11 @@ WORKER_SOURCE = textwrap.dedent(
     import os
     import sys
     import types
-    from datetime import date, datetime
+    from collections import Counter, OrderedDict, defaultdict, namedtuple
+    from datetime import date, datetime, time, timedelta
     from decimal import Decimal
     from fractions import Fraction
-    from pathlib import Path
+    from pathlib import Path, PurePath
 
     real_out = sys.stdout
     sys.stdout = sys.stderr
@@ -73,6 +74,19 @@ WORKER_SOURCE = textwrap.dedent(
         return names
 
 
+    def describe_exc(cls):
+        if cls.__module__ == "builtins":
+            found = getattr(builtins, cls.__name__, None)
+            if found is cls:
+                return {"builtin": cls.__name__}
+        bases = []
+        for base in cls.__bases__:
+            if base is BaseException or base is object:
+                continue
+            bases.append(describe_exc(base))
+        return {"oid": remember(cls), "name": cls.__name__, "bases": bases}
+
+
     def describe_class(cls):
         if cls.__module__ == "builtins":
             found = getattr(builtins, cls.__name__, None)
@@ -84,6 +98,106 @@ WORKER_SOURCE = textwrap.dedent(
                 continue
             bases.append(describe_class(base))
         return {"oid": remember(cls), "name": cls.__name__, "bases": bases}
+
+
+    _FACTORIES = {
+        "int": int, "list": list, "set": set, "dict": dict,
+        "float": float, "str": str, "tuple": tuple,
+    }
+    _EXC = {}
+    _NT = {}
+
+
+    def pairs(value):
+        return [[put(key), put(item)] for key, item in value.items()]
+
+
+    def factory_name(factory):
+        if factory is None:
+            return ""
+        name = getattr(factory, "__name__", "")
+        if name in _FACTORIES:
+            return name
+        return None
+
+
+    def put_scalar(value):
+        if type(value) is complex:
+            return {"kind": "complex", "real": value.real, "imag": value.imag}
+        if type(value) is range:
+            return {
+                "kind": "range",
+                "start": value.start,
+                "stop": value.stop,
+                "step": value.step,
+            }
+        if type(value) is slice:
+            return {
+                "kind": "slice",
+                "start": value.start,
+                "stop": value.stop,
+                "step": value.step,
+            }
+        if type(value) is timedelta:
+            return {
+                "kind": "timedelta",
+                "days": value.days,
+                "seconds": value.seconds,
+                "micro": value.microseconds,
+            }
+        if type(value) is time:
+            return {"kind": "time", "data": value.isoformat()}
+        if isinstance(value, PurePath):
+            return {"kind": "path", "data": str(value), "cls": type(value).__name__}
+        return None
+
+
+    def put_mapping(value):
+        if isinstance(value, Counter):
+            return {"kind": "counter", "items": pairs(value)}
+        if isinstance(value, defaultdict):
+            name = factory_name(value.default_factory)
+            if name is None:
+                return None
+            return {"kind": "default", "items": pairs(value), "factory": name}
+        if isinstance(value, OrderedDict):
+            return {"kind": "ordered", "items": pairs(value)}
+        if type(value) is dict:
+            return {"kind": "dict", "items": pairs(value)}
+        return None
+
+
+    def put_namedtuple(value):
+        fields = getattr(value, "_fields", None)
+        if not isinstance(value, tuple) or type(value) is tuple:
+            return None
+        if not isinstance(fields, tuple):
+            return None
+        return {
+            "kind": "namedtuple",
+            "name": type(value).__name__,
+            "fields": list(fields),
+            "items": [put(item) for item in value],
+        }
+
+
+    def put_dataclass(value):
+        if isinstance(value, type):
+            return None
+        fields = getattr(type(value), "__dataclass_fields__", None)
+        if not isinstance(fields, dict):
+            return None
+        payload = {}
+        for name, field in fields.items():
+            if getattr(field, "init", True) is False and not hasattr(value, name):
+                continue
+            payload[name] = put(getattr(value, name))
+        return {
+            "kind": "dataclass",
+            "name": type(value).__name__,
+            "oid": remember(type(value)),
+            "fields": payload,
+        }
 
 
     def put(value):
@@ -106,19 +220,30 @@ WORKER_SOURCE = textwrap.dedent(
             return {"kind": "datetime", "data": value.isoformat()}
         if isinstance(value, date):
             return {"kind": "date", "data": value.isoformat()}
+        scalar = put_scalar(value)
+        if scalar is not None:
+            return scalar
         if type(value) is list:
             return {"kind": "list", "items": [put(item) for item in value]}
+        named = put_namedtuple(value)
+        if named is not None:
+            return named
         if type(value) is tuple:
             return {"kind": "tuple", "items": [put(item) for item in value]}
-        if type(value) is dict:
-            pairs = [[put(key), put(item)] for key, item in value.items()]
-            return {"kind": "dict", "items": pairs}
+        mapped = put_mapping(value)
+        if mapped is not None:
+            return mapped
         if type(value) is set:
             return {"kind": "set", "items": [put(item) for item in value]}
         if type(value) is frozenset:
             return {"kind": "frozenset", "items": [put(item) for item in value]}
+        boxed = put_dataclass(value)
+        if boxed is not None:
+            return boxed
         if is_exception(value):
-            return {"kind": "exc_type", "name": value.__name__, "chain": exc_chain(value)}
+            info = describe_exc(value)
+            info["kind"] = "exc_type"
+            return info
         if isinstance(value, type):
             info = describe_class(value)
             info["kind"] = "class"
@@ -171,7 +296,57 @@ WORKER_SOURCE = textwrap.dedent(
             return datetime.fromisoformat(value["datetime"])
         if "date" in value:
             return date.fromisoformat(value["date"])
+        if "complex" in value:
+            spec = value["complex"]
+            return complex(spec[0], spec[1])
+        if "range" in value:
+            spec = value["range"]
+            return range(spec[0], spec[1], spec[2])
+        if "slice" in value:
+            spec = value["slice"]
+            return slice(spec[0], spec[1], spec[2])
+        if "timedelta" in value:
+            spec = value["timedelta"]
+            return timedelta(spec[0], spec[1], spec[2])
+        if "time" in value:
+            return time.fromisoformat(value["time"])
+        if "path" in value:
+            return rebuild_path(value.get("cls"), value["path"])
+        if "counter" in value:
+            return remember_slot(value, Counter(mapped(value["counter"])))
+        if "ordered" in value:
+            return remember_slot(value, OrderedDict(mapped(value["ordered"])))
+        if "default" in value:
+            factory = _FACTORIES.get(value.get("factory") or "")
+            return remember_slot(value, defaultdict(factory, mapped(value["default"])))
+        if "namedtuple" in value:
+            return rebuild_namedtuple(value)
         return value
+
+
+    def mapped(pairs):
+        return {decode(pair[0]): decode(pair[1]) for pair in pairs}
+
+
+    def remember_slot(value, decoded):
+        if value.get("slot") is not None:
+            slots[value["slot"]] = decoded
+        return decoded
+
+
+    def rebuild_path(name, text):
+        cls = getattr(__import__("pathlib"), str(name or ""), None)
+        if not isinstance(cls, type):
+            return PurePath(text)
+        return cls(text)
+
+
+    def rebuild_namedtuple(value):
+        fields = tuple(value.get("fields") or ())
+        key = (str(value.get("namedtuple")), fields)
+        if key not in _NT:
+            _NT[key] = namedtuple(key[0], fields)
+        return _NT[key](*(decode(item) for item in value.get("items") or ()))
 
 
     def snapshot(value):
@@ -232,6 +407,30 @@ WORKER_SOURCE = textwrap.dedent(
                 "attr": name,
             })
 
+        def _dunder(self, name, *args):
+            method = ask({
+                "kind": "callback",
+                "op": "get",
+                "cb": self._cb,
+                "attr": name,
+            })
+            return method(*args)
+
+        def __iter__(self):
+            return self._dunder("__iter__")
+
+        def __next__(self):
+            return self._dunder("__next__")
+
+        def __len__(self):
+            return self._dunder("__len__")
+
+        def __getitem__(self, key):
+            return self._dunder("__getitem__", key)
+
+        def __contains__(self, item):
+            return self._dunder("__contains__", item)
+
 
     def ask(payload):
         reply(payload)
@@ -245,7 +444,44 @@ WORKER_SOURCE = textwrap.dedent(
                 continue
             if req.get("ok"):
                 return decode(req.get("value"))
-            raise RuntimeError(str(req.get("message")))
+            raise rebuild_callback(req)
+
+
+    def builtin_exc(name):
+        found = getattr(builtins, name, None)
+        if not isinstance(found, type):
+            return None
+        try:
+            if issubclass(found, Exception):
+                return found
+        except TypeError:
+            return None
+        return None
+
+
+    def make_exc(name, chain):
+        found = builtin_exc(name)
+        if found is not None:
+            return found
+        key = (name, tuple(chain))
+        if key in _EXC:
+            return _EXC[key]
+        base = Exception
+        if chain:
+            base = make_exc(chain[0], chain[1:])
+        created = type(name, (base,), {})
+        _EXC[key] = created
+        return created
+
+
+    def rebuild_callback(req):
+        name = str(req.get("type") or "RuntimeError")
+        raw = req.get("chain") or ["Exception"]
+        chain = [str(item) for item in raw]
+        args = req.get("args")
+        if not isinstance(args, list):
+            args = [req.get("message", "")]
+        return make_exc(name, chain)(*(decode(arg) for arg in args))
 
 
     def handle(req):
@@ -257,6 +493,7 @@ WORKER_SOURCE = textwrap.dedent(
                 attrs[key] = put(val)
             out = {
                 "kind": "error",
+                "exc": describe_exc(type(exc)),
                 "type": type(exc).__name__,
                 "chain": exc_chain(type(exc)),
                 "args": [put(arg) for arg in exc.args],
