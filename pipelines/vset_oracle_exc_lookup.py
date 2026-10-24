@@ -19,26 +19,51 @@ else:
     )
 
 
-def _stdlib_module(module_name: object) -> bool:
-    if not isinstance(module_name, str) or not module_name:
-        return False
-    return module_name.split(".", 1)[0] in sys.stdlib_module_names
+def _load_text(module_name: str) -> object | None:
+    if module_name == "json":
+        return importlib.import_module("json")
+    if module_name == "json.decoder":
+        return importlib.import_module("json.decoder")
+    if module_name == "decimal":
+        return importlib.import_module("decimal")
+    return None
+
+
+def _load_data(module_name: str) -> object | None:
+    if module_name == "uuid":
+        return importlib.import_module("uuid")
+    if module_name == "array":
+        return importlib.import_module("array")
+    if module_name == "copyreg":
+        return importlib.import_module("copyreg")
+    return None
+
+
+def load_module(module_name: str) -> object | None:
+    """Import one reviewed standard-library module, by a literal name."""
+
+    try:
+        found = _load_text(module_name)
+        if found is not None:
+            return found
+        return _load_data(module_name)
+    except ImportError:
+        return None
 
 
 def _names(info: dict[str, object]) -> tuple[str, str] | None:
     module_name = info.get("module")
     qualname = info.get("qualname")
-    if isinstance(module_name, str) and isinstance(qualname, str):
-        return module_name, qualname
-    return None
+    if not isinstance(module_name, str):
+        return None
+    if not isinstance(qualname, str):
+        return None
+    return module_name, qualname
 
 
 def _import_name(module_name: str, qualname: str) -> object | None:
-    if not _stdlib_module(module_name):
-        return None
-    try:
-        found: object = importlib.import_module(module_name)
-    except ImportError:
+    found = load_module(module_name)
+    if found is None:
         return None
     for part in qualname.split("."):
         found = getattr(found, part, None)
@@ -54,9 +79,11 @@ def stdlib_exception(info: dict[str, object]) -> type[Exception] | None:
     if names is None:
         return None
     found = _import_name(names[0], names[1])
-    if isinstance(found, type) and issubclass(found, Exception):
-        return found
-    return None
+    if not isinstance(found, type):
+        return None
+    if not issubclass(found, Exception):
+        return None
+    return found
 
 
 if __package__:  # pragma: no cover - package-child import path

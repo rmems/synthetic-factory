@@ -84,18 +84,30 @@ def _read_line(stdout: object) -> object:
     return json.loads(line)
 
 
-def _join_span(stdout: object, count: object) -> object:
-    if type(count) is not int or not 1 <= count <= _SPAN_MAX:
+def _span_count(count: object) -> int:
+    if isinstance(count, bool):
         raise EOFError("oracle worker reply is too large")
-    parts: list[str] = []
-    for _ in range(count):
-        piece = _read_line(stdout)
-        if not isinstance(piece, dict):
-            raise EOFError("oracle worker reply is too large")
-        data = piece.get("data")
-        if not isinstance(data, str):
-            raise EOFError("oracle worker reply is too large")
-        parts.append(data)
+    if not isinstance(count, int):
+        raise EOFError("oracle worker reply is too large")
+    if count < 1:
+        raise EOFError("oracle worker reply is too large")
+    if count > _SPAN_MAX:
+        raise EOFError("oracle worker reply is too large")
+    return count
+
+
+def _span_piece(stdout: object) -> str:
+    piece = _read_line(stdout)
+    if not isinstance(piece, dict):
+        raise EOFError("oracle worker reply is too large")
+    data = piece.get("data")
+    if not isinstance(data, str):
+        raise EOFError("oracle worker reply is too large")
+    return data
+
+
+def _join_span(stdout: object, count: object) -> object:
+    parts = [_span_piece(stdout) for _ in range(_span_count(count))]
     return json.loads("".join(parts))
 
 

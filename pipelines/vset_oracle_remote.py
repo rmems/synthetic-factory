@@ -85,6 +85,9 @@ class _Client:
     def shift_environ(self, changed: dict[str, str], dropped: list[str]) -> None:
         self.exchange({"op": "environ", "set": changed, "drop": dropped})
 
+    def undo_environ(self) -> None:
+        self.exchange({"op": "environ", "undo": True})
+
     def call(self, oid: int, args: tuple[object, ...], kwargs: dict[str, object]) -> object:
         return self.exchange(
             {
@@ -290,17 +293,41 @@ def _status(result: unittest.TestResult) -> str:
     return "ERROR"
 
 
-def _run_case(module: types.ModuleType, names: tuple[str, str]) -> str:
-    class_name, method_name = names
-    case = getattr(module, class_name)
-    suite = unittest.TestSuite([case(method_name)])
+def _labeled(rows: object, test: unittest.case.TestCase, label: str) -> str:
+    for item in rows:  # type: ignore[union-attr]
+        found = item[0] if isinstance(item, tuple) else item
+        if found is test:
+            return label
+    return ""
+
+
+def _case_status(result: unittest.TestResult, test: unittest.case.TestCase) -> str:
+    checks = (
+        (result.errors, "ERROR"),
+        (result.failures, "FAIL"),
+        (result.skipped, "SKIP"),
+        (result.expectedFailures, "expectedFailure"),
+        (result.unexpectedSuccesses, "unexpectedSuccess"),
+    )
+    for rows, label in checks:
+        found = _labeled(rows, test, label)
+        if found:
+            return found
+    return "ok"
+
+
+def _run_cases(module: types.ModuleType, cases: list[tuple[str, str]]) -> list[str]:
+    tests = [getattr(module, class_name)(method_name) for class_name, method_name in cases]
+    suite = unittest.TestSuite(tests)
     result = unittest.TestResult()
     suite.run(result)
-    return _status(result)
+    return [_case_status(result, test) for test in tests]
 
 
-def _execute(spec: dict[str, str], names: tuple[str, str], folder: Path) -> tuple[str, str]:
-    suffix = f"__{names[0]}__{names[1]}"
+def _execute(
+    spec: dict[str, str], cases: list[tuple[str, str]], folder: Path
+) -> tuple[list[str], str]:
+    suffix = "__" + "__".join(name for case in cases for name in case)
     buffer = io.StringIO()
     previous_out = sys.stdout
     previous_err = sys.stderr
@@ -308,11 +335,11 @@ def _execute(spec: dict[str, str], names: tuple[str, str], folder: Path) -> tupl
     sys.stderr = buffer
     try:
         module = _load_saved(spec, suffix, folder)
-        status = _run_case(module, names)
+        statuses = _run_cases(module, cases)
     finally:
         sys.stdout = previous_out
         sys.stderr = previous_err
-    return status, buffer.getvalue()[-4000:]
+    return statuses, buffer.getvalue()[-4000:]
 
 
 def _materialize(sources: dict[str, str]) -> tempfile.TemporaryDirectory[str]:
@@ -344,9 +371,9 @@ def _restore_shadowed(saved: dict[str, object]) -> None:
 def _grade_open(
     proc: subprocess.Popen[str],
     spec: dict[str, str],
-    names: tuple[str, str],
+    cases: list[tuple[str, str]],
     bundle: tuple[dict[str, str], frozenset[str]],
-) -> tuple[str, str]:
+) -> tuple[list[str], str]:
     sources, src_names = bundle
     before = set(sys.modules)
     hidden = _hide_shadowed(src_names)
@@ -359,9 +386,9 @@ def _grade_open(
     hooks = None
     try:
         hooks = bridge.install_patches(client)
-        return _execute(spec, names, Path(folder))
+        return _execute(spec, cases, Path(folder))
     except (Exception, SystemExit) as exc:
-        return "ERROR", f"{type(exc).__name__}: {exc}"
+        return ["ERROR"] * len(cases), f"{type(exc).__name__}: {exc}"
     finally:
         if hooks is not None:
             bridge.restore_patches(hooks)
@@ -373,13 +400,13 @@ def _grade_open(
         temp.cleanup()
 
 
-def grade_test(
+def grade_cases(
     work: Path,
     spec: dict[str, str],
-    names: tuple[str, str],
+    cases: list[tuple[str, str]],
     bundle: tuple[dict[str, str], frozenset[str]],
-) -> tuple[str, str]:
-    """Grade one id. Candidate calls run in ``work``; assertions run here."""
+) -> tuple[list[str], str]:
+    """Grade one module load. ``setUpClass`` runs once for its methods."""
 
     global _alarm_tripped
     _alarm_tripped = False
@@ -394,7 +421,7 @@ def grade_test(
     previous_cwd = Path.cwd()
     os.chdir(work)
     try:
-        return _grade_open(proc, spec, names, bundle)
+        return _grade_open(proc, spec, cases, bundle)
     except KeyboardInterrupt:
         if not _alarm_tripped:
             raise
@@ -403,6 +430,18 @@ def grade_test(
         os.chdir(previous_cwd)
         _disarm(previous)
         _stop(proc)
+
+
+def grade_test(
+    work: Path,
+    spec: dict[str, str],
+    names: tuple[str, str],
+    bundle: tuple[dict[str, str], frozenset[str]],
+) -> tuple[str, str]:
+    """Grade one id. Candidate calls run in ``work``; assertions run here."""
+
+    statuses, text = grade_cases(work, spec, [names], bundle)
+    return statuses[0], text
 
 
 if __package__:  # pragma: no cover - package-child import path
