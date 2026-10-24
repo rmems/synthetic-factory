@@ -23,6 +23,35 @@ def _pack(name: str) -> dict[str, str]:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def _shapes(extra: str, tests: str) -> dict[str, str]:
+    source = (
+        "class Base:\n"
+        "    built = 0\n"
+        "    def __init__(self, side):\n"
+        "        Base.built += 1\n"
+        "        self.side = side\n"
+        "    def area(self):\n"
+        "        return self.side\n"
+        "    def describe(self):\n"
+        "        return self.area()\n"
+    )
+    suite = (
+        "import unittest\n"
+        "import shapes\n"
+        "class Square(shapes.Base):\n"
+        "    label = 'square'\n"
+        "    def __init__(self, side):\n"
+        "        super().__init__(side)\n"
+        "        self.kind = 'square'\n"
+        "    def area(self):\n"
+        "        return self.side * self.side\n"
+        + extra
+        + "class T(unittest.TestCase):\n"
+        + tests
+    )
+    return {"src/shapes.py": source, "tests/use.py": suite}
+
+
 def _run(filename: str, files: dict[str, str]):
     with tempfile.TemporaryDirectory() as tmp:
         pack = Path(tmp)
@@ -376,85 +405,43 @@ class ParentOracleTests(unittest.TestCase):
         )
 
     def test_parent_subclass_of_a_candidate_class_runs(self) -> None:
-        self._ok_files(
-            "use.py",
-            {
-                "src/shapes.py": (
-                    "class Base:\n"
-                    "    built = 0\n"
-                    "    def __init__(self, side):\n"
-                    "        Base.built += 1\n"
-                    "        self.side = side\n"
-                    "    def area(self):\n"
-                    "        return self.side\n"
-                    "    def describe(self):\n"
-                    "        return self.area()\n"
-                ),
-                "tests/use.py": (
-                    "import unittest\n"
-                    "import shapes\n"
-                    "class Square(shapes.Base):\n"
-                    "    label = 'square'\n"
-                    "    def __init__(self, side):\n"
-                    "        super().__init__(side)\n"
-                    "        self.kind = 'square'\n"
-                    "    def area(self):\n"
-                    "        return self.side * self.side\n"
-                    "class T(unittest.TestCase):\n"
-                    "    def test_square(self):\n"
-                    "        value = Square(3)\n"
-                    "        self.assertEqual(value.area(), 9)\n"
-                    "        self.assertEqual(value.describe(), 9)\n"
-                    "        self.assertEqual(value.kind, 'square')\n"
-                    "        self.assertIsInstance(value, Square)\n"
-                    "        self.assertIsInstance(value, shapes.Base)\n"
-                    "        self.assertEqual(shapes.Base.built, 1)\n"
-                    "    def test_plain(self):\n"
-                    "        self.assertEqual(shapes.Base(2).area(), 2)\n"
-                    "        self.assertEqual(shapes.Base.built, 1)\n"
-                    "    def test_inner(self):\n"
-                    "        class Inner(shapes.Base):\n"
-                    "            def area(self):\n"
-                    "                return self.side + 1\n"
-                    "        self.assertEqual(Inner(4).area(), 5)\n"
-                    "        self.assertEqual(Inner(4).describe(), 5)\n"
-                ),
-            },
+        tests = (
+            "    def test_square(self):\n"
+            "        value = Square(3)\n"
+            "        self.assertEqual(value.area(), 9)\n"
+            "        self.assertEqual(value.describe(), 9)\n"
+            "        self.assertEqual(value.kind, 'square')\n"
+            "        self.assertIsInstance(value, Square)\n"
+            "        self.assertIsInstance(value, shapes.Base)\n"
+            "        self.assertEqual(shapes.Base.built, 1)\n"
+            "    def test_plain(self):\n"
+            "        self.assertEqual(shapes.Base(2).area(), 2)\n"
+            "        self.assertEqual(shapes.Base.built, 1)\n"
+            "    def test_inner(self):\n"
+            "        class Inner(shapes.Base):\n"
+            "            def area(self):\n"
+            "                return self.side + 1\n"
+            "        self.assertEqual(Inner(4).area(), 5)\n"
+            "        self.assertEqual(Inner(4).describe(), 5)\n"
         )
+        self._ok_files("use.py", _shapes("", tests))
 
     def test_nested_subclass_uses_the_parent_override(self) -> None:
-        self._ok_files(
-            "use.py",
-            {
-                "src/shapes.py": (
-                    "class Base:\n"
-                    "    def __init__(self, side):\n"
-                    "        self.side = side\n"
-                    "    def describe(self):\n"
-                    "        return self.area()\n"
-                ),
-                "tests/use.py": (
-                    "import unittest\n"
-                    "import shapes\n"
-                    "class Square(shapes.Base):\n"
-                    "    def __init__(self, side):\n"
-                    "        super().__init__(side)\n"
-                    "        self.kind = 'square'\n"
-                    "    def area(self):\n"
-                    "        return self.side * self.side\n"
-                    "class Cube(Square):\n"
-                    "    def area(self):\n"
-                    "        return self.side * 3\n"
-                    "class T(unittest.TestCase):\n"
-                    "    def test_cube(self):\n"
-                    "        value = Cube(3)\n"
-                    "        self.assertEqual(value.area(), 9)\n"
-                    "        self.assertEqual(value.describe(), 9)\n"
-                    "        self.assertEqual(value.kind, 'square')\n"
-                    "        self.assertIsInstance(value, Square)\n"
-                ),
-            },
+        extra = (
+            "class Cube(Square):\n"
+            "    def area(self):\n"
+            "        return self.side * 3\n"
         )
+        tests = (
+            "    def test_cube(self):\n"
+            "        value = Cube(3)\n"
+            "        self.assertEqual(value.area(), 9)\n"
+            "        self.assertEqual(value.describe(), 9)\n"
+            "        self.assertEqual(value.kind, 'square')\n"
+            "        self.assertIsInstance(value, Square)\n"
+            "        self.assertEqual(shapes.Base.built, 1)\n"
+        )
+        self._ok_files("use.py", _shapes(extra, tests))
 
     def test_subclass_fallbacks_stay_closed(self) -> None:
         class Slot:
