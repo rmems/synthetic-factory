@@ -18,7 +18,7 @@ if __package__:  # pragma: no cover - package-child import path
     from . import _assert_direct_sibling, _expose_package_sibling
 
     _assert_direct_sibling("vset_record_checks")
-    from .curate_coding import contains_hidden_reasoning_key
+    from .curate_coding import contains_hidden_reasoning_key, normalized_key_name
     from .curate_identity import REGISTRY_SCHEMA_VERSION
     from .vset_constants import (
         CURATION_DECISIONS,
@@ -29,7 +29,6 @@ if __package__:  # pragma: no cover - package-child import path
         VSetValidationError,
         _is_nonempty,
         _is_sha256,
-        normalize_identity,
         reason_codes_error,
         registry_pin,
 )
@@ -37,7 +36,7 @@ else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
         "vset_record_checks"
     )
-    from curate_coding import contains_hidden_reasoning_key
+    from curate_coding import contains_hidden_reasoning_key, normalized_key_name
     from curate_identity import REGISTRY_SCHEMA_VERSION
     from vset_constants import (
         CURATION_DECISIONS,
@@ -48,7 +47,6 @@ else:
         VSetValidationError,
         _is_nonempty,
         _is_sha256,
-        normalize_identity,
         reason_codes_error,
         registry_pin,
 )
@@ -248,6 +246,10 @@ _TRAINING_VIEW_LEAKS = frozenset(
         "hidden_suite",
         "reference_tests",
         "reference_suite",
+        "private_tests",
+        "oracle_suite",
+        "grading_tests",
+        "tests_source",
         "oracle",
         "payload",
         "patch",
@@ -256,11 +258,20 @@ _TRAINING_VIEW_LEAKS = frozenset(
     }
 )
 
+# A training view may name a suite in prose ("hidden tests not certified").
+# It may not carry the suite module itself. These are the pasted-source shape,
+# matched case-insensitively at any depth.
+_SUITE_SOURCE_MARKERS = ("def test_", "import unittest")
+
 
 def _training_view_key(key: Any) -> str:
-    text = str(key)
-    separated = "".join(f"_{char}" if char.isupper() else char for char in text)
-    return normalize_identity(separated).replace("-", "_")
+    """Fold case, separators, and camel-case so ``HIDDEN_TESTS`` matches."""
+    return normalized_key_name(key)
+
+
+def _suite_source_leaks(value: str) -> bool:
+    folded = value.casefold()
+    return any(marker in folded for marker in _SUITE_SOURCE_MARKERS)
 
 
 def _mapping_leaks(value: dict[str, Any]) -> bool:
@@ -270,6 +281,9 @@ def _mapping_leaks(value: dict[str, Any]) -> bool:
 
 
 def _training_view_leaks(value: Any) -> bool:
+    """Walk dicts and lists. Keys are case-insensitive; strings are suite source."""
+    if isinstance(value, str):
+        return _suite_source_leaks(value)
     if isinstance(value, dict):
         return _mapping_leaks(value)
     if isinstance(value, list):
