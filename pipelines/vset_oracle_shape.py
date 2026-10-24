@@ -212,15 +212,12 @@ def _enter_environ(saved: tuple[object, object], client: object, patcher: object
 def _leave_environ(
     saved: tuple[object, object], client: object, patcher: object, args: tuple[object, ...]
 ) -> object:
-    before = None
-    if getattr(patcher, "in_dict", None) is os.environ:
-        before = dict(os.environ)
+    tracked = getattr(patcher, "in_dict", None) is os.environ
     result = saved[1](patcher, *args)
-    if before is None:
+    if not tracked:
         return result
-    changed, dropped = _environ_delta(before, dict(os.environ))
     try:
-        client.shift_environ(changed, dropped)  # type: ignore[attr-defined]
+        client.undo_environ()  # type: ignore[attr-defined]
     except Exception:
         return result
     return result

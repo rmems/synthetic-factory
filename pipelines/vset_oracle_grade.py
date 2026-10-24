@@ -25,7 +25,7 @@ if __package__:  # pragma: no cover - package-child import path
         _sha256_text,
     )
     from .vset_oracle_collect import require_match as _require_match
-    from .vset_oracle_remote import grade_test as _grade_test
+    from .vset_oracle_remote import grade_cases as _grade_cases
 else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
         "vset_oracle_grade"
@@ -37,7 +37,7 @@ else:
         _sha256_text,
     )
     from vset_oracle_collect import require_match as _require_match
-    from vset_oracle_remote import grade_test as _grade_test
+    from vset_oracle_remote import grade_cases as _grade_cases
 
 _CAPTURE_LIMIT = 4000
 
@@ -107,13 +107,26 @@ def grade_suite(
     captured: list[str] = []
     for spec in modules:
         _require_match(spec, expected, sources[spec["folder"]])
+    grouped: dict[str, list[str]] = {}
+    order: list[str] = []
     for test_id in expected:
         spec = _spec_for(test_id, modules)
-        names = _class_and_method(test_id, spec["module"])
-        status, text = _grade_test(
-            work, spec, names, (sources[spec["folder"]], src_names)
+        key = spec["module"]
+        if key not in grouped:
+            order.append(key)
+            grouped[key] = []
+        grouped[key].append(test_id)
+    for key in order:
+        ids = grouped[key]
+        spec = _spec_for(ids[0], modules)
+        cases = [_class_and_method(test_id, spec["module"]) for test_id in ids]
+        statuses, text = _grade_cases(
+            work, spec, cases, (sources[spec["folder"]], src_names)
         )
-        rows.append({"id": test_id, "status": status})
+        if len(statuses) != len(ids):
+            statuses = ["ERROR"] * len(ids)
+        for test_id, status in zip(ids, statuses, strict=True):
+            rows.append({"id": test_id, "status": status})
         captured.append(text)
     return _suite_report(rows, expected, "".join(captured))
 

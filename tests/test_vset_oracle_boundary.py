@@ -211,6 +211,95 @@ class OracleBoundaryTests(unittest.TestCase):
         report = _run({"src/m.py": _SRC, "tests/use.py": _SUITE})
         self.assertTrue(report["reference"]["ok"], report["reference"])
 
+    def test_shared_containers_private_patches_and_fixtures(self) -> None:
+        report = _grade(
+            "CONFIG = {'enabled': False}\n"
+            "class Counter:\n"
+            "    _limit = 1\n"
+            "    def read(self):\n"
+            "        return Counter._limit\n"
+            "class Bag(dict):\n"
+            "    pass\n"
+            "class Stack:\n"
+            "    def __init__(self):\n"
+            "        self.items = []\n"
+            "    def pop(self):\n"
+            "        return self.items.pop()\n"
+            "class Reg:\n"
+            "    def take(self, data):\n"
+            "        self.seen = data\n"
+            "def fill(a, b):\n"
+            "    a.append(1)\n"
+            "    return b\n"
+            "def grow(xs):\n"
+            "    xs.append(1)\n"
+            "    raise ValueError('x')\n"
+            "def flag():\n"
+            "    return CONFIG['enabled']\n"
+            "def limit():\n"
+            "    return Counter().read()\n"
+            "def keys():\n"
+            "    return sorted(Bag(a=1).keys())\n"
+            "def token():\n"
+            "    import os\n"
+            "    return os.environ.get('HF_TOKEN')\n",
+            "import os\n"
+            "from unittest import mock\n"
+            "xs = []\n"
+            "self.assertEqual(m.fill(xs, xs), [1])\n"
+            "self.assertEqual(xs, [1])\n"
+            "grown = []\n"
+            "with self.assertRaises(ValueError):\n"
+            "    m.grow(grown)\n"
+            "self.assertEqual(grown, [1])\n"
+            "stack = m.Stack()\n"
+            "stack.items.append(5)\n"
+            "self.assertEqual(stack.pop(), 5)\n"
+            "reg = m.Reg()\n"
+            "data = [1]\n"
+            "reg.take(data)\n"
+            "data.append(2)\n"
+            "self.assertEqual(reg.seen, [1, 2])\n"
+            "with mock.patch.dict(m.CONFIG, {'enabled': True}):\n"
+            "    self.assertTrue(m.flag())\n"
+            "self.assertFalse(m.flag())\n"
+            "with mock.patch.object(m.Counter, '_limit', 3):\n"
+            "    self.assertEqual(m.limit(), 3)\n"
+            "self.assertEqual(m.keys(), ['a'])\n"
+            "key = 'HF_' + 'TOKEN'\n"
+            "os.environ[key] = 'parent-only'\n"
+            "try:\n"
+            "    with mock.patch.dict(os.environ, {}, clear=True):\n"
+            "        self.assertIsNone(m.token())\n"
+            "    self.assertIsNone(m.token())\n"
+            "finally:\n"
+            "    os.environ.pop(key, None)\n",
+        )
+        self.assertTrue(report["reference"]["ok"], report["reference"])
+
+    def test_module_fixtures_run_once(self) -> None:
+        report = _run(
+            {
+                "src/m.py": "def value():\n    return 1\n",
+                "tests/use.py": (
+                    "import sys\nimport unittest\nimport m\n"
+                    "def setUpModule():\n"
+                    "    if getattr(sys, '_vset_fix_once', False):\n"
+                    "        raise RuntimeError('twice')\n"
+                    "    sys._vset_fix_once = True\n"
+                    "def tearDownModule():\n"
+                    "    del sys._vset_fix_once\n"
+                    "class T(unittest.TestCase):\n"
+                    "    def test_a(self):\n"
+                    "        self.assertEqual(m.value(), 1)\n"
+                    "    def test_b(self):\n"
+                    "        self.assertEqual(m.value(), 1)\n"
+                ),
+            }
+        )
+        self.assertTrue(report["reference"]["ok"], report["reference"])
+        self.assertFalse(hasattr(sys, "_vset_fix_once"))
+
     def test_large_return_values_grade(self) -> None:
         report = _grade(
             "def many():\n    return list(range(40000))\ndef big():\n    return 'x' * 2000000\n",

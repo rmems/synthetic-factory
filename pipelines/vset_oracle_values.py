@@ -32,6 +32,7 @@ if __package__:  # pragma: no cover - package-child import path
     from .vset_oracle_shape import parent_types as _parent_types
     from .vset_oracle_shape import remote_hash as _remote_hash
     from .vset_oracle_shape import truth as _truth
+    from . import vset_oracle_compare as _compare
     from . import vset_oracle_subclass as _subclass
 else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
@@ -50,6 +51,7 @@ else:
     from vset_oracle_shape import parent_types as _parent_types
     from vset_oracle_shape import remote_hash as _remote_hash
     from vset_oracle_shape import truth as _truth
+    import vset_oracle_compare as _compare
     import vset_oracle_subclass as _subclass
 
 _CLASSES: dict[tuple[int, int], type] = {}
@@ -112,6 +114,16 @@ class RemoteObject:
     def __call__(self, *args: object, **kwargs: object) -> object:
         return self.client.call(self.oid, args, kwargs)
 
+    def __getattribute__(self, name: str) -> object:
+        if name in _HELD or name.startswith("_"):
+            return object.__getattribute__(self, name)
+        cls = object.__getattribute__(self, "__class__")
+        if _boxed_method(cls, name):
+            client = object.__getattribute__(self, "client")
+            oid = object.__getattribute__(self, "oid")
+            return client.get(oid, name)
+        return object.__getattribute__(self, name)
+
     def __getattr__(self, name: str) -> object:
         return self.client.get(self.oid, name)
 
@@ -134,6 +146,9 @@ class RemoteObject:
         return _remote_hash(self)
 
 
+_BOXES = frozenset({list, dict, set, frozenset, tuple, bytearray})
+
+
 def _parent_difference(name: str, args: tuple[object, ...]) -> bool:
     # assertAlmostEqual subtracts in the parent. A candidate __sub__ must not
     # supply that distance when the other operand is a parent value.
@@ -144,43 +159,28 @@ def _parent_difference(name: str, args: tuple[object, ...]) -> bool:
     return not isinstance(args[0], RemoteObject)
 
 
-def _affirms(result: object) -> bool:
-    # NotImplemented is truthy. Only a real comparison result can short-circuit.
-    if result is NotImplemented:
+def _boxed_method(cls: type, name: str) -> bool:
+    if name in cls.__dict__ or name in RemoteObject.__dict__:
         return False
-    return bool(result)
+    for base in cls.__mro__:
+        if base in _BOXES and name in base.__dict__:
+            return True
+    return False
 
 
-def _probe_value(other: object) -> object:
-    # A parent value `other` does not equal. Money affirms one literal;
-    # an __eq__ that also affirms this one is the always-true forge.
-    if isinstance(other, bool):
-        return not other
-    if isinstance(other, int):
-        return other + 1
-    if isinstance(other, float):
-        if other != other or other in (float("inf"), float("-inf")):
-            return 0.0
-        return other + 1.0
-    if isinstance(other, str):
-        return other + "\x00"
-    if isinstance(other, bytes):
-        return other + b"\x00"
-    if isinstance(other, complex):
-        return other + 1
-    if other == 0:
-        return 1
-    return 0
+def _parent_operand(args: tuple[object, ...]) -> object | None:
+    if not args:
+        return None
+    other = args[0]
+    if isinstance(other, RemoteObject):
+        return None
+    return other
 
 
-def _unconditional_equal(func: object, other: object, result: object) -> bool:
-    if not _affirms(result):
-        return False
-    try:
-        again = func(_probe_value(other))  # type: ignore[operator]
-    except Exception:
-        return False
-    return _affirms(again)
+def _missing(name: str) -> object:
+    if name in _STRICT:
+        raise TypeError(name)
+    return NotImplemented
 
 
 def _forward(name: str):
@@ -190,16 +190,12 @@ def _forward(name: str):
         try:
             func = self.client.get(self.oid, name)
         except AttributeError:
-            if name in _STRICT:
-                raise TypeError(name) from None
-            return NotImplemented
-        result = func(*args)
-        if name != "__eq__" or not args or isinstance(args[0], RemoteObject):
-            return result
-        # assertAlmostEqual returns on the first true ==, before subtraction.
-        if _unconditional_equal(func, args[0], result):
-            return NotImplemented
-        return result
+            return _missing(name)
+        other = _parent_operand(args)
+        info = None
+        if other is not None:
+            info = _compare.preview(self, name)
+        return _compare.decide(name, func(*args), info, args[0] if args else None)
 
     method.__name__ = name
     return method
@@ -218,6 +214,12 @@ def _namespace(client: object, oid: int) -> dict[str, object]:
     return {"__new__": new, "_vset_remote_new": True}
 
 
+def _class_bookkeeping(name: str) -> bool:
+    if name.startswith("_vset_"):
+        return True
+    return name.startswith("__") and name.endswith("__")
+
+
 class _RemoteMeta(type):
     """Forwards class attributes to the candidate class."""
 
@@ -231,7 +233,7 @@ class _RemoteMeta(type):
         return client.get(oid, name)
 
     def __setattr__(cls, name: str, value: object) -> None:
-        if name.startswith("_"):
+        if _class_bookkeeping(name):
             super().__setattr__(name, value)
             return
         client = cls.__dict__.get("_vset_client")
@@ -246,7 +248,7 @@ class _RemoteMeta(type):
         super().__setattr__(name, value)
 
     def __delattr__(cls, name: str) -> None:
-        if name.startswith("_"):
+        if _class_bookkeeping(name):
             super().__delattr__(name)
             return
         client = cls.__dict__.get("_vset_client")
@@ -484,7 +486,26 @@ def _error_class(client: object, payload: dict[str, object]) -> type[Exception]:
     return exception_type(str(payload.get("type")), _chain(payload))
 
 
+def _compare_state(client: object, payload: dict[str, object]) -> dict[str, object]:
+    raw = payload.get("fields")
+    fields: dict[str, object] = {}
+    if isinstance(raw, dict):
+        for key, value in raw.items():
+            fields[str(key)] = interpret(client, value)
+    user = payload.get("user")
+    names = [str(item) for item in user] if isinstance(user, list) else []
+    return {"fields": fields, "user": names}
+
+
+def _alias(_client: object, payload: dict[str, object]) -> object:
+    found = _SLOTS.get(int(payload["slot"]))
+    if found is None:
+        raise EOFError("bad worker reply")
+    return found
+
+
 def _error(client: object, payload: dict[str, object]) -> None:
+    _apply_slots(client, payload.get("states"))
     raise_remote(
         _error_class(client, payload),
         _items(client, payload, "args"),
@@ -501,6 +522,7 @@ _KINDS = {
     "complex": _complex, "range": _range, "slice": _slice, "timedelta": _timedelta,
     "time": _time, "path": _path, "counter": _counter, "ordered": _ordered,
     "default": _default, "namedtuple": _rebuild_namedtuple,
+    "state": _compare_state, "alias": _alias,
 }
 
 
