@@ -166,15 +166,18 @@ def _suite_text(path: Path) -> str:
     return _normalize_newlines(_decode_suite_source(_read_suite_bytes(path), path.name))
 
 
+def _add_stripped_lines(source: str, lines: set[str]) -> None:
+    for line in source.splitlines():
+        stripped = line.strip()
+        if stripped:
+            lines.add(stripped)
+
+
 def _visible_lines(tests: Path) -> set[str]:
     lines: set[str] = set()
     for path in sorted(tests.iterdir()):
-        if not _is_visible_test_path(path):
-            continue
-        for line in _suite_text(path).splitlines():
-            stripped = line.strip()
-            if stripped:
-                lines.add(stripped)
+        if _is_visible_test_path(path):
+            _add_stripped_lines(_suite_text(path), lines)
     return lines
 
 
