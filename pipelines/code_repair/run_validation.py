@@ -48,7 +48,13 @@ def _draw_identity_matches(record, run, catalog):
     return record['id'] == expected
 
 
-def _supported_generator(generator) -> bool:
+def replayable_generator_version(generator) -> bool:
+    """A generator this family can replay: known name, and 2.0.0 or 2.1.0.
+
+    Record generators may carry extra keys such as ``seed``. Run summaries use
+    :func:`supported_generator`, which also requires the exact key set.
+    """
+
     if not isinstance(generator, dict):
         return False
     version = generator.get('version')
@@ -56,7 +62,13 @@ def _supported_generator(generator) -> bool:
         return False
     if generator.get('name') != cv.GENERATOR_NAME:
         return False
-    if version not in cv.REPLAYABLE_GENERATOR_VERSIONS:
+    return version in cv.REPLAYABLE_GENERATOR_VERSIONS
+
+
+def supported_generator(generator) -> bool:
+    """A run-summary generator: the replayable name and version, and no other keys."""
+
+    if not replayable_generator_version(generator):
         return False
     return set(generator) == {'name', 'version'}
 
@@ -196,7 +208,7 @@ def _run_header_matches(run):
     checks = (
         lambda: run['format'] == generate.RUN_FORMAT,
         lambda: run['family'] == cv.FAMILY,
-        lambda: _supported_generator(run.get('generator')),
+        lambda: supported_generator(run.get('generator')),
         lambda: _integer_in_domain(run['seed'], 0, cv.MAX_SEED),
         lambda: _integer_in_domain(run['count'], 1, cv.MAX_COUNT),
     )

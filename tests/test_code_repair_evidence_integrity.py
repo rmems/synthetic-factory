@@ -156,6 +156,29 @@ class PlanningEquivalence(unittest.TestCase):
         )
         self.assertEqual(findings, [cv.EXPORT_RUN_SUMMARY_MISMATCH])
 
+    def test_an_unsupported_generator_header_is_a_summary_mismatch(self):
+        """A run header is replayable only for 2.0.0 or 2.1.0 with the exact key set."""
+
+        run, records, _run_dir = smoke_run()
+        generator = run["generator"]
+        cases = (
+            ("missing", None),
+            ("not a dict", [cv.GENERATOR_VERSION]),
+            ("version is a list", {**generator, "version": [cv.GENERATOR_VERSION]}),
+            ("unknown name", {**generator, "name": "other-mutator"}),
+            ("retired version", {**generator, "version": "1.0.0"}),
+            ("extra key", {**generator, "seed": run["seed"]}),
+        )
+        for label, stamped in cases:
+            with self.subTest(label=label):
+                stale = copy.deepcopy(run)
+                stale["generator"] = stamped
+                findings = validation.validate_run(
+                    stale, records, catalog=fixture(),
+                    candidates_sha256=run["candidates_sha256"],
+                )
+                self.assertEqual(findings, [cv.EXPORT_RUN_SUMMARY_MISMATCH])
+
     def test_a_2_0_0_draw_validates_under_the_inclusive_rule(self):
         catalog = fixture()
         eval_ids = {

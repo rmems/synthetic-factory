@@ -170,6 +170,28 @@ class RunBinding(unittest.TestCase):
         with refusal(self, cv.FINDING_RECORD_MALFORMED, "version"):
             replay.run(replay.ReplayRequest(run_dir, FIXTURE_CATALOG, self.root / "out", 5.0))
 
+    def test_a_record_with_an_unknown_generator_name_is_malformed(self):
+        record = copy.deepcopy(positives()[0])
+        record["generator"]["name"] = "other-mutator"
+        restamp(record)
+        self.assertEqual(
+            replay.replay_record(record, fixture(), RUNNER)["code"],
+            cv.REPLAY_RECORD_MALFORMED,
+        )
+
+    def test_an_unsupported_run_generator_is_refused(self):
+        cases = (
+            ("missing", lambda summary: summary.update(generator=None)),
+            ("unknown name", lambda summary: summary["generator"].update(name="other-mutator")),
+            ("extra key", lambda summary: summary["generator"].update(seed=summary["seed"])),
+        )
+        for label, edit in cases:
+            with self.subTest(label=label):
+                run_dir = self.run_with(positives()[:1], edit)
+                destination = self.root / f"out-{label.replace(' ', '-')}"
+                with refusal(self, cv.FINDING_RECORD_MALFORMED, "version"):
+                    replay.run(replay.ReplayRequest(run_dir, FIXTURE_CATALOG, destination, 5.0))
+
     def test_the_report_carries_the_run_identity(self):
         run_dir = self.run_with(positives()[:1])
         report = replay.run(replay.ReplayRequest(run_dir, FIXTURE_CATALOG, self.root / "out", 5.0))

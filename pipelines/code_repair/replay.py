@@ -32,6 +32,7 @@ from . import executor as ex
 from . import generate
 from . import mutate
 from . import record_validation as validation
+from . import run_validation
 from . import verify
 from . import views
 from . import vocabulary as cv
@@ -308,7 +309,7 @@ def _record_identity_matches(record: dict[str, Any], catalog: cat.Catalog) -> bo
     generator = record["generator"]
     seed, index = generator["seed"], record["intervention"]["draw_index"]
     catalog_digest = cat.sha256_text(oc.canonical_json([catalog.catalog_id, catalog.programs_sha256]))
-    if not _replayable_version(generator):
+    if not run_validation.replayable_generator_version(generator):
         return False
     if not _draw_identity_valid(seed, index):
         return False
@@ -348,23 +349,6 @@ def _check_request(request: ReplayRequest) -> None:
     ))
 
 
-def _replayable_version(generator: Any) -> bool:
-    if not isinstance(generator, dict):
-        return False
-    version = generator.get("version")
-    if not isinstance(version, str):
-        return False
-    if generator.get("name") != cv.GENERATOR_NAME:
-        return False
-    return version in cv.REPLAYABLE_GENERATOR_VERSIONS
-
-
-def _replayable_run_generator(generator: Any) -> bool:
-    if not _replayable_version(generator):
-        return False
-    return set(generator) == {"name", "version"}
-
-
 def _run_identity(run_dir: Path) -> dict[str, Any]:
     """What binds this replay to one run: the candidates' bytes and RUN.json's pins."""
 
@@ -385,7 +369,7 @@ def _run_identity(run_dir: Path) -> dict[str, Any]:
         cv.FINDING_RECORD_MALFORMED, "run or generator version is unsupported; regenerate legacy runs",
     )
     cv.refuse_when(
-        not _replayable_run_generator(summary.get("generator")),
+        not run_validation.supported_generator(summary.get("generator")),
         cv.FINDING_RECORD_MALFORMED, "run or generator version is unsupported; regenerate legacy runs",
     )
     candidates_digest = hashlib.sha256(candidates.read_bytes()).hexdigest()
@@ -400,9 +384,8 @@ def _run_identity(run_dir: Path) -> dict[str, Any]:
         type(count) is not int or count != len(_records(run_dir)),  # pylint: disable=unidiomatic-typecheck
         cv.FINDING_RECORD_MALFORMED, "candidates count differs from generation",
     )
-    from .run_validation import run_identity
     try:
-        return run_identity(summary, candidates_digest)
+        return run_validation.run_identity(summary, candidates_digest)
     except (KeyError, TypeError) as exc:
         raise cv.RepairRefusal(cv.FINDING_RECORD_MALFORMED, "malformed run identity") from exc
 
