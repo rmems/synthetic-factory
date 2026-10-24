@@ -19,19 +19,37 @@ def _pack(name: str) -> dict[str, str]:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-_BASE_SRC = (
-    "class Base:\n" "    built = 0\n" "    def __init__(self, side):\n" "        Base.built += 1\n" "        self.side = side\n" "    def area(self):\n"
-    "        return self.side\n" "    def describe(self):\n" "        return self.area()\n" "    def tagged(self):\n" "        return self.label\n" "    def scaled(self):\n"
-    "        return self.side * self._scale()\n" "    def show(self):\n" "        return self.unit\n" "    def marked(self):\n" "        return type(self).stamp()\n" "    def born(self):\n"
-    "        return type(self).make(self.side).side\n" "    def cmp(self, other):\n" "        return self == other\n"
+def _join(lines: list[str]) -> str:
+    return "".join(lines)
+
+
+_BASE_SRC = _join(
+    [
+        "class Base:\n",
+        "    built = 0\n",
+        "    def __init__(self, side):\n",
+        "        Base.built += 1\n",
+        "        self.side = side\n",
+        "    def area(self):\n",
+        "        return self.side\n",
+        "    def describe(self):\n",
+        "        return self.area()\n",
+        "    def tagged(self):\n",
+        "        return self.label\n",
+        "    def scaled(self):\n",
+        "        return self.side * self._scale()\n",
+        "    def show(self):\n",
+        "        return self.unit\n",
+        "    def marked(self):\n",
+        "        return type(self).stamp()\n",
+        "    def born(self):\n",
+        "        return type(self).make(self.side).side\n",
+        "    def cmp(self, other):\n",
+        "        return self == other\n",
+    ]
 )
 
-_SQUARE_SRC = (
-    "class Square(shapes.Base):\n" "    label = 'square'\n" "    def __init__(self, side):\n" "        super().__init__(side)\n" "        self.kind = 'square'\n" "    def area(self):\n"
-    "        return self.side * self.side\n" "    def _scale(self):\n" "        return 2\n" "    @property\n" "    def unit(self):\n" "        return 'cm'\n"
-    "    @staticmethod\n" "    def stamp():\n" "        return 'ok'\n" "    @classmethod\n" "    def make(cls, side):\n" "        return cls(side)\n"
-    "    def __eq__(self, other):\n" "        return getattr(other, 'side', None) == self.side\n"
-)
+_SQUARE_SRC = "class Square(shapes.Base):\n    label = 'square'\n    def __init__(self, side):\n        super().__init__(side)\n        self.kind = 'square'\n    def area(self):\n        return self.side * self.side\n    def _scale(self):\n        return 2\n    @property\n    def unit(self):\n        return 'cm'\n    @staticmethod\n    def stamp():\n        return 'ok'\n    @classmethod\n    def make(cls, side):\n        return cls(side)\n    def __eq__(self, other):\n        return getattr(other, 'side', None) == self.side\n"
 
 
 def _shapes(extra: str, tests: str) -> dict[str, str]:
@@ -201,18 +219,16 @@ class ParentOracleTests(unittest.TestCase):
         self._ok_files("use.py", _shapes("", tests))
 
     def test_nested_subclass_uses_the_parent_override(self) -> None:
-        extra = (
-            "class Cube(Square):\n"
-            "    def area(self):\n"
-            "        return self.side * 3\n"
-        )
-        tests = (
-            "    def test_cube(self):\n"
-            "        value = Cube(3)\n"
-            "        self.assertEqual(value.area(), 9)\n"
-            "        self.assertEqual(value.describe(), 9)\n"
-            "        self.assertEqual(value.kind, 'square')\n"
-            "        self.assertIsInstance(value, Square)\n"
-            "        self.assertEqual(shapes.Base.built, 1)\n"
+        extra = "class Cube(Square):\n    def area(self):\n        return self.side * 3\n"
+        tests = _join(
+            [
+                "    def test_cube(self):\n",
+                "        value = Cube(3)\n",
+                "        self.assertEqual(value.area(), 9)\n",
+                "        self.assertEqual(value.describe(), 9)\n",
+                "        self.assertEqual(value.kind, 'square')\n",
+                "        self.assertIsInstance(value, Square)\n",
+                "        self.assertEqual(shapes.Base.built, 1)\n",
+            ]
         )
         self._ok_files("use.py", _shapes(extra, tests))

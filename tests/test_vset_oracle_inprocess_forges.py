@@ -200,18 +200,32 @@ class InProcessForgeTests(unittest.TestCase):
         self.assertFalse(report["reference"]["ok"])
 
     def test_many_fields_cannot_cover_every_expected_value(self) -> None:
-        source = (
-            "class E:\n" "    def __init__(self):\n" "        for i in range(-50, 51):\n" "            setattr(self, 'f%d' % (i + 50), i)\n" "    def __eq__(self, other):\n" "        return True\n"
-            "    def __lt__(self, other):\n" "        return True\n" "    __hash__ = None\n" "def add(a, b):\n" "    return E()\n" "def total(a, b):\n"
-            "    return a + b\n"
+        source = "".join(
+            [
+                "class E:\n",
+                "    def __init__(self):\n",
+                "        for i in range(-50, 51):\n",
+                "            setattr(self, 'f%d' % (i + 50), i)\n",
+                "    def __eq__(self, other):\n",
+                "        return True\n",
+                "    def __lt__(self, other):\n",
+                "        return True\n",
+                "    __hash__ = None\n",
+                "def add(a, b):\n",
+                "    return E()\n",
+                "def total(a, b):\n",
+                "    return a + b\n",
+            ]
         )
-        tests = (
-            "    def test_equal(self):\n"
-            "        self.assertEqual(c.add(1, 2), 3)\n"
-            "    def test_less(self):\n"
-            "        self.assertLess(c.add(1, 2), 10)\n"
-            "    def test_number(self):\n"
-            "        self.assertEqual(c.total(1, 2), 3)\n"
+        tests = "".join(
+            [
+                "    def test_equal(self):\n",
+                "        self.assertEqual(c.add(1, 2), 3)\n",
+                "    def test_less(self):\n",
+                "        self.assertLess(c.add(1, 2), 10)\n",
+                "    def test_number(self):\n",
+                "        self.assertEqual(c.total(1, 2), 3)\n",
+            ]
         )
         _expect_refused(self, source, tests, ("test_equal", "test_less"))
 
