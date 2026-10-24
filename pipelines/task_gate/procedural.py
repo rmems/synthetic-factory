@@ -27,7 +27,6 @@ else:
     from code_repair import vocabulary as _repair_vocabulary
 
 SOURCE = "procedural"
-_TRAIN_SPLIT = "train"
 EVAL_SPLITS = frozenset({"validation", "held_out"})
 
 __all__ = [
@@ -36,12 +35,18 @@ __all__ = [
 ]
 
 
-def _train_catalog(catalog: _catalog.Catalog) -> _catalog.Catalog:
-    """Only train-split programs may feed the procedural mutator (#508)."""
+def _catalog_without_eval_splits(catalog: _catalog.Catalog) -> _catalog.Catalog:
+    """Leave validation and held-out programs out of the draw.
+
+    A program with no split stays eligible. Catalogs that do not assign a
+    split policy are a supported training set, the same rule as the generator draw.
+    """
 
     return replace(
         catalog,
-        programs=tuple(program for program in catalog.programs if program.split == _TRAIN_SPLIT),
+        programs=tuple(
+            program for program in catalog.programs if program.split not in EVAL_SPLITS
+        ),
     )
 
 
@@ -80,7 +85,7 @@ def proposals_from_plan(
                    "count must be a positive integer")
     cv.refuse_when(not is_count(per_program_cap) or per_program_cap < 1, cv.REFUSE_INPUT_INVALID,
                    "per_program_cap must be a positive integer")
-    plan = _planning.ProposalPlan(_train_catalog(catalog), seed, per_program_cap)
+    plan = _planning.ProposalPlan(_catalog_without_eval_splits(catalog), seed, per_program_cap)
     return [
         GateProposal(
             proposal_id=proposal.record_id, program_id=proposal.program.program_id,

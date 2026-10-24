@@ -5,6 +5,7 @@ import json
 import tempfile
 import sys
 import unittest
+from dataclasses import replace
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -160,16 +161,30 @@ class ProceduralTrainSplit(unittest.TestCase):
     FIXTURE = REPO / "tests" / "fixtures" / "code-repair"
     PINNED = REPO / "catalogs" / "python-repair-v1"
 
-    def test_procedural_draws_only_train_split_programs(self):
+    def test_procedural_draws_omit_validation_and_held_out(self):
         catalog = procedural.load_catalog(self.FIXTURE)
+        eval_ids = {
+            program.program_id for program in catalog.programs
+            if program.split in procedural.EVAL_SPLITS
+        }
         non_train = {
             program.program_id for program in catalog.programs if program.split != "train"
         }
-        self.assertTrue(non_train, "fixture must include non-train programs")
+        self.assertEqual(non_train, eval_ids)
+        self.assertTrue(eval_ids, "fixture must include validation and held-out programs")
         proposals = procedural.proposals_from_plan(catalog, seed=7, count=400)
         self.assertTrue(proposals, "expected at least one procedural proposal")
-        drawn = {item.program_id for item in proposals}
-        self.assertFalse(drawn & non_train)
+        self.assertFalse({item.program_id for item in proposals} & eval_ids)
+
+    def test_a_catalog_with_no_split_policy_still_draws(self):
+        catalog = procedural.load_catalog(self.FIXTURE)
+        cleared = replace(
+            catalog,
+            programs=tuple(replace(program, split=None) for program in catalog.programs),
+        )
+        self.assertEqual(procedural.eval_program_ids(cleared), frozenset())
+        proposals = procedural.proposals_from_plan(cleared, seed=7, count=4)
+        self.assertTrue(proposals, "null-split programs stay eligible")
 
     def test_verify_denies_catalog_validation_and_held_out_ids(self):
         catalog = procedural.load_catalog(self.FIXTURE)
