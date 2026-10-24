@@ -188,6 +188,71 @@ class HiddenSuiteLeakForges(unittest.TestCase):
         record = _record({"decision_basis": "notes \ud800"})
         self.assertEqual(vset.validate_record(record, pack_dir=PACK), [])
 
+    def test_digit_and_acronym_boundaries_are_folded(self) -> None:
+        self.assertTrue(vset.validate_record(_record({"HIDDENTests": SUITE_PATH})))
+        self.assertEqual(
+            vset.validate_record(_record({"hidden2Tests": "visible", "n": 1}), pack_dir=PACK),
+            [],
+        )
+
+    def test_non_object_training_view_is_refused(self) -> None:
+        record = _record()
+        record["training_view"] = None
+        errors = vset.validate_record(record, pack_dir=PACK)
+        self.assertIn("vset.hidden_reasoning_in_training_view", [item.code for item in errors])
+
+    def test_hidden_reasoning_key_is_refused(self) -> None:
+        self.assertTrue(vset.validate_record(_record({"reasoning": "scratch"})))
+
+    def test_missing_oracle_object_still_checks_hidden_filenames(self) -> None:
+        record = _record({"decision_basis": HIDDEN})
+        record["oracle"] = None
+        self.assertTrue(vset.validate_record(record, pack_dir=PACK))
+
+    def test_declared_paths_outside_the_pack_are_ignored(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            pack = root / "pack"
+            shutil.copytree(PACK, pack)
+            shutil.rmtree(pack / "tests")
+            (pack / "notes.txt").write_text("note", encoding="utf-8")
+            (pack / "broken.py").symlink_to(pack / "missing-target")
+            (pack / "loop.py").symlink_to("loop.py")
+            outside = root / "outside.py"
+            outside.write_text(
+                "class Secret:\n    def test_hidden(self):\n        pass\n",
+                encoding="utf-8",
+            )
+            (pack / "escape.py").symlink_to(outside)
+            record = _record()
+            record["oracle"]["hidden_tests"] = [
+                "",
+                "/etc/passwd",
+                "notes.txt",
+                "broken.py",
+                "loop.py",
+                "escape.py",
+            ]
+            self.assertEqual(vset.validate_record(record, pack_dir=pack), [])
+
+    def test_short_hidden_file_matches_by_digest_only(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            pack = Path(tmp) / "pack"
+            shutil.copytree(PACK, pack)
+            short = "x = 1\n"
+            (pack / "tests" / "hidden_short.py").write_text(short, encoding="utf-8")
+            self.assertEqual(vset.validate_record(_record(), pack_dir=pack), [])
+            embedded = _record({"decision_basis": short})
+            self.assertTrue(vset.validate_record(embedded, pack_dir=pack))
+
+    def test_undecodable_hidden_suite_is_reported(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            pack = Path(tmp) / "pack"
+            shutil.copytree(PACK, pack)
+            (pack / "tests" / "hidden_bad.py").write_bytes(b"# coding: ascii\n\xff\n")
+            errors = vset.validate_record(_record(), pack_dir=pack)
+        self.assertTrue(any("undecodable hidden suite" in item.message for item in errors))
+
     def test_escaped_hidden_test_path_is_not_read(self) -> None:
         record = _record()
         record["oracle"]["hidden_tests"] = ["../../etc/passwd"]

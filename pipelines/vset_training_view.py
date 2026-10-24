@@ -74,9 +74,9 @@ def _stays_in_pack(raw: str) -> bool:
 
 
 def _python_inside(pack_dir: Path, raw: str) -> Path | None:
-    root = pack_dir.resolve()
     try:
-        candidate = (pack_dir / raw).resolve()
+        root = pack_dir.resolve(strict=True)
+        candidate = (pack_dir / raw).resolve(strict=True)
     except OSError:
         return None
     try:
