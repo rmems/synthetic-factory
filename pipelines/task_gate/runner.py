@@ -29,7 +29,11 @@ __all__ = ["GateRequest", "run"]
 
 @dataclass(frozen=True)
 class GateRequest:
-    """Everything one run needs. ``denylist`` has no default: it is a required input."""
+    """Everything one run needs.
+
+    ``denylist`` is a loaded list, a path, or ``None`` for the vendored eval-exclusion
+    list. A missing or malformed file refuses the run.
+    """
 
     programs: Mapping[str, GateProgram]
     proposals: Sequence[GateProposal | MalformedProposal]

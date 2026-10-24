@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 """The eval denylist: program ids the gate must never turn into training tasks.
 
-The denylist is a REQUIRED input (#494 supplies the vendored list; its wiring follows #504).
+``None`` and an omitted ``--denylist`` select the vendored
+``config/eval-exclusion/eval-denylist.json``. An explicit path overrides that default.
 JSON input is an ``eval-exclusion-list-v1`` document, loaded by the same strict loader
 compose uses (``eval_exclusion_lists.load_list`` for the ``eval_denylist`` slot). A legacy
-UTF-8, LF-framed text file with one program id per line is still accepted. A missing,
-unreadable, empty ``program_ids`` (including a reviewed list whose ``repos`` are populated),
-or malformed payload refuses the run -- an absent denylist must never read as "nothing is denied".
+UTF-8, LF-framed text file with one program id per line is still accepted as an override,
+and the file bytes are recorded by digest. A missing, unreadable, empty ``program_ids``
+(including a reviewed list whose ``repos`` are populated), or malformed payload refuses
+the run -- an absent file must never read as "nothing is denied".
 """
 
 from __future__ import annotations
@@ -27,7 +29,11 @@ if __name__.startswith("pipelines."):
 else:
     import eval_exclusion_lists as _exclusion_lists
 
-__all__ = ["Denylist", "load_denylist"]
+__all__ = ["Denylist", "VENDORED_DENYLIST", "load_denylist"]
+
+VENDORED_DENYLIST = (
+    Path(__file__).resolve().parents[2] / "config" / "eval-exclusion" / "eval-denylist.json"
+)
 
 
 @dataclass(frozen=True)
@@ -119,10 +125,9 @@ def _read(path: Path) -> bytes:
 
 
 def load_denylist(path: Path | str | None) -> Denylist:
-    """Load the denylist file or refuse; ``None`` is a refusal, never an empty list."""
+    """Load ``path``, or the vendored eval-exclusion list when ``path`` is omitted."""
 
-    cv.refuse_when(path is None, cv.REFUSE_DENYLIST_MISSING, "a denylist is required")
-    location = Path(str(path))
+    location = VENDORED_DENYLIST if path is None else Path(str(path))
     data = _read(location)
     digest = hashlib.sha256(data).hexdigest()
     if data.lstrip()[:1] in _JSON_START:

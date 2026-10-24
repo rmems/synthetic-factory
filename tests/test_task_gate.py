@@ -91,7 +91,6 @@ class Denylist(unittest.TestCase):
 
     def test_loader_fails_closed_on_absent_or_malformed_files(self):
         cases = {
-            "absent": (None, cv.REFUSE_DENYLIST_MISSING),
             "empty json program_ids with repos": (
                 b'{"program_ids": [], "repos": ["clap-rs/clap"]}\n', cv.REFUSE_DENYLIST_MALFORMED,
             ),
@@ -115,6 +114,26 @@ class Denylist(unittest.TestCase):
             absent, directory = Path(tmp) / "nope.txt", Path(tmp)
             self.assertEqual(refused(denylist.load_denylist, absent), cv.REFUSE_DENYLIST_MISSING)
             self.assertEqual(refused(denylist.load_denylist, directory), cv.REFUSE_DENYLIST_MALFORMED)
+
+    def test_none_loads_the_vendored_denylist(self):
+        self.assertEqual(
+            denylist.VENDORED_DENYLIST, REPO / "config" / "eval-exclusion" / "eval-denylist.json",
+        )
+        loaded = denylist.load_denylist(None)
+        vendored = denylist.load_denylist(denylist.VENDORED_DENYLIST)
+        self.assertEqual(loaded.program_ids, vendored.program_ids)
+        self.assertEqual(loaded.sha256, vendored.sha256)
+        self.assertEqual(len(loaded), 19)
+
+    def test_a_missing_vendored_denylist_is_refused(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            missing = Path(tmp) / "nope.json"
+            bad = Path(tmp) / "bad.txt"
+            bad.write_bytes(b"")
+            with mock.patch.object(denylist, "VENDORED_DENYLIST", missing):
+                self.assertEqual(refused(denylist.load_denylist, None), cv.REFUSE_DENYLIST_MISSING)
+            with mock.patch.object(denylist, "VENDORED_DENYLIST", bad):
+                self.assertEqual(refused(denylist.load_denylist, None), cv.REFUSE_DENYLIST_MALFORMED)
 
     def test_loader_returns_ids_and_the_file_digest(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -238,14 +257,31 @@ class Denylist(unittest.TestCase):
             self.assertEqual(code, cv.REFUSE_INPUT_INVALID)
             self.assertFalse(overridden.exists())
 
-    def test_run_without_a_denylist_refuses_and_writes_nothing(self):
+    def test_an_omitted_denylist_records_the_vendored_digest(self):
+        vendored = denylist.load_denylist(None)
         with tempfile.TemporaryDirectory() as tmp:
-            out = Path(tmp) / "out"
-            request = runner.GateRequest(PROGRAMS, [proposal_for()], None, out)
-            code = refused(runner.run, request, FakeHarness({ADD: PASSED}))
-            self.assertEqual(code, cv.REFUSE_DENYLIST_MISSING)
-            self.assertFalse(out.exists())
-            self.assertEqual(list(Path(tmp).iterdir()), [])
+            summary = runner.run(
+                runner.GateRequest(PROGRAMS, [proposal_for()], None, Path(tmp) / "out"),
+                FakeHarness({ADD: PASSED}),
+            )
+        self.assertEqual(summary["inputs"]["denylist"]["sha256"], vendored.sha256)
+        self.assertEqual(summary["inputs"]["denylist"]["entries"], len(vendored))
+
+    def test_a_missing_vendored_denylist_refuses_and_writes_nothing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            missing = Path(tmp) / "missing.json"
+            bad = Path(tmp) / "bad.txt"
+            bad.write_bytes(b"")
+            for path, code_name in (
+                (missing, cv.REFUSE_DENYLIST_MISSING), (bad, cv.REFUSE_DENYLIST_MALFORMED),
+            ):
+                out = Path(tmp) / f"out-{path.name}"
+                with self.subTest(code=code_name):
+                    with mock.patch.object(denylist, "VENDORED_DENYLIST", path):
+                        request = runner.GateRequest(PROGRAMS, [proposal_for()], None, out)
+                        code = refused(runner.run, request, FakeHarness({ADD: PASSED}))
+                    self.assertEqual(code, code_name)
+                    self.assertFalse(out.exists())
 
 
 class ProceduralTrainSplit(unittest.TestCase):

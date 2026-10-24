@@ -2,8 +2,9 @@
 """Command line for the task gate: ``verify`` a proposals file or run the ``procedural`` mutator.
 
 Both subcommands build the same :class:`GateRequest`; they differ only in where the proposals
-come from. ``--denylist`` is required in substance: a missing or malformed file is a coded
-refusal (exit 2) and nothing is written.
+come from. ``--denylist`` defaults to the vendored eval-exclusion list. An explicit path
+overrides it and is recorded by digest. A missing or malformed file, including that default,
+is a coded refusal (exit 2) and nothing is written.
 """
 
 from __future__ import annotations
@@ -14,6 +15,7 @@ import sys
 from collections.abc import Sequence
 from pathlib import Path
 
+from . import denylist as _denylist
 from . import procedural
 from . import vocabulary as cv
 from ._contract import bind_import_twin, dumps_exact_json
@@ -30,7 +32,10 @@ def _parser() -> argparse.ArgumentParser:
                        ("procedural", "gate the procedural mutator's seeded proposals")):
         command = sub.add_parser(name, help=text)
         command.add_argument("--catalog", type=Path, required=True)
-        command.add_argument("--denylist", type=Path, default=None, help="REQUIRED eval denylist")
+        command.add_argument(
+            "--denylist", type=Path, default=_denylist.VENDORED_DENYLIST,
+            help="eval denylist (default: config/eval-exclusion/eval-denylist.json)",
+        )
         command.add_argument("--prior-index", type=Path, action="append", default=[])
         command.add_argument("--out", type=Path, required=True, help="a new directory")
         command.add_argument("--timeout", type=float, default=cv.DEFAULT_TIMEOUT_S)
