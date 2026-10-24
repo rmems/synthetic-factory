@@ -297,6 +297,8 @@ WORKER_OPS = (
     'def _note(found):\n',
     '    if found is None:\n',
     '        return\n',
+    '    if getattr(found, "__code__", None) is not None:\n',
+    '        return\n',
     '    _TRUSTED[id(found)] = found\n',
     '\n',
     'def _seal_stdlib():\n',

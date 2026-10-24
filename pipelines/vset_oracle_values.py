@@ -8,8 +8,10 @@ unittest and ordinary assertions use.
 from __future__ import annotations
 
 import base64
+import operator
 import sys
-from collections import Counter, OrderedDict, defaultdict
+import uuid
+from collections import Counter, OrderedDict, defaultdict, deque
 from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 from fractions import Fraction
@@ -185,6 +187,19 @@ def _missing(name: str) -> object:
     return NotImplemented
 
 
+_CONTAINER_CMP = frozenset(
+    {"__eq__", "__ne__", "__lt__", "__le__", "__gt__", "__ge__", "__contains__"}
+)
+_SNAP_OPS = {
+    "__eq__": operator.eq,
+    "__ne__": operator.ne,
+    "__lt__": operator.lt,
+    "__le__": operator.le,
+    "__gt__": operator.gt,
+    "__ge__": operator.ge,
+}
+
+
 def _container(obj: RemoteObject) -> bool:
     if isinstance(obj, list):
         return True
@@ -195,18 +210,16 @@ def _container(obj: RemoteObject) -> bool:
 
 def _container_answer(obj: RemoteObject, name: str, args: tuple[object, ...]) -> object:
     snap = obj.client.materialize(obj.oid)  # type: ignore[attr-defined]
-    if not args:
-        return NotImplemented
     if name == "__contains__":
         return args[0] in snap
-    return snap == args[0]
+    return bool(_SNAP_OPS[name](snap, args[0]))
 
 
 def _forward(name: str):
     def method(self: RemoteObject, *args: object) -> object:
         if _parent_difference(name, args):
             return NotImplemented
-        if _container(self) and name in {"__eq__", "__contains__"}:
+        if _container(self) and name in _CONTAINER_CMP:
             return _container_answer(self, name, args)
         try:
             func = self.client.get(self.oid, name)
@@ -363,6 +376,14 @@ def _list(client: object, payload: dict[str, object]) -> list[object]:
 
 def _tuple(client: object, payload: dict[str, object]) -> tuple[object, ...]:
     return tuple(interpret(client, item) for item in payload["items"])  # type: ignore[misc]
+
+
+def _deque(client: object, payload: dict[str, object]) -> deque[object]:
+    return deque(interpret(client, item) for item in payload["items"])  # type: ignore[misc]
+
+
+def _uuid(_client: object, payload: dict[str, object]) -> uuid.UUID:
+    return uuid.UUID(int=int(payload["int"]))
 
 
 def _dict(client: object, payload: dict[str, object]) -> dict[object, object]:
@@ -549,6 +570,7 @@ _KINDS = {
     "fraction": _fraction, "datetime": _datetime, "date": _date, "cb": _callback,
     "complex": _complex, "range": _range, "slice": _slice, "timedelta": _timedelta,
     "time": _time, "path": _path, "counter": _counter, "ordered": _ordered,
+    "deque": _deque, "uuid": _uuid,
     "default": _default, "namedtuple": _rebuild_namedtuple,
     "state": _compare_state, "alias": _alias,
 }
