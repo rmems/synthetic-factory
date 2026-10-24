@@ -1,13 +1,12 @@
 """Parent-side check for comparisons against candidate objects.
 
-An affirmative ``__eq__`` or ordering result is a pass channel when the
-other operand is a parent value: the child can answer True for every
-input. Builtin and standard-library comparisons are real data comparisons.
-A candidate comparison is kept when every plain field of the operand's
-kind agrees with that value, or when the tuple of fields is the operand.
-Fields of another kind, such as a currency string beside an amount, are
-not part of that check. One matching number among many numbers is not
-agreement: the candidate can plant every expected answer.
+An affirmative comparison against a parent value is kept only when every
+plain field of the operand's kind agrees with that value, or when the
+tuple of fields is the operand. The child's report of which slots are
+user-defined does not grant that pass. Fields of another kind, such as a
+currency string beside an amount, are not part of the check. One matching
+number among many numbers is not agreement: the candidate can plant every
+expected answer.
 """
 
 from __future__ import annotations
@@ -172,10 +171,14 @@ def _release(verdict: object, info: dict[str, object] | None) -> bool:
     return verdict is False
 
 
-def _deny(name: str, info: dict[str, object], other: object) -> bool:
-    if not _user_defined(info, name):
+def _user_contains(name: str, info: dict[str, object]) -> bool:
+    if name != "__contains__":
         return False
-    if name == "__contains__":
+    return _user_defined(info, name)
+
+
+def _deny(name: str, info: dict[str, object], other: object) -> bool:
+    if _user_contains(name, info):
         return True
     return not _agreed(name, info, other)
 
