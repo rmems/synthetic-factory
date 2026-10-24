@@ -40,16 +40,50 @@ _KEY = re.compile(r"[0-9a-f]{64}")
 _FIELDS = frozenset({"format", "key", "program_id", "start_byte", "end_byte"})
 
 
+def _skip_field(name: str, value: object) -> bool:
+    """Defaults that ``ast.dump`` prints on one of 3.14 and 3.15 and not the other."""
+
+    if name == "is_lazy" and not value:
+        return True
+    return name == "ctx" and isinstance(value, ast.Load)
+
+
+def _dump(node: object) -> str:
+    """``ast.dump`` with those defaults removed from the tree, not from the text.
+
+    A string replace would also edit a literal that happens to contain ``ctx=Load()``.
+    """
+
+    if isinstance(node, ast.AST):
+        parts = []
+        for name in node._fields:
+            try:
+                value = getattr(node, name)
+            except AttributeError:
+                continue
+            if _skip_field(name, value):
+                continue
+            if value is None and getattr(type(node), name, ...) is None:
+                continue
+            if value == []:
+                field_type = type(node)._field_types.get(name, object)
+                if getattr(field_type, "__origin__", ...) is list:
+                    continue
+            parts.append(f"{name}={_dump(value)}")
+        return f"{type(node).__name__}({', '.join(parts)})"
+    if isinstance(node, list):
+        return "[" + ", ".join(_dump(item) for item in node) + "]"
+    return repr(node)
+
+
 def normalized_text(text: str) -> str:
     """The mutant's tree without positions, so spacing and redundant parentheses collapse.
 
-    ``ast.dump`` on 3.15 adds ``is_lazy=0`` and omits a default ``ctx=Load()``. Both defaults
-    are removed so a key minted on 3.14 matches the same mutant on 3.15. A true lazy import
-    and a ``Store`` or ``Del`` context still record their fields.
+    A falsy ``is_lazy`` and a ``Load`` context are omitted, because 3.15 prints the first and
+    3.14 prints the second. A true lazy import and a ``Store`` or ``Del`` context stay.
     """
 
-    dumped = ast.dump(ast.parse(text), include_attributes=False)
-    return dumped.replace(", is_lazy=0", "").replace(", ctx=Load()", "")
+    return _dump(ast.parse(text))
 
 
 def minimal_edit(original: bytes, mutant: bytes) -> tuple[int, int, bytes]:

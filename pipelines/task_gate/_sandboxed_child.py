@@ -17,6 +17,7 @@ process, so nothing here can report a pass; the parent compares (``sandboxed_jud
 Failures are data, never exit codes.
 """
 
+import builtins
 import doctest
 import importlib.util
 import json
@@ -127,6 +128,7 @@ class _Recorder(doctest.OutputChecker):
     def note(self, value):
         if value is None:
             return
+        builtins._ = value
         self.displayed = repr(value)
         sys.stdout.write(self.displayed + "\n")
 
