@@ -79,6 +79,7 @@ _FORWARDED = (
     "__lshift__ __rlshift__ __ilshift__ __rshift__ __rrshift__ __irshift__"
 ).split()
 _HELD = frozenset({"client", "oid", "_vset_ready"})
+_DIFFERENCE = frozenset({"__sub__", "__rsub__"})
 _STRICT = {
     "__enter__",
     "__exit__",
@@ -133,8 +134,20 @@ class RemoteObject:
         return _remote_hash(self)
 
 
+def _parent_difference(name: str, args: tuple[object, ...]) -> bool:
+    # assertAlmostEqual subtracts in the parent. A candidate __sub__ must not
+    # supply that distance when the other operand is a parent value.
+    if name not in _DIFFERENCE:
+        return False
+    if not args:
+        return True
+    return not isinstance(args[0], RemoteObject)
+
+
 def _forward(name: str):
     def method(self: RemoteObject, *args: object) -> object:
+        if _parent_difference(name, args):
+            return NotImplemented
         try:
             func = self.client.get(self.oid, name)
         except AttributeError:
