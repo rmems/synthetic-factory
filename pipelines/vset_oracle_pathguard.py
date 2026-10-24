@@ -184,8 +184,9 @@ class PathGuard:
             raise ImportError("oracle import path changed")
         if origin.suffix != ".py":
             return None
-        loader = _SourceLoader(fullname, str(origin), self._seen)
-        return importlib.util.spec_from_loader(fullname, loader, origin=str(origin))
+        spec.loader = _SourceLoader(fullname, str(origin), self._seen)
+        spec.cached = None
+        return spec
 
 
 if __package__:  # pragma: no cover - package-child import path

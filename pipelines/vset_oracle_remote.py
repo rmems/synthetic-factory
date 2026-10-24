@@ -246,6 +246,24 @@ def _resume_alarm(remaining: float) -> None:
     signal.setitimer(signal.ITIMER_REAL, remaining)
 
 
+def _during_pause(action):
+    paused = _pause_alarm()
+    try:
+        return action()
+    finally:
+        _resume_alarm(paused)
+
+
+def _release_grade(hooks, guard, finder, folder: str) -> None:
+    if hooks is not None:
+        bridge.restore_patches(hooks)
+    _pop_path(folder)
+    if guard in sys.meta_path:
+        sys.meta_path.remove(guard)
+    if finder in sys.meta_path:
+        sys.meta_path.remove(finder)
+
+
 def _push_path(folder: str) -> None:
     sys.path.insert(0, folder)
 
@@ -361,11 +379,7 @@ def _grade_open(
     finder = _Finder(client, _stems(sources), src_names)
     sys.meta_path.insert(0, finder)
     _push_path(folder)
-    paused = _pause_alarm()
-    try:
-        seen = pathguard.snapshot()
-    finally:
-        _resume_alarm(paused)
+    seen = _during_pause(pathguard.snapshot)
     guard = pathguard.PathGuard(seen)
     sys.meta_path.insert(1, guard)
     hooks = None
@@ -374,11 +388,7 @@ def _grade_open(
     try:
         hooks = bridge.install_patches(client)
         statuses, text = _execute(spec, cases, Path(folder))
-        paused = _pause_alarm()
-        try:
-            changed = pathguard.drift(seen)
-        finally:
-            _resume_alarm(paused)
+        changed = _during_pause(lambda: pathguard.drift(seen))
         if changed:
             return ["ERROR"] * len(cases), "oracle import path changed"
         return statuses, text
@@ -386,13 +396,7 @@ def _grade_open(
         return ["ERROR"] * len(cases), f"{type(exc).__name__}: {exc}"
     finally:
         sys.dont_write_bytecode = previous_bytecode
-        if hooks is not None:
-            bridge.restore_patches(hooks)
-        _pop_path(folder)
-        if guard in sys.meta_path:
-            sys.meta_path.remove(guard)
-        if finder in sys.meta_path:
-            sys.meta_path.remove(finder)
+        _release_grade(hooks, guard, finder, folder)
         _drop_new(before)
         _restore_shadowed(hidden)
         temp.cleanup()
