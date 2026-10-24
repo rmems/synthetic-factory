@@ -177,30 +177,30 @@ class InProcessForgeTests(unittest.TestCase):
                 _expect_refused(self, _eq_source(result), tests, refused)
 
     def test_alternating_eq_cannot_bypass_a_second_probe(self) -> None:
-        source = (
-            "class E:\n"
-            "    n = 0\n"
-            "    def __eq__(self, other):\n"
-            "        E.n += 1\n"
-            "        return E.n % 2 == 1\n"
-            "    def __sub__(self, other):\n"
-            "        return 0\n"
-            "    def __rsub__(self, other):\n"
-            "        return 0\n"
-            "def add(a, b):\n"
-            "    return E()\n"
-            "def total(a, b):\n"
-            "    return a + b\n"
-        )
-        tests = (
-            "    def test_equal(self):\n"
-            "        self.assertEqual(c.add(1, 2), 999)\n"
-            "    def test_almost(self):\n"
-            "        self.assertAlmostEqual(c.add(1, 2), 999)\n"
-            "    def test_number(self):\n"
-            "        self.assertAlmostEqual(c.total(1, 2), 3)\n"
-        )
-        _expect_refused(self, source, tests, ("test_equal", "test_almost"))
+        lines = [
+            "class E:",
+            "    n = 0",
+            "    def __eq__(self, other):",
+            "        E.n += 1",
+            "        return E.n % 2 == 1",
+            "    def __sub__(self, other):",
+            "        return 0",
+            "    def __rsub__(self, other):",
+            "        return 0",
+            "def add(a, b):",
+            "    return E()",
+            "def total(a, b):",
+            "    return a + b",
+        ]
+        body = [
+            "    def test_equal(self):",
+            "        self.assertEqual(c.add(1, 2), 999)",
+            "    def test_almost(self):",
+            "        self.assertAlmostEqual(c.add(1, 2), 999)",
+            "    def test_number(self):",
+            "        self.assertAlmostEqual(c.total(1, 2), 3)",
+        ]
+        _expect_refused(self, "\n".join(lines), "\n".join(body), ("test_equal", "test_almost"))
 
     def test_module_label_and_failing_state_cannot_force_equality(self) -> None:
         source = textwrap.dedent(
@@ -478,6 +478,79 @@ class InProcessForgeTests(unittest.TestCase):
             )
         )
         _expect_refused(self, source, body, ("test_stop",))
+
+    def test_container_wrappers_cannot_force_equality(self) -> None:
+        source = textwrap.dedent(
+            """\
+            class E:
+                def __eq__(self, other):
+                    return True
+                def __hash__(self):
+                    return 0
+            def wrapped(a, b):
+                return [E()]
+            def dicted(a, b):
+                return {"k": E()}
+            def total(a, b):
+                return a + b
+            """
+        )
+        tests = textwrap.indent(
+            textwrap.dedent(
+                """\
+                def test_list(self):
+                    self.assertEqual(c.wrapped(1, 2), [999])
+                    self.assertListEqual(c.wrapped(1, 2), ["no"])
+                    self.assertIn(999, c.wrapped(1, 2))
+                def test_dict(self):
+                    self.assertEqual(c.dicted(1, 2), {"k": "nope"})
+                def test_number(self):
+                    self.assertEqual(c.total(1, 2), 3)
+                """
+            ),
+            "    ",
+        )
+        _expect_refused(self, source, tests, ("test_list", "test_dict"))
+
+    def test_reused_slot_identity_cannot_force_equality(self) -> None:
+        source = textwrap.dedent(
+            """\
+            import fractions, types, gc
+            _code = fractions.Fraction.__dict__["__eq__"].__code__
+            def _make():
+                g = {"__builtins__": {"type": lambda x: int, "int": int,
+                     "isinstance": lambda *a: False, "NotImplemented": True}}
+                old = id(fractions.Fraction.__dict__["__eq__"])
+                gc.disable()
+                del fractions.Fraction.__eq__
+                keep = []
+                for _ in range(2000):
+                    f = types.FunctionType(_code, g, "__eq__")
+                    if id(f) == old:
+                        return f
+                    keep.append(f)
+                return keep[-1]
+            class E:
+                __hash__ = None
+            E.__eq__ = _make()
+            def add(a, b):
+                return E()
+            def total(a, b):
+                return a + b
+            """
+        )
+        tests = textwrap.indent(
+            textwrap.dedent(
+                """\
+                def test_equal(self):
+                    self.assertEqual(c.add(1, 2), 999)
+                def test_number(self):
+                    self.assertEqual(c.total(4, 5), 9)
+                """
+            ),
+            "    ",
+        )
+        _expect_refused(self, source, tests, ("test_equal",))
 
     def test_import_time_print_stays_inside_the_json_report(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

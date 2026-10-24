@@ -25,7 +25,7 @@ else:
     )
 
 
-_CHECKED = frozenset({"__eq__", "__ne__", "__lt__", "__le__", "__gt__", "__ge__"})
+_CHECKED = frozenset({"__eq__", "__ne__", "__lt__", "__le__", "__gt__", "__ge__", "__contains__"})
 _ORDER = {
     "__lt__": operator.lt,
     "__le__": operator.le,
@@ -173,6 +173,8 @@ def decide(name: str, result: object, info: dict[str, object] | None, other: obj
         return result
     if not _needs_data(result, info, name):
         return result
+    if name == "__contains__":
+        return NotImplemented
     return _agreed(name, info, result, other)
 
 

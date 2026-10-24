@@ -185,10 +185,29 @@ def _missing(name: str) -> object:
     return NotImplemented
 
 
+def _container(obj: RemoteObject) -> bool:
+    if isinstance(obj, list):
+        return True
+    if isinstance(obj, dict):
+        return True
+    return isinstance(obj, set)
+
+
+def _container_answer(obj: RemoteObject, name: str, args: tuple[object, ...]) -> object:
+    snap = obj.client.materialize(obj.oid)  # type: ignore[attr-defined]
+    if not args:
+        return NotImplemented
+    if name == "__contains__":
+        return args[0] in snap
+    return snap == args[0]
+
+
 def _forward(name: str):
     def method(self: RemoteObject, *args: object) -> object:
         if _parent_difference(name, args):
             return NotImplemented
+        if _container(self) and name in {"__eq__", "__contains__"}:
+            return _container_answer(self, name, args)
         try:
             func = self.client.get(self.oid, name)
         except AttributeError:
