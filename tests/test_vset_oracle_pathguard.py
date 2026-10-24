@@ -18,7 +18,7 @@ _TESTS = Path(__file__).resolve().parent
 if str(_TESTS) not in sys.path:
     sys.path.insert(0, str(_TESTS))
 
-from vset_testutil import PIPELINES  # noqa: E402
+from vset_testutil import PIPELINES, vset  # noqa: E402
 
 import vset_oracle_pathguard as pathguard  # noqa: E402
 
@@ -145,6 +145,8 @@ class PathGuardTests(unittest.TestCase):
                 module = importlib.util.module_from_spec(spec)
                 spec.loader.exec_module(module)
                 self.assertEqual(module.x, 1)
+                self.assertTrue(spec.has_location)
+                self.assertTrue(module.__file__.endswith("kept.py"))
                 self.assertTrue(pathguard._same_source(cache / "kept.cpython-314.pyc", seen))
                 self.assertIsNone(pathguard.PathGuard(seen).find_spec("math"))
                 (root / "kept.py").unlink()
@@ -246,6 +248,40 @@ class PathGuardTests(unittest.TestCase):
                     sys.modules.pop("census_mod", None)
             finally:
                 sys.path.remove(tmp)
+
+    def test_fresh_stdlib_package_keeps_file_and_submodules(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            pack = Path(tmp)
+            (pack / "src").mkdir()
+            (pack / "src" / "c.py").write_text(
+                "def add(a, b):\n    return a + b\n", encoding="utf-8"
+            )
+            (pack / "tests").mkdir()
+            (pack / "tests" / "helper.py").write_text(
+                "import pathlib\nHERE = pathlib.Path(__file__).resolve().parent\n",
+                encoding="utf-8",
+            )
+            (pack / "tests" / "use.py").write_text(
+                "import unittest\nimport fractions\nimport helper\n"
+                "class T(unittest.TestCase):\n"
+                "    def test_xml(self):\n"
+                "        import xml.etree.ElementTree as ET\n"
+                "        self.assertEqual(ET.fromstring('<a/>').tag, 'a')\n"
+                "        self.assertTrue(fractions.__file__.endswith('fractions.py'))\n"
+                "        self.assertTrue(helper.HERE.is_dir())\n",
+                encoding="utf-8",
+            )
+            saved = {}
+            for name in list(sys.modules):
+                if name == "fractions":
+                    saved[name] = sys.modules.pop(name)
+                elif name.startswith("xml"):
+                    saved[name] = sys.modules.pop(name)
+            try:
+                report = vset.run_oracle(pack, reference_tests=["tests/use.py"])
+            finally:
+                sys.modules.update(saved)
+        self.assertTrue(report["reference"]["ok"], report["reference"])
 
     def test_planted_import_path_cannot_force_a_pass(self) -> None:
         _clear_plant()
