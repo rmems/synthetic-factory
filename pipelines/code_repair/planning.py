@@ -40,9 +40,12 @@ class ProposalPlan:
         self.seen: set[tuple[str, str]] = set()
 
     def _draw_program(self) -> cat.Program | None:
+        # Explicit validation and held-out programs stay out of the mutator.
+        # A catalog with no split policy leaves ``split`` null; those programs
+        # are the whole training set and remain eligible.
         eligible = [
             program for program in self.catalog.programs
-            if program.split == "train"
+            if program.split not in ("validation", "held_out")
             and self.sites[program.program_id]
             and self.per_program[program.program_id] < self.cap
         ]

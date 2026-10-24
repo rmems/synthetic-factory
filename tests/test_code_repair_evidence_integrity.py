@@ -5,6 +5,7 @@ from __future__ import annotations
 import copy
 import tempfile
 import unittest
+from dataclasses import replace
 from pathlib import Path
 
 from tests.code_repair_admission_test_support import (
@@ -124,6 +125,19 @@ class TrustedBindings(unittest.TestCase):
 
 
 class PlanningEquivalence(unittest.TestCase):
+    def test_unassigned_splits_stay_eligible(self):
+        source = fixture()
+        unassigned = replace(
+            source,
+            programs=tuple(replace(program, split=None) for program in source.programs),
+            split_policy=None,
+        )
+        plan = planning.ProposalPlan(unassigned, SEED, 3)
+        proposals = list(plan.proposals(4))
+        self.assertTrue(proposals)
+        self.assertTrue(all(proposal.program.split is None for proposal in proposals))
+        self.assertNotIn("PROGRAM_CAP_EXHAUSTED", plan.skips)
+
     def test_duplicate_draws_preserve_original_indexes(self):
         plan = planning.ProposalPlan(fixture(), SEED, 3)
         proposals = list(plan.proposals(12))

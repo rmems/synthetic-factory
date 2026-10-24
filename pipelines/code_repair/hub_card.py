@@ -231,10 +231,27 @@ def _file_table(digests: dict[str, str], counts: dict[str, int]) -> list[str]:
     return lines
 
 
+def train_only_omission(counts: dict[str, dict[str, int]]) -> str | None:
+    """Warn when train rows exist and the held-out consumer split is empty.
+
+    Generator 2.1.0 draws train programs only. The bundle still omits empty
+    splits; this sentence is what makes that omission visible.
+    """
+
+    sft = counts.get("sft") or {}
+    if sft.get("train") and not sft.get("held_out"):
+        return (
+            "Generator 2.1.0 draws train-split programs only, so the `validation` and "
+            "`held_out` consumer files are empty and those splits are omitted from the "
+            "configs. That omission is limitation `TRAIN_ONLY_DRAW_OMITS_EVAL_SPLITS`."
+        )
+    return None
+
+
 def _card_splits(facts: BundleFacts) -> list[str]:
     frozen = facts.freeze.get("canonical_ids", [])
     agoge_keys = "`, `".join(export.VIEW_FORMATS["agoge"]["keys"])
-    return [
+    lines = [
         "## Configs and splits",
         "",
         ("Splits are assigned per program group by the catalog's pinned policy "
@@ -249,6 +266,10 @@ def _card_splits(facts: BundleFacts) -> list[str]:
          "Agoge trainer and is not declared as a config."),
         "",
     ]
+    omission = train_only_omission(facts.counts)
+    if omission:
+        lines.extend((omission, ""))
+    return lines
 
 
 def _card_limitations(manifest: dict[str, Any]) -> list[str]:

@@ -140,6 +140,15 @@ class BuiltBundle(unittest.TestCase):
                 declared = f"path: data/{directory}/{split}.jsonl" in self.head
                 self.assertEqual(declared, self.summary["rows"][name][split] > 0, (name, split))
 
+    def test_card_names_the_train_only_held_out_omission(self):
+        self.assertIn("`TRAIN_ONLY_DRAW_OMITS_EVAL_SPLITS`", self.body)
+        sft = self.summary["rows"]["sft"]
+        if sft["train"] and not sft["held_out"]:
+            self.assertIn("draws train-split programs only", self.body)
+            self.assertTrue(self.summary["warnings"])
+        else:
+            self.assertEqual(self.summary["warnings"], [])
+
     def test_card_body_states_the_blockers_and_no_unreal_catalog_path(self):
         self.assertIn("**not training-ready.**", self.body)
         for code in self.manifest["admission"]["blockers"]:

@@ -184,3 +184,12 @@ viewer projection is read back before anything is written; a mismatch refuses
 the bundle, which only ever targets a brand-new destination outside
 `outputs/raw/`. The command creates no Hub repository and uploads nothing;
 publication remains a separate, owner-gated step.
+
+Generator 2.1.0 (`code_repair.planning.ProposalPlan`) draws train-split programs
+only. `validation` and `held_out` programs stay in the catalog, and the task
+gate still denies those ids, but a generated run's consumer files for those
+splits are empty. The Hub bundle omits the empty splits. Every export records
+the evaluation limitation `TRAIN_ONLY_DRAW_OMITS_EVAL_SPLITS`, and the bundle
+summary carries a warning when train rows exist and held-out rows do not.
+Programs whose catalog `split` is null (no split policy) stay eligible; only
+the explicit `validation` and `held_out` splits are left out of the draw.
