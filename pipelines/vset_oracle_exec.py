@@ -43,9 +43,9 @@ if __package__:  # pragma: no cover - package-child import path
         frozen_folder as _frozen_folder,
         frozen_text as _frozen_text,
         restore_suite_dir as _restore_suite_dir,
-        routed_names as _routed_names,
         src_names as _src_names,
     )
+    from .vset_oracle_route import routed_names as _routed_names
     from .vset_patch import apply_patch, escapes_work, illegal_work_relative
 else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
@@ -69,9 +69,9 @@ else:
         frozen_folder as _frozen_folder,
         frozen_text as _frozen_text,
         restore_suite_dir as _restore_suite_dir,
-        routed_names as _routed_names,
         src_names as _src_names,
     )
+    from vset_oracle_route import routed_names as _routed_names
     from vset_patch import apply_patch, escapes_work, illegal_work_relative
 
 def _oracle_module_name(relative: str) -> str:

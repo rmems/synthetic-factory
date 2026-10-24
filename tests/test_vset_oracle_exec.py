@@ -23,7 +23,7 @@ from vset_testutil import (  # noqa: E402
     load_record as _load,
     vset,
 )
-import vset_oracle_layout as layout  # noqa: E402
+import vset_oracle_route as route  # noqa: E402
 
 class OracleExecutionTests(unittest.TestCase):
     def test_pack_snapshot_matches_accepted_fixtures(self) -> None:
@@ -182,19 +182,37 @@ class OracleExecutionTests(unittest.TestCase):
             (pack / "src").mkdir(parents=True)
             (work / "src").mkdir(parents=True)
             (pack / "src" / "counter.py").write_text("x = 1\n", encoding="utf-8")
-            for name in ("counter.py", "slug.py", "statistics.py", "vset_oracle_layout.py"):
+            for name in (
+                "counter.py",
+                "slug.py",
+                "statistics.py",
+                "vset_oracle_layout.py",
+                "__main__.py",
+                "a.b.py",
+                "123bad.py",
+            ):
                 (work / "src" / name).write_text("x = 1\n", encoding="utf-8")
-            names = layout.routed_names(pack, work)
+            main = sys.modules["__main__"]
+            previous = main.__spec__
+            main.__spec__ = None
+            try:
+                names = route.routed_names(pack, work)
+            finally:
+                main.__spec__ = previous
             self.assertIn("counter", names)
             self.assertIn("slug", names)
             self.assertNotIn("statistics", names)
             self.assertNotIn("vset_oracle_layout", names)
-            self.assertFalse(layout._spec_is_outside(str(work), work))
-            self.assertFalse(layout._spec_is_outside(str(work / "src" / "slug.py"), work))
-            self.assertTrue(layout._spec_is_outside(None, work))
-            self.assertTrue(layout._spec_is_outside("built-in", work))
-            self.assertTrue(layout._spec_is_outside("frozen", work))
-            self.assertTrue(layout._spec_is_outside(layout.__file__, work))
+            self.assertNotIn("__main__", names)
+            self.assertNotIn("a.b", names)
+            self.assertNotIn("123bad", names)
+            self.assertFalse(route._spec_is_outside(str(work), work))
+            self.assertFalse(route._spec_is_outside(str(work / "src" / "slug.py"), work))
+            self.assertTrue(route._spec_is_outside(None, work))
+            self.assertTrue(route._spec_is_outside("built-in", work))
+            self.assertTrue(route._spec_is_outside("frozen", work))
+            self.assertTrue(route._spec_is_outside(route.__file__, work))
+            self.assertIsNone(route._safe_spec("a.b.c").origin)
 
 
 def _staged_pack(tmp: str) -> Path:
