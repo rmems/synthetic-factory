@@ -49,11 +49,13 @@ def _draw_identity_matches(record, run, catalog):
 
 
 def _supported_generator(generator) -> bool:
+    version = generator.get('version') if isinstance(generator, dict) else None
     return (
         isinstance(generator, dict)
         and set(generator) == {'name', 'version'}
         and generator.get('name') == cv.GENERATOR_NAME
-        and generator.get('version') in cv.REPLAYABLE_GENERATOR_VERSIONS
+        and isinstance(version, str)
+        and version in cv.REPLAYABLE_GENERATOR_VERSIONS
     )
 
 

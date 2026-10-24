@@ -308,9 +308,11 @@ def _record_identity_matches(record: dict[str, Any], catalog: cat.Catalog) -> bo
     generator = record["generator"]
     seed, index = generator["seed"], record["intervention"]["draw_index"]
     catalog_digest = cat.sha256_text(oc.canonical_json([catalog.catalog_id, catalog.programs_sha256]))
-    version = generator.get("version")
+    version = generator.get("version") if isinstance(generator, dict) else None
     if (
-        generator.get("name") != cv.GENERATOR_NAME
+        not isinstance(generator, dict)
+        or generator.get("name") != cv.GENERATOR_NAME
+        or not isinstance(version, str)
         or version not in cv.REPLAYABLE_GENERATOR_VERSIONS
     ):
         return False
@@ -353,11 +355,13 @@ def _check_request(request: ReplayRequest) -> None:
 
 
 def _replayable_run_generator(generator: Any) -> bool:
+    version = generator.get("version") if isinstance(generator, dict) else None
     return (
         isinstance(generator, dict)
         and set(generator) == {"name", "version"}
         and generator.get("name") == cv.GENERATOR_NAME
-        and generator.get("version") in cv.REPLAYABLE_GENERATOR_VERSIONS
+        and isinstance(version, str)
+        and version in cv.REPLAYABLE_GENERATOR_VERSIONS
     )
 
 

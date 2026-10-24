@@ -165,6 +165,11 @@ class RunBinding(unittest.TestCase):
         with refusal(self, cv.FINDING_RECORD_MALFORMED, "version"):
             replay.run(replay.ReplayRequest(run_dir, FIXTURE_CATALOG, self.root / "out", 5.0))
 
+    def test_a_non_string_generator_version_is_refused(self):
+        run_dir = self.run_with(positives(), lambda s: s["generator"].update(version=["2.1.0"]))
+        with refusal(self, cv.FINDING_RECORD_MALFORMED, "version"):
+            replay.run(replay.ReplayRequest(run_dir, FIXTURE_CATALOG, self.root / "out", 5.0))
+
     def test_the_report_carries_the_run_identity(self):
         run_dir = self.run_with(positives()[:1])
         report = replay.run(replay.ReplayRequest(run_dir, FIXTURE_CATALOG, self.root / "out", 5.0))
