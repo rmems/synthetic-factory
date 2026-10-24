@@ -235,6 +235,17 @@ def _disarm(previous) -> None:
     signal.signal(signal.SIGALRM, previous)
 
 
+def _pause_alarm() -> float:
+    remaining, _interval = signal.setitimer(signal.ITIMER_REAL, 0)
+    return remaining
+
+
+def _resume_alarm(remaining: float) -> None:
+    if remaining <= 0:
+        return
+    signal.setitimer(signal.ITIMER_REAL, remaining)
+
+
 def _push_path(folder: str) -> None:
     sys.path.insert(0, folder)
 
@@ -350,19 +361,31 @@ def _grade_open(
     finder = _Finder(client, _stems(sources), src_names)
     sys.meta_path.insert(0, finder)
     _push_path(folder)
-    seen = pathguard.snapshot()
+    paused = _pause_alarm()
+    try:
+        seen = pathguard.snapshot()
+    finally:
+        _resume_alarm(paused)
     guard = pathguard.PathGuard(seen)
     sys.meta_path.insert(1, guard)
     hooks = None
+    previous_bytecode = sys.dont_write_bytecode
+    sys.dont_write_bytecode = True
     try:
         hooks = bridge.install_patches(client)
         statuses, text = _execute(spec, cases, Path(folder))
-        if pathguard.drift(seen):
+        paused = _pause_alarm()
+        try:
+            changed = pathguard.drift(seen)
+        finally:
+            _resume_alarm(paused)
+        if changed:
             return ["ERROR"] * len(cases), "oracle import path changed"
         return statuses, text
     except (Exception, SystemExit) as exc:
         return ["ERROR"] * len(cases), f"{type(exc).__name__}: {exc}"
     finally:
+        sys.dont_write_bytecode = previous_bytecode
         if hooks is not None:
             bridge.restore_patches(hooks)
         _pop_path(folder)
