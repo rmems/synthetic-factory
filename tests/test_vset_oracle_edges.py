@@ -19,6 +19,7 @@ from vset_testutil import child_timeout, vset  # noqa: E402
 import vset_oracle_bridge as bridge  # noqa: E402
 import vset_oracle_codec as codec  # noqa: E402
 import vset_oracle_collect as collect  # noqa: E402
+import vset_oracle_exc as oracle_exc  # noqa: E402
 import vset_oracle_exec as oracle_exec  # noqa: E402
 import vset_oracle_grade as grade  # noqa: E402
 import vset_oracle_layout as layout  # noqa: E402
@@ -212,8 +213,8 @@ class EdgeTests(unittest.TestCase):
         values.reset_identity()
 
     def test_exception_identity_helpers(self) -> None:
-        self.assertIsNone(values._builtin_exception("missing-name"))
-        self.assertIsNone(values._builtin_exception("SystemExit"))
+        self.assertIsNone(oracle_exc._builtin_exception("missing-name"))
+        self.assertIsNone(oracle_exc._builtin_exception("SystemExit"))
         kind = values.exception_type("Mine", ("ValueError", "Exception"))
         self.assertIs(values.exception_type("Mine", ("ValueError", "Exception")), kind)
         self.assertTrue(issubclass(kind, ValueError))
