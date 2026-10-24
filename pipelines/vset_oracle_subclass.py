@@ -106,14 +106,52 @@ def _extend(cls: type) -> tuple[object, int] | None:
     return None
 
 
-def _own_methods(cls: type) -> list[str]:
-    names: list[str] = []
+_SKIP = frozenset(
+    {
+        "__dict__",
+        "__weakref__",
+        "__module__",
+        "__qualname__",
+        "__doc__",
+        "__init__",
+        "__new__",
+        "__init_subclass__",
+    }
+)
+
+
+def _skipped(name: str) -> bool:
+    if name in _SKIP:
+        return True
+    return name.startswith("_vset_")
+
+
+def _kind(value: object) -> str:
+    if isinstance(value, classmethod):
+        return "class"
+    if isinstance(value, staticmethod):
+        return "static"
+    if isinstance(value, property):
+        return "prop"
+    if isinstance(value, types.FunctionType):
+        return "func"
+    return ""
+
+
+def _members(cls: type) -> tuple[list[dict[str, str]], dict[str, object]]:
+    methods: list[dict[str, str]] = []
+    attrs: dict[str, object] = {}
     for name, value in cls.__dict__.items():
-        if name.startswith("_"):
+        if _skipped(name):
             continue
-        if isinstance(value, types.FunctionType):
-            names.append(name)
-    return names
+        kind = _kind(value)
+        if kind:
+            methods.append({"name": name, "kind": kind})
+            continue
+        if isinstance(value, type):
+            continue
+        attrs[name] = _encode(value)
+    return methods, attrs
 
 
 def _encoded(values: tuple[object, ...] | object) -> list[object]:
@@ -153,13 +191,35 @@ def _resolve(cls: type, child: object) -> object:
     return _view(cls, child)
 
 
+def _args(args: object) -> tuple[object, ...]:
+    if isinstance(args, tuple):
+        return args
+    return ()
+
+
+def _kwargs(kwargs: object) -> dict[str, object]:
+    if isinstance(kwargs, dict):
+        return kwargs
+    return {}
+
+
+def _invoke(cls: type, func: object, call: tuple[object, tuple[object, ...], dict[str, object]]) -> object:
+    child, positional, named = call
+    if child is None:
+        if isinstance(func, classmethod):
+            return func.__func__(cls, *positional, **named)
+        bare = getattr(func, "__func__", func)
+        return bare(*positional, **named)
+    inst = _resolve(cls, child)
+    if isinstance(func, property):
+        return func.fget(inst)  # type: ignore[misc]
+    return func(inst, *positional, **named)  # type: ignore[operator]
+
+
 def _dispatcher(cls: type):
     def dispatch(name: object, child: object, args: object, kwargs: object) -> object:
-        inst = _resolve(cls, child)
         func = cls.__dict__[str(name)]
-        positional = args if isinstance(args, tuple) else ()
-        named = kwargs if isinstance(kwargs, dict) else {}
-        return func(inst, *positional, **named)
+        return _invoke(cls, func, (child, _args(args), _kwargs(kwargs)))
 
     return dispatch
 
@@ -174,13 +234,15 @@ def adopt(cls: type) -> None:
         return
     cls._vset_adopting = True  # type: ignore[attr-defined]
     client, base_oid = found
+    methods, attrs = _members(cls)
     callback = _values().remember_callback(_dispatcher(cls))
     created = client.exchange(  # type: ignore[attr-defined]
         {
             "op": "subclass",
             "base": base_oid,
             "name": cls.__name__,
-            "methods": _own_methods(cls),
+            "methods": methods,
+            "attrs": attrs,
             "cb": callback,
         }
     )
