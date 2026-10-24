@@ -27,6 +27,7 @@ if __package__:  # pragma: no cover - package-child import path
     from .vset_constants import ERR_ORACLE_EXECUTION_MISMATCH, VSetValidationError
     from .vset_oracle_codec import encode as _encode
     from . import vset_oracle_bridge as bridge
+    from . import vset_oracle_pathguard as pathguard
     from . import vset_oracle_values as values
     from .vset_oracle_status import case_status as _case_status
     from .vset_oracle_status import status as _whole_status
@@ -38,6 +39,7 @@ else:
     from vset_constants import ERR_ORACLE_EXECUTION_MISMATCH, VSetValidationError
     from vset_oracle_codec import encode as _encode
     import vset_oracle_bridge as bridge
+    import vset_oracle_pathguard as pathguard
     import vset_oracle_values as values
     from vset_oracle_status import case_status as _case_status
     from vset_oracle_status import status as _whole_status
@@ -348,16 +350,24 @@ def _grade_open(
     finder = _Finder(client, _stems(sources), src_names)
     sys.meta_path.insert(0, finder)
     _push_path(folder)
+    seen = pathguard.snapshot()
+    guard = pathguard.PathGuard(seen)
+    sys.meta_path.insert(1, guard)
     hooks = None
     try:
         hooks = bridge.install_patches(client)
-        return _execute(spec, cases, Path(folder))
+        statuses, text = _execute(spec, cases, Path(folder))
+        if pathguard.drift(seen):
+            return ["ERROR"] * len(cases), "oracle import path changed"
+        return statuses, text
     except (Exception, SystemExit) as exc:
         return ["ERROR"] * len(cases), f"{type(exc).__name__}: {exc}"
     finally:
         if hooks is not None:
             bridge.restore_patches(hooks)
         _pop_path(folder)
+        if guard in sys.meta_path:
+            sys.meta_path.remove(guard)
         if finder in sys.meta_path:
             sys.meta_path.remove(finder)
         _drop_new(before)
