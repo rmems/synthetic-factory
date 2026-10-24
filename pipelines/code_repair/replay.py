@@ -308,7 +308,11 @@ def _record_identity_matches(record: dict[str, Any], catalog: cat.Catalog) -> bo
     generator = record["generator"]
     seed, index = generator["seed"], record["intervention"]["draw_index"]
     catalog_digest = cat.sha256_text(oc.canonical_json([catalog.catalog_id, catalog.programs_sha256]))
-    if (generator.get("name"), generator.get("version")) != (cv.GENERATOR_NAME, cv.GENERATOR_VERSION):
+    version = generator.get("version")
+    if (
+        generator.get("name") != cv.GENERATOR_NAME
+        or version not in cv.REPLAYABLE_GENERATOR_VERSIONS
+    ):
         return False
     if not _draw_identity_valid(seed, index):
         return False
@@ -348,6 +352,15 @@ def _check_request(request: ReplayRequest) -> None:
     ))
 
 
+def _replayable_run_generator(generator: Any) -> bool:
+    return (
+        isinstance(generator, dict)
+        and set(generator) == {"name", "version"}
+        and generator.get("name") == cv.GENERATOR_NAME
+        and generator.get("version") in cv.REPLAYABLE_GENERATOR_VERSIONS
+    )
+
+
 def _run_identity(run_dir: Path) -> dict[str, Any]:
     """What binds this replay to one run: the candidates' bytes and RUN.json's pins."""
 
@@ -365,7 +378,7 @@ def _run_identity(run_dir: Path) -> dict[str, Any]:
     )
     cv.refuse_when(
         summary.get("format") != generate.RUN_FORMAT
-        or summary.get("generator") != {"name": cv.GENERATOR_NAME, "version": cv.GENERATOR_VERSION},
+        or not _replayable_run_generator(summary.get("generator")),
         cv.FINDING_RECORD_MALFORMED, "run or generator version is unsupported; regenerate legacy runs",
     )
     candidates_digest = hashlib.sha256(candidates.read_bytes()).hexdigest()

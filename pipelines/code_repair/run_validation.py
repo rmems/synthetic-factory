@@ -48,6 +48,15 @@ def _draw_identity_matches(record, run, catalog):
     return record['id'] == expected
 
 
+def _supported_generator(generator) -> bool:
+    return (
+        isinstance(generator, dict)
+        and set(generator) == {'name', 'version'}
+        and generator.get('name') == cv.GENERATOR_NAME
+        and generator.get('version') in cv.REPLAYABLE_GENERATOR_VERSIONS
+    )
+
+
 def _generator_identity_matches(record, run):
     actual = (
         record['generator']['seed'],
@@ -55,7 +64,9 @@ def _generator_identity_matches(record, run):
         record['generator']['version'],
         record['provenance']['produced_at'],
     )
-    expected = (run['seed'], cv.GENERATOR_NAME, cv.GENERATOR_VERSION, run['produced_at'])
+    expected = (
+        run['seed'], run['generator']['name'], run['generator']['version'], run['produced_at'],
+    )
     return actual == expected
 
 
@@ -178,11 +189,10 @@ class _RunInputs:
 
 
 def _run_header_matches(run):
-    expected_generator = {'name': cv.GENERATOR_NAME, 'version': cv.GENERATOR_VERSION}
     checks = (
         lambda: run['format'] == generate.RUN_FORMAT,
         lambda: run['family'] == cv.FAMILY,
-        lambda: run['generator'] == expected_generator,
+        lambda: _supported_generator(run.get('generator')),
         lambda: _integer_in_domain(run['seed'], 0, cv.MAX_SEED),
         lambda: _integer_in_domain(run['count'], 1, cv.MAX_COUNT),
     )
@@ -266,7 +276,10 @@ def _summary_findings(inputs):
 
 def _planned_findings(inputs):
     run = inputs.run
-    plan = planning.ProposalPlan(inputs.catalog, run['seed'], run['per_program_cap'])
+    plan = planning.ProposalPlan(
+        inputs.catalog, run['seed'], run['per_program_cap'],
+        generator_version=run['generator']['version'],
+    )
     expected = [proposal.binding() for proposal in plan.proposals(run['count'])]
     actual = [
         (record['scenario']['source']['program_id'], record['intervention']['draw_index'],

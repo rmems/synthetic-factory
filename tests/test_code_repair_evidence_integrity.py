@@ -7,6 +7,7 @@ import tempfile
 import unittest
 from dataclasses import replace
 from pathlib import Path
+from unittest import mock
 
 from tests.code_repair_admission_test_support import (
     PROCEDURAL_FACTORY,
@@ -144,8 +145,8 @@ class PlanningEquivalence(unittest.TestCase):
         self.assertEqual([p.index for p in proposals], [0, 1, 2, 3, 4, 5, 6, 9, 10, 11])
         self.assertEqual(plan.skips, {"MUTATION_NO_SITES": 0, "DUPLICATE_MUTANT_IN_RUN": 2})
 
-    def test_a_2_0_0_run_header_is_refused_before_replay(self):
-        """Train-only draws are generator 2.1.0; a 2.0.0 stamp is not a matching plan."""
+    def test_a_2_1_0_draw_labeled_2_0_0_is_a_summary_mismatch(self):
+        """Relabeling a 2.1.0 capture does not make it a 2.0.0 plan."""
 
         run, records, _run_dir = smoke_run()
         stale = copy.deepcopy(run)
@@ -154,6 +155,33 @@ class PlanningEquivalence(unittest.TestCase):
             stale, records, catalog=fixture(), candidates_sha256=run["candidates_sha256"],
         )
         self.assertEqual(findings, [cv.EXPORT_RUN_SUMMARY_MISMATCH])
+
+    def test_a_2_0_0_draw_validates_under_the_inclusive_rule(self):
+        catalog = fixture()
+        eval_ids = {
+            program.program_id for program in catalog.programs
+            if program.split in ("validation", "held_out")
+        }
+        self.assertTrue(eval_ids)
+        inclusive = planning.ProposalPlan(
+            catalog, SEED, 3, generator_version=cv.GENERATOR_VERSION_INCLUSIVE_DRAW,
+        )
+        current = planning.ProposalPlan(catalog, SEED, 3, generator_version=cv.GENERATOR_VERSION)
+        inclusive_ids = {proposal.program.program_id for proposal in inclusive.proposals(40)}
+        current_ids = {proposal.program.program_id for proposal in current.proposals(40)}
+        self.assertTrue(inclusive_ids & eval_ids)
+        self.assertFalse(current_ids & eval_ids)
+        with tempfile.TemporaryDirectory() as scratch:
+            out = Path(scratch) / "run"
+            with mock.patch.object(cv, "GENERATOR_VERSION", cv.GENERATOR_VERSION_INCLUSIVE_DRAW):
+                run = generate.run(generate.RunRequest(
+                    FIXTURE_CATALOG, out, SEED, 12, PINNED_AT, per_program_cap=3,
+                ))
+            self.assertEqual(run["generator"]["version"], "2.0.0")
+            candidates = [record for _, record in oc.read_jsonl(out / "candidates.jsonl")]
+            self.assertEqual(validation.validate_run(
+                run, candidates, catalog=catalog, candidates_sha256=run["candidates_sha256"],
+            ), [])
 
     def test_real_cap_exhaustion_and_no_site_inventory_match_plan(self):
         cases = ((FIXTURE_CATALOG, 40, 1, 4, {"MUTATION_NO_SITES": 0, "PROGRAM_CAP_EXHAUSTED": 36}),
