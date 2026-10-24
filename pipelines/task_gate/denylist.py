@@ -2,10 +2,11 @@
 """The eval denylist: program ids the gate must never turn into training tasks.
 
 The denylist is a REQUIRED input (#494 supplies the vendored list; its wiring follows #504).
-The primary form is ``eval-exclusion-list-v1`` JSON (``program_ids``); a legacy UTF-8,
-LF-framed text file with one program id per line is still accepted. A missing, unreadable,
-empty ``program_ids`` (including reviewed lists whose ``repos`` are populated), or
-malformed payload refuses the run -- an absent denylist must never read as "nothing is denied".
+JSON input is an ``eval-exclusion-list-v1`` document, loaded by the same strict loader
+compose uses (``eval_exclusion_lists.load_list`` for the ``eval_denylist`` slot). A legacy
+UTF-8, LF-framed text file with one program id per line is still accepted. A missing,
+unreadable, empty ``program_ids`` (including a reviewed list whose ``repos`` are populated),
+or malformed payload refuses the run -- an absent denylist must never read as "nothing is denied".
 """
 
 from __future__ import annotations
@@ -18,8 +19,13 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from . import vocabulary as cv
-from ._contract import StrictJsonlError, bind_import_twin, load_strict_json, strict_lf_jsonl_lines
+from ._contract import StrictJsonlError, bind_import_twin, strict_lf_jsonl_lines
 from .checks import is_identifier
+
+if __name__.startswith("pipelines."):
+    from .. import eval_exclusion_lists as _exclusion_lists
+else:
+    import eval_exclusion_lists as _exclusion_lists
 
 __all__ = ["Denylist", "load_denylist"]
 
@@ -55,60 +61,42 @@ class Denylist:
         return len(self.program_ids)
 
 
-def _decode_exclusion_document(data: bytes, location: str) -> dict:
-    """One JSON object, or a coded malformed refusal."""
-
-    try:
-        document = load_strict_json(data.decode("utf-8"))
-    except UnicodeDecodeError as exc:
-        raise cv.GateRefusal(cv.REFUSE_DENYLIST_MALFORMED, f"{location} is not UTF-8") from exc
-    except (ValueError, RecursionError) as exc:
-        raise cv.GateRefusal(cv.REFUSE_DENYLIST_MALFORMED, f"{location} is not strict JSON: {exc}") from exc
-    cv.refuse_when(
-        not isinstance(document, dict), cv.REFUSE_DENYLIST_MALFORMED,
-        f"{location} must be a JSON object",
-    )
-    return document
+_JSON_START = (b"{", b"[")
 
 
-def _refuse_empty_program_ids(program_ids: list, repos: object, location: str) -> None:
+def _refuse_empty_program_ids(program_ids: frozenset[str], repos: frozenset[str], location: str) -> None:
     """Empty ``program_ids`` is always a refusal; populated ``repos`` names the gap."""
 
     if program_ids:
         return
-    if isinstance(repos, list) and repos:
+    if repos:
         raise cv.GateRefusal(
             cv.REFUSE_DENYLIST_MALFORMED,
             f"{location}: program_ids is empty while repos names {len(repos)} entries",
         )
-    raise cv.GateRefusal(cv.REFUSE_DENYLIST_MALFORMED, "denylist has no entries")
+    raise cv.GateRefusal(cv.REFUSE_DENYLIST_MALFORMED, f"{location}: denylist has no entries")
 
 
-def _program_ids_from_json(data: bytes, location: str) -> list[str]:
-    """The ``program_ids`` array from one eval-exclusion JSON document."""
+def _json_program_ids(location: Path, digest: str) -> frozenset[str]:
+    """Program ids from one strict ``eval_denylist`` document, or a coded refusal.
 
-    document = _decode_exclusion_document(data, location)
+    Compose and the gate share ``eval_exclusion_lists.load_list``. A do-not-train
+    document, a placeholder that carries entries, unsorted ids, or non-canonical
+    bytes are the same refusal here as they are there. An empty ``program_ids``
+    array is still a refusal even when ``repos`` is populated: the gate's input
+    is the program-id denylist, not the repository list.
+    """
+
+    try:
+        loaded = _exclusion_lists.load_list(location, _exclusion_lists.LIST_EVAL_DENYLIST)
+    except _exclusion_lists.ExclusionPolicyError as exc:
+        raise cv.GateRefusal(cv.REFUSE_DENYLIST_MALFORMED, str(exc)) from exc
     cv.refuse_when(
-        "program_ids" not in document, cv.REFUSE_DENYLIST_MALFORMED, f"{location} has no program_ids",
+        loaded.sha256 != digest, cv.REFUSE_DENYLIST_MALFORMED,
+        f"{location} changed while it was being read",
     )
-    program_ids = document["program_ids"]
-    cv.refuse_when(
-        not isinstance(program_ids, list), cv.REFUSE_DENYLIST_MALFORMED,
-        f"{location}.program_ids must be a list",
-    )
-    _refuse_empty_program_ids(program_ids, document.get("repos"), location)
-    ids: list[str] = []
-    for index, item in enumerate(program_ids):
-        cv.refuse_when(
-            not is_identifier(item), cv.REFUSE_DENYLIST_MALFORMED,
-            f"{location}.program_ids[{index}] is not a program id: {item!r}",
-        )
-        ids.append(item)
-    cv.refuse_when(
-        len(set(ids)) != len(ids), cv.REFUSE_DENYLIST_MALFORMED,
-        f"{location}.program_ids repeats an id",
-    )
-    return ids
+    _refuse_empty_program_ids(loaded.program_ids, loaded.repos, str(location))
+    return loaded.program_ids
 
 
 def _read(path: Path) -> bytes:
@@ -137,9 +125,8 @@ def load_denylist(path: Path | str | None) -> Denylist:
     location = Path(str(path))
     data = _read(location)
     digest = hashlib.sha256(data).hexdigest()
-    if data.lstrip().startswith(b"{"):
-        ids = _program_ids_from_json(data, str(location))
-        return Denylist(frozenset(ids), digest)
+    if data.lstrip()[:1] in _JSON_START:
+        return Denylist(_json_program_ids(location, digest), digest)
     try:
         lines = strict_lf_jsonl_lines(data, str(location))
     except StrictJsonlError as exc:

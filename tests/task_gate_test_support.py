@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """Shared fixtures for the ``test_task_gate*`` modules: programs, proposals and a fake harness."""
 
-import json
 import sys
 from pathlib import Path
 
@@ -9,6 +8,7 @@ TESTS = Path(__file__).resolve().parent
 REPO = TESTS.parent
 sys.path[:0] = [str(REPO / "pipelines")]
 
+import eval_exclusion_lists as lists
 from task_gate import dedup_index, denylist, gate, harness, proposal
 from task_gate import vocabulary as cv
 
@@ -33,10 +33,18 @@ FAILED = harness.HarnessResult(cv.OUTCOME_FAILED, 2, 1)
 
 
 def write_denylist_json(path: Path, program_ids: list[str], *, repos: list[str] | None = None) -> None:
-    """A minimal eval-exclusion JSON denylist for loader and CLI tests."""
+    """A canonical ``eval_denylist`` document for loader and CLI tests."""
 
-    document = {"program_ids": program_ids, "repos": repos if repos is not None else []}
-    path.write_text(json.dumps(document, indent=2) + "\n", encoding="utf-8")
+    document = {
+        "schema_version": lists.LIST_SCHEMA_VERSION,
+        "list": lists.LIST_EVAL_DENYLIST,
+        "status": "reviewed",
+        "note": "task-gate test denylist",
+        "repos": sorted(repos or []),
+        "program_ids": sorted(program_ids),
+        "task_ids": [],
+    }
+    path.write_bytes(lists.canonical_bytes(document))
 
 
 def rules(deny=DENY, prior=None, eval_program_ids=frozenset()):

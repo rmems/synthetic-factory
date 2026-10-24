@@ -61,7 +61,7 @@ def _loaded_prior(request: GateRequest) -> PriorIndex:
     return load_prior(request.prior_index_paths) if request.prior_index_paths else PriorIndex.empty()
 
 
-_COMPUTED_EVIDENCE = ("denylist", "prior_indexes", "programs", "harness")
+_COMPUTED_EVIDENCE = ("denylist", "prior_indexes", "programs", "harness", "eval_program_ids")
 
 
 def _harness_evidence(harness: Harness) -> dict[str, Any]:
@@ -71,9 +71,22 @@ def _harness_evidence(harness: Harness) -> dict[str, Any]:
     return {"protocol": cv.HARNESS_PROTOCOL}
 
 
+def _eval_ids_evidence(program_ids: frozenset[str]) -> dict[str, Any]:
+    """Count and digest of the catalog eval ids overlaid on the denylist.
+
+    The digest is over the sorted ids, one per line, so a caller cannot replace
+    it through provenance. Moving a program between splits changes this digest
+    even when ``programs.sha256`` does not record the split.
+    """
+
+    payload = "".join(f"{item}\n" for item in sorted(program_ids)).encode("utf-8")
+    return {"count": len(program_ids), "sha256": hashlib.sha256(payload).hexdigest()}
+
+
 def _evidence(request: GateRequest, rules: Rules, harness: Harness) -> dict[str, Any]:
     return {
         "denylist": {"sha256": rules.denylist.sha256, "entries": len(rules.denylist)},
+        "eval_program_ids": _eval_ids_evidence(rules.eval_program_ids),
         "prior_indexes": list(rules.prior.files),
         "programs": {"count": len(request.programs), "sha256": _programs_digest(request.programs)},
         "harness": _harness_evidence(harness),
