@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Lineage, structural groups and the consumer's bucket policy (pinned against Agoge)."""
 
+import ast
 import json
 import re
 import sys
@@ -85,6 +86,24 @@ class Structure(unittest.TestCase):
         for one, other in pairs:
             with self.subTest(import_statement=one.splitlines()[0]):
                 self.assertNotEqual(lineage.structure_digest(one), lineage.structure_digest(other))
+
+    def test_eager_import_digest_ignores_the_interpreter_default_lazy_flag(self):
+        """Python 3.15 stores ``is_lazy=0`` on eager imports; that flag is not structure."""
+
+        self.assertEqual(
+            lineage.structure_digest("from math import log2\n"),
+            "d33e67f124057ff18c70c496dc4616d0360bfc8fc49909ea191311fc9a576cb9",
+        )
+        self.assertEqual(
+            lineage.structure_digest("import math\n"),
+            "43a22ec18736e0406571985bac0467c74b7ae2e68c60c8ebabd34cc38683b05c",
+        )
+        lazy = "lazy import math\n"
+        try:
+            ast.parse(lazy)
+        except SyntaxError:
+            return
+        self.assertNotEqual(lineage.structure_digest("import math\n"), lineage.structure_digest(lazy))
 
     def test_renamed_copies_share_a_structure_digest_and_different_programs_do_not(self):
         text = program("sum_of_digits").text
