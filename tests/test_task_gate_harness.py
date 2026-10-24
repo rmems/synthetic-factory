@@ -253,7 +253,7 @@ class Cli(unittest.TestCase):
             code = cli.run(list(argv))
         return code, out.getvalue(), err.getvalue()
 
-    def test_procedural_subcommand_writes_summary_and_requires_the_denylist(self):
+    def test_procedural_subcommand_writes_summary_and_refuses_a_missing_denylist(self):
         with tempfile.TemporaryDirectory() as tmp:
             deny = Path(tmp) / "deny.json"
             write_denylist_json(deny, ["eval-only-program"])
@@ -265,13 +265,6 @@ class Cli(unittest.TestCase):
             self.assertEqual(code, 0)
             summary = json.loads((out / cv.SUMMARY_FILENAME).read_text())
             self.assertEqual(json.loads(stdout)["verdicts"], summary["verdicts"])
-            code, _, stderr = self.invoke(
-                "procedural", "--catalog", str(FIXTURE), "--seed", "3", "--count", "2",
-                "--out", str(Path(tmp) / "no-deny"),
-            )
-            self.assertEqual(code, 2)
-            self.assertIn(cv.REFUSE_DENYLIST_MISSING, stderr)
-            self.assertFalse((Path(tmp) / "no-deny").exists())
             code, _, stderr = self.invoke(
                 "procedural", "--catalog", str(FIXTURE), "--denylist", str(Path(tmp) / "missing.txt"),
                 "--seed", "3", "--count", "2", "--out", str(Path(tmp) / "gone"),
@@ -306,6 +299,7 @@ class Cli(unittest.TestCase):
         )
         self.assertEqual(done.returncode, 0, done.stderr)
         self.assertIn("--denylist", done.stdout)
+        self.assertIn("config/eval-exclusion/", done.stdout)
 
 
 class ImportTwins(unittest.TestCase):

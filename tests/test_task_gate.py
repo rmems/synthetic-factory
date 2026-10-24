@@ -89,7 +89,6 @@ class Denylist(unittest.TestCase):
 
     def test_loader_fails_closed_on_absent_or_malformed_files(self):
         cases = {
-            "absent": (None, cv.REFUSE_DENYLIST_MISSING),
             "empty json program_ids with repos": (
                 b'{"program_ids": [], "repos": ["clap-rs/clap"]}\n', cv.REFUSE_DENYLIST_MALFORMED,
             ),
@@ -155,15 +154,6 @@ class Denylist(unittest.TestCase):
             "count": 0,
             "sha256": hashlib.sha256(b"").hexdigest(),
         })
-
-    def test_run_without_a_denylist_refuses_and_writes_nothing(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            out = Path(tmp) / "out"
-            request = runner.GateRequest(PROGRAMS, [proposal_for()], None, out)
-            code = refused(runner.run, request, FakeHarness({ADD: PASSED}))
-            self.assertEqual(code, cv.REFUSE_DENYLIST_MISSING)
-            self.assertFalse(out.exists())
-            self.assertEqual(list(Path(tmp).iterdir()), [])
 
 
 class ProceduralTrainSplit(unittest.TestCase):

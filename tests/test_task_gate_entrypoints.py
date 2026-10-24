@@ -13,7 +13,7 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from task_gate import procedural
+from task_gate import denylist, procedural
 from task_gate_test_support import REPO, cv, write_denylist_json
 
 SCRIPT = REPO / "pipelines" / "task_gate_cli.py"
@@ -77,7 +77,9 @@ class DirectScript(unittest.TestCase):
 
     def test_refusals_exit_two_name_the_code_and_write_nothing(self):
         cases = {
-            cv.REFUSE_DENYLIST_MISSING: ["--seed", "5", "--count", "1"],
+            cv.REFUSE_DENYLIST_MISSING: [
+                "--seed", "5", "--count", "1", "--denylist", str(self.root / "missing-denylist.txt"),
+            ],
             cv.REFUSE_DESTINATION_EXISTS: ["--seed", "5", "--count", "1", "--denylist", str(self.deny)],
         }
         for code_name, extra in cases.items():
@@ -97,8 +99,9 @@ class DirectScript(unittest.TestCase):
         with mock.patch.dict(sys.modules):  # cached task_gate modules would mask the path insert
             PackageSpelling.forget_repository_modules()
             code, _, stderr = run_script(
-                "procedural", "--catalog", str(FIXTURE), "--seed", "5", "--count", "1",
-                "--out", str(self.root / "bare"), path=bare,
+                "procedural", "--catalog", str(FIXTURE),
+                "--denylist", str(self.root / "missing-denylist.txt"),
+                "--seed", "5", "--count", "1", "--out", str(self.root / "bare"), path=bare,
             )
         self.assertEqual(code, 2)
         self.assertIn(cv.REFUSE_DENYLIST_MISSING, stderr)
@@ -135,6 +138,70 @@ class DirectScript(unittest.TestCase):
         self.assertEqual(code, 2)
         self.assertIn(cv.REFUSE_PROPOSALS_INVALID, stderr)
         self.assertFalse((self.root / "never").exists())
+
+    def test_omitted_denylist_denies_a_held_out_catalog_program(self):
+        catalog = procedural.load_catalog(REPO / "catalogs" / "python-repair-v1")
+        program = next(item for item in catalog.programs if item.split == "held_out")
+        vendored = denylist.load_denylist(None)
+        self.assertIn(program.program_id, vendored.program_ids)
+        rows = self.root / "held-out.jsonl"
+        rows.write_text(json.dumps(
+            {"program_id": program.program_id, "replacement_text": "0", "original_text": "x"},
+        ) + "\n")
+        out = self.root / "held-out-run"
+        code, _, stderr = run_script(
+            "verify", "--catalog", str(catalog.directory), "--proposals", str(rows),
+            "--out", str(out), "--timeout", "5",
+        )
+        self.assertEqual(code, 0, stderr)
+        summary = json.loads((out / cv.SUMMARY_FILENAME).read_text())
+        self.assertEqual(summary["verdicts"][cv.VERDICT_DENYLISTED], 1)
+        self.assertEqual(summary["inputs"]["denylist"]["sha256"], vendored.sha256)
+        self.assertEqual(summary["inputs"]["denylist"]["entries"], 19)
+        task = json.loads((out / cv.TASKS_FILENAME).read_text().splitlines()[0])
+        self.assertEqual(
+            (task["program_id"], task["verdict"], task["detail"]),
+            (program.program_id, cv.VERDICT_DENYLISTED, cv.DETAIL_ON_DENYLIST),
+        )
+
+    def test_an_explicit_text_denylist_is_recorded_by_its_digest(self):
+        catalog = procedural.load_catalog(REPO / "catalogs" / "python-repair-v1")
+        program = next(item for item in catalog.programs if item.split == "held_out")
+        text = self.root / "legacy.txt"
+        text.write_bytes(f"{program.program_id}\n".encode())
+        rows = self.root / "legacy-rows.jsonl"
+        rows.write_text(json.dumps(
+            {"program_id": program.program_id, "replacement_text": "0", "original_text": "x"},
+        ) + "\n")
+        out = self.root / "legacy-run"
+        code, _, stderr = run_script(
+            "verify", "--catalog", str(catalog.directory), "--denylist", str(text),
+            "--proposals", str(rows), "--out", str(out), "--timeout", "5",
+        )
+        self.assertEqual(code, 0, stderr)
+        summary = json.loads((out / cv.SUMMARY_FILENAME).read_text())
+        self.assertEqual(summary["verdicts"][cv.VERDICT_DENYLISTED], 1)
+        self.assertEqual(summary["inputs"]["denylist"]["sha256"], denylist.load_denylist(text).sha256)
+        self.assertNotEqual(summary["inputs"]["denylist"]["sha256"], denylist.load_denylist(None).sha256)
+
+    def _vendored_refusal(self, path: Path, code_name: str) -> None:
+        out = self.root / f"vendored-{path.name}"
+        with mock.patch.object(denylist, "VENDORED_DENYLIST", path):
+            code, _, stderr = run_script(
+                "procedural", "--catalog", str(FIXTURE), "--seed", "5", "--count", "1",
+                "--out", str(out),
+            )
+        self.assertEqual(code, 2)
+        self.assertIn(f"refused: {code_name}", stderr)
+        self.assertFalse(out.exists())
+
+    def test_a_missing_vendored_denylist_exits_two_and_writes_nothing(self):
+        self._vendored_refusal(self.root / "absent-vendored.json", cv.REFUSE_DENYLIST_MISSING)
+
+    def test_a_malformed_vendored_denylist_exits_two_and_writes_nothing(self):
+        bad = self.root / "bad-vendored.txt"
+        bad.write_bytes(b"")
+        self._vendored_refusal(bad, cv.REFUSE_DENYLIST_MALFORMED)
 
 
 # Literal module names only: each loader imports exactly one fixed package path.
