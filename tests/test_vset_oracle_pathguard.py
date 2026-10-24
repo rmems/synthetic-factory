@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess  # nosec B404
 import sys
 import tempfile
@@ -64,14 +65,56 @@ _PLANT_RUNNER = (
 )
 
 
+_PLANT_PACKAGE = textwrap.dedent(
+    """\
+    import os
+    env = open("/proc/%s/environ" % os.getppid(), "rb").read().split(b"\\0")
+    root = [item[4:].decode() for item in env if item.startswith(b"PWD=")][0]
+    folder = os.path.join(root, "pipelines", "statistics")
+    os.makedirs(folder, exist_ok=True)
+    handle = open(os.path.join(folder, "__init__.py"), "w")
+    handle.write("import unittest\\n")
+    handle.write("unittest.TestCase.assertEqual = lambda *a, **k: None\\n")
+    handle.close()
+    def add(a, b):
+        return 0
+    def total(a, b):
+        return a + b
+    """
+)
+
+
 def _clear_plant() -> None:
-    plant = PIPELINES / "statistics.py"
-    plant.unlink(missing_ok=True)
+    (PIPELINES / "statistics.py").unlink(missing_ok=True)
+    package = PIPELINES / "statistics"
+    (package / "__init__.py").unlink(missing_ok=True)
+    cache = package / "__pycache__"
+    if cache.is_dir():
+        for path in cache.glob("*.pyc"):
+            path.unlink(missing_ok=True)
+        cache.rmdir()
+    if package.is_dir():
+        package.rmdir()
     cache = PIPELINES / "__pycache__"
     if not cache.is_dir():
         return
     for path in cache.glob("statistics*.pyc"):
         path.unlink(missing_ok=True)
+
+
+def _grade_plant(source: str) -> dict[str, object]:
+    # Fresh interpreter, fixed argv, no shell. A miss must not share this process.
+    proc = subprocess.run(  # nosec B603  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit.dangerous-subprocess-use-audit
+        [sys.executable, "-c", _PLANT_RUNNER, str(_TESTS), str(PIPELINES), source, _PLANT_TESTS],
+        cwd=PIPELINES.parent,
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=False,
+    )
+    if proc.returncode != 0:
+        raise AssertionError(proc.stderr)
+    return json.loads(proc.stdout.strip().splitlines()[-1])
 
 
 class PathGuardTests(unittest.TestCase):
@@ -90,6 +133,7 @@ class PathGuardTests(unittest.TestCase):
                 self.assertFalse(pathguard._changed(kept, seen))
                 (cache / "kept.cpython-314.pyc").write_bytes(b"pyc")
                 self.assertIsNotNone(pathguard._root_of(cache / "kept.cpython-314.pyc"))
+                self.assertIsNone(pathguard._root_of(Path("/no/such/place.py")))
                 self.assertEqual(pathguard.drift(seen), "")
                 self.assertIsNone(pathguard._py_for_pyc(cache / "kept.py"))
                 self.assertIsNone(pathguard.PathGuard(seen).find_spec("kept"))
@@ -117,8 +161,14 @@ class PathGuardTests(unittest.TestCase):
         with mock.patch.object(Path, "stat", side_effect=OSError):
             self.assertIsNone(pathguard._stamp(Path.cwd()))
         with mock.patch.object(Path, "iterdir", side_effect=OSError):
-            pathguard._files(Path.cwd(), [])
-            pathguard._cache(Path.cwd(), [])
+            pathguard._files(Path.cwd(), [], set())
+        with mock.patch.object(Path, "stat", side_effect=OSError):
+            pathguard._files(Path.cwd(), [], set())
+        with tempfile.TemporaryDirectory() as tmp:
+            unread = Path(tmp) / "kept.py"
+            unread.write_text("x = 1\n", encoding="utf-8")
+            with mock.patch.object(Path, "read_bytes", side_effect=OSError):
+                self.assertIsNone(pathguard._stamp(unread))
         with tempfile.TemporaryDirectory() as tmp:
             source = Path(tmp) / "kept.py"
             source.write_text("x = 1\n", encoding="utf-8")
@@ -128,6 +178,7 @@ class PathGuardTests(unittest.TestCase):
                 self.assertFalse(pathguard._same_source(cached, {}))
                 self.assertIsNone(pathguard._root_of(source))
                 self.assertIsNone(pathguard._origin_path(str(source)))
+                self.assertFalse(pathguard._changed(source, {}))
         spec = mock.Mock()
         spec.origin = None
         finder = "vset_oracle_pathguard.importlib.machinery.PathFinder.find_spec"
@@ -151,18 +202,62 @@ class PathGuardTests(unittest.TestCase):
     def test_planted_import_path_cannot_force_a_pass(self) -> None:
         _clear_plant()
         try:
-            proc = subprocess.run(  # nosec B603
-                [sys.executable, "-c", _PLANT_RUNNER, str(_TESTS), str(PIPELINES), _PLANT_SOURCE, _PLANT_TESTS],
-                cwd=PIPELINES.parent,
-                capture_output=True,
-                text=True,
-                timeout=60,
-                check=False,
-            )
-            self.assertEqual(proc.returncode, 0, proc.stderr)
-            payload = json.loads(proc.stdout.strip().splitlines()[-1])
+            payload = _grade_plant(_PLANT_SOURCE)
             self.assertFalse(payload["ok"], payload)
             self.assertNotEqual(payload["statuses"]["test_wrong"], "ok")
             self.assertEqual(payload["assert"], "assertEqual")
         finally:
             _clear_plant()
+
+    def test_planted_package_cannot_force_a_pass(self) -> None:
+        _clear_plant()
+        try:
+            payload = _grade_plant(_PLANT_PACKAGE)
+            self.assertFalse(payload["ok"], payload)
+            self.assertNotEqual(payload["statuses"]["test_wrong"], "ok")
+            self.assertEqual(payload["assert"], "assertEqual")
+        finally:
+            _clear_plant()
+
+    def test_same_length_rewrite_restoring_mtime_is_refused(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            helper = root / "helper.py"
+            helper.write_text("value = 1\n", encoding="utf-8")
+            file_info = helper.stat()
+            dir_info = root.stat()
+            sys.path.insert(0, tmp)
+            try:
+                seen = pathguard.snapshot()
+                helper.write_text("value = 2\n", encoding="utf-8")
+                os.utime(helper, ns=(file_info.st_atime_ns, file_info.st_mtime_ns))
+                os.utime(root, ns=(dir_info.st_atime_ns, dir_info.st_mtime_ns))
+                rewritten = helper.stat()
+                self.assertEqual(rewritten.st_size, file_info.st_size)
+                self.assertEqual(rewritten.st_mtime_ns, file_info.st_mtime_ns)
+                self.assertNotEqual(pathguard.drift(seen), "")
+                with self.assertRaises(ImportError):
+                    pathguard.PathGuard(seen).find_spec("helper")
+            finally:
+                sys.path.remove(tmp)
+
+    def test_nested_package_plant_is_refused(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            package = root / "heldpkg"
+            package.mkdir()
+            init = package / "__init__.py"
+            init.write_text("marker = 1\n", encoding="utf-8")
+            (root / "loop").symlink_to(root, target_is_directory=True)
+            (root / "broken").symlink_to(root / "missing-target")
+            sys.path.insert(0, tmp)
+            try:
+                seen = pathguard.snapshot()
+                self.assertEqual(pathguard.drift(seen), "")
+                self.assertIsNotNone(pathguard._root_of(init))
+                (package / "extra.py").write_text("marker = 2\n", encoding="utf-8")
+                self.assertIn("extra.py", pathguard.drift(seen))
+                with self.assertRaises(ImportError):
+                    pathguard.PathGuard(seen).find_spec("heldpkg.extra", [str(package)])
+            finally:
+                sys.path.remove(tmp)
