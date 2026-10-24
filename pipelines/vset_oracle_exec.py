@@ -4,14 +4,16 @@ The worktree under test is a temporary copy: candidate patches may write
 anything except declared oracle test files, and every declared suite file
 is recopied from the pristine pack before it is loaded, so candidate code
 can never rewrite the evidence that judges it.
+
+Reference and hidden tests run in this process. Candidate modules are
+not imported here: a child loads ``src/`` and answers calls. ``ok`` is
+this process's unittest result, and only when every id counted from the
+restored suite files ran and passed.
 """
 
 from __future__ import annotations
 
-import contextlib
 import importlib.util
-import io
-import os
 import shutil
 import sys
 import tempfile
@@ -31,6 +33,18 @@ if __package__:  # pragma: no cover - package-child import path
         _sha256_text,
         pack_snapshot_hash,
 )
+    from .vset_oracle_grade import grade_suite as _grade_suite
+    from . import vset_oracle_pathguard as pathguard
+    from .vset_oracle_ids import declared_ids_from_text as _declared_ids_from_text
+    from .vset_oracle_layout import (
+        clear_pack as _clear_pack,
+        drop_added_src as _drop_added_src,
+        freeze_pack as _freeze_pack,
+        frozen_folder as _frozen_folder,
+        frozen_text as _frozen_text,
+        restore_suite_dir as _restore_suite_dir,
+        src_names as _src_names,
+    )
     from .vset_patch import apply_patch, escapes_work, illegal_work_relative
 else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
@@ -44,39 +58,22 @@ else:
         _sha256_text,
         pack_snapshot_hash,
 )
+    from vset_oracle_grade import grade_suite as _grade_suite
+    import vset_oracle_pathguard as pathguard
+    from vset_oracle_ids import declared_ids_from_text as _declared_ids_from_text
+    from vset_oracle_layout import (
+        clear_pack as _clear_pack,
+        drop_added_src as _drop_added_src,
+        freeze_pack as _freeze_pack,
+        frozen_folder as _frozen_folder,
+        frozen_text as _frozen_text,
+        restore_suite_dir as _restore_suite_dir,
+        src_names as _src_names,
+    )
     from vset_patch import apply_patch, escapes_work, illegal_work_relative
 
-_CAPTURE_LIMIT = 4000
-
-
-class _OracleResult(unittest.TestResult):
-    def __init__(self) -> None:
-        super().__init__()
-        self.rows: list[dict[str, str]] = []
-
-    def addSuccess(self, test: unittest.TestCase) -> None:
-        super().addSuccess(test)
-        self.rows.append({"id": test.id(), "status": "ok"})
-
-    def addFailure(self, test: unittest.TestCase, err: Any) -> None:
-        super().addFailure(test, err)
-        self.rows.append({"id": test.id(), "status": "FAIL"})
-
-    def addError(self, test: unittest.TestCase, err: Any) -> None:
-        super().addError(test, err)
-        self.rows.append({"id": test.id(), "status": "ERROR"})
-
-    def addSkip(self, test: unittest.TestCase, reason: str) -> None:
-        super().addSkip(test, reason)
-        self.rows.append({"id": test.id(), "status": "SKIP"})
-
-    def addExpectedFailure(self, test: unittest.TestCase, err: Any) -> None:
-        super().addExpectedFailure(test, err)
-        self.rows.append({"id": test.id(), "status": "expectedFailure"})
-
-    def addUnexpectedSuccess(self, test: unittest.TestCase) -> None:
-        super().addUnexpectedSuccess(test)
-        self.rows.append({"id": test.id(), "status": "unexpectedSuccess"})
+def _oracle_module_name(relative: str) -> str:
+    return "vset_oracle_" + relative.replace("/", "_").removesuffix(".py")
 
 
 def _resolve_under_work(work: Path, relative: str, *, code: str) -> Path:
@@ -116,16 +113,18 @@ def load_tests(
     return _load_suite(path, relative)
 
 
-def _load_suite(path: Path, relative: str) -> unittest.TestSuite:
-    module_name = "vset_oracle_" + relative.replace("/", "_").removesuffix(".py")
+def _module_spec(path: Path, module_name: str, relative: str):
     spec = importlib.util.spec_from_file_location(module_name, path)
     if spec is None or spec.loader is None:
         raise VSetValidationError(ERR_ORACLE_EXECUTION_MISMATCH, f"cannot load {relative}")
     module = importlib.util.module_from_spec(spec)
     sys.modules[module_name] = module
+    return spec, module
+
+
+def _exec_loaded(spec, module, relative: str) -> None:
     try:
         spec.loader.exec_module(module)
-        return unittest.defaultTestLoader.loadTestsFromModule(module)
     except VSetValidationError:
         raise
     except Exception as exc:
@@ -135,117 +134,97 @@ def _load_suite(path: Path, relative: str) -> unittest.TestSuite:
         ) from exc
 
 
-def _restore_sys_modules(snapshot: dict[str, Any]) -> None:
-    for name in list(sys.modules):
-        if name not in snapshot:
-            del sys.modules[name]
-    for name, module in snapshot.items():
-        sys.modules[name] = module
+def _load_suite(path: Path, relative: str) -> unittest.TestSuite:
+    module_name = "vset_oracle_" + relative.replace("/", "_").removesuffix(".py")
+    spec, module = _module_spec(path, module_name, relative)
+    _exec_loaded(spec, module, relative)
+    return unittest.defaultTestLoader.loadTestsFromModule(module)
 
 
-def _suite_ok(result: _OracleResult) -> bool:
-    """A passing suite is evidence only if every declared test ran clean.
-
-    Skips, expected failures, and unexpected successes are not oracle
-    evidence: an empty or dodged suite can never certify a record.
-    """
-
-    if not result.wasSuccessful():
-        return False
-    if result.expectedFailures or result.unexpectedSuccesses:
-        return False
-    return bool(result.rows) and all(row["status"] == "ok" for row in result.rows)
-
-
-def _drop_preloaded_pack_modules(work: Path) -> None:
-    """Drop cached modules that would shadow the pack's ``src/`` tree."""
-
-    src = work / "src"
-    if not src.is_dir():
-        return
-    names = {path.stem for path in src.glob("*.py")}
-    names |= {path.name for path in src.iterdir() if path.is_dir()}
-    for name in names:
-        sys.modules.pop(name, None)
-
-
-def _push_pack_path(work: Path) -> list[str]:
-    """Expose ``src/`` only.
-
-    A root-level module of the same name as a package under ``src/`` must
-    not shadow the hashed application code. The worktree is the process
-    cwd, so relative file reads still resolve there.
-    """
-
-    inserted: list[str] = []
-    entry = str(work / "src")
-    if entry not in sys.path:
-        sys.path.insert(0, entry)
-        inserted.append(entry)
-    return inserted
-
-
-def _pop_pack_path(inserted: list[str]) -> None:
-    for entry in inserted:
-        if entry in sys.path:
-            sys.path.remove(entry)
-
-
-def _execute_suite(work: Path, pack_dir: Path, relatives: Iterable[str]) -> _OracleResult:
-    suite = unittest.TestSuite()
-    for relative in relatives:
-        suite.addTests(load_tests(work, pack_dir, relative))
-    result = _OracleResult()
-    cwd = os.getcwd()
+def _prepare_module(work: Path, pack_dir: Path, relative: str) -> tuple[dict[str, str], list[str]]:
+    _restore_suite_dir(pack_dir, work, relative)
+    _restore_oracle_file(pack_dir, work, relative)
+    module_name = _oracle_module_name(relative)
     try:
-        os.chdir(work)
-        suite.run(result)
-    finally:
-        os.chdir(cwd)
-    return result
-
-
-def _suite_report(result: _OracleResult, captured: str = "") -> dict[str, Any]:
-    rows = sorted(result.rows, key=lambda item: item["id"])
-    report = {
-        "tests": rows,
-        "failures": len(result.failures),
-        "errors": len(result.errors),
-        "ok": _suite_ok(result),
+        source = _frozen_text(relative)
+    except KeyError:
+        raise VSetValidationError(
+            ERR_ORACLE_EXECUTION_MISMATCH, f"missing test module {relative}"
+        ) from None
+    try:
+        expected = _declared_ids_from_text(source, relative, module_name)
+    except (OSError, SyntaxError, UnicodeDecodeError) as exc:
+        raise VSetValidationError(
+            ERR_ORACLE_EXECUTION_MISMATCH,
+            f"test module {relative} failed to load: {exc}",
+        ) from exc
+    spec = {
+        "path": str(pack_dir / relative),
+        "module": module_name,
+        "relative": relative,
+        "source": source,
+        "folder": Path(relative).parent.as_posix(),
     }
-    report["result_hash"] = _sha256_text(_canonical_json(report["tests"]))
-    if captured.strip():
-        report["captured_output"] = captured[-_CAPTURE_LIMIT:]
-    return report
+    return spec, expected
 
 
-def _run_modules(
-    work: Path, pack_dir: Path, relatives: Iterable[str]
-) -> dict[str, Any]:
-    snapshot = sys.modules.copy()
-    _drop_preloaded_pack_modules(work)
-    inserted = _push_pack_path(work)
-    captured = io.StringIO()
+def _run_modules(work: Path, pack_dir: Path, relatives: Iterable[str]) -> dict[str, Any]:
+    """Grade every declared test id in its own child interpreter."""
+
+    modules: list[dict[str, str]] = []
+    expected: list[str] = []
+    sources: dict[str, dict[str, str]] = {}
+    for relative in relatives:
+        spec, ids = _prepare_module(work, pack_dir, relative)
+        folder = spec["folder"]
+        if folder not in sources:
+            sources[folder] = _frozen_folder(folder)
+        modules.append(spec)
+        expected.extend(ids)
+    routed = _src_names(pack_dir)
+    present = _src_names(work)
     try:
-        with contextlib.redirect_stdout(captured), contextlib.redirect_stderr(captured):
-            result = _execute_suite(work, pack_dir, relatives)
+        return _grade_suite(work, modules, expected, (sources, routed))
     finally:
-        _pop_pack_path(inserted)
-        _restore_sys_modules(snapshot)
-    return _suite_report(result, captured.getvalue())
+        _drop_added_src(work, present)
+
+
+def _cached_bytecode(names: list[str]) -> set[str]:
+    cached = {name for name in names if name == "__pycache__"}
+    cached.update(name for name in names if name.endswith((".pyc", ".pyo")))
+    return cached
+
+
+def _root_task_dir(directory: str, names: list[str], root: Path) -> set[str]:
+    # Only the root task-manifest directory is oracle bookkeeping; an
+    # application package named ``tasks`` under src/ stays executable.
+    if Path(directory) != root:
+        return set()
+    if "tasks" not in names:
+        return set()
+    return {"tasks"}
 
 
 def _ignore_pack_member(directory: str, names: list[str], root: Path) -> set[str]:
-    ignored = {
-        name
-        for name in names
-        if name == "__pycache__" or name.endswith((".pyc", ".pyo"))
+    return _cached_bytecode(names) | _root_task_dir(directory, names, root)
+
+
+def _stage_label(index: int, pre_state: Any) -> str:
+    if pre_state is None:
+        return "pristine"
+    return f"pre_patch_{index}"
+
+
+def _one_fail_stage(work: Path, pack_dir: Path, job: tuple[Any, ...]) -> dict[str, Any]:
+    hidden_list, protected, index, pre_state = job
+    if pre_state is not None:
+        apply_patch(work, pre_state, protected=protected)
+    stage = _run_modules(work, pack_dir, hidden_list)
+    return {
+        "stage": _stage_label(index, pre_state),
+        "ok": stage["ok"],
+        "result_hash": stage["result_hash"],
     }
-    # Only the root task-manifest directory is oracle bookkeeping; an
-    # application package named ``tasks`` under src/ stays executable.
-    if Path(directory) == root and "tasks" in names:
-        ignored.add("tasks")
-    return ignored
 
 
 def _fail_first_reports(
@@ -255,19 +234,49 @@ def _fail_first_reports(
     protected: list[str],
 ) -> list[dict[str, Any]]:
     hidden_list = list(plan.get("tests") or ())
-    stages: list[dict[str, Any]] = []
-    for index, pre_state in enumerate(plan.get("fail_first") or ()):
-        if pre_state is not None:
-            apply_patch(work, pre_state, protected=protected)
-        stage = _run_modules(work, pack_dir, hidden_list)
-        stages.append(
-            {
-                "stage": "pristine" if pre_state is None else f"pre_patch_{index}",
-                "ok": stage["ok"],
-                "result_hash": stage["result_hash"],
-            }
+    jobs = (
+        (hidden_list, protected, index, pre_state)
+        for index, pre_state in enumerate(plan.get("fail_first") or ())
+    )
+    return [_one_fail_stage(work, pack_dir, job) for job in jobs]
+
+
+def _copy_pack(pack_dir: Path, work: Path) -> None:
+    try:
+        shutil.copytree(
+            pack_dir,
+            work,
+            ignore=lambda directory, names: _ignore_pack_member(directory, names, pack_dir),
         )
-    return stages
+    except OSError as exc:
+        raise VSetValidationError(
+            ERR_ORACLE_EXECUTION_MISMATCH, f"cannot stage pack worktree: {exc}"
+        ) from exc
+
+
+def _hidden_report(work: Path, pack_dir: Path, hidden_list: list[str]):
+    if not hidden_list:
+        return None
+    return _run_modules(work, pack_dir, hidden_list)
+
+
+def _oracle_report(
+    work: Path, pack_dir: Path, job: Mapping[str, Any]
+) -> dict[str, Any]:
+    protected = job["protected"]
+    patch = job["patch"]
+    stages = _fail_first_reports(work, pack_dir, job["plan"], protected)
+    if patch is not None:
+        apply_patch(work, patch, protected=protected)
+    reference = _run_modules(work, pack_dir, job["reference"])
+    hidden = _hidden_report(work, pack_dir, job["hidden"])
+    return {
+        "pack_snapshot_hash": pack_snapshot_hash(pack_dir),
+        "reference": reference,
+        "hidden": hidden,
+        "fail_first": stages,
+        "hidden_suite_requires_valid_oracle": True,
+    }
 
 
 def run_oracle(
@@ -290,34 +299,41 @@ def run_oracle(
     pack_dir = Path(pack_dir)
     if not pack_dir.is_dir():
         raise VSetValidationError(ERR_ORACLE_EXECUTION_MISMATCH, f"not a pack directory: {pack_dir}")
+    _freeze_pack(pack_dir)
     plan = _mapping_or_empty(hidden_suite)
     reference_list = list(reference_tests)
     hidden_list = list(plan.get("tests") or ())
     protected = list(reference_list) + list(hidden_list)
-    with tempfile.TemporaryDirectory(prefix="vset-oracle-") as tmp:
-        work = Path(tmp) / "pack"
-        try:
-            shutil.copytree(
-                pack_dir,
+    previous = None
+    try:
+        with tempfile.TemporaryDirectory(prefix="vset-oracle-") as tmp:
+            work = Path(tmp) / "pack"
+            _copy_pack(pack_dir, work)
+            seen = pathguard.snapshot()
+            previous = pathguard.bind_baseline(seen)
+            report = _oracle_report(
                 work,
-                ignore=lambda directory, names: _ignore_pack_member(directory, names, pack_dir),
+                pack_dir,
+                {
+                    "patch": patch,
+                    "plan": plan,
+                    "reference": reference_list,
+                    "hidden": hidden_list,
+                    "protected": protected,
+                },
             )
-        except OSError as exc:
-            raise VSetValidationError(
-                ERR_ORACLE_EXECUTION_MISMATCH, f"cannot stage pack worktree: {exc}"
-            ) from exc
-        stages = _fail_first_reports(work, pack_dir, plan, protected)
-        if patch is not None:
-            apply_patch(work, patch, protected=protected)
-        reference = _run_modules(work, pack_dir, reference_list)
-        hidden = _run_modules(work, pack_dir, hidden_list) if hidden_list else None
-        return {
-            "pack_snapshot_hash": pack_snapshot_hash(pack_dir),
-            "reference": reference,
-            "hidden": hidden,
-            "fail_first": stages,
-            "hidden_suite_requires_valid_oracle": True,
-        }
+            _reject_import_drift(seen)
+            return report
+    finally:
+        pathguard.restore_baseline(previous)
+        _clear_pack()
+
+
+def _reject_import_drift(seen: dict[str, tuple[int, int, str]]) -> None:
+    if pathguard.drift(seen):
+        raise VSetValidationError(
+            ERR_ORACLE_EXECUTION_MISMATCH, "oracle import path changed"
+        )
 
 
 def execution_result_hash(execution: Mapping[str, Any]) -> str:
