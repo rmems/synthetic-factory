@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib.util
 import shutil
 import sys
 from pathlib import Path
@@ -96,6 +97,53 @@ def frozen_folder(folder: str) -> dict[str, str]:
             continue
         found[name] = text
     return found
+
+
+def routed_names(pack_dir: Path, work: Path) -> frozenset[str]:
+    """Pack modules, plus patch-added names the parent cannot already import."""
+
+    original = src_names(pack_dir)
+    added = src_names(work) - original
+    return original | _added_application_modules(added, work)
+
+
+def _added_application_modules(names: frozenset[str], work: Path) -> frozenset[str]:
+    kept: set[str] = set()
+    for name in names:
+        if _parent_module(name, work):
+            continue
+        kept.add(name)
+    return frozenset(kept)
+
+
+def _parent_module(name: str, work: Path) -> bool:
+    if name in sys.stdlib_module_names:
+        return True
+    spec = importlib.util.find_spec(name)
+    if spec is None:
+        return False
+    return _spec_is_outside(spec.origin, work)
+
+
+def _spec_is_outside(origin: object, work: Path) -> bool:
+    located = _origin_path(origin)
+    if located is None:
+        return True
+    return _outside_root(located, work.resolve())
+
+
+def _origin_path(origin: object) -> Path | None:
+    if not isinstance(origin, str):
+        return None
+    if origin in {"built-in", "frozen"}:
+        return None
+    return Path(origin).resolve()
+
+
+def _outside_root(located: Path, root: Path) -> bool:
+    if located == root:
+        return False
+    return root not in located.parents
 
 
 def src_names(pack_dir: Path) -> frozenset[str]:

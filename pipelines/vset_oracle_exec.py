@@ -43,6 +43,7 @@ if __package__:  # pragma: no cover - package-child import path
         frozen_folder as _frozen_folder,
         frozen_text as _frozen_text,
         restore_suite_dir as _restore_suite_dir,
+        routed_names as _routed_names,
         src_names as _src_names,
     )
     from .vset_patch import apply_patch, escapes_work, illegal_work_relative
@@ -68,6 +69,7 @@ else:
         frozen_folder as _frozen_folder,
         frozen_text as _frozen_text,
         restore_suite_dir as _restore_suite_dir,
+        routed_names as _routed_names,
         src_names as _src_names,
     )
     from vset_patch import apply_patch, escapes_work, illegal_work_relative
@@ -181,7 +183,7 @@ def _run_modules(work: Path, pack_dir: Path, relatives: Iterable[str]) -> dict[s
             sources[folder] = _frozen_folder(folder)
         modules.append(spec)
         expected.extend(ids)
-    routed = _src_names(pack_dir)
+    routed = _routed_names(pack_dir, work)
     present = _src_names(work)
     try:
         return _grade_suite(work, modules, expected, (sources, routed))
