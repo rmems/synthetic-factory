@@ -308,13 +308,7 @@ def _record_identity_matches(record: dict[str, Any], catalog: cat.Catalog) -> bo
     generator = record["generator"]
     seed, index = generator["seed"], record["intervention"]["draw_index"]
     catalog_digest = cat.sha256_text(oc.canonical_json([catalog.catalog_id, catalog.programs_sha256]))
-    version = generator.get("version") if isinstance(generator, dict) else None
-    if (
-        not isinstance(generator, dict)
-        or generator.get("name") != cv.GENERATOR_NAME
-        or not isinstance(version, str)
-        or version not in cv.REPLAYABLE_GENERATOR_VERSIONS
-    ):
+    if not _replayable_version(generator):
         return False
     if not _draw_identity_valid(seed, index):
         return False
@@ -354,15 +348,21 @@ def _check_request(request: ReplayRequest) -> None:
     ))
 
 
+def _replayable_version(generator: Any) -> bool:
+    if not isinstance(generator, dict):
+        return False
+    version = generator.get("version")
+    if not isinstance(version, str):
+        return False
+    if generator.get("name") != cv.GENERATOR_NAME:
+        return False
+    return version in cv.REPLAYABLE_GENERATOR_VERSIONS
+
+
 def _replayable_run_generator(generator: Any) -> bool:
-    version = generator.get("version") if isinstance(generator, dict) else None
-    return (
-        isinstance(generator, dict)
-        and set(generator) == {"name", "version"}
-        and generator.get("name") == cv.GENERATOR_NAME
-        and isinstance(version, str)
-        and version in cv.REPLAYABLE_GENERATOR_VERSIONS
-    )
+    if not _replayable_version(generator):
+        return False
+    return set(generator) == {"name", "version"}
 
 
 def _run_identity(run_dir: Path) -> dict[str, Any]:
