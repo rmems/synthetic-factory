@@ -93,7 +93,9 @@ def validate_record(
     errors.extend(_registry_flag_errors(record, require_registry_sha))
     if kind is not None:
         errors.extend(payload_errors(kind, record.get("payload")))
-    errors.extend(_training_view_errors(record.get("training_view"), pack_dir))
+    errors.extend(
+        _training_view_errors(record.get("training_view"), pack_dir, record.get("oracle"))
+    )
     errors.extend(_trace_errors(record))
     errors.extend(_content_hash_errors(record))
     return errors

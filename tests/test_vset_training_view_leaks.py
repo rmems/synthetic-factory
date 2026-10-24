@@ -10,7 +10,9 @@ from __future__ import annotations
 
 import copy
 import hashlib
+import shutil
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -157,6 +159,38 @@ class HiddenSuiteLeakForges(unittest.TestCase):
             with self.subTest(variant=name):
                 errors, _execution = vset.validate_record_with_oracle(_record(extra), PACK)
                 self.assertTrue(errors, f"{name}: oracle accepted hidden-suite leak")
+
+    def test_declared_private_suite_name_is_refused(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            pack = Path(tmp) / "pack"
+            shutil.copytree(PACK, pack)
+            private = pack / "tests" / "private_sub.py"
+            (pack / "tests" / "hidden_sub.py").rename(private)
+            text = private.read_text(encoding="utf-8")
+            declared = _record({"decision_basis": text})
+            declared["oracle"]["hidden_tests"] = ["tests/private_sub.py"]
+            self.assertTrue(vset.validate_record(declared, pack_dir=pack))
+            undeclared = _record({"decision_basis": text})
+            undeclared["oracle"]["hidden_tests"] = []
+            self.assertEqual(vset.validate_record(undeclared, pack_dir=pack), [])
+
+    def test_hidden_filename_is_refused_when_oracle_lists_nothing(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            pack = Path(tmp) / "pack"
+            shutil.copytree(PACK, pack)
+            text = (pack / "tests" / "hidden_none.py").read_text(encoding="utf-8")
+            record = _record({"decision_basis": text})
+            record["oracle"]["hidden_tests"] = []
+            self.assertTrue(vset.validate_record(record, pack_dir=pack))
+
+    def test_escaped_hidden_test_path_is_not_read(self) -> None:
+        record = _record()
+        record["oracle"]["hidden_tests"] = ["../../etc/passwd"]
+        errors, execution = vset.validate_record_with_oracle(record, PACK)
+        codes = [item.code for item in errors]
+        self.assertIsNone(execution)
+        self.assertIn("vset.oracle_execution_mismatch", codes)
+        self.assertNotIn("vset.hidden_reasoning_in_training_view", codes)
 
 
 if __name__ == "__main__":

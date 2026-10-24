@@ -1,19 +1,17 @@
 """Training-view leak check for VSET records.
 
 Keys are folded so renamed hidden-suite fields match. A string leaks only
-when it matches a pack file ``tests/hidden_*.py``: the sha256 of those
-bytes, the file text, or a line that appears in that file and not in the
-pack's visible tests. Ordinary ``def test_`` code is not a marker.
+when it matches hidden-suite content: each ``tests/hidden_*.py`` file, and
+each Python file the record lists in ``oracle.hidden_tests``. The match is
+the sha256 of those bytes, the file text, or a named line (``def test_``
+or ``class ``) that the pack's other tests do not share. Ordinary
+``def test_`` code is not a marker.
 """
 
 from __future__ import annotations
 
 import hashlib
-import io
-import re
 import sys
-import tokenize
-import unicodedata
 from pathlib import Path
 from typing import Any
 
@@ -22,97 +20,36 @@ if __package__:  # pragma: no cover - package-child import path
 
     _assert_direct_sibling("vset_training_view")
     from .curate_coding import contains_hidden_reasoning_key
-    from .vset_constants import (
-        ERR_PAYLOAD_INVALID,
-        VSetValidationError,
-        normalize_identity,
+    from .vset_constants import VSetValidationError
+    from .vset_training_view_fold import TRAINING_VIEW_LEAKS, training_view_key
+    from .vset_training_view_source import (
+        append_source_snippets,
+        file_digest,
+        normalize_newlines,
+        suite_text,
+        visible_lines,
     )
 else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
         "vset_training_view"
     )
     from curate_coding import contains_hidden_reasoning_key
-    from vset_constants import (
-        ERR_PAYLOAD_INVALID,
-        VSetValidationError,
-        normalize_identity,
+    from vset_constants import VSetValidationError
+    from vset_training_view_fold import TRAINING_VIEW_LEAKS, training_view_key
+    from vset_training_view_source import (
+        append_source_snippets,
+        file_digest,
+        normalize_newlines,
+        suite_text,
+        visible_lines,
     )
 
-
-_TRAINING_VIEW_LEAKS = frozenset(
-    {
-        "hidden_tests",
-        "hidden_suite",
-        "reference_tests",
-        "reference_suite",
-        "private_tests",
-        "oracle_suite",
-        "grading_tests",
-        "tests_source",
-        "oracle",
-        "payload",
-        "patch",
-        "solver",
-        "solver_run_id",
-    }
-)
-
-# The whole hidden file must be at least this long before it is a substring.
-# A shorter file is identified by its sha256 only.
-_MIN_HIDDEN_SNIPPET = 64
-# Lines shorter than this are shared boilerplate (``import unittest``).
-_MIN_DISTINCTIVE_LINE = 24
 
 _EMPTY_DIGESTS: frozenset[str] = frozenset()
 _LEAK_MESSAGE = "training_view must not carry hidden suites, oracle, payload, patch, or solver"
 
 
-def _boundary_before(previous: str, char: str, following: str) -> bool:
-    """A camel boundary, including non-ASCII capitals such as Cyrillic ``Т``."""
-
-    if not previous or not char.isupper():
-        return False
-    if previous.islower():
-        return True
-    if previous.isdigit():
-        return True
-    if not previous.isupper():
-        return False
-    return following.islower()
-
-
-def _split_camel_boundaries(text: str) -> str:
-    chars: list[str] = []
-    for index, char in enumerate(text):
-        previous = text[index - 1] if index else ""
-        following = text[index + 1] if index + 1 < len(text) else ""
-        if _boundary_before(previous, char, following):
-            chars.append("_")
-        chars.append(char)
-    return "".join(chars)
-
-
-def _training_view_key(key: Any) -> str:
-    """Fold case, separators, camel-case, and lookalikes so keys match.
-
-    Width variants are normalized before the camel split, so a fullwidth
-    ``Ｔ`` becomes ``T``. The split uses ``str.isupper`` so a Cyrillic
-    capital also starts a word. Separators become underscores before the
-    identity fold, which deletes whitespace rather than keeping it.
-    """
-
-    text = unicodedata.normalize("NFKC", str(key))
-    split = _split_camel_boundaries(text)
-    separated = re.sub(r"[^\w]+", "_", split, flags=re.UNICODE)
-    folded = normalize_identity(separated)
-    return re.sub(r"[^a-z0-9]+", "_", folded).strip("_")
-
-
-def _normalize_newlines(value: str) -> str:
-    return value.replace("\r\n", "\n").replace("\r", "\n")
-
-
-def _is_hidden_suite_path(path: Path) -> bool:
+def _is_hidden_filename(path: Path) -> bool:
     if not path.is_file():
         return False
     if not path.name.startswith("hidden_"):
@@ -120,119 +57,101 @@ def _is_hidden_suite_path(path: Path) -> bool:
     return path.suffix == ".py"
 
 
-def _is_visible_test_path(path: Path) -> bool:
-    if not path.is_file():
-        return False
-    if path.suffix != ".py":
-        return False
-    return not path.name.startswith("hidden_")
-
-
-def _tests_directory(pack_dir: Path | None) -> Path | None:
-    if pack_dir is None:
-        return None
-    return Path(pack_dir) / "tests"
-
-
-def _usable_tests_directory(pack_dir: Path | None) -> Path | None:
-    tests = _tests_directory(pack_dir)
-    if tests is None:
-        return None
+def _tests_directory(pack_dir: Path) -> Path | None:
+    tests = pack_dir / "tests"
     if tests.is_dir():
         return tests
     return None
 
 
-def _read_suite_bytes(path: Path) -> bytes:
+def _stays_in_pack(raw: str) -> bool:
+    relative = Path(raw)
+    if not raw.strip():
+        return False
+    if relative.is_absolute():
+        return False
+    return ".." not in relative.parts
+
+
+def _python_inside(pack_dir: Path, raw: str) -> Path | None:
+    root = pack_dir.resolve()
     try:
-        return path.read_bytes()
-    except OSError as exc:
-        raise VSetValidationError(
-            ERR_PAYLOAD_INVALID, f"unreadable hidden suite {path.name}: {exc}"
-        ) from exc
-
-
-def _decode_suite_source(raw: bytes, name: str) -> str:
+        candidate = (pack_dir / raw).resolve()
+    except OSError:
+        return None
     try:
-        encoding = tokenize.detect_encoding(io.BytesIO(raw).readline)[0]
-        return raw.decode(encoding)
-    except (SyntaxError, UnicodeError, LookupError) as exc:
-        raise VSetValidationError(
-            ERR_PAYLOAD_INVALID, f"undecodable hidden suite {name}: {exc}"
-        ) from exc
+        candidate.relative_to(root)
+    except ValueError:
+        return None
+    if candidate.is_file() and candidate.suffix == ".py":
+        return candidate
+    return None
 
 
-def _suite_text(path: Path) -> str:
-    return _normalize_newlines(_decode_suite_source(_read_suite_bytes(path), path.name))
+def _declared_file(pack_dir: Path, raw: Any) -> Path | None:
+    if not isinstance(raw, str) or not _stays_in_pack(raw):
+        return None
+    return _python_inside(pack_dir, raw)
 
 
-def _add_stripped_lines(source: str, lines: set[str]) -> None:
-    for line in source.splitlines():
-        stripped = line.strip()
-        if stripped:
-            lines.add(stripped)
-
-
-def _visible_lines(tests: Path) -> set[str]:
-    lines: set[str] = set()
+def _add_filename_matches(tests: Path | None, found: dict[Path, Path]) -> None:
+    if tests is None:
+        return
     for path in sorted(tests.iterdir()):
-        if _is_visible_test_path(path):
-            _add_stripped_lines(_suite_text(path), lines)
-    return lines
+        if _is_hidden_filename(path):
+            found[path.resolve()] = path
 
 
-def _named_suite_line(text: str) -> bool:
-    """A hidden-suite name, not a shared ``assertRaises`` or docstring line."""
-
-    if "def test_" in text:
-        return True
-    return text.startswith("class ")
-
-
-def _keep_hidden_line(text: str, visible: set[str]) -> bool:
-    if len(text) < _MIN_DISTINCTIVE_LINE:
-        return False
-    if text in visible:
-        return False
-    return _named_suite_line(text)
+def _add_declared(pack_dir: Path, declared: Any, found: dict[Path, Path]) -> None:
+    if not isinstance(declared, list):
+        return
+    for item in declared:
+        path = _declared_file(pack_dir, item)
+        if path is not None:
+            found.setdefault(path.resolve(), path)
 
 
-def _append_source_snippets(source: str, visible: set[str], snippets: list[str]) -> None:
-    stripped = source.strip()
-    if len(stripped) >= _MIN_HIDDEN_SNIPPET:
-        snippets.append(stripped)
-    for line in source.splitlines():
-        text = line.strip()
-        if _keep_hidden_line(text, visible):
-            snippets.append(text)
+def _hidden_paths(pack_dir: Path, declared: Any) -> list[Path]:
+    found: dict[Path, Path] = {}
+    _add_filename_matches(_tests_directory(pack_dir), found)
+    _add_declared(pack_dir, declared, found)
+    return [found[key] for key in sorted(found)]
 
 
-def _append_hidden_file(
-    path: Path,
-    visible: set[str],
-    digests: list[str],
-    snippets: list[str],
-) -> None:
-    raw = _read_suite_bytes(path)
-    digests.append(hashlib.sha256(raw).hexdigest())
-    text = _normalize_newlines(_decode_suite_source(raw, path.name))
-    _append_source_snippets(text, visible, snippets)
+def _other_test_files(tests: Path, hidden: set[Path]) -> list[Path]:
+    others: list[Path] = []
+    for path in sorted(tests.iterdir()):
+        if not path.is_file() or path.suffix != ".py":
+            continue
+        if path.resolve() in hidden:
+            continue
+        others.append(path)
+    return others
+
+
+def _append_hidden(path: Path, visible: set[str], digests: list[str], snippets: list[str]) -> None:
+    digests.append(file_digest(path))
+    text = suite_text(path)
+    append_source_snippets(text, visible, snippets)
 
 
 def _hidden_suite_pins(
     pack_dir: Path | None,
+    declared: Any,
 ) -> tuple[frozenset[str], tuple[str, ...], list[VSetValidationError]]:
-    tests = _usable_tests_directory(pack_dir)
-    if tests is None:
+    if pack_dir is None:
         return _EMPTY_DIGESTS, (), []
+    pack = Path(pack_dir)
+    hidden = _hidden_paths(pack, declared)
+    tests = _tests_directory(pack)
+    hidden_ids = {path.resolve() for path in hidden}
+    visible_paths = _other_test_files(tests, hidden_ids) if tests is not None else []
     digests: list[str] = []
     snippets: list[str] = []
     try:
-        visible = _visible_lines(tests)
-        for path in sorted(tests.iterdir()):
-            if not _is_hidden_suite_path(path):
-                continue
-            _append_hidden_file(path, visible, digests, snippets)
+        visible = visible_lines(visible_paths)
+        for path in hidden:
+            _append_hidden(path, visible, digests, snippets)
     except VSetValidationError as exc:
         return _EMPTY_DIGESTS, (), [exc]
     return frozenset(digests), tuple(snippets), []
@@ -249,12 +168,12 @@ def _text_matches_hidden(
 ) -> bool:
     if _digest_leaks(value, digests):
         return True
-    folded = _normalize_newlines(value)
+    folded = normalize_newlines(value)
     return any(snippet in folded for snippet in snippets)
 
 
 def _key_leaks(key: Any, digests: frozenset[str], snippets: tuple[str, ...]) -> bool:
-    if _training_view_key(key) in _TRAINING_VIEW_LEAKS:
+    if training_view_key(key) in TRAINING_VIEW_LEAKS:
         return True
     return isinstance(key, str) and _text_matches_hidden(key, digests, snippets)
 
@@ -284,8 +203,16 @@ def _leak_error() -> VSetValidationError:
     return VSetValidationError("vset.hidden_reasoning_in_training_view", _LEAK_MESSAGE)
 
 
+def _declared_hidden_tests(oracle: Any) -> Any:
+    if not isinstance(oracle, dict):
+        return None
+    return oracle.get("hidden_tests")
+
+
 def _training_view_errors(
-    training_view: Any, pack_dir: Path | None = None
+    training_view: Any,
+    pack_dir: Path | None = None,
+    oracle: Any = None,
 ) -> list[VSetValidationError]:
     if not isinstance(training_view, dict):
         return [
@@ -294,7 +221,9 @@ def _training_view_errors(
                 "training_view is required and must be an object",
             )
         ]
-    digests, snippets, read_errors = _hidden_suite_pins(pack_dir)
+    digests, snippets, read_errors = _hidden_suite_pins(
+        pack_dir, _declared_hidden_tests(oracle)
+    )
     if read_errors:
         return read_errors
     if contains_hidden_reasoning_key(training_view):
