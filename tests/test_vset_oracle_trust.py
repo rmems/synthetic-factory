@@ -24,6 +24,7 @@ from vset_testutil import (  # noqa: E402
     cli,
     codes as _codes,
     load_record as _load,
+    reference_report,
     vset,
 )
 import vset_oracle_remote as remote  # noqa: E402
@@ -252,15 +253,7 @@ class OracleTrustBoundaryTests(unittest.TestCase):
         self.assertTrue(report["reference"]["ok"], report["reference"])
 
     def _run_reference_files(self, filename: str, files: dict[str, str]):
-        with tempfile.TemporaryDirectory() as tmp:
-            pack = Path(tmp)
-            (pack / "src").mkdir()
-            (pack / "tests").mkdir()
-            for name, text in files.items():
-                target = pack / name
-                target.parent.mkdir(parents=True, exist_ok=True)
-                target.write_text(text, encoding="utf-8")
-            return vset.run_oracle(pack, reference_tests=[f"tests/{filename}"])
+        return reference_report(filename, files)
 
     def test_child_cannot_drop_a_declared_test_and_still_pass(self) -> None:
         with self.assertRaises(vset.VSetValidationError) as ctx:
