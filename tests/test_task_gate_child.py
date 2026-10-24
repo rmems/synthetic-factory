@@ -97,6 +97,27 @@ class Reports(unittest.TestCase):
         _, report, _ = run_child(program("print('noise')\nprint(1)", 1))
         self.assertEqual((report["failed"], report["detail"]), (1, ""))
 
+    def test_a_later_real_miss_is_not_hidden_when_reports_stop(self):
+        text = (
+            "def f(x):\n"
+            "    '''\n"
+            "    >>> f(1)  # doctest: +REPORT_ONLY_FIRST_FAILURE\n"
+            "    1\n"
+            "    >>> f(2)\n"
+            "    2\n"
+            "    '''\n"
+            "    print('n')\n"
+            "    return 1 if x == 1 else 0\n"
+        )
+        _, report, _ = run_child(text)
+        self.assertEqual(report["failed"], 2)
+        self.assertEqual(report["detail"], "")
+
+    def test_a_later_example_can_read_the_displayed_value(self):
+        text = "def f():\n    '''\n    >>> f()\n    2\n    >>> _\n    2\n    '''\n    return 2\n"
+        _, report, _ = run_child(text)
+        self.assertEqual((report["attempted"], report["failed"]), (2, 0))
+
     def test_programs_that_cannot_be_loaded_are_load_errors(self):
         cases = {
             "RuntimeError": "raise RuntimeError('boom')\n",

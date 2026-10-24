@@ -12,6 +12,7 @@ report out of the window the parent reads. A program that deliberately writes to
 descriptor can still forge it (best effort, not a sandbox). Failures are data, never exit codes.
 """
 
+import builtins
 import doctest
 import importlib.util
 import json
@@ -117,6 +118,7 @@ class _Runner(doctest.DocTestRunner):
         super().__init__(verbose=False, optionflags=0)
         self.stdout_only = True
         self.displayed = ""
+        self.reported = 0
 
     def report_start(self, out, test, example):
         self.displayed = ""
@@ -124,12 +126,14 @@ class _Runner(doctest.DocTestRunner):
         def hook(value):
             if value is None:
                 return
+            builtins._ = value
             self.displayed = repr(value)
             sys.stdout.write(self.displayed + "\n")
 
         sys.displayhook = hook
 
     def report_failure(self, out, test, example, got):
+        self.reported += 1
         noisy = example.exc_msg is None and value_with_extra_stdout(
             example.want, got, self.displayed, self.optionflags,
         )
@@ -149,7 +153,9 @@ def _doctests(module, function):
         result = runner.run(test, out=lambda _text: None, clear_globs=False)
         attempted += result.attempted
         failed += result.failed
-    detail = DETAIL_STDOUT_EQUIVALENT if failed and runner.stdout_only else ""
+    # REPORT_ONLY_FIRST_FAILURE still counts later misses but does not report them.
+    every_miss_reported = failed == runner.reported
+    detail = DETAIL_STDOUT_EQUIVALENT if failed and runner.stdout_only and every_miss_reported else ""
     return attempted, failed, detail
 
 

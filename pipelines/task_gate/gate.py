@@ -3,9 +3,10 @@
 
 Evaluation order, first failing rule wins:
 
-1. ``denylisted`` -- the program id is on the eval denylist, or its normalized text matches a
-   denylisted program's (checked first so eval programs are never parsed or executed on behalf
-   of a proposal).
+1. ``denylisted`` -- the program id is on the eval denylist, or its whole-module normalized
+   text matches a denylisted program that is loaded in this same catalog (checked first so
+   eval programs are never parsed or executed on behalf of a proposal). A renamed function or
+   a changed docstring is a different module and is not denied by content.
 2. ``parse_error`` -- the row is malformed, the program is unknown, the edit does not resolve
    to exactly one span inside the target body (outside the docstring), the mutant does not
    compile, does not load, or kills the interpreter.
