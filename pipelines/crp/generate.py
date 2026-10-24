@@ -89,50 +89,7 @@ def _bash(command: str) -> dict[str, Any]:
 
 
 def _prefix(plant: cat.Plant, pr: int) -> list[dict[str, Any]]:
-    return _inventory_steps(plant, pr) + _reach_steps(plant) + _evidence_steps(plant, pr)
-
-
-def _inventory_steps(plant: cat.Plant, pr: int) -> list[dict[str, Any]]:
-    """Steps 1-3: PR inventory, the core hunk, and the full function."""
-
-    repo = plant.repo
-    core = plant.core
-    boot = plant.boot
-    test = plant.test
-    feat = plant.title.split(":", 1)[-1].strip()
-    return [
-        _step(
-            1,
-            (
-                f"Observation: operator asked for a merge-blocking review of "
-                f"{repo} PR {pr} if the change has a real defect."
-            ),
-            _bash(f"gh pr view {pr} --repo {repo} --json number,title,files,additions,headRefName"),
-            (
-                f'designed: {{"number":{pr},"title":"{plant.title}","additions":{8},'
-                f'"files":[{{"path": "{core}"}}, {{"path": "{boot}"}}, '
-                f'{{"path": "{test}"}}],"headRefName":"feat/{plant.slug}"}}'
-            ),
-            "Inventory the PR before commenting.",
-        ),
-        _step(
-            2,
-            "Observation: core file named in the files list. Diff that hunk.",
-            _bash(f"gh pr diff {pr} --repo {repo} -- {core}"),
-            f"designed: +{feat}  # {plant.defect}",
-            "Read the implementation next, not just the hunk.",
-        ),
-        _step(
-            3,
-            "Observation: diff shows the suspect pattern. Read the full function.",
-            {"name": "read_file", "args": {"path": core}},
-            (
-                f"designed: {plant.defect}. this is {plant.family}, not the "
-                f"{plant.notfam}. serial tests never cover {plant.missing}."
-            ),
-            "Confirm callers and tests before verdict.",
-        ),
-    ]
+    return crp_tail.inventory_steps(plant, pr) + _reach_steps(plant) + _evidence_steps(plant, pr)
 
 
 def _reach_steps(plant: cat.Plant) -> list[dict[str, Any]]:
