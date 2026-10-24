@@ -24,7 +24,7 @@ from ._contract import (
 
 __all__ = [
     "GateProgram", "GateProposal", "MalformedProposal", "accepted_source", "parse_proposals",
-    "proposal_from_row",
+    "proposal_from_row", "row_source",
 ]
 
 _TEXT_KEYS = ("proposal_id", "source", "original_text")
@@ -93,11 +93,26 @@ class GateProgram:
 def accepted_source(declared: object) -> str:
     """``declared`` when it is an accepted label, otherwise ``unspecified``.
 
-    A proposal does not get to call itself verified. The procedural mutator sets
-    ``procedural`` itself; model rows may say ``model``; anything else is dropped.
+    The procedural mutator passes ``procedural`` to the constructor. A decoded row
+    may not: see ``row_source``.
     """
 
     if isinstance(declared, str) and declared in cv.ACCEPTED_SOURCES:
+        return declared
+    return cv.SOURCE_UNSPECIFIED
+
+
+_ROW_SOURCES = frozenset({cv.SOURCE_UNSPECIFIED, cv.SOURCE_MODEL})
+
+
+def row_source(declared: object) -> str:
+    """The source a JSON row may claim: ``unspecified`` or ``model``.
+
+    ``procedural`` is not a row label. Only ``procedural.proposals_from_plan`` sets it,
+    on the constructor, so a model file cannot call its own rows procedural.
+    """
+
+    if isinstance(declared, str) and declared in _ROW_SOURCES:
         return declared
     return cv.SOURCE_UNSPECIFIED
 
@@ -197,7 +212,7 @@ def proposal_from_row(row: object, fallback_id: str) -> GateProposal | Malformed
     return GateProposal(
         proposal_id=str(identity), program_id=str(program_id),
         replacement_text=row["replacement_text"],
-        source=accepted_source(row.get("source", cv.SOURCE_UNSPECIFIED)),
+        source=row_source(row.get("source", cv.SOURCE_UNSPECIFIED)),
         original_text=row.get("original_text"), start_byte=row.get("start_byte"),
         end_byte=row.get("end_byte"),
     )

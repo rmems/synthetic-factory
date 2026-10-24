@@ -90,33 +90,49 @@ def load_program(workdir):
     return module
 
 
-def stdout_equivalent(want, got):
-    """True when ``got`` is ``want`` plus extra stdout and the same displayed value.
+def value_with_extra_stdout(want, got, displayed, flags=0):
+    """True when ``got`` is extra stdout in front of one displayed value that matches ``want``.
 
-    Doctest's ``got`` is the example's stdout followed by the repr of a non-None result.
-    A suffix equal to ``want`` means that value (and any expected stdout) is unchanged and
-    only a prefix was printed. A different last line is a real miss, including ``print(3) or 0``
-    whose got ends in ``0`` rather than ``3``.
+    ``displayed`` is the repr of the value ``sys.displayhook`` saw, or empty when the example
+    displayed nothing (a ``None`` result, including a function that only prints). A printed
+    expected line with no displayed value is a real miss: the suffix of ``got`` is not proof
+    that the result is unchanged. ``flags`` are the example's doctest option flags, so the
+    value is compared the way ``DocTestRunner`` compares it.
     """
 
-    want_lines = want.splitlines() if isinstance(want, str) else []
-    got_lines = got.splitlines() if isinstance(got, str) else []
-    if not want_lines or not got_lines:
+    if not displayed or not isinstance(displayed, str):
         return False
-    if got == want:
+    if not isinstance(want, str) or not isinstance(got, str):
         return False
-    return got_lines[-len(want_lines):] == want_lines
+    value = displayed + "\n"
+    if got == want or not got.endswith(value):
+        return False
+    return doctest.OutputChecker().check_output(want, value, flags)
 
 
 class _Runner(doctest.DocTestRunner):
-    """Counts doctest misses and whether every miss is stdout around the expected value."""
+    """Counts doctest misses and whether every miss is stdout around a displayed value."""
 
     def __init__(self):
         super().__init__(verbose=False, optionflags=0)
         self.stdout_only = True
+        self.displayed = ""
+
+    def report_start(self, out, test, example):
+        self.displayed = ""
+
+        def hook(value):
+            if value is None:
+                return
+            self.displayed = repr(value)
+            sys.stdout.write(self.displayed + "\n")
+
+        sys.displayhook = hook
 
     def report_failure(self, out, test, example, got):
-        noisy = example.exc_msg is None and stdout_equivalent(example.want, got)
+        noisy = example.exc_msg is None and value_with_extra_stdout(
+            example.want, got, self.displayed, self.optionflags,
+        )
         self.stdout_only = self.stdout_only and noisy
 
     def report_unexpected_exception(self, out, test, example, exc_info):

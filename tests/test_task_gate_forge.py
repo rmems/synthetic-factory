@@ -19,8 +19,8 @@ from task_gate import harness as H  # noqa: E402
 HARNESS = H.SubprocessHarness()
 
 
-def decide(props, programs=PROGRAMS):
-    machine = gate.Gate(programs, rules(), HARNESS)
+def decide(props, programs=None):
+    machine = gate.Gate(PROGRAMS if programs is None else programs, rules(), HARNESS)
     return [machine.decide(item) for item in props]
 
 
@@ -60,6 +60,35 @@ class TaskGateForges(unittest.TestCase):
             decision.source, "procedural-oracle-verified",
             "self-declared verified source copied into the decision unchecked",
         )
+
+    def test_forge_json_row_cannot_claim_procedural(self):
+        row = proposal.proposal_from_row(
+            {"proposal_id": "p-row", "program_id": "prog-add", "replacement_text": "a - b",
+             "original_text": "a + b", "source": "procedural"},
+            "fallback",
+        )
+        self.assertEqual(row.source, "unspecified")
+        (decision,) = decide([row])
+        self.assertEqual(decision.source, "unspecified")
+        self.assertEqual(decision.verdict, "kept")
+
+    def test_forge_printed_off_by_one_is_kept(self):
+        text = (
+            "def count(n):\n"
+            '    """\n'
+            "    >>> count(2)\n"
+            "    1\n"
+            "    2\n"
+            '    """\n'
+            "    for i in range(1, n + 1):\n"
+            "        print(i)\n"
+        )
+        program = proposal.GateProgram("prog-count", text, "count")
+        (decision,) = decide(
+            [proposal_for("range(0, n + 1)", "range(1, n + 1)", program)],
+            {"prog-count": program, **PROGRAMS},
+        )
+        self.assertEqual(decision.verdict, "kept")
 
 
 if __name__ == "__main__":

@@ -306,6 +306,11 @@ class Duplicates(unittest.TestCase):
         )
         self.assertNotIn(key, others)
 
+    def test_an_importing_program_keeps_one_key_on_3_14_and_3_15(self):
+        text = "import math\n\ndef add(a, b):\n    return a + b\n"
+        key = dedup_index.dedup_key("prog-import", text, text.replace("a + b", "a - b"))[0]
+        self.assertEqual(key, "21e95b41b4a7a06a5fe060af23ce7d2152546ddb683d5f9f776b93326e19d3ff")
+
     def test_minimal_edit_trims_the_common_prefix_and_suffix(self):
         cases = {
             (b"return x + 1", b"return x - 1"): (9, 10, b"-"),

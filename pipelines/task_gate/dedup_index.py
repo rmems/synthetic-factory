@@ -41,9 +41,15 @@ _FIELDS = frozenset({"format", "key", "program_id", "start_byte", "end_byte"})
 
 
 def normalized_text(text: str) -> str:
-    """The mutant's tree without positions, so spacing and redundant parentheses collapse."""
+    """The mutant's tree without positions, so spacing and redundant parentheses collapse.
 
-    return ast.dump(ast.parse(text), include_attributes=False)
+    ``ast.dump`` on 3.15 adds ``is_lazy=0`` and omits a default ``ctx=Load()``. Both defaults
+    are removed so a key minted on 3.14 matches the same mutant on 3.15. A true lazy import
+    and a ``Store`` or ``Del`` context still record their fields.
+    """
+
+    dumped = ast.dump(ast.parse(text), include_attributes=False)
+    return dumped.replace(", is_lazy=0", "").replace(", ctx=Load()", "")
 
 
 def minimal_edit(original: bytes, mutant: bytes) -> tuple[int, int, bytes]:

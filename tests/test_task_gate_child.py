@@ -93,6 +93,10 @@ class Reports(unittest.TestCase):
         _, report, _ = run_child(program("return print(1) or 2", 1))
         self.assertEqual((report["failed"], report["detail"]), (1, ""))
 
+    def test_extra_printed_lines_without_a_displayed_value_are_a_real_miss(self):
+        _, report, _ = run_child(program("print('noise')\nprint(1)", 1))
+        self.assertEqual((report["failed"], report["detail"]), (1, ""))
+
     def test_programs_that_cannot_be_loaded_are_load_errors(self):
         cases = {
             "RuntimeError": "raise RuntimeError('boom')\n",
