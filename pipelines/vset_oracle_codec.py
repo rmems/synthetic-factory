@@ -172,7 +172,8 @@ _EXACT = {
 
 
 def _encode_stdlib(value: object) -> object | None:
-    handler = _EXACT.get(value.__class__)
+    # type(), not __class__: a Mock(spec=complex) reports complex as its class.
+    handler = _EXACT.get(type(value))
     if handler is not None:
         return handler(value)  # type: ignore[operator]
     if isinstance(value, PurePath):
@@ -197,7 +198,7 @@ def _iterator_types() -> tuple[type, ...]:
 
 
 def _encode_iterator(value: object) -> object | None:
-    if value.__class__ not in _iterator_types():
+    if type(value) not in _iterator_types():
         return None
     return {"seq": [encode(item) for item in value]}  # type: ignore[union-attr]
 

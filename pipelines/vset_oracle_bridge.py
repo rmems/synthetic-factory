@@ -240,21 +240,27 @@ def restore_patches(saved: tuple[object, object]) -> None:
     shape.restore_dict_patches(mapping)
 
 
+def _child_module(name: str) -> bool:
+    root = name.split(".", 1)[0]
+    return root in sys.stdlib_module_names
+
+
 def _mirror(client: object, patcher: object, install: bool) -> None:
     name = _module_name(patcher)
-    if name is None:
+    if name is None or not _child_module(name):
         return
     # Prints already relay to the parent's current sys.stdout.
     if name == "sys":
         if patcher.attribute in {"stdout", "stderr"}:  # type: ignore[attr-defined]
             return
+    token = id(patcher)
     if not install:
-        client.unpatch_module()  # type: ignore[attr-defined]
+        client.unpatch_module(token)  # type: ignore[attr-defined]
         return
     # patch() leaves self.new as DEFAULT and stores the mock on the target.
     target = patcher.target  # type: ignore[attr-defined]
     current = getattr(target, patcher.attribute)  # type: ignore[attr-defined]
-    client.patch_module(name, patcher.attribute, current)  # type: ignore[attr-defined]
+    client.patch_module(name, patcher.attribute, current, token)  # type: ignore[attr-defined]
 
 
 def _module_name(patcher: object) -> str | None:
