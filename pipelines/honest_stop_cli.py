@@ -26,10 +26,10 @@ else:
     from honest_stop import cli as _cli
 
 
-def main() -> int:
-    """Run the honest-stop CLI."""
+def main(argv: list[str] | None = None) -> int:
+    """Run the honest-stop CLI. ``argv`` is forwarded to ``honest_stop.cli.run``."""
 
-    return _cli.run()
+    return _cli.run(argv)
 
 
 if __package__:
