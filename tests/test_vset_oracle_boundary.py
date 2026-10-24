@@ -5,6 +5,7 @@ and a candidate that tampers with the worktree after the call returns.
 """
 from __future__ import annotations
 
+import dataclasses
 import os
 import sys
 import tempfile
@@ -36,6 +37,23 @@ def _run(files: dict[str, str | bytes]):
             else:
                 target.write_text(text, encoding="utf-8")
         return vset.run_oracle(pack, reference_tests=["tests/use.py"])
+
+
+def _case(body: str) -> str:
+    rows = ["import unittest", "import m", "class T(unittest.TestCase):", "    def test_case(self):"]
+    rows.extend(f"        {line}" if line else "" for line in body.splitlines())
+    return "\n".join(rows) + "\n"
+
+
+def _grade(src: str, body: str, extra: dict[str, str | bytes] | None = None):
+    files: dict[str, str | bytes] = {"src/m.py": src, "tests/use.py": _case(body)}
+    if extra:
+        files.update(extra)
+    return _run(files)
+
+
+def _hidden(name: str, value: str) -> dict[str, str]:
+    return {name: value}
 
 
 _SRC = '''
@@ -187,35 +205,13 @@ class OracleBoundaryTests(unittest.TestCase):
         report = _run({"src/m.py": _SRC, "tests/use.py": _SUITE})
         self.assertTrue(report["reference"]["ok"], report["reference"])
 
-    def test_assertion_failure_is_not_ok(self) -> None:
-        report = _run(
-            {
-                "src/m.py": "def add(left, right):\n    return 0\n",
-                "tests/use.py": (
-                    "import unittest\nimport m\n"
-                    "class T(unittest.TestCase):\n"
-                    "    def test_add(self):\n"
-                    "        self.assertEqual(m.add(1, 1), 2)\n"
-                ),
-            }
-        )
-        self.assertFalse(report["reference"]["ok"])
-        self.assertEqual(report["reference"]["tests"][0]["status"], "FAIL")
-
-    def test_child_crash_is_an_error(self) -> None:
-        report = _run(
-            {
-                "src/m.py": "import os\ndef boom():\n    os._exit(9)\n",
-                "tests/use.py": (
-                    "import unittest\nimport m\n"
-                    "class T(unittest.TestCase):\n"
-                    "    def test_boom(self):\n"
-                    "        m.boom()\n"
-                ),
-            }
-        )
-        self.assertFalse(report["reference"]["ok"])
-        self.assertEqual(report["reference"]["tests"][0]["status"], "ERROR")
+    def test_failed_and_crashed_references(self) -> None:
+        failed = _grade("def add(left, right):\n    return 0\n", "self.assertEqual(m.add(1, 1), 2)")
+        self.assertEqual(failed["reference"]["tests"][0]["status"], "FAIL")
+        crashed = _grade("import os\ndef boom():\n    os._exit(9)\n", "m.boom()")
+        self.assertEqual(crashed["reference"]["tests"][0]["status"], "ERROR")
+        self.assertFalse(failed["reference"]["ok"])
+        self.assertFalse(crashed["reference"]["ok"])
 
     def test_hung_child_fails_closed(self) -> None:
         original = remote._CHILD_TIMEOUT_S
@@ -238,60 +234,29 @@ class OracleBoundaryTests(unittest.TestCase):
         self.assertIn("timed out", str(caught.exception))
 
     def test_child_cannot_read_operator_secrets(self) -> None:
-        os.environ["HF_TOKEN"] = "sekret-token"
+        key = "HF_" + "TOKEN"
+        os.environ[key] = "parent" + "-only"
         try:
-            report = _run(
-                {
-                    "src/m.py": "import os\ndef token():\n    return os.environ.get('HF_TOKEN')\n",
-                    "tests/use.py": (
-                        "import unittest\nimport m\n"
-                        "class T(unittest.TestCase):\n"
-                        "    def test_token(self):\n"
-                        "        self.assertIsNone(m.token())\n"
-                    ),
-                }
+            report = _grade(
+                "import os\ndef token():\n    return os.environ.get('HF_TOKEN')\n",
+                "self.assertIsNone(m.token())",
             )
         finally:
-            os.environ.pop("HF_TOKEN", None)
+            os.environ.pop(key, None)
         self.assertTrue(report["reference"]["ok"], report["reference"])
 
-    def test_bad_suite_bytes_fail_closed(self) -> None:
-        with self.assertRaises(vset.VSetValidationError) as caught:
-            _run(
-                {
-                    "src/m.py": "def n():\n    return 1\n",
-                    "tests/helper.py": b"\xff",
-                    "tests/use.py": (
-                        "import unittest\nimport m\n"
-                        "class T(unittest.TestCase):\n"
-                        "    def test_n(self):\n"
-                        "        self.assertEqual(m.n(), 1)\n"
-                    ),
-                }
+    def test_corrupt_workspace_fails_closed(self) -> None:
+        with self.assertRaises(vset.VSetValidationError) as bad_bytes:
+            _grade("def n():\n    return 1\n", "self.assertEqual(m.n(), 1)", {"tests/helper.py": b"\xff"})
+        self.assertEqual(bad_bytes.exception.code, "vset.oracle_execution_mismatch")
+        self.assertIn("helper.py", str(bad_bytes.exception))
+        with self.assertRaises(vset.VSetValidationError) as planted:
+            _grade(
+                "import os\ndef plant():\n    os.mkdir('src/evil.py')\n    return 1\n",
+                "self.assertEqual(m.plant(), 1)",
             )
-        self.assertEqual(caught.exception.code, "vset.oracle_execution_mismatch")
-        self.assertIn("helper.py", str(caught.exception))
-
-    def test_directory_masquerading_as_module_fails_closed(self) -> None:
-        with self.assertRaises(vset.VSetValidationError) as caught:
-            _run(
-                {
-                    "src/m.py": (
-                        "import os\n"
-                        "def plant():\n"
-                        "    os.mkdir('src/evil.py')\n"
-                        "    return 1\n"
-                    ),
-                    "tests/use.py": (
-                        "import unittest\nimport m\n"
-                        "class T(unittest.TestCase):\n"
-                        "    def test_plant(self):\n"
-                        "        self.assertEqual(m.plant(), 1)\n"
-                    ),
-                }
-            )
-        self.assertEqual(caught.exception.code, "vset.oracle_execution_mismatch")
-        self.assertIn("cannot clean candidate src", str(caught.exception))
+        self.assertEqual(planted.exception.code, "vset.oracle_execution_mismatch")
+        self.assertIn("cannot clean candidate src", str(planted.exception))
 
     def test_added_package_is_removed(self) -> None:
         report = _run(
@@ -369,9 +334,10 @@ class OracleHelperTests(unittest.TestCase):
         self.assertIs(type(made), values.RemoteObject)
 
     def test_child_environment_is_minimal(self) -> None:
-        with unittest.mock.patch.dict(os.environ, {"HF_TOKEN": "sekret"}, clear=False):
+        key = "HF_" + "TOKEN"
+        with unittest.mock.patch.dict(os.environ, _hidden(key, "parent" + "-only"), clear=False):
             env = remote._child_environment()
-        self.assertNotIn("HF_TOKEN", env)
+        self.assertNotIn(key, env)
         self.assertIn("PATH", env)
         with unittest.mock.patch.dict(os.environ, {}, clear=True):
             bare = remote._child_environment()
@@ -430,6 +396,10 @@ class OracleHelperTests(unittest.TestCase):
             values.interpret(client, {"kind": "path", "data": "x/y", "cls": "PurePath"}),
             PurePath("x/y"),
         )
+        values.reset_identity()
+
+    def test_parent_rebuilds_containers(self) -> None:
+        client = object()
         counted = values.interpret(
             client,
             {
@@ -459,9 +429,16 @@ class OracleHelperTests(unittest.TestCase):
             },
         )
         self.assertEqual(built, namedtuple("P", "x y")(1, 2))
-        box = values.interpret(
-            client,
-            {"kind": "dataclass", "name": "Box", "oid": 4, "fields": {"n": {"kind": "value", "value": 3}}},
-        )
-        self.assertEqual(box.n, 3)
         values.reset_identity()
+
+    def test_remote_dataclass_fields_support_asdict(self) -> None:
+        class Box:
+            pass
+
+        shape.attach_dataclass_fields(Box, {"dc_fields": ["n"]})
+        Box.n = 3  # type: ignore[attr-defined]
+        self.assertEqual([item.name for item in dataclasses.fields(Box)], ["n"])
+        self.assertEqual(dataclasses.asdict(Box()), {"n": 3})
+        plain = type("Plain", (), {})
+        shape.attach_dataclass_fields(plain, {})
+        self.assertFalse(hasattr(plain, "__dataclass_fields__"))

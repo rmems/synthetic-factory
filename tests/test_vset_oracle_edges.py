@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import os
-import subprocess
 import sys
 import tempfile
 import types
@@ -16,7 +15,7 @@ _TESTS = Path(__file__).resolve().parent
 if str(_TESTS) not in sys.path:
     sys.path.insert(0, str(_TESTS))
 
-from vset_testutil import vset  # noqa: E402
+from vset_testutil import child_timeout, vset  # noqa: E402
 import vset_oracle_bridge as bridge  # noqa: E402
 import vset_oracle_codec as codec  # noqa: E402
 import vset_oracle_collect as collect  # noqa: E402
@@ -56,6 +55,47 @@ class _Client:
 
     def call(self, oid: int, args: tuple[object, ...], kwargs: dict[str, object]) -> object:
         return (oid, args, kwargs)
+
+
+class _Proc:
+    def __init__(self) -> None:
+        self.pid = os.getpid()
+        self.killed = False
+        self.stdin = None
+        self.stdout = None
+        self.waits = 0
+
+    def poll(self) -> int:
+        return 0
+
+    def kill(self) -> None:
+        self.killed = True
+
+    def wait(self, timeout: float = 0) -> int:
+        self.waits += 1
+        if self.waits == 1:
+            raise child_timeout(timeout)
+        return 0
+
+
+class _Boom:
+    def close(self) -> None:
+        raise OSError("closed")
+
+
+class _Lines:
+    def __init__(self, rows: list[str]) -> None:
+        self.rows = rows
+
+    def readline(self, limit: int = -1) -> str:
+        if not self.rows:
+            return ""
+        return self.rows.pop(0)
+
+
+class _Pipe:
+    def __init__(self, rows: list[str]) -> None:
+        self.stdout = _Lines(rows)
 
 
 class EdgeTests(unittest.TestCase):
@@ -166,7 +206,8 @@ class EdgeTests(unittest.TestCase):
         self.assertEqual(codec.encode(PurePath("x/y"))["path"], "x/y")
         self.assertEqual(codec.encode(defaultdict(int))["factory"], "int")
         self.assertIn("seq", codec.encode(iter([1, 2])))
-        self.assertIn("seq", codec.encode(k for k in [1]))
+        self.assertIn("cb", codec.encode(k for k in [1]))
+        self.assertIn("cb", codec.encode(map(int, ["1"])))
         self.assertIn("map", codec.encode(defaultdict(lambda: 0, {1: 2})))
         values.reset_identity()
 
@@ -278,36 +319,16 @@ class EdgeTests(unittest.TestCase):
             with self.assertRaises(KeyError):
                 layout.frozen_text("tests/edge.py")
 
-    def test_process_cleanup_and_replies(self) -> None:
-        class Proc:
-            def __init__(self) -> None:
-                self.pid = os.getpid()
-                self.killed = False
-                self.stdin = None
-                self.stdout = None
-                self.waits = 0
-
-            def poll(self) -> int:
-                return 0
-
-            def kill(self) -> None:
-                self.killed = True
-
-            def wait(self, timeout: float = 0) -> int:
-                self.waits += 1
-                if self.waits == 1:
-                    raise subprocess.TimeoutExpired(cmd="oracle", timeout=timeout)
-                return 0
-
-        proc = Proc()
+    def test_kill_group_falls_back_when_the_group_is_gone(self) -> None:
+        proc = _Proc()
         with unittest.mock.patch("os.killpg", side_effect=OSError("no group")):
             remote._kill_group(proc)  # type: ignore[arg-type]
         self.assertTrue(proc.killed)
+
+    def test_stop_closes_streams_and_pops_paths(self) -> None:
+        proc = _Proc()
         remote._close(None)
-        class Boom:
-            def close(self) -> None:
-                raise OSError("closed")
-        remote._close(Boom())
+        remote._close(_Boom())
         remote._stop(proc)  # type: ignore[arg-type]
         remote._push_path("folder")
         remote._pop_path("folder")
@@ -315,6 +336,9 @@ class EdgeTests(unittest.TestCase):
         sys.path.insert(0, "")
         remote._pop_path("folder")
         del sys.path[0]
+        self.assertEqual(proc.waits, 2)
+
+    def test_status_labels(self) -> None:
         result = unittest.TestResult()
         self.assertEqual(remote._status(result), "ERROR")
         result.testsRun = 1
@@ -331,19 +355,7 @@ class EdgeTests(unittest.TestCase):
         result.unexpectedSuccesses.append(None)  # type: ignore[arg-type]
         self.assertEqual(remote._status(result), "unexpectedSuccess")
 
-        class Lines:
-            def __init__(self, rows: list[str]) -> None:
-                self.rows = rows
-
-            def readline(self, limit: int = -1) -> str:
-                if not self.rows:
-                    return ""
-                return self.rows.pop(0)
-
-        class Pipe:
-            def __init__(self, rows: list[str]) -> None:
-                self.stdout = Lines(rows)
-
+    def test_receive_relays_stdout_before_the_value(self) -> None:
         sent: list[object] = []
 
         def send(proc_obj: object, payload: object) -> None:
@@ -355,17 +367,16 @@ class EdgeTests(unittest.TestCase):
         def relay(reply: dict[str, object]) -> bool:
             return reply.get("kind") == "stdout"
 
-        value = record.receive(
-            object(),
-            Pipe(['{"kind": "stdout", "text": "hi"}\n', '{"kind": "value", "value": 3}\n']),
-            (bridge._read_reply, send, answer, relay),
-        )
-        self.assertEqual(value, 3)
+        ops = (bridge._read_reply, send, answer, relay)
+        rows = ['{"kind": "stdout", "text": "hi"}\n', '{"kind": "value", "value": 3}\n']
+        self.assertEqual(record.receive(object(), _Pipe(rows), ops), 3)
         with self.assertRaises(EOFError):
-            record.receive(object(), Pipe([]), (bridge._read_reply, send, answer, relay))
+            record.receive(object(), _Pipe([]), ops)
+        missing = type("P", (), {"stdout": None})()
         with self.assertRaises(EOFError):
-            record.receive(object(), type("P", (), {"stdout": None})(), (None, None, None, None))
+            record.receive(object(), missing, (None, None, None, None))
 
+    def test_data_record_skips_callables_and_failures(self) -> None:
         class Plain:
             def __init__(self) -> None:
                 self.pair = (1, 2)
@@ -378,7 +389,8 @@ class EdgeTests(unittest.TestCase):
                 raise RuntimeError("no")
 
         self.assertIsNone(record.data_record(Raising()))
-        self.assertFalse(record.live_collaborator(unittest.TestCase(methodName="run")))
+        case = unittest.TestCase(methodName="run")
+        self.assertFalse(record.live_collaborator(case))
         self.assertTrue(record.live_collaborator(unittest.mock.Mock()))
 
     def test_remote_module_deletes_and_callback_closure(self) -> None:

@@ -115,32 +115,77 @@ def _factory_name(factory: object) -> str | None:
     return None
 
 
-def _encode_stdlib(value: object) -> object | None:
-    if type(value) is complex:
-        return {"complex": [value.real, value.imag]}
-    if type(value) is range:
-        return {"range": [value.start, value.stop, value.step]}
-    if type(value) is slice:
-        return {"slice": [value.start, value.stop, value.step]}
-    if type(value) is timedelta:
-        return {"timedelta": [value.days, value.seconds, value.microseconds]}
-    if type(value) is time:
-        return {"time": value.isoformat()}
-    if isinstance(value, PurePath):
-        return {"path": str(value), "cls": type(value).__name__}
+def _encode_complex(value: complex) -> dict[str, object]:
+    return {"complex": [value.real, value.imag]}
+
+
+def _encode_range(value: range) -> dict[str, object]:
+    return {"range": [value.start, value.stop, value.step]}
+
+
+def _encode_slice(value: slice) -> dict[str, object]:
+    return {"slice": [value.start, value.stop, value.step]}
+
+
+def _encode_timedelta(value: timedelta) -> dict[str, object]:
+    return {"timedelta": [value.days, value.seconds, value.microseconds]}
+
+
+def _encode_time(value: time) -> dict[str, str]:
+    return {"time": value.isoformat()}
+
+
+def _encode_path(value: PurePath) -> dict[str, str]:
+    return {"path": str(value), "cls": type(value).__name__}
+
+
+def _tracked(kind: str, value: dict[object, object]) -> dict[str, object]:
+    return {kind: _pairs(value), "slot": _host()._track(value)}
+
+
+def _encode_default(value: defaultdict[object, object]) -> dict[str, object] | None:
+    name = _factory_name(value.default_factory)
+    if name is None:
+        return None
+    encoded = _tracked("default", value)
+    encoded["factory"] = name
+    return encoded
+
+
+def _encode_mapping(value: object) -> object | None:
     if isinstance(value, Counter):
-        return {"counter": _pairs(value), "slot": _host()._track(value)}
-    if isinstance(value, defaultdict):
-        name = _factory_name(value.default_factory)
-        if name is None:
-            return None
-        return {"default": _pairs(value), "factory": name, "slot": _host()._track(value)}
+        return _tracked("counter", value)  # type: ignore[arg-type]
     if isinstance(value, OrderedDict):
-        return {"ordered": _pairs(value), "slot": _host()._track(value)}
+        return _tracked("ordered", value)  # type: ignore[arg-type]
+    if isinstance(value, defaultdict):
+        return _encode_default(value)
+    return None
+
+
+_EXACT = {
+    complex: _encode_complex,
+    range: _encode_range,
+    slice: _encode_slice,
+    timedelta: _encode_timedelta,
+    time: _encode_time,
+}
+
+
+def _encode_stdlib(value: object) -> object | None:
+    handler = _EXACT.get(value.__class__)
+    if handler is not None:
+        return handler(value)  # type: ignore[operator]
+    if isinstance(value, PurePath):
+        return _encode_path(value)
+    mapped = _encode_mapping(value)
+    if mapped is not None:
+        return mapped
     return _encode_iterator(value)
 
 
 def _iterator_types() -> tuple[type, ...]:
+    # One-shot views of a finished container. Generators, map, filter, and zip
+    # stay callbacks so the child pulls items and the parent iterator survives.
     return (
         type(iter(())),
         type(iter([])),
@@ -148,15 +193,11 @@ def _iterator_types() -> tuple[type, ...]:
         type({}.keys()),
         type({}.values()),
         type({}.items()),
-        type(map(str, ())),
-        type(filter(None, ())),
-        type(zip()),
-        type(item for item in ()),
     )
 
 
 def _encode_iterator(value: object) -> object | None:
-    if type(value) not in _iterator_types():
+    if value.__class__ not in _iterator_types():
         return None
     return {"seq": [encode(item) for item in value]}  # type: ignore[union-attr]
 

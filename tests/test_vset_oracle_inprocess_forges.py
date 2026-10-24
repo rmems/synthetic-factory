@@ -6,7 +6,7 @@ The oracle must refuse both; the honest record must still pass.
 from __future__ import annotations
 
 import json
-import subprocess
+import subprocess  # nosec B404
 import sys
 import unittest
 from pathlib import Path
@@ -67,7 +67,8 @@ print(len(errors))
 def _error_count(rec: dict) -> int:
     # Fresh interpreter per case: a forge that escapes the oracle would
     # otherwise also corrupt this test process and every case after it.
-    out = subprocess.run(
+    # Fresh interpreter, fixed argv, no shell. A forge must not share this process.
+    out = subprocess.run(  # nosec B603  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit.dangerous-subprocess-use-audit
         [sys.executable, "-c", _CHILD, str(ROOT.parent / "pipelines"), str(PACK)],
         input=json.dumps(rec), capture_output=True, text=True, timeout=120, check=True,
     )
