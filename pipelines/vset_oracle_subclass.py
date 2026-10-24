@@ -16,21 +16,19 @@ if __package__:  # pragma: no cover - package-child import path
 
     _assert_direct_sibling("vset_oracle_subclass")
     from .vset_oracle_codec import encode as _encode
-    from .vset_oracle_subclass_bind import args_of as _args
     from .vset_oracle_subclass_bind import candidate as _candidate
     from .vset_oracle_subclass_bind import extend as _extend
-    from .vset_oracle_subclass_bind import kwargs_of as _kwargs
     from .vset_oracle_subclass_bind import members as _members
+    from . import vset_oracle_subclass_call as _call
 else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
         "vset_oracle_subclass"
     )
     from vset_oracle_codec import encode as _encode
-    from vset_oracle_subclass_bind import args_of as _args
     from vset_oracle_subclass_bind import candidate as _candidate
     from vset_oracle_subclass_bind import extend as _extend
-    from vset_oracle_subclass_bind import kwargs_of as _kwargs
     from vset_oracle_subclass_bind import members as _members
+    import vset_oracle_subclass_call as _call
 
 
 def _values():
@@ -42,46 +40,16 @@ def _values():
     return values
 
 
-_LIVE: dict[tuple[int, int], object] = {}
-
-
 def clear_live() -> None:
     """Drop parent subclass instances from the previous child."""
 
-    _LIVE.clear()
-
-
-def _state(obj: object) -> dict[str, object] | None:
-    try:
-        found = object.__getattribute__(obj, "__dict__")
-    except AttributeError:
-        return None
-    if isinstance(found, dict):
-        return found
-    return None  # pragma: no cover - instances expose a real dict or raise
+    _call.clear_live()
 
 
 def mark_ready(obj: object) -> None:
     """Remember that the child constructor has already finished."""
 
-    try:
-        object.__setattr__(obj, "_vset_ready", True)
-    except (AttributeError, TypeError):
-        return
-
-
-def _ready(obj: object) -> bool:
-    state = _state(obj)
-    if state is None:
-        return True
-    return "_vset_ready" in state
-
-
-def _bound(obj: object) -> bool:
-    state = _state(obj)
-    if state is None:
-        return False
-    return "oid" in state
+    _call.mark_ready(obj)
 
 
 def _encoded(values: tuple[object, ...] | object) -> list[object]:
@@ -96,52 +64,6 @@ def _encoded_map(values: object) -> dict[str, object]:
     return {str(key): _encode(item) for key, item in values.items()}
 
 
-def _view(cls: type, child: object) -> object:
-    state = _state(child)
-    if state is None:
-        return child
-    inst = object.__new__(cls)
-    object.__setattr__(inst, "client", state.get("client"))
-    object.__setattr__(inst, "oid", state.get("oid"))
-    mark_ready(inst)
-    return inst
-
-
-def _resolve(cls: type, child: object) -> object:
-    state = _state(child)
-    if state is None:
-        return child
-    client = state.get("client")
-    oid = state.get("oid")
-    if not isinstance(oid, int):
-        return _view(cls, child)
-    found = _LIVE.get((id(client), oid))
-    if isinstance(found, cls):
-        return found
-    return _view(cls, child)
-
-
-def _invoke(cls: type, func: object, call: tuple[object, tuple[object, ...], dict[str, object]]) -> object:
-    child, positional, named = call
-    if child is None:
-        if isinstance(func, classmethod):
-            return func.__func__(cls, *positional, **named)
-        bare = getattr(func, "__func__", func)
-        return bare(*positional, **named)
-    inst = _resolve(cls, child)
-    if isinstance(func, property):
-        return func.fget(inst)  # type: ignore[misc]
-    return func(inst, *positional, **named)  # type: ignore[operator]
-
-
-def _dispatcher(cls: type):
-    def dispatch(name: object, child: object, args: object, kwargs: object) -> object:
-        func = cls.__dict__[str(name)]
-        return _invoke(cls, func, (child, _args(args), _kwargs(kwargs)))
-
-    return dispatch
-
-
 def adopt(cls: type) -> None:
     """Build the child-side subclass that callbacks into ``cls``."""
 
@@ -153,7 +75,7 @@ def adopt(cls: type) -> None:
     cls._vset_adopting = True  # type: ignore[attr-defined]
     client, base_oid = found
     methods, attrs = _members(cls)
-    callback = _values().remember_callback(_dispatcher(cls))
+    callback = _values().remember_callback(_call.dispatcher(cls))
     created = client.exchange(  # type: ignore[attr-defined]
         {
             "op": "subclass",
@@ -197,7 +119,7 @@ def spawn(cls: type, args: tuple[object, ...], kwargs: dict[str, object]) -> obj
     inst = object.__new__(cls)
     object.__setattr__(inst, "client", client)
     object.__setattr__(inst, "oid", remote.oid)
-    _LIVE[(id(client), remote.oid)] = inst
+    _call.remember(client, remote.oid, inst)
     return inst
 
 
@@ -212,19 +134,19 @@ def _construct(
     object.__setattr__(obj, "client", client)
     object.__setattr__(obj, "oid", remote.oid)
     mark_ready(obj)
-    _LIVE[(id(client), remote.oid)] = obj
+    _call.remember(client, remote.oid, obj)
 
 
 def initialize(obj: object, args: tuple[object, ...], kwargs: dict[str, object]) -> None:
     """Run the candidate ``__init__`` once for a parent subclass instance."""
 
-    if _ready(obj):
+    if _call._ready(obj):
         return
     found = _candidate(type(obj))
     if found is None:
         return
     client, base = found
-    if not _bound(obj):
+    if not _call._bound(obj):
         _construct(obj, (client, base), (args, kwargs))
         return
     client.exchange(  # type: ignore[attr-defined]
