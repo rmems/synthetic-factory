@@ -132,6 +132,43 @@ _HONEST_TESTS = textwrap.indent(
 )
 
 
+_METHODS = textwrap.dedent(
+    """\
+    from collections import deque
+    class Vec(tuple):
+        def norm(self):
+            return sum(x * x for x in self)
+    class Lines(deque):
+        def first(self):
+            return self[0]
+    def vec():
+        return Vec((1, 2))
+    def lines():
+        return Lines(["a", "b"])
+    def total(a, b):
+        return a + b
+    """
+)
+
+_METHOD_TESTS = textwrap.indent(
+    textwrap.dedent(
+        """\
+        def test_vec(self):
+            self.assertEqual(c.vec().norm(), 5)
+            self.assertIsInstance(c.vec(), c.Vec)
+            self.assertEqual(c.vec(), (1, 2))
+        def test_lines(self):
+            self.assertEqual(c.lines().first(), "a")
+            self.assertIsInstance(c.lines(), c.Lines)
+            self.assertEqual(list(c.lines()), ["a", "b"])
+        def test_number(self):
+            self.assertEqual(c.total(1, 2), 3)
+        """
+    ),
+    "    ",
+)
+
+
 class StructuralForgeTests(unittest.TestCase):
     def test_userlist_record_is_refused(self) -> None:
         self.assertGreater(_error_count(_record(_USERLIST)), 0)
@@ -141,6 +178,10 @@ class StructuralForgeTests(unittest.TestCase):
 
     def test_honest_structural_values_compare(self) -> None:
         report, _statuses = _reference(_HONEST, _HONEST_TESTS)
+        self.assertTrue(report["reference"]["ok"], report["reference"])
+
+    def test_subclass_methods_stay_on_the_candidate(self) -> None:
+        report, _statuses = _reference(_METHODS, _METHOD_TESTS)
         self.assertTrue(report["reference"]["ok"], report["reference"])
 
     def test_container_wrappers_cannot_force_equality(self) -> None:

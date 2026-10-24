@@ -48,6 +48,18 @@ def _proxy(builtin: type) -> type:
     return created
 
 
+class _DequeMark:
+    _vset_deque = True
+
+
+def container_base(info: dict[str, object]) -> type | None:
+    """Parent stand-in for ``collections.deque`` described by the child."""
+
+    if info.get("container") != "deque":
+        return None
+    return _DequeMark
+
+
 def container_proxy(builtin: type) -> type | None:
     """List, dict, and set stay real containers while methods still forward."""
 

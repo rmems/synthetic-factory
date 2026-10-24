@@ -31,6 +31,7 @@ if __package__:  # pragma: no cover - package-child import path
     from .vset_oracle_shape import attach_dataclass_fields as _attach_dataclass_fields
     from .vset_oracle_shape import blank_instance as _blank_instance
     from .vset_oracle_shape import builtin_type as _builtin_type
+    from .vset_oracle_shape import container_base as _container_base
     from .vset_oracle_shape import container_proxy as _container_proxy
     from .vset_oracle_shape import parent_types as _parent_types
     from .vset_oracle_shape import remote_hash as _remote_hash
@@ -51,6 +52,7 @@ else:
     from vset_oracle_shape import attach_dataclass_fields as _attach_dataclass_fields
     from vset_oracle_shape import blank_instance as _blank_instance
     from vset_oracle_shape import builtin_type as _builtin_type
+    from vset_oracle_shape import container_base as _container_base
     from vset_oracle_shape import container_proxy as _container_proxy
     from vset_oracle_shape import parent_types as _parent_types
     from vset_oracle_shape import remote_hash as _remote_hash
@@ -200,12 +202,17 @@ _SNAP_OPS = {
 }
 
 
+def _marked_deque(obj: RemoteObject) -> bool:
+    for cls in type(obj).__mro__:
+        if cls.__dict__.get("_vset_deque") is True:
+            return True
+    return False
+
+
 def _container(obj: RemoteObject) -> bool:
-    if isinstance(obj, list):
+    if isinstance(obj, (list, dict, set, tuple)):
         return True
-    if isinstance(obj, dict):
-        return True
-    return isinstance(obj, set)
+    return _marked_deque(obj)
 
 
 def _container_answer(obj: RemoteObject, name: str, args: tuple[object, ...]) -> object:
@@ -301,6 +308,9 @@ class _RemoteMeta(type):
 
 
 def _class_from(client: object, info: dict[str, object]) -> type:
+    base = _container_base(info)
+    if base is not None:
+        return base
     builtin = _builtin_type(info)
     if builtin is not None:
         proxy = _container_proxy(builtin)
