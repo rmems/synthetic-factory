@@ -16,6 +16,7 @@ if str(_TESTS) not in sys.path:
 from vset_testutil import vset  # noqa: E402
 import vset_oracle_collect as collect  # noqa: E402
 import vset_oracle_subclass as subclass  # noqa: E402
+import vset_oracle_subclass_call as subclass_call  # noqa: E402
 
 
 def _pack(name: str) -> dict[str, str]:
@@ -521,14 +522,14 @@ class ParentOracleTests(unittest.TestCase):
             pass
 
         slot = Slot()
-        self.assertIsNone(subclass._state(slot))
+        self.assertIsNone(subclass_call._state(slot))
         subclass.mark_ready(1)
-        self.assertTrue(subclass._ready(slot))
-        self.assertFalse(subclass._bound(slot))
+        self.assertTrue(subclass_call._ready(slot))
+        self.assertFalse(subclass_call._bound(slot))
         self.assertEqual(subclass._encoded(None), [])
         self.assertEqual(subclass._encoded_map(None), {})
-        self.assertIs(subclass._view(Plain, slot), slot)
-        self.assertIs(subclass._resolve(Plain, slot), slot)
+        self.assertIs(subclass_call._view(Plain, slot), slot)
+        self.assertIs(subclass_call._resolve(Plain, slot), slot)
         made = subclass.spawn(Plain, (), {})
         self.assertIsInstance(made, Plain)
         subclass.adopt(Plain)
@@ -546,14 +547,14 @@ class ParentOracleTests(unittest.TestCase):
         child = Plain()
         child.client = None
         child.oid = "x"
-        view = subclass._resolve(Plain, child)
+        view = subclass_call._resolve(Plain, child)
         self.assertIsInstance(view, Plain)
-        self.assertTrue(subclass._ready(view))
-        dispatch = subclass._dispatcher(Plain)
+        self.assertTrue(subclass_call._ready(view))
+        dispatch = subclass_call.dispatcher(Plain)
         self.assertEqual(dispatch("area", child, None, None), 1)
         child.oid = 5
-        subclass._LIVE[(id(None), 5)] = "other"
-        self.assertIsInstance(subclass._resolve(Plain, child), Plain)
+        subclass_call._LIVE[(id(None), 5)] = "other"
+        self.assertIsInstance(subclass_call._resolve(Plain, child), Plain)
 
         class Caller:
             def call(self, oid, args, kwargs):
@@ -574,7 +575,7 @@ class ParentOracleTests(unittest.TestCase):
         box = object.__new__(type("Box", (Remote,), {}))
         subclass.initialize(box, (2,), {})
         self.assertEqual(box.oid, 11)
-        self.assertTrue(subclass._ready(box))
+        self.assertTrue(subclass_call._ready(box))
         subclass.initialize(Plain(), (), {})
         subclass.clear_live()
 

@@ -8,17 +8,18 @@ file-complexity gate.
 from __future__ import annotations
 
 import builtins
-import importlib
 import sys
 
 if __package__:  # pragma: no cover - package-child import path
     from . import _assert_direct_sibling, _expose_package_sibling
 
     _assert_direct_sibling("vset_oracle_exc")
+    from .vset_oracle_exc_lookup import stdlib_exception as _stdlib_exception
 else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
         "vset_oracle_exc"
     )
+    from vset_oracle_exc_lookup import stdlib_exception as _stdlib_exception
 
 _EXC_TYPES: dict[tuple[str, tuple[str, ...]], type[Exception]] = {}
 _EXC_OID: dict[tuple[int, int], type[Exception]] = {}
@@ -62,27 +63,6 @@ def _exc_bases(client: object, info: dict[str, object]) -> tuple[type[Exception]
     if not bases:
         return (Exception,)
     return tuple(bases)
-
-
-def _stdlib_exception(info: dict[str, object]) -> type[Exception] | None:
-    module_name = info.get("module")
-    qualname = info.get("qualname")
-    if not isinstance(module_name, str) or not isinstance(qualname, str):
-        return None
-    root = module_name.split(".", 1)[0]
-    if root not in sys.stdlib_module_names:
-        return None
-    try:
-        found: object = importlib.import_module(module_name)
-    except ImportError:
-        return None
-    for part in qualname.split("."):
-        found = getattr(found, part, None)
-        if found is None:
-            return None
-    if isinstance(found, type) and issubclass(found, Exception):
-        return found
-    return None
 
 
 def exc_from(client: object, info: dict[str, object]) -> type[Exception]:
