@@ -181,17 +181,30 @@ def _visible_lines(tests: Path) -> set[str]:
     return lines
 
 
+def _named_suite_line(text: str) -> bool:
+    """A hidden-suite name, not a shared ``assertRaises`` or docstring line."""
+
+    if "def test_" in text:
+        return True
+    return text.startswith("class ")
+
+
+def _keep_hidden_line(text: str, visible: set[str]) -> bool:
+    if len(text) < _MIN_DISTINCTIVE_LINE:
+        return False
+    if text in visible:
+        return False
+    return _named_suite_line(text)
+
+
 def _append_source_snippets(source: str, visible: set[str], snippets: list[str]) -> None:
     stripped = source.strip()
     if len(stripped) >= _MIN_HIDDEN_SNIPPET:
         snippets.append(stripped)
     for line in source.splitlines():
         text = line.strip()
-        if len(text) < _MIN_DISTINCTIVE_LINE:
-            continue
-        if text in visible:
-            continue
-        snippets.append(text)
+        if _keep_hidden_line(text, visible):
+            snippets.append(text)
 
 
 def _append_hidden_file(

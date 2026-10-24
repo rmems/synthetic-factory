@@ -91,6 +91,16 @@ class HiddenSuiteLeakForges(unittest.TestCase):
         errors, _execution = vset.validate_record_with_oracle(record, PACK)
         self.assertTrue(errors)
 
+    def test_generic_assert_line_passes_with_the_pack(self) -> None:
+        observation = (
+            "def test_parse(self):\n"
+            "    with self.assertRaises(ValueError):\n"
+            '        parse("x")\n'
+            "    self.assertEqual(counter.get(), 5)\n"
+        )
+        record = _record({"observations": [observation]})
+        self.assertEqual(vset.validate_record(record, pack_dir=PACK), [])
+
     def test_unrelated_test_code_in_observation_or_edit_passes(self) -> None:
         record = _record(
             {
