@@ -2,6 +2,18 @@
 
 from __future__ import annotations
 
+import sys
+
+if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("training_audit_bridge")
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "training_audit_bridge"
+    )
+
+
 if __package__:
     from .validate_run import (
         BRIDGE_SPIKE_EVENT_KEYS,
@@ -38,3 +50,7 @@ def event_stream_status(events, enclosing=None):
     if any(not error.startswith(order_error_prefix) for error in errors):
         return "invalid"
     return "unsorted" if errors else "sorted"
+
+
+if __package__:
+    _expose_package_sibling(__name__)

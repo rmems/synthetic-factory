@@ -25,6 +25,15 @@ import json
 import sys
 from pathlib import Path
 
+if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("quality_gate")
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "quality_gate"
+    )
+
 _PIPELINES = Path(__file__).resolve().parent
 if str(_PIPELINES) not in sys.path:
     sys.path.insert(0, str(_PIPELINES))
@@ -304,6 +313,10 @@ def main(argv=None):
         parser.error(str(exc))
     _emit_output(args, result, written)
     sys.exit(1 if result["blocked"] else 0)
+
+
+if __package__:
+    _expose_package_sibling(__name__)
 
 
 if __name__ == "__main__":

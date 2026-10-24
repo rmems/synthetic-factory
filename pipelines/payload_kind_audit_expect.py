@@ -15,6 +15,15 @@ from payload_kind_audit_parse import (
     _reject_unpaired_surrogates,
 )
 
+if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("payload_kind_audit_expect")
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "payload_kind_audit_expect"
+    )
+
 
 def _json_equal(left: Any, right: Any) -> bool:
     """Compare JSON values without Python's bool/int/float equivalence."""
@@ -85,3 +94,7 @@ def report_drift(audit: Mapping[str, Any], published: Mapping[str, Any], corpus:
         return 1
     print(f"published audit matches a fresh scan of {corpus}")
     return 0
+
+
+if __package__:
+    _expose_package_sibling(__name__)

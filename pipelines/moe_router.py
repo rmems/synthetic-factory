@@ -62,6 +62,9 @@ if str(_PIPELINES) not in sys.path:
 from oracle_grounded import distill_contract as oc  # noqa: E402
 
 if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("moe_router")
     from . import moe_check as _moe_check
     from . import moe_featurizer as _moe_featurizer
     from . import moe_generator as _moe_generator
@@ -76,6 +79,7 @@ if __package__:
         oracles_report,
     )
 else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)("moe_router")
     import moe_check as _moe_check
     import moe_featurizer as _moe_featurizer
     import moe_generator as _moe_generator
@@ -163,6 +167,10 @@ def main(argv: list[str] | None = None) -> int:  # NOSONAR - successful commands
         for record in records:
             print(oc.canonical_json(record))
     return 0
+
+
+if __package__:
+    _expose_package_sibling(__name__)
 
 
 if __name__ == "__main__":

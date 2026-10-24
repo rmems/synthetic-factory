@@ -26,6 +26,9 @@ if str(_PIPELINES) not in sys.path:
 from oracle_grounded import distill_contract as oc  # noqa: E402
 
 if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("energy_check")
     from .energy_audit_checks import (
         _check_fingerprinted_meter,
         _check_oracle_audit,
@@ -48,6 +51,9 @@ if __package__:
         _check_scenario_state,
     )
 else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "energy_check"
+    )
     from energy_audit_checks import (
         _check_fingerprinted_meter,
         _check_oracle_audit,
@@ -121,3 +127,7 @@ def check_family(record: dict[str, Any], where: str) -> list[str]:
         errors += _check_candidate_success(candidate, spot, quality_floor)
 
     return errors + _check_preference(result, candidates, quality_floor, where)
+
+
+if __package__:
+    _expose_package_sibling(__name__)

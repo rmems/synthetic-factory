@@ -3,11 +3,21 @@ from __future__ import annotations
 
 import contextlib
 import hashlib
+import sys
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from re import Pattern
 from typing import Any
+
+if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("curate_identity_checks")
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "curate_identity_checks"
+    )
 
 
 @dataclass(frozen=True)
@@ -307,4 +317,8 @@ def rollback_identity_tree(dest, created_files, created_directories):
 
 def sha256_bytes(payload: bytes) -> str:
     return hashlib.sha256(payload).hexdigest()
+
+
+if __package__:
+    _expose_package_sibling(__name__)
 
