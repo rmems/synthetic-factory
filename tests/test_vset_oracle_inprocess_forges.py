@@ -297,6 +297,51 @@ class InProcessForgeTests(unittest.TestCase):
         report, _statuses = _reference(source, tests)
         self.assertTrue(report["reference"]["ok"], report["reference"])
 
+    def test_derived_values_compare_with_literals(self) -> None:
+        source = "".join(
+            [
+                "class Money:\n",
+                "    def __init__(self, cents, qty=1):\n",
+                "        self.cents = cents\n",
+                "        self.qty = qty\n",
+                "    def __eq__(self, other):\n",
+                "        return self.cents == other\n",
+                "    def __gt__(self, other):\n",
+                "        return self.cents > other\n",
+                "class Ratio:\n",
+                "    def __init__(self, num, den):\n",
+                "        self.num = num\n",
+                "        self.den = den\n",
+                "    def __eq__(self, other):\n",
+                "        return self.num / self.den == other\n",
+                "class Version:\n",
+                "    def __init__(self, major, minor):\n",
+                "        self.major = major\n",
+                "        self.minor = minor\n",
+                "    def __lt__(self, other):\n",
+                "        return (self.major, self.minor) < tuple(other)\n",
+                "def money():\n",
+                "    return Money(500, qty=3)\n",
+                "def ratio():\n",
+                "    return Ratio(1, 2)\n",
+                "def version():\n",
+                "    return Version(1, 2)\n",
+            ]
+        )
+        tests = "".join(
+            [
+                "    def test_money(self):\n",
+                "        self.assertEqual(c.money(), 500)\n",
+                "        self.assertGreater(c.money(), 100)\n",
+                "    def test_ratio(self):\n",
+                "        self.assertEqual(c.ratio(), 0.5)\n",
+                "    def test_version(self):\n",
+                "        self.assertLess(c.version(), (1, 3))\n",
+            ]
+        )
+        report, _statuses = _reference(source, tests)
+        self.assertTrue(report["reference"]["ok"], report["reference"])
+
     def test_import_time_print_stays_inside_the_json_report(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             pack = Path(tmp) / "pack"
