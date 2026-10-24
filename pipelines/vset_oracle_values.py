@@ -8,7 +8,6 @@ unittest and ordinary assertions use.
 from __future__ import annotations
 
 import base64
-import builtins
 import sys
 from collections import Counter, OrderedDict, defaultdict
 from datetime import date, datetime, time, timedelta
@@ -21,10 +20,14 @@ if __package__:  # pragma: no cover - package-child import path
 
     _assert_direct_sibling("vset_oracle_values")
     from .vset_oracle_codec import apply_slots as _apply_slots
-    from .vset_oracle_shape import attach_dataclass_fields as _attach_dataclass_fields
-    from .vset_oracle_shape import blank_instance as _blank_instance
+    from .vset_oracle_exc import clear_exception_oids as _clear_exception_oids
+    from .vset_oracle_exc import exc_from as exc_from
+    from .vset_oracle_exc import exception_type as exception_type
+    from .vset_oracle_exc import raise_remote as raise_remote
     from .vset_oracle_rebuild import clear_named as _clear_named
     from .vset_oracle_rebuild import rebuild_namedtuple as _rebuild_namedtuple
+    from .vset_oracle_shape import attach_dataclass_fields as _attach_dataclass_fields
+    from .vset_oracle_shape import blank_instance as _blank_instance
     from .vset_oracle_shape import builtin_type as _builtin_type
     from .vset_oracle_shape import parent_types as _parent_types
     from .vset_oracle_shape import remote_hash as _remote_hash
@@ -34,17 +37,19 @@ else:
         "vset_oracle_values"
     )
     from vset_oracle_codec import apply_slots as _apply_slots
-    from vset_oracle_shape import attach_dataclass_fields as _attach_dataclass_fields
-    from vset_oracle_shape import blank_instance as _blank_instance
+    from vset_oracle_exc import clear_exception_oids as _clear_exception_oids
+    from vset_oracle_exc import exc_from as exc_from
+    from vset_oracle_exc import exception_type as exception_type
+    from vset_oracle_exc import raise_remote as raise_remote
     from vset_oracle_rebuild import clear_named as _clear_named
     from vset_oracle_rebuild import rebuild_namedtuple as _rebuild_namedtuple
+    from vset_oracle_shape import attach_dataclass_fields as _attach_dataclass_fields
+    from vset_oracle_shape import blank_instance as _blank_instance
     from vset_oracle_shape import builtin_type as _builtin_type
     from vset_oracle_shape import parent_types as _parent_types
     from vset_oracle_shape import remote_hash as _remote_hash
     from vset_oracle_shape import truth as _truth
 
-_EXC_TYPES: dict[tuple[str, tuple[str, ...]], type[Exception]] = {}
-_EXC_OID: dict[tuple[int, int], type[Exception]] = {}
 _CLASSES: dict[tuple[int, int], type] = {}
 _OBJECTS: dict[tuple[int, int], RemoteObject] = {}
 _SLOTS: dict[int, object] = {}
@@ -88,77 +93,6 @@ _STRICT = {
     "__index__",
     "__reversed__",
 }
-
-
-def _builtin_exception(name: str) -> type[Exception] | None:
-    found = getattr(builtins, name, None)
-    if not isinstance(found, type):
-        return None
-    if not issubclass(found, Exception):
-        return None
-    return found
-
-
-def _exception_parent(chain: tuple[str, ...]) -> type[Exception]:
-    if not chain:
-        return Exception
-    builtin = _builtin_exception(chain[0])
-    if builtin is not None:
-        return builtin
-    return exception_type(chain[0], chain[1:])
-
-
-def exception_type(name: str, chain: tuple[str, ...]) -> type[Exception]:
-    """Return one real exception class, preserving the candidate MRO."""
-
-    key = (name, chain)
-    found = _EXC_TYPES.get(key)
-    if found is not None:
-        return found
-    created = type(name, (_exception_parent(chain),), {})
-    _EXC_TYPES[key] = created
-    return created
-
-
-def _exc_bases(client: object, info: dict[str, object]) -> tuple[type[Exception], ...]:
-    raw = info.get("bases")
-    if not isinstance(raw, list) or not raw:
-        return (Exception,)
-    bases = [exc_from(client, item) for item in raw if isinstance(item, dict)]
-    if not bases:
-        return (Exception,)
-    return tuple(bases)
-
-
-def exc_from(client: object, info: dict[str, object]) -> type[Exception]:
-    """One parent class per candidate exception class, keyed by child identity."""
-
-    builtin_name = info.get("builtin")
-    if isinstance(builtin_name, str):
-        builtin = _builtin_exception(builtin_name)
-        if builtin is not None:
-            return builtin
-        return Exception
-    key = (id(client), int(info.get("oid") or -1))
-    found = _EXC_OID.get(key)
-    if found is not None:
-        return found
-    created = type(str(info.get("name") or "Error"), _exc_bases(client, info), {})
-    _EXC_OID[key] = created
-    return created
-
-
-def raise_remote(
-    cls: type[Exception],
-    args: tuple[object, ...],
-    attrs: dict[str, object],
-) -> None:
-    """Raise a candidate error without ever raising BaseException."""
-
-    exc = cls(*args)
-    for key, value in attrs.items():
-        setattr(exc, key, value)
-    raise exc
 
 
 class RemoteObject:
@@ -294,7 +228,7 @@ def reset_identity() -> None:
     _SLOTS.clear()
     _CALLBACKS.clear()
     _clear_named()
-    _EXC_OID.clear()
+    _clear_exception_oids()
 
 
 def remember_callback(value: object) -> int:
