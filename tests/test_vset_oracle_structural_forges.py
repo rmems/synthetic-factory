@@ -99,11 +99,22 @@ _STRUCT_TESTS = textwrap.indent(
 
 _HONEST = textwrap.dedent(
     """\
-    from collections import UserString, deque
+    import ipaddress
+    from collections import ChainMap, UserDict, UserList, UserString, deque
     class Row(tuple):
         pass
     def text():
         return UserString("alice")
+    def udict():
+        return UserDict({"a": 1})
+    def ulist():
+        return UserList([1, 2])
+    def chain():
+        return ChainMap({"a": 1})
+    def addr():
+        return ipaddress.ip_address("10.0.0.1")
+    def addr6():
+        return ipaddress.ip_address("::1")
     def seq():
         return Row((1, 2))
     def line():
@@ -118,6 +129,17 @@ _HONEST_TESTS = textwrap.indent(
         """\
         def test_text(self):
             self.assertEqual(c.text(), "alice")
+        def test_tables(self):
+            import ipaddress
+            from collections import ChainMap, UserDict, UserList
+            self.assertEqual(c.udict(), {"a": 1})
+            self.assertEqual(c.udict(), UserDict({"a": 1}))
+            self.assertEqual(c.ulist(), [1, 2])
+            self.assertEqual(c.ulist(), UserList([1, 2]))
+            self.assertEqual(c.chain(), {"a": 1})
+            self.assertEqual(c.chain(), ChainMap({"a": 1}))
+            self.assertLess(c.addr(), ipaddress.ip_address("10.0.0.2"))
+            self.assertEqual(c.addr6(), ipaddress.ip_address("::1"))
         def test_seq(self):
             self.assertEqual(c.seq(), (1, 2))
         def test_line(self):

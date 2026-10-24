@@ -9,10 +9,11 @@ from __future__ import annotations
 
 import array
 import base64
+import ipaddress
 import operator
 import sys
 import uuid
-from collections import Counter, OrderedDict, defaultdict, deque
+from collections import ChainMap, Counter, OrderedDict, UserDict, UserList, defaultdict, deque
 from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 from fractions import Fraction
@@ -401,6 +402,36 @@ def _array(_client: object, payload: dict[str, object]) -> array.array:
     return array.array(str(payload["typecode"]), list(payload["items"]))  # type: ignore[arg-type]
 
 
+def _table(client: object, rows: object) -> list[tuple[object, object]]:
+    return [(interpret(client, pair[0]), interpret(client, pair[1])) for pair in rows]  # type: ignore[index]
+
+
+def _userlist(client: object, payload: dict[str, object]) -> UserList[object]:
+    return UserList(interpret(client, item) for item in payload["items"])  # type: ignore[misc]
+
+
+def _userdict(client: object, payload: dict[str, object]) -> UserDict[str, object]:
+    return UserDict(_table(client, payload["items"]))
+
+
+def _chainmap(client: object, payload: dict[str, object]) -> ChainMap[str, object]:
+    maps = [dict(_table(client, rows)) for rows in payload["maps"]]  # type: ignore[union-attr]
+    return ChainMap(*maps)
+
+
+_IP = {
+    "IPv4Address": ipaddress.IPv4Address,
+    "IPv6Address": ipaddress.IPv6Address,
+}
+
+
+def _ip(_client: object, payload: dict[str, object]) -> object:
+    cls = _IP.get(str(payload["name"]))
+    if cls is None:
+        raise EOFError("bad worker reply")
+    return cls(str(payload["text"]))
+
+
 def _dict(client: object, payload: dict[str, object]) -> dict[object, object]:
     pairs = payload["items"]
     return {
@@ -586,6 +617,7 @@ _KINDS = {
     "complex": _complex, "range": _range, "slice": _slice, "timedelta": _timedelta,
     "time": _time, "path": _path, "counter": _counter, "ordered": _ordered,
     "deque": _deque, "uuid": _uuid, "array": _array,
+    "userlist": _userlist, "userdict": _userdict, "chainmap": _chainmap, "ip": _ip,
     "default": _default, "namedtuple": _rebuild_namedtuple,
     "state": _compare_state, "alias": _alias,
 }
