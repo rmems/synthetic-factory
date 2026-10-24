@@ -337,6 +337,7 @@ WORKER_OPS = (
     '\n',
     'sys.stdout = _Out()\n',
     'logging.getLogger().addHandler(_Log())\n',
+    'logging.getLogger().setLevel(1)\n',
     '\n',
     'while True:\n',
     '    line = sys.stdin.readline()\n',
