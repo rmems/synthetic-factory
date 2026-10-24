@@ -7,7 +7,6 @@ so the two files do not import each other at module scope.
 from __future__ import annotations
 
 import sys
-import unittest
 
 if __package__:  # pragma: no cover - package-child import path
     from . import _assert_direct_sibling, _expose_package_sibling
@@ -17,6 +16,11 @@ else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
         "vset_oracle_record"
     )
+
+if __package__:
+    from .vset_oracle_rebuild import live_collaborator
+else:
+    from vset_oracle_rebuild import live_collaborator
 
 
 def _values():
@@ -89,19 +93,6 @@ def _namedtuple_record(value: object) -> dict[str, object] | None:
     if items is None:
         return None
     return {"namedtuple": type(value).__name__, "fields": list(fields), "items": items}
-
-
-def live_collaborator(value: object) -> bool:
-    """Mocks and test-defined fakes stay live. ``TestCase`` does not."""
-
-    if isinstance(value, unittest.mock.Mock):
-        return True
-    if isinstance(value, unittest.TestCase):
-        return False
-    module = getattr(type(value), "__module__", "")
-    if not isinstance(module, str):
-        return False
-    return module.startswith("vset_oracle_")
 
 
 def _public_attr(value: object, key: str) -> object:

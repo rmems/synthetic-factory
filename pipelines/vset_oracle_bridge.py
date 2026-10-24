@@ -20,6 +20,7 @@ if __package__:  # pragma: no cover - package-child import path
 
     _assert_direct_sibling("vset_oracle_bridge")
     from .vset_oracle_codec import encode as _encode
+    from .vset_oracle_rebuild import exception_chain as _exception_chain
     from .vset_oracle_record import live_collaborator as _live_collaborator
     from .vset_oracle_record import receive as _receive_replies
     from . import vset_oracle_shape as shape
@@ -29,6 +30,7 @@ else:
         "vset_oracle_bridge"
     )
     from vset_oracle_codec import encode as _encode
+    from vset_oracle_rebuild import exception_chain as _exception_chain
     from vset_oracle_record import live_collaborator as _live_collaborator
     from vset_oracle_record import receive as _receive_replies
     import vset_oracle_shape as shape
@@ -115,15 +117,6 @@ def _relay(reply: dict[str, object]) -> bool:
 
 def _receive(client: object, proc: object) -> object:
     return _receive_replies(client, proc, (_read_reply, _send, _answer, _relay))
-
-
-def _exception_chain(exc: Exception) -> list[str]:
-    names: list[str] = []
-    for base in type(exc).__mro__[1:]:
-        if base is BaseException or base is object:
-            break
-        names.append(base.__name__)
-    return names
 
 
 def _answer(client: object, message: dict[str, object]) -> dict[str, object]:
