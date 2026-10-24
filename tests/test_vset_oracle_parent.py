@@ -14,6 +14,8 @@ if str(_TESTS) not in sys.path:
     sys.path.insert(0, str(_TESTS))
 
 from vset_testutil import vset  # noqa: E402
+import vset_oracle_collect as collect  # noqa: E402
+import vset_oracle_subclass as subclass  # noqa: E402
 
 
 def _pack(name: str) -> dict[str, str]:
@@ -349,4 +351,186 @@ class ParentOracleTests(unittest.TestCase):
             self.assertIs(unittest.TestCase.assertEqual, original)
         finally:
             unittest.TestCase.assertEqual = original
+
+    def test_collection_keeps_suites_that_subclass_a_candidate(self) -> None:
+        source = (
+            "import unittest\n"
+            "import shapes\n"
+            "class Square(shapes.Base):\n"
+            "    def area(self):\n"
+            "        return self.side * self.side\n"
+            "class T(unittest.TestCase):\n"
+            "    def test_square(self):\n"
+            "        self.assertEqual(Square(3).area(), 9)\n"
+            "    def test_plain(self):\n"
+            "        self.assertTrue(True)\n"
+        )
+        spec = {"module": "vset_oracle_tests_sub", "relative": "tests/sub.py", "source": source}
+        collect.require_match(
+            spec,
+            [
+                "vset_oracle_tests_sub.T.test_plain",
+                "vset_oracle_tests_sub.T.test_square",
+            ],
+            {"sub.py": source},
+        )
+
+    def test_parent_subclass_of_a_candidate_class_runs(self) -> None:
+        self._ok_files(
+            "use.py",
+            {
+                "src/shapes.py": (
+                    "class Base:\n"
+                    "    built = 0\n"
+                    "    def __init__(self, side):\n"
+                    "        Base.built += 1\n"
+                    "        self.side = side\n"
+                    "    def area(self):\n"
+                    "        return self.side\n"
+                    "    def describe(self):\n"
+                    "        return self.area()\n"
+                ),
+                "tests/use.py": (
+                    "import unittest\n"
+                    "import shapes\n"
+                    "class Square(shapes.Base):\n"
+                    "    label = 'square'\n"
+                    "    def __init__(self, side):\n"
+                    "        super().__init__(side)\n"
+                    "        self.kind = 'square'\n"
+                    "    def area(self):\n"
+                    "        return self.side * self.side\n"
+                    "class T(unittest.TestCase):\n"
+                    "    def test_square(self):\n"
+                    "        value = Square(3)\n"
+                    "        self.assertEqual(value.area(), 9)\n"
+                    "        self.assertEqual(value.describe(), 9)\n"
+                    "        self.assertEqual(value.kind, 'square')\n"
+                    "        self.assertIsInstance(value, Square)\n"
+                    "        self.assertIsInstance(value, shapes.Base)\n"
+                    "        self.assertEqual(shapes.Base.built, 1)\n"
+                    "    def test_plain(self):\n"
+                    "        self.assertEqual(shapes.Base(2).area(), 2)\n"
+                    "        self.assertEqual(shapes.Base.built, 1)\n"
+                    "    def test_inner(self):\n"
+                    "        class Inner(shapes.Base):\n"
+                    "            def area(self):\n"
+                    "                return self.side + 1\n"
+                    "        self.assertEqual(Inner(4).area(), 5)\n"
+                    "        self.assertEqual(Inner(4).describe(), 5)\n"
+                ),
+            },
+        )
+
+    def test_nested_subclass_uses_the_parent_override(self) -> None:
+        self._ok_files(
+            "use.py",
+            {
+                "src/shapes.py": (
+                    "class Base:\n"
+                    "    def __init__(self, side):\n"
+                    "        self.side = side\n"
+                    "    def describe(self):\n"
+                    "        return self.area()\n"
+                ),
+                "tests/use.py": (
+                    "import unittest\n"
+                    "import shapes\n"
+                    "class Square(shapes.Base):\n"
+                    "    def __init__(self, side):\n"
+                    "        super().__init__(side)\n"
+                    "        self.kind = 'square'\n"
+                    "    def area(self):\n"
+                    "        return self.side * self.side\n"
+                    "class Cube(Square):\n"
+                    "    def area(self):\n"
+                    "        return self.side * 3\n"
+                    "class T(unittest.TestCase):\n"
+                    "    def test_cube(self):\n"
+                    "        value = Cube(3)\n"
+                    "        self.assertEqual(value.area(), 9)\n"
+                    "        self.assertEqual(value.describe(), 9)\n"
+                    "        self.assertEqual(value.kind, 'square')\n"
+                    "        self.assertIsInstance(value, Square)\n"
+                ),
+            },
+        )
+
+    def test_subclass_fallbacks_stay_closed(self) -> None:
+        class Slot:
+            __slots__ = ()
+
+        class Plain:
+            def area(self):
+                return 1
+
+        class Marked:
+            _vset_child = 1
+
+        class Busy:
+            _vset_adopting = True
+
+        class Held:
+            _vset_child = 3
+
+        class Kid(Held):
+            pass
+
+        slot = Slot()
+        self.assertIsNone(subclass._state(slot))
+        subclass.mark_ready(1)
+        self.assertTrue(subclass._ready(slot))
+        self.assertFalse(subclass._bound(slot))
+        self.assertEqual(subclass._encoded(None), [])
+        self.assertEqual(subclass._encoded_map(None), {})
+        self.assertIs(subclass._view(Plain, slot), slot)
+        self.assertIs(subclass._resolve(Plain, slot), slot)
+        made = subclass.spawn(Plain, (), {})
+        self.assertIsInstance(made, Plain)
+        subclass.adopt(Plain)
+        subclass.adopt(Marked)
+        subclass.adopt(Busy)
+        subclass.adopt(Kid)
+        with self.assertRaises(TypeError):
+            subclass.spawn(type("Num", (int,), {}), (), {})
+
+    def test_unbound_subclass_uses_the_candidate_constructor(self) -> None:
+        class Plain:
+            def area(self):
+                return 1
+
+        child = Plain()
+        child.client = None
+        child.oid = "x"
+        view = subclass._resolve(Plain, child)
+        self.assertIsInstance(view, Plain)
+        self.assertTrue(subclass._ready(view))
+        dispatch = subclass._dispatcher(Plain)
+        self.assertEqual(dispatch("area", child, None, None), 1)
+        child.oid = 5
+        subclass._LIVE[(id(None), 5)] = "other"
+        self.assertIsInstance(subclass._resolve(Plain, child), Plain)
+
+        class Caller:
+            def call(self, oid, args, kwargs):
+                self.got = (oid, args, kwargs)
+                return type("Remote", (), {"oid": 11})()
+
+        caller = Caller()
+
+        class Remote:
+            _vset_oid = 8
+            _vset_client = caller
+
+        class Num(Remote, int):
+            pass
+
+        self.assertEqual(subclass.spawn(Num, (1,), {"k": 2}).oid, 11)
+        self.assertEqual(caller.got[0], 8)
+        box = object.__new__(type("Box", (Remote,), {}))
+        subclass.initialize(box, (2,), {})
+        self.assertEqual(box.oid, 11)
+        self.assertTrue(subclass._ready(box))
+        subclass.initialize(Plain(), (), {})
+        subclass.clear_live()
 

@@ -29,6 +29,12 @@ class _Stub:
     def __call__(self, *args: object, **kwargs: object) -> _Stub:
         return self
 
+    def __mro_entries__(self, bases: tuple[object, ...]) -> tuple[type, ...]:
+        # Collection must not import src/. Dropping the stub base lets
+        # ``class Square(Base)`` finish so honest tests in the same module
+        # still match the source walk. The real base is used when grading.
+        return ()
+
     def __getattr__(self, name: str) -> _Stub:
         return _Stub()
 
