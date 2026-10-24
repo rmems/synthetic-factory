@@ -232,20 +232,24 @@ def _file_table(digests: dict[str, str], counts: dict[str, int]) -> list[str]:
 
 
 def train_only_omission(counts: dict[str, dict[str, int]]) -> str | None:
-    """Warn when train rows exist and the held-out consumer split is empty.
+    """Name consumer splits that are empty while train rows exist.
 
-    Generator 2.1.0 draws train programs only. The bundle still omits empty
-    splits; this sentence is what makes that omission visible.
+    The sentence follows the counts. It names ``validation`` only when that
+    split is empty, and it does not attribute the omission to a generator version.
     """
 
     sft = counts.get("sft") or {}
-    if sft.get("train") and not sft.get("held_out"):
-        return (
-            "Generator 2.1.0 draws train-split programs only, so the `validation` and "
-            "`held_out` consumer files are empty and those splits are omitted from the "
-            "configs. That omission is limitation `TRAIN_ONLY_DRAW_OMITS_EVAL_SPLITS`."
-        )
-    return None
+    if not sft.get("train") or sft.get("held_out"):
+        return None
+    empty = tuple(split for split in ("validation", "held_out") if not sft.get(split))
+    named = " and ".join(f"`{split}`" for split in empty)
+    plural = len(empty) > 1
+    files = "files are" if plural else "file is"
+    splits = "those splits are" if plural else "that split is"
+    return (
+        f"The {named} consumer {files} empty and {splits} omitted from the "
+        "configs. That omission is limitation `TRAIN_ONLY_DRAW_OMITS_EVAL_SPLITS`."
+    )
 
 
 def _card_splits(facts: BundleFacts) -> list[str]:
