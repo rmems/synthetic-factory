@@ -106,6 +106,9 @@ class _Client:
             }
         )
 
+    def materialize(self, oid: int) -> object:
+        return self.exchange({"op": "view", "oid": oid})
+
 
 class _RemoteLoader:
     def __init__(self, client: _Client, fullname: str) -> None:
