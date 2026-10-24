@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import math
+import re
 import sys
 from pathlib import Path
 from typing import Any, Mapping
@@ -18,7 +19,7 @@ if __package__:  # pragma: no cover - package-child import path
     from . import _assert_direct_sibling, _expose_package_sibling
 
     _assert_direct_sibling("vset_record_checks")
-    from .curate_coding import contains_hidden_reasoning_key, normalized_key_name
+    from .curate_coding import contains_hidden_reasoning_key
     from .curate_identity import REGISTRY_SCHEMA_VERSION
     from .vset_constants import (
         CURATION_DECISIONS,
@@ -29,6 +30,7 @@ if __package__:  # pragma: no cover - package-child import path
         VSetValidationError,
         _is_nonempty,
         _is_sha256,
+        normalize_identity,
         reason_codes_error,
         registry_pin,
 )
@@ -36,7 +38,7 @@ else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
         "vset_record_checks"
     )
-    from curate_coding import contains_hidden_reasoning_key, normalized_key_name
+    from curate_coding import contains_hidden_reasoning_key
     from curate_identity import REGISTRY_SCHEMA_VERSION
     from vset_constants import (
         CURATION_DECISIONS,
@@ -47,6 +49,7 @@ else:
         VSetValidationError,
         _is_nonempty,
         _is_sha256,
+        normalize_identity,
         reason_codes_error,
         registry_pin,
 )
@@ -258,30 +261,46 @@ _TRAINING_VIEW_LEAKS = frozenset(
     }
 )
 
-# A training view may name a suite in prose ("hidden tests not certified").
-# It may not carry the suite module itself. These are the pasted-source shape,
-# matched case-insensitively at any depth.
+# A training view may name a suite in prose ("hidden tests not certified") and
+# may quote one of these phrases. Pasted suite source carries every marker at
+# once. The same scan applies to values and to mapping keys.
 _SUITE_SOURCE_MARKERS = ("def test_", "import unittest")
 
 
+_CAMEL_BOUNDARY = re.compile(r"(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])")
+
+
 def _training_view_key(key: Any) -> str:
-    """Fold case, separators, and camel-case so ``HIDDEN_TESTS`` matches."""
-    return normalized_key_name(key)
+    """Fold case, camel-case, and lookalikes so ``HIDDEN_TESTS`` matches.
+
+    Camel boundaries are split before the identity fold. ``normalize_identity``
+    maps confusable letters such as Cyrillic ``т``; splitting every capital
+    would turn ``HIDDEN_TESTS`` into a string of single letters.
+    """
+
+    folded = normalize_identity(_CAMEL_BOUNDARY.sub("_", str(key)))
+    return folded.replace("-", "_")
 
 
 def _suite_source_leaks(value: str) -> bool:
     folded = value.casefold()
-    return any(marker in folded for marker in _SUITE_SOURCE_MARKERS)
+    return all(marker in folded for marker in _SUITE_SOURCE_MARKERS)
+
+
+def _key_leaks(key: Any) -> bool:
+    if _training_view_key(key) in _TRAINING_VIEW_LEAKS:
+        return True
+    return isinstance(key, str) and _suite_source_leaks(key)
 
 
 def _mapping_leaks(value: dict[str, Any]) -> bool:
-    if any(_training_view_key(key) in _TRAINING_VIEW_LEAKS for key in value):
+    if any(_key_leaks(key) for key in value):
         return True
     return any(_training_view_leaks(item) for item in value.values())
 
 
 def _training_view_leaks(value: Any) -> bool:
-    """Walk dicts and lists. Keys are case-insensitive; strings are suite source."""
+    """Walk dicts and lists. Keys and strings are checked at every depth."""
     if isinstance(value, str):
         return _suite_source_leaks(value)
     if isinstance(value, dict):

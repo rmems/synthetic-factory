@@ -19,15 +19,19 @@ if str(_TESTS) not in sys.path:
 from vset_testutil import ACCEPT, PACK, load_record as _load, vset  # noqa: E402
 
 HIDDEN = (PACK / "tests/hidden_sub.py").read_text(encoding="utf-8")
+# A path list has none of the pasted-source markers, so a renamed key has to
+# be refused on its own. The value-only case is the suite text under an
+# innocent key.
+SUITE_PATH = ["tests/hidden_sub.py"]
 
 FORGES = {
-    "HIDDEN_TESTS": {"HIDDEN_TESTS": HIDDEN},
-    "private_tests": {"private_tests": HIDDEN},
-    "oracle_suite": {"oracle_suite": HIDDEN},
-    "grading_tests": {"grading_tests": HIDDEN},
-    "tests_source": {"tests_source": HIDDEN},
-    "nested_object": {"notes": {"private_tests": HIDDEN}},
-    "nested_list": {"extras": [{"grading_tests": HIDDEN}]},
+    "HIDDEN_TESTS": {"HIDDEN_TESTS": SUITE_PATH},
+    "private_tests": {"private_tests": SUITE_PATH},
+    "oracle_suite": {"oracle_suite": SUITE_PATH},
+    "grading_tests": {"grading_tests": SUITE_PATH},
+    "tests_source": {"tests_source": SUITE_PATH},
+    "nested_object": {"notes": {"private_tests": SUITE_PATH}},
+    "nested_list": {"extras": [{"grading_tests": SUITE_PATH}]},
     "value_only": {"decision_basis": HIDDEN},
 }
 
@@ -45,7 +49,29 @@ class HiddenSuiteLeakForges(unittest.TestCase):
         self.assertEqual(vset.validate_record(_record()), [])
 
     def test_control_lowercase_hidden_tests_caught(self) -> None:
-        record = _record({"hidden_tests": HIDDEN})
+        record = _record({"hidden_tests": SUITE_PATH})
+        self.assertTrue(vset.validate_record(record))
+        errors, _execution = vset.validate_record_with_oracle(record, PACK)
+        self.assertTrue(errors)
+
+    def test_lookalike_hidden_tests_key_is_refused(self) -> None:
+        # Cyrillic small te, U+0442, folds to ASCII t.
+        record = _record({"hidden_\u0442ests": SUITE_PATH})
+        self.assertTrue(vset.validate_record(record))
+
+    def test_one_quoted_marker_in_prose_passes(self) -> None:
+        for prose in (
+            "The note quotes def test_ as an example.",
+            "The note quotes import unittest as an example.",
+        ):
+            with self.subTest(prose=prose):
+                self.assertEqual(
+                    vset.validate_record(_record({"decision_basis": prose})),
+                    [],
+                )
+
+    def test_suite_text_used_as_a_key_is_refused(self) -> None:
+        record = _record({HIDDEN: "notes"})
         self.assertTrue(vset.validate_record(record))
         errors, _execution = vset.validate_record_with_oracle(record, PACK)
         self.assertTrue(errors)
