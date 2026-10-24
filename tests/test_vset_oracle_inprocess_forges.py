@@ -10,6 +10,7 @@ import shutil
 import subprocess  # nosec B404
 import sys
 import tempfile
+import textwrap
 import unittest
 from pathlib import Path
 
@@ -202,33 +203,40 @@ class InProcessForgeTests(unittest.TestCase):
         _expect_refused(self, source, tests, ("test_equal", "test_almost"))
 
     def test_module_label_and_failing_state_cannot_force_equality(self) -> None:
-        source = (
-            "class Liar:\n"
-            "    __module__ = 'json'\n"
-            "    def __eq__(self, other):\n"
-            "        return True\n"
-            "    __hash__ = None\n"
-            "class Hidden:\n"
-            "    @property\n"
-            "    def __dict__(self):\n"
-            "        raise RuntimeError('no')\n"
-            "    def __eq__(self, other):\n"
-            "        return True\n"
-            "    __hash__ = None\n"
-            "def liar():\n"
-            "    return Liar()\n"
-            "def hidden():\n"
-            "    return Hidden()\n"
-            "def total(a, b):\n"
-            "    return a + b\n"
+        source = textwrap.dedent(
+            """\
+            class Liar:
+                __module__ = 'json'
+                def __eq__(self, other):
+                    return True
+                __hash__ = None
+            class Hidden:
+                @property
+                def __dict__(self):
+                    raise RuntimeError('no')
+                def __eq__(self, other):
+                    return True
+                __hash__ = None
+            def liar():
+                return Liar()
+            def hidden():
+                return Hidden()
+            def total(a, b):
+                return a + b
+            """
         )
-        tests = (
-            "    def test_module(self):\n"
-            "        self.assertEqual(c.liar(), 1)\n"
-            "    def test_state(self):\n"
-            "        self.assertEqual(c.hidden(), 1)\n"
-            "    def test_number(self):\n"
-            "        self.assertEqual(c.total(1, 2), 3)\n"
+        tests = textwrap.indent(
+            textwrap.dedent(
+                """\
+                def test_module(self):
+                    self.assertEqual(c.liar(), 1)
+                def test_state(self):
+                    self.assertEqual(c.hidden(), 1)
+                def test_number(self):
+                    self.assertEqual(c.total(1, 2), 3)
+                """
+            ),
+            "    ",
         )
         _expect_refused(self, source, tests, ("test_module", "test_state"))
 
@@ -294,41 +302,93 @@ class InProcessForgeTests(unittest.TestCase):
         self.assertTrue(report["reference"]["ok"], report["reference"])
 
     def test_extra_fields_and_tuples_still_compare(self) -> None:
-        source = "".join(
+        source = "\n".join(
             [
-                "class Money:\n",
-                "    def __init__(self, cents, currency='USD'):\n",
-                "        self.cents = cents\n",
-                "        self.currency = currency\n",
-                "    def __eq__(self, other):\n",
-                "        if isinstance(other, int):\n",
-                "            return self.cents == other\n",
-                "        return NotImplemented\n",
-                "    def __lt__(self, other):\n",
-                "        return self.cents < other\n",
-                "class Version:\n",
-                "    def __init__(self, major, minor):\n",
-                "        self.major = major\n",
-                "        self.minor = minor\n",
-                "    def __eq__(self, other):\n",
-                "        return (self.major, self.minor) == tuple(other)\n",
-                "def money():\n",
-                "    return Money(500)\n",
-                "def version():\n",
-                "    return Version(1, 2)\n",
+                "class Money:",
+                "    def __init__(self, cents, currency='USD'):",
+                "        self.cents = cents",
+                "        self.currency = currency",
+                "    def __eq__(self, other):",
+                "        if isinstance(other, int):",
+                "            return self.cents == other",
+                "        return NotImplemented",
+                "    def __lt__(self, other):",
+                "        return self.cents < other",
+                "class Version:",
+                "    def __init__(self, major, minor):",
+                "        self.major = major",
+                "        self.minor = minor",
+                "    def __eq__(self, other):",
+                "        return (self.major, self.minor) == tuple(other)",
+                "def money():",
+                "    return Money(500)",
+                "def version():",
+                "    return Version(1, 2)",
+                "",
             ]
         )
-        tests = "".join(
+        tests = "\n".join(
             [
-                "    def test_money(self):\n",
-                "        self.assertEqual(c.money(), 500)\n",
-                "        self.assertLess(c.money(), 600)\n",
-                "    def test_version(self):\n",
-                "        self.assertEqual(c.version(), (1, 2))\n",
+                "    def test_money(self):",
+                "        self.assertEqual(c.money(), 500)",
+                "        self.assertLess(c.money(), 600)",
+                "    def test_version(self):",
+                "        self.assertEqual(c.version(), (1, 2))",
             ]
         )
         report, _statuses = _reference(source, tests)
         self.assertTrue(report["reference"]["ok"], report["reference"])
+
+    @unittest.expectedFailure
+    def test_derived_values_compare_with_literals(self) -> None:
+        """Field agreement rejects derived and multi-number values.
+
+        These pass in-process on main. A probe that made them pass was a
+        pass channel, so the rejection stays visible here.
+        """
+
+        money = (
+            "class Money:\n"
+            " def __init__(self, cents, qty):\n"
+            "  self.cents = cents\n"
+            "  self.qty = qty\n"
+            " def __eq__(self, other):\n"
+            "  return self.cents == other\n"
+            " def __gt__(self, other):\n"
+            "  return self.cents > other\n"
+            "def money():\n"
+            " return Money(500, 3)\n"
+        )
+        ratio = (
+            "class Ratio:\n"
+            " def __init__(self, n, d):\n"
+            "  self.n = n\n"
+            "  self.d = d\n"
+            " def __eq__(self, other):\n"
+            "  return self.n / self.d == other\n"
+            "def ratio():\n"
+            " return Ratio(1, 2)\n"
+        )
+        version = (
+            "class Version:\n"
+            " def __init__(self, major, minor):\n"
+            "  self.major = major\n"
+            "  self.minor = minor\n"
+            " def __lt__(self, other):\n"
+            "  return (self.major, self.minor) < tuple(other)\n"
+            "def version():\n"
+            " return Version(1, 2)\n"
+        )
+        suites = (
+            (money, "    def test_money(self):\n        self.assertEqual(c.money(), 500)\n        self.assertGreater(c.money(), 100)\n"),
+            (ratio, "    def test_ratio(self):\n        self.assertEqual(c.ratio(), 0.5)\n"),
+            (version, "    def test_version(self):\n        self.assertLess(c.version(), (1, 3))\n"),
+        )
+        seen = []
+        for source, tests in suites:
+            report, _statuses = _reference(source, tests)
+            seen.append(report["reference"]["ok"])
+        self.assertTrue(all(seen), seen)
 
     def test_one_true_answer_and_known_samples_cannot_force_equality(self) -> None:
         tail = "__hash__ = None\ndef add(a, b):\n    return E()\ndef total(a, b):\n    return a + b\n"
