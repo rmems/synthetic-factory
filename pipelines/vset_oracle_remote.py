@@ -148,9 +148,7 @@ class _Finder:
         root = fullname.split(".", 1)[0]
         if root in self._local:
             return None
-        if root in self._src:
-            return importlib.util.spec_from_loader(fullname, _RemoteLoader(self._client, fullname))
-        if root in sys.stdlib_module_names:
+        if root not in self._src:
             return None
         return importlib.util.spec_from_loader(fullname, _RemoteLoader(self._client, fullname))
 
