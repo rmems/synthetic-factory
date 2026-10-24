@@ -106,6 +106,8 @@ def percentile(values, fraction):
 
 
 canonical_blob = _record_audit.canonical_blob
+content_identity_blob = _record_audit.content_identity_blob
+declared_label_errors = _record_audit.declared_label_errors
 CURATED_FORBIDDEN_REASONING_KEYS = _record_audit.CURATED_FORBIDDEN_REASONING_KEYS
 dict_field = _record_audit.dict_field
 has_observable_decision_basis = _record_audit.has_observable_decision_basis
