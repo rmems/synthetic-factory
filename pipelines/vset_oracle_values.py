@@ -218,7 +218,7 @@ def _container(obj: RemoteObject) -> bool:
 def _container_answer(obj: RemoteObject, name: str, args: tuple[object, ...]) -> object:
     snap = obj.client.materialize(obj.oid)  # type: ignore[attr-defined]
     if name == "__contains__":
-        return args[0] in snap
+        return bool(args[0] in snap)
     return bool(_SNAP_OPS[name](snap, args[0]))
 
 

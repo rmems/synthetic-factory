@@ -151,31 +151,36 @@ def _user_defined(info: dict[str, object], name: str) -> bool:
     return name in user
 
 
-def _agreed(name: str, info: dict[str, object], result: object, other: object) -> object:
+def _agreed(name: str, info: dict[str, object], other: object) -> bool:
     fields = info.get("fields")
     if not isinstance(fields, dict):
-        return NotImplemented
-    if _agrees(name, fields, other):
-        return result
-    return NotImplemented
-
-
-def _needs_data(result: object, info: dict[str, object], name: str) -> bool:
-    if not _affirms(result):
         return False
-    return _user_defined(info, name)
+    return _agrees(name, fields, other)
+
+
+def _frozen(info: dict[str, object] | None, name: str, verdict: bool) -> bool:
+    if info is None:
+        return True
+    if not verdict:
+        return True
+    return not _user_defined(info, name)
 
 
 def decide(name: str, result: object, info: dict[str, object] | None, other: object) -> object:
-    """Keep a candidate comparison when the same-kind fields agree."""
+    """Return one parent bool. A later read must not see a different answer."""
 
-    if info is None:
+    if name not in _CHECKED:
         return result
-    if not _needs_data(result, info, name):
-        return result
+    if result is NotImplemented:
+        return NotImplemented
+    verdict = _affirms(result)
+    if _frozen(info, name, verdict):
+        return verdict
     if name == "__contains__":
         return NotImplemented
-    return _agreed(name, info, result, other)
+    if not _agreed(name, info, other):
+        return NotImplemented
+    return verdict
 
 
 if __package__:  # pragma: no cover - package-child import path
