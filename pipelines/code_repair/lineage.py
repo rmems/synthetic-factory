@@ -25,6 +25,11 @@ from ._contract import bind_import_twin, oc
 SPLIT_ALGORITHM = "sha256-atomic-bucket-v1"
 SPLITS = ("train", "validation", "held_out")
 _DROPPED_FIELDS = frozenset({"annotation", "returns", "type_comment", "type_params"})
+# Python 3.15 (PEP 810) adds ``is_lazy`` to ``Import`` and ``ImportFrom``.
+# The sealed catalog was digested without that field. An eager import leaves
+# it false, which is the same structure 3.14 parsed, so the default is
+# omitted. A real ``lazy import`` keeps the field.
+_DEFAULT_OMITTED_FIELDS = frozenset({"is_lazy"})
 
 __all__ = [
     "SPLITS", "SPLIT_ALGORITHM", "SplitPolicy", "anchor_for", "bucket_split", "canonical_ast",
@@ -173,7 +178,11 @@ def _is_identifier(node: ast.AST, name: str, value: Any) -> bool:
 
 
 def _serialise_node(node: ast.AST, namer: _Namer) -> list:
-    kept = [name for name in node._fields if name not in _DROPPED_FIELDS]
+    kept = [
+        name for name in node._fields
+        if name not in _DROPPED_FIELDS
+        and not (name in _DEFAULT_OMITTED_FIELDS and not getattr(node, name))
+    ]
     fields = [[name, _serialise(_field_value(node, name, namer), namer)] for name in kept]
     return [type(node).__name__, fields]
 

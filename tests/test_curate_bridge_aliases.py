@@ -107,7 +107,10 @@ class PresenceAwareAliases(unittest.TestCase):
                     check.pop("mean_rate_hz")
                 if "window_ms" in values and "window_s" not in values:
                     check.pop("window_s")
-                record["gate_compute"] = {"per_check": [check]}
+                record["gate_compute"] = {
+                    "per_check": [check],
+                    "total_energy_pJ": check["spikes"] * curate_bridge.RASTER_ENERGY_PJ_PER_SPIKE,
+                }
                 self.assertTrue(status(record)["raster_valid"])
 
 
@@ -135,7 +138,7 @@ class DeclaredGateComputeTotals(unittest.TestCase):
                         result["reason_codes"],
                     )
 
-    def test_zero_totals_match_an_absent_or_empty_check_set(self):
+    def test_zero_totals_do_not_stand_in_for_omitted_checks(self):
         for gate_compute in (
             {"total_energy_pJ": 0, "total_energy_uJ": 0},
             {
@@ -148,8 +151,22 @@ class DeclaredGateComputeTotals(unittest.TestCase):
                 record = gate_snn_fixture()
                 record["gate_compute"] = gate_compute
                 result = status(record)
-                self.assertTrue(result["raster_valid"], result["reason_codes"])
-                self.assertTrue(result["evidence"]["gate_compute_energy_valid"])
+                self.assertFalse(result["raster_valid"])
+                self.assertIn(curate_bridge.REASON_RASTER_SPIKE_BUDGET, result["reason_codes"])
+                self.assertFalse(result["evidence"]["gate_compute_energy_valid"])
+
+    def test_a_declared_zero_spike_check_still_matches_zero_energy(self):
+        record = gate_snn_fixture()
+        record["gate_compute"] = {
+            "per_check": [
+                {"neurons": 1, "mean_rate_hz": 1.0, "window_s": 0.4, "spikes": 0}
+            ],
+            "total_energy_uJ": 0,
+            "total_energy_pJ": 0,
+        }
+        result = status(record)
+        self.assertTrue(result["raster_valid"], result["reason_codes"])
+        self.assertTrue(result["evidence"]["gate_compute_energy_valid"])
 
 
 class NonblankSchemaParity(unittest.TestCase):

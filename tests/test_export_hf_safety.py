@@ -463,6 +463,10 @@ class ExportMemberFifoSwap(unittest.TestCase):
                         os.pwrite(writer, b"B" * chunk_size, chunk_size)
                     finally:
                         os.close(writer)
+                    # A same-nanosecond pwrite can leave st_mtime_ns unchanged,
+                    # which is the identity the reader compares.
+                    observed = os.stat(member)
+                    os.utime(member, ns=(observed.st_atime_ns, observed.st_mtime_ns + 1))
                 return chunk
 
             with mock.patch.object(
