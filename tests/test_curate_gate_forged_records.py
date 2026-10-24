@@ -60,6 +60,33 @@ def _labels(records):
     records[0]["source_kind"] = "human_verified"
 
 
+def _manifest_blockers(fixture):
+    try:
+        manifest = fixture.manifest()
+    except (OSError, ValueError):
+        return []
+    blockers = list(manifest.get("blockers") or [])
+    audit = (manifest.get("gates") or {}).get("training_audit") or {}
+    blockers.extend(audit.get("blockers") or [])
+    return blockers
+
+
+def _written_review(fixture, review_mut):
+    review = fixture.accepted_review()
+    if review_mut is None:
+        return review
+    document = json.loads(review.read_text())
+    review_mut(document)
+    review.write_text(json.dumps(document))
+    return review
+
+
+def _promotion(report):
+    if not isinstance(report, dict):
+        return False, []
+    return bool(report.get("promoted")), list(report.get("blockers") or [])
+
+
 class ForgedRecordTests(unittest.TestCase):
     def setUp(self):
         self.root = temp_root(self)
@@ -68,26 +95,13 @@ class ForgedRecordTests(unittest.TestCase):
     def _run(self, records=None, review_mut=None):
         fixture = GateFixture(self.root, thalamic_records=records)
         integrate_code = fixture.integrate()
-        blockers = []
-        try:
-            manifest = fixture.manifest()
-        except (OSError, ValueError):
-            manifest = {}
-        blockers.extend(manifest.get("blockers") or [])
-        audit = (manifest.get("gates") or {}).get("training_audit") or {}
-        blockers.extend(audit.get("blockers") or [])
+        blockers = _manifest_blockers(fixture)
         if integrate_code != 0:
             return integrate_code, None, False, blockers
-        review = fixture.accepted_review()
-        if review_mut is not None:
-            document = json.loads(review.read_text())
-            review_mut(document)
-            review.write_text(json.dumps(document))
+        review = _written_review(fixture, review_mut)
         promote_code, report, _stderr = fixture.promote_report(review)
-        if isinstance(report, dict):
-            blockers.extend(report.get("blockers") or [])
-        promoted = bool(report.get("promoted")) if isinstance(report, dict) else False
-        return integrate_code, promote_code, promoted, blockers
+        promoted, extra = _promotion(report)
+        return integrate_code, promote_code, promoted, blockers + extra
 
     def test_honest_records_promote(self):
         integrate_code, promote_code, promoted, blockers = self._run()
