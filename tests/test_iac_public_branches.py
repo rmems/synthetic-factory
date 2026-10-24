@@ -105,6 +105,7 @@ class IacTableShapes(unittest.TestCase):
         for label, source in (
             ("mixed items", "PAIRS = [(_suc(slug='a'), _fail(slug='b')), 3]\n"),
             ("no first slug", "PAIRS = [(_suc(), _fail(slug='b'))]\n"),
+            ("empty first slug", "PAIRS = [(_suc(slug=''), _fail(slug='b'))]\n"),
         ):
             with self.subTest(label):
                 self.assertEqual(extract_error(source), NOTHING)
@@ -113,9 +114,18 @@ class IacTableShapes(unittest.TestCase):
         source = "K8S = [('a-vs-old', 'g')]\nCLI_SPEC = 'x'\n"
         self.assertEqual(extract_error(source), NOTHING)
 
-    def test_short_k8s_rows_and_non_object_cli_rows_extract_nothing(self):
+    def test_short_k8s_rows_and_non_object_cli_rows_keep_empty_identities(self):
         source = "K8S = [('only',)]\nCLI_SPEC = ['x']\n"
-        self.assertEqual(extract_error(source), NOTHING)
+        record = extracted(source)
+        slugs = [(row["success_slug"], row["fail_slug"]) for row in record["pairs"]]
+        self.assertEqual(record["shape"], extract.SHAPE_K8S_CLI_SPEC)
+        self.assertEqual((record["n_rows"], slugs), (2, [(None, None), (None, None)]))
+
+    def test_non_string_file_pair_slugs_extract_nothing(self):
+        k8s = 'K8S = [("a-vs-old", "g")]\n'
+        for label, call in (("none", "file_pair(s=None)"), ("int", "file_pair(s=1)")):
+            with self.subTest(label):
+                self.assertEqual(extract_error(k8s + f"CLI = [{call}]\n"), NOTHING)
 
 
 if __name__ == "__main__":
