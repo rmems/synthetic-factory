@@ -164,25 +164,34 @@ def factory_label_gate(cleaned: Path) -> dict[str, Any]:
     """Report records whose ``meta.factory`` disagrees with the file-path slug.
 
     A reviewed id prefix that names another factory is listed under
-    ``prefix_notes`` and does not fail the gate on its own.
+    ``prefix_notes`` and does not fail the gate on its own. Examples and
+    notes keep the first ``_EXAMPLE_LIMIT`` findings; ``count`` and
+    ``prefix_note_count`` still cover the whole corpus.
     """
 
     known = known_factory_labels(Path(cleaned))
-    mismatches: list[dict[str, Any]] = []
-    notes: list[dict[str, Any]] = []
+    mismatches = 0
+    notes = 0
+    examples: list[dict[str, Any]] = []
+    prefix_notes: list[dict[str, Any]] = []
     for relative, number, record in iter_records(Path(cleaned)):
         finding = _label_finding(relative, number, record, known)
         if finding is None:
             continue
         if _is_blocking(finding):
-            mismatches.append(finding)
+            mismatches += 1
+            if len(examples) < _EXAMPLE_LIMIT:
+                examples.append(finding)
         else:
-            notes.append(finding)
+            notes += 1
+            if len(prefix_notes) < _EXAMPLE_LIMIT:
+                prefix_notes.append(finding)
     return {
-        "passed": not mismatches,
-        "count": len(mismatches),
-        "examples": mismatches[:_EXAMPLE_LIMIT],
-        "prefix_notes": notes[:_EXAMPLE_LIMIT],
+        "passed": mismatches == 0,
+        "count": mismatches,
+        "examples": examples,
+        "prefix_notes": prefix_notes,
+        "prefix_note_count": notes,
     }
 
 

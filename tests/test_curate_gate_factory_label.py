@@ -27,6 +27,7 @@ if str(_PIPELINES) not in sys.path:
 
 import curate_gate_factory_label as factory_label  # noqa: E402
 import curate_gate_gates  # noqa: E402
+from mill_reviewed_vocabulary import REVIEWED_MILL_PREFIX_HOMES  # noqa: E402
 
 _RIGHTS_PASS = mock.patch.object(
     curate_gate_gates,
@@ -100,9 +101,13 @@ class FactoryLabelGateTests(unittest.TestCase):
         self.assertTrue(report["passed"])
         self.assertEqual(report["count"], 0)
         self.assertEqual(report["examples"], [])
+        self.assertEqual(
+            REVIEWED_MILL_PREFIX_HOMES["dbc"],
+            "docker-build-cache-factory",
+        )
         note = report["prefix_notes"][0]
         self.assertEqual(note["id_prefix"], "dbc")
-        self.assertEqual(note["prefix_home"], "docker-build-cache-factory")
+        self.assertEqual(note["prefix_home"], REVIEWED_MILL_PREFIX_HOMES["dbc"])
         self.assertEqual(note["path_factory"], "api-contract-migration-factory")
         self.assertNotIn("meta_factory", note)
 
@@ -136,6 +141,60 @@ class FactoryLabelGateTests(unittest.TestCase):
             [{"id": "zz-r12-local"}],
         )
         self.assertTrue(factory_label.factory_label_gate(root)["passed"])
+
+    def test_registry_slug_without_factory_suffix_is_a_label(self):
+        root = temp_root(self)
+        _write_jsonl(
+            root / "thalamic-mini" / "batch.jsonl",
+            [{"id": "t-1", "meta": {"factory": "neuromorphic-event-language-bridge"}}],
+        )
+        report = factory_label.factory_label_gate(root)
+        self.assertFalse(report["passed"])
+        self.assertEqual(report["count"], 1)
+        self.assertEqual(
+            report["examples"][0]["meta_factory"],
+            ["neuromorphic-event-language-bridge"],
+        )
+        self.assertEqual(report["examples"][0]["path_factory"], "thalamic-mini")
+
+    def test_sibling_directory_without_factory_suffix_is_a_label(self):
+        root = temp_root(self)
+        _write_jsonl(root / "thalamic-mini" / "batch.jsonl", [{"id": "t-1"}])
+        _write_jsonl(
+            root / "other-lane" / "batch.jsonl",
+            [{"id": "o-1", "meta": {"factory": "thalamic-mini"}}],
+        )
+        report = factory_label.factory_label_gate(root)
+        self.assertFalse(report["passed"])
+        self.assertEqual(report["count"], 1)
+        self.assertEqual(report["examples"][0]["path_factory"], "other-lane")
+        self.assertEqual(report["examples"][0]["meta_factory"], ["thalamic-mini"])
+
+    def test_examples_and_notes_stay_capped_while_counts_cover_the_corpus(self):
+        root = temp_root(self)
+        _write_jsonl(
+            root / "thalamic-mini" / "batch.jsonl",
+            [
+                {"id": f"t-{index}", "meta": {"factory": "bridge-factory"}}
+                for index in range(7)
+            ],
+        )
+        _write_jsonl(
+            root / "api-contract-migration-factory" / "batch.jsonl",
+            [
+                {
+                    "id": f"dbc-r{index}-borrowed",
+                    "meta": {"factory": "api-contract-migration-factory"},
+                }
+                for index in range(7)
+            ],
+        )
+        report = factory_label.factory_label_gate(root)
+        self.assertFalse(report["passed"])
+        self.assertEqual(report["count"], 7)
+        self.assertEqual(len(report["examples"]), factory_label._EXAMPLE_LIMIT)
+        self.assertEqual(report["prefix_note_count"], 7)
+        self.assertEqual(len(report["prefix_notes"]), factory_label._EXAMPLE_LIMIT)
 
 
 class FactoryLabelIntegrateTests(unittest.TestCase):
