@@ -19,11 +19,13 @@ if __package__:  # pragma: no cover - package-child import path
 
     _assert_direct_sibling("vset_oracle_codec")
     from .vset_oracle_record import data_record as _data_record
+    from .vset_oracle_reduce import reduce_payload as _reduce_payload
 else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
         "vset_oracle_codec"
     )
     from vset_oracle_record import data_record as _data_record
+    from vset_oracle_reduce import reduce_payload as _reduce_payload
 
 
 def _host():
@@ -286,6 +288,9 @@ def encode(value: object) -> object:
 def _encode_other(value: object) -> object:
     if _plain(value):
         return value
+    reduced = _reduce_payload(value, encode)
+    if reduced is not None:
+        return reduced
     recorded = _data_record(value)
     if recorded is not None:
         return recorded

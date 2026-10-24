@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+import json
 import os
 import sys
+import unittest.mock
+import array
+import uuid
 import tempfile
 import types
 import unittest
@@ -472,3 +476,70 @@ class EdgeTests(unittest.TestCase):
         kind = values.interpret(client, {"kind": "exc_type", "name": "Mine", "chain": []})
         self.assertTrue(issubclass(kind, Exception))
         values.reset_identity()
+
+    def test_span_reassembles_and_rejects_a_broken_frame(self) -> None:
+        text = '{"kind": "value", "value": 7}'
+        mid = len(text) // 2
+        rows = [
+            json.dumps({"kind": "span", "n": 2}) + "\n",
+            json.dumps({"kind": "span", "data": text[:mid]}) + "\n",
+            json.dumps({"kind": "span", "data": text[mid:]}) + "\n",
+        ]
+        self.assertEqual(bridge._read_reply(_Lines(rows)), {"kind": "value", "value": 7})
+        with self.assertRaises(EOFError):
+            bridge._read_reply(_Lines([json.dumps({"kind": "span", "n": 0}) + "\n"]))
+        with self.assertRaises(EOFError):
+            bridge._read_reply(
+                _Lines(
+                    [
+                        json.dumps({"kind": "span", "n": 1}) + "\n",
+                        json.dumps({"kind": "span"}) + "\n",
+                    ]
+                )
+            )
+        with self.assertRaises(EOFError):
+            bridge._read_reply(_Lines(["x" * bridge._REPLY_LIMIT]))
+
+    def test_stdlib_reduce_skips_values_it_cannot_rebuild(self) -> None:
+        import vset_oracle_exc_lookup as lookup
+
+        pending = map(int, ["1", "2"])
+        codec.encode(pending)
+        self.assertEqual(list(pending), [1, 2])
+        fetch = unittest.mock.Mock(side_effect=[1])
+        codec.encode(fetch)
+        self.assertEqual(fetch(), 1)
+        token = codec.encode(uuid.UUID(int=5))
+        self.assertEqual(token["reduce"]["m"], "copyreg")  # type: ignore[index]
+        self.assertIn("reduce", codec.encode(array.array("i", [1, 2])))
+        self.assertNotIn("reduce", codec.encode(object()))
+
+        class Listed:
+            def __reduce_ex__(self, protocol: int) -> object:
+                return (str, ("x",), None, [1], None)
+
+        Listed.__module__ = "json"
+        self.assertNotIn("reduce", codec.encode(Listed()))
+
+        class Broken:
+            def __reduce_ex__(self, protocol: int) -> object:
+                raise RuntimeError("no")
+
+        Broken.__module__ = "json"
+        self.assertNotIn("reduce", codec.encode(Broken()))
+
+        class Drift:
+            def __reduce_ex__(self, protocol: int) -> object:
+                return (str, ("other",))
+
+        Drift.__module__ = "json"
+        self.assertNotIn("reduce", codec.encode(Drift()))
+        described = {"module": "json.decoder", "qualname": "JSONDecodeError"}
+        self.assertIs(lookup.stdlib_exception(described), json.JSONDecodeError)
+        self.assertIsNone(lookup.stdlib_exception({}))
+        self.assertIsNone(lookup.stdlib_exception({"module": "json", "qualname": "dumps"}))
+        self.assertIsNone(lookup.stdlib_exception({"module": "not_a_stdlib", "qualname": "X"}))
+        with unittest.mock.patch.object(lookup.importlib, "import_module", side_effect=ImportError):
+            self.assertIsNone(
+                lookup.stdlib_exception({"module": "json", "qualname": "JSONDecodeError"})
+            )
