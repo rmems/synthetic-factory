@@ -86,6 +86,32 @@ _PLANT_PACKAGE = textwrap.dedent(
 )
 
 
+def _pip_names() -> list[str]:
+    return [name for name in sys.modules if name.split(".", 1)[0] == "pip"]
+
+
+def _grade_specifier(src: str) -> dict[str, object]:
+    saved = {name: sys.modules.pop(name) for name in _pip_names()}
+    try:
+        with tempfile.TemporaryDirectory() as tmp:
+            pack = Path(tmp)
+            (pack / "src").mkdir()
+            (pack / "tests").mkdir()
+            (pack / "src" / "c.py").write_text(src, encoding="utf-8")
+            (pack / "tests" / "use.py").write_text(
+                "import unittest\nimport c\nclass T(unittest.TestCase):\n"
+                "    def test_in_range(self):\n"
+                "        from pip._vendor.packaging.specifiers import SpecifierSet\n"
+                "        self.assertTrue(SpecifierSet('>=1.0').contains(c.ver()))\n",
+                encoding="utf-8",
+            )
+            return vset.run_oracle(pack, reference_tests=["tests/use.py"])
+    finally:
+        for name in _pip_names():
+            sys.modules.pop(name, None)
+        sys.modules.update(saved)
+
+
 def _clear_plant() -> None:
     (PIPELINES / "statistics.py").unlink(missing_ok=True)
     package = PIPELINES / "statistics"
@@ -282,6 +308,16 @@ class PathGuardTests(unittest.TestCase):
             finally:
                 sys.modules.update(saved)
         self.assertTrue(report["reference"]["ok"], report["reference"])
+
+    def test_third_party_import_stays_in_the_parent(self) -> None:
+        honest = _grade_specifier("def ver():\n    return '1.0'\n")
+        self.assertTrue(honest["reference"]["ok"], honest["reference"])
+        forged = _grade_specifier(
+            "import pip._vendor.packaging.specifiers as specifiers\n"
+            "specifiers.SpecifierSet.contains = lambda *a, **k: True\n"
+            "def ver():\n    return '0.1'\n"
+        )
+        self.assertFalse(forged["reference"]["ok"], forged["reference"])
 
     def test_planted_import_path_cannot_force_a_pass(self) -> None:
         _clear_plant()
