@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import sys
-import tempfile
+import textwrap
 import time
 import unittest
 from pathlib import Path
@@ -13,7 +13,7 @@ _TESTS = Path(__file__).resolve().parent
 if str(_TESTS) not in sys.path:
     sys.path.insert(0, str(_TESTS))
 
-from vset_testutil import vset  # noqa: E402
+from vset_testutil import reference_report  # noqa: E402
 def _pack(name: str) -> dict[str, str]:
     path = _TESTS / "fixtures" / "vset" / "oracle-packs" / f"{name}.json"
     return json.loads(path.read_text(encoding="utf-8"))
@@ -59,15 +59,7 @@ def _shapes(extra: str, tests: str) -> dict[str, str]:
 
 
 def _run(filename: str, files: dict[str, str]):
-    with tempfile.TemporaryDirectory() as tmp:
-        pack = Path(tmp)
-        (pack / "src").mkdir()
-        (pack / "tests").mkdir()
-        for name, text in files.items():
-            target = pack / name
-            target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_text(text, encoding="utf-8")
-        return vset.run_oracle(pack, reference_tests=[f"tests/{filename}"])
+    return reference_report(filename, files)
 
 
 class ParentOracleTests(unittest.TestCase):
@@ -149,10 +141,26 @@ class ParentOracleTests(unittest.TestCase):
         self._ok_files(
             "use.py",
             {
-                "src/c.py": (
-                    "import dataclasses\n" "@dataclasses.dataclass\n" "class Box:\n" "    n: int\n" "    def double(self):\n" "        return self.n * 2\n"
-                    "@dataclasses.dataclass(frozen=True, order=True)\n" "class Key:\n" "    n: int\n" "def gen(count):\n" "    yield from range(count)\n" "def mk():\n"
-                    "    return Box(3)\n" "def key(n):\n" "    return Key(n)\n" "def take(it, k):\n" "    return [next(it) for _ in range(k)]\n"
+                "src/c.py": textwrap.dedent(
+                    """\
+                    import dataclasses
+                    @dataclasses.dataclass
+                    class Box:
+                        n: int
+                        def double(self):
+                            return self.n * 2
+                    @dataclasses.dataclass(frozen=True, order=True)
+                    class Key:
+                        n: int
+                    def gen(count):
+                        yield from range(count)
+                    def mk():
+                        return Box(3)
+                    def key(n):
+                        return Key(n)
+                    def take(it, k):
+                        return [next(it) for _ in range(k)]
+                    """
                 ),
                 "tests/use.py": (
                     "import dataclasses\nimport itertools\nimport unittest\nimport c\n" "class T(unittest.TestCase):\n" "    def test_gen(self):\n" "        self.assertEqual(list(c.gen(3)), [0, 1, 2])\n" "        self.assertEqual(tuple(c.gen(2)), (0, 1))\n" "    def test_box(self):\n"

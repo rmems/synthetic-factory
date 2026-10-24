@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import subprocess  # nosec B404
 import sys
+import tempfile
 from collections.abc import Iterable
 from pathlib import Path
 
@@ -30,8 +31,21 @@ __all__ = [
     "cli",
     "codes",
     "load_record",
+    "reference_report",
     "vset",
 ]
+
+
+def reference_report(filename: str, files: dict[str, str]):
+    with tempfile.TemporaryDirectory() as tmp:
+        pack = Path(tmp)
+        (pack / "src").mkdir()
+        (pack / "tests").mkdir()
+        for name, text in files.items():
+            target = pack / name
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(text, encoding="utf-8")
+        return vset.run_oracle(pack, reference_tests=[f"tests/{filename}"])
 
 
 def load_record(path: Path) -> dict:

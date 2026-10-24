@@ -113,6 +113,10 @@ def _eq_source(result: str) -> str:
     )
 
 
+def _methods(rows: tuple[tuple[str, str], ...]) -> str:
+    return "".join(f"    def test_{name}(self):\n        {body}\n" for name, body in rows)
+
+
 def _expect_refused(
     case: unittest.TestCase, source: str, tests: str, refused: tuple[str, ...]
 ) -> None:
@@ -133,48 +137,48 @@ class InProcessForgeTests(unittest.TestCase):
                 self.assertGreater(_error_count(_record(source)), 0, f"{name} forge was accepted")
 
     def test_candidate_values_compare_with_literals(self) -> None:
-        report, _statuses = _reference(
-            "class Money:\n" "    def __init__(self, cents):\n" "        self.cents = cents\n" "    def __eq__(self, other):\n" "        if isinstance(other, Money):\n" "            return self.cents == other.cents\n"
-            "        if isinstance(other, (int, float)):\n" "            return self.cents == other\n" "        return NotImplemented\n" "    def __lt__(self, other):\n" "        if isinstance(other, Money):\n" "            return self.cents < other.cents\n"
-            "        return self.cents < other\n" "def money():\n" "    return Money(5)\n" "def huge():\n" "    return Money(1e20 + 1.0)\n", "    def test_equal(self):\n"
-            "        self.assertEqual(c.money(), 5)\n" "        self.assertAlmostEqual(c.money(), 5)\n" "        self.assertEqual(c.huge(), 1e20)\n" "    def test_less(self):\n" "        self.assertLess(c.money(), 10)\n",
+        source = "class Money:\n    def __init__(self, cents):\n        self.cents = cents\n    def __eq__(self, other):\n        if isinstance(other, Money):\n            return self.cents == other.cents\n        if isinstance(other, (int, float)):\n            return self.cents == other\n        return NotImplemented\n    def __lt__(self, other):\n        if isinstance(other, Money):\n            return self.cents < other.cents\n        return self.cents < other\ndef money():\n    return Money(5)\ndef huge():\n    return Money(1e20 + 1.0)\n"
+        tests = _methods(
+            (
+                ("equal", "self.assertEqual(c.money(), 5)\n        self.assertAlmostEqual(c.money(), 5)\n        self.assertEqual(c.huge(), 1e20)"),
+                ("less", "self.assertLess(c.money(), 10)"),
+            )
         )
+        report, _statuses = _reference(source, tests)
         self.assertTrue(report["reference"]["ok"], report["reference"])
 
     def test_forged_equality_does_not_satisfy_parent_comparisons(self) -> None:
-        cases = {
-            "candidate_subtraction": (
+        number = ("number", "self.assertAlmostEqual(c.total(1, 2), 3)")
+        almost = ("almost", "self.assertAlmostEqual(c.add(1, 2), 3)")
+        cases = (
+            (
+                "candidate_subtraction",
                 "False",
-                "    def test_almost(self):\n"
-                "        self.assertAlmostEqual(c.add(1, 2), 3)\n"
-                "    def test_places(self):\n"
-                "        self.assertAlmostEqual(c.add(1, 2), 3.0, places=3)\n"
-                "    def test_right(self):\n"
-                "        self.assertAlmostEqual(3, c.add(1, 2))\n"
-                "    def test_delta(self):\n"
-                "        self.assertAlmostEqual(c.add(1, 2), 3, delta=0.1)\n"
-                "    def test_number(self):\n"
-                "        self.assertAlmostEqual(c.total(1, 2), 3)\n",
+                (
+                    almost,
+                    ("places", "self.assertAlmostEqual(c.add(1, 2), 3.0, places=3)"),
+                    ("right", "self.assertAlmostEqual(3, c.add(1, 2))"),
+                    ("delta", "self.assertAlmostEqual(c.add(1, 2), 3, delta=0.1)"),
+                    number,
+                ),
                 ("test_almost", "test_places", "test_right", "test_delta"),
             ),
-            "always_equal": (
+            (
+                "always_equal",
                 "True",
-                "    def test_almost(self):\n"
-                "        self.assertAlmostEqual(c.add(1, 2), 3)\n"
-                "    def test_almost_right(self):\n"
-                "        self.assertAlmostEqual(3, c.add(1, 2))\n"
-                "    def test_equal(self):\n"
-                "        self.assertEqual(c.add(1, 2), 3)\n"
-                "    def test_equal_right(self):\n"
-                "        self.assertEqual(3, c.add(1, 2))\n"
-                "    def test_number(self):\n"
-                "        self.assertAlmostEqual(c.total(1, 2), 3)\n",
+                (
+                    almost,
+                    ("almost_right", "self.assertAlmostEqual(3, c.add(1, 2))"),
+                    ("equal", "self.assertEqual(c.add(1, 2), 3)"),
+                    ("equal_right", "self.assertEqual(3, c.add(1, 2))"),
+                    number,
+                ),
                 ("test_almost", "test_almost_right", "test_equal", "test_equal_right"),
             ),
-        }
-        for label, (result, tests, refused) in cases.items():
+        )
+        for label, result, methods, refused in cases:
             with self.subTest(forge=label):
-                _expect_refused(self, _eq_source(result), tests, refused)
+                _expect_refused(self, _eq_source(result), _methods(methods), refused)
 
     def test_alternating_eq_cannot_bypass_a_second_probe(self) -> None:
         lines = [
@@ -278,12 +282,14 @@ class InProcessForgeTests(unittest.TestCase):
         _expect_refused(self, source, tests, ("test_equal",))
 
     def test_private_and_slot_fields_still_compare(self) -> None:
-        report, _statuses = _reference(
-            "class Hidden:\n" "    def __init__(self, cents):\n" "        self._cents = cents\n" "    def __eq__(self, other):\n" "        return self._cents == other\n" "    def __lt__(self, other):\n"
-            "        return self._cents < other\n" "class Coin:\n" "    __slots__ = ('cents',)\n" "    def __init__(self, cents):\n" "        self.cents = cents\n" "    def __eq__(self, other):\n"
-            "        return self.cents == other\n" "def hidden():\n" "    return Hidden(5)\n" "def coin():\n" "    return Coin(5)\n", "    def test_hidden(self):\n"
-            "        self.assertEqual(c.hidden(), 5)\n" "        self.assertLess(c.hidden(), 10)\n" "    def test_coin(self):\n" "        self.assertEqual(c.coin(), 5)\n",
+        source = "class Hidden:\n    def __init__(self, cents):\n        self._cents = cents\n    def __eq__(self, other):\n        return self._cents == other\n    def __lt__(self, other):\n        return self._cents < other\nclass Coin:\n    __slots__ = ('cents',)\n    def __init__(self, cents):\n        self.cents = cents\n    def __eq__(self, other):\n        return self.cents == other\ndef hidden():\n    return Hidden(5)\ndef coin():\n    return Coin(5)\n"
+        tests = _methods(
+            (
+                ("hidden", "self.assertEqual(c.hidden(), 5)\n        self.assertLess(c.hidden(), 10)"),
+                ("coin", "self.assertEqual(c.coin(), 5)"),
+            )
         )
+        report, _statuses = _reference(source, tests)
         self.assertTrue(report["reference"]["ok"], report["reference"])
 
     def test_extra_fields_and_tuples_still_compare(self) -> None:
