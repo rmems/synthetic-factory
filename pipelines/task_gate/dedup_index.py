@@ -10,8 +10,9 @@ program_sha256, normalized_mutant]``. Only kept proposals are indexed: a rejecte
 deterministic and is re-rejected on its own merits, so the index stays the list of tasks that
 already exist. Each run reads every prior index file it is given and writes a new, cumulative
 ``dedup-index.jsonl`` into its own new destination; no existing file is touched, and the next
-run needs only the newest one. Keys minted under ``task-gate-key/2`` (the raw edit) do not
-match these.
+run needs only the newest one. An index minted under ``task-gate-dedup-index/2`` is
+refused: its keys were the raw edit (``task-gate-key/2``) and must not be applied as if
+they still matched.
 """
 
 from __future__ import annotations
@@ -40,12 +41,47 @@ _KEY = re.compile(r"[0-9a-f]{64}")
 _FIELDS = frozenset({"format", "key", "program_id", "start_byte", "end_byte"})
 
 
+_SKIP = object()
+
+
 def _skip_field(name: str, value: object) -> bool:
     """Defaults that ``ast.dump`` prints on one of 3.14 and 3.15 and not the other."""
 
     if name == "is_lazy" and not value:
         return True
     return name == "ctx" and isinstance(value, ast.Load)
+
+
+def _empty_list_field(node: ast.AST, name: str, value: object) -> bool:
+    if value != []:
+        return False
+    field_type = type(node)._field_types.get(name, object)
+    return getattr(field_type, "__origin__", ...) is list
+
+
+def _field_value(node: ast.AST, name: str) -> object:
+    """The field to dump, or ``_SKIP`` when this dump omits it."""
+
+    try:
+        value = getattr(node, name)
+    except AttributeError:
+        return _SKIP
+    if _skip_field(name, value):
+        return _SKIP
+    if value is None and getattr(type(node), name, ...) is None:
+        return _SKIP
+    if _empty_list_field(node, name, value):
+        return _SKIP
+    return value
+
+
+def _dump_fields(node: ast.AST) -> str:
+    parts = []
+    for name in node._fields:
+        value = _field_value(node, name)
+        if value is not _SKIP:
+            parts.append(f"{name}={_dump(value)}")
+    return f"{type(node).__name__}({', '.join(parts)})"
 
 
 def _dump(node: object) -> str:
@@ -55,22 +91,7 @@ def _dump(node: object) -> str:
     """
 
     if isinstance(node, ast.AST):
-        parts = []
-        for name in node._fields:
-            try:
-                value = getattr(node, name)
-            except AttributeError:
-                continue
-            if _skip_field(name, value):
-                continue
-            if value is None and getattr(type(node), name, ...) is None:
-                continue
-            if value == []:
-                field_type = type(node)._field_types.get(name, object)
-                if getattr(field_type, "__origin__", ...) is list:
-                    continue
-            parts.append(f"{name}={_dump(value)}")
-        return f"{type(node).__name__}({', '.join(parts)})"
+        return _dump_fields(node)
     if isinstance(node, list):
         return "[" + ", ".join(_dump(item) for item in node) + "]"
     return repr(node)

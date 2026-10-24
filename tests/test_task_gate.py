@@ -411,6 +411,10 @@ class Duplicates(unittest.TestCase):
             "extra field": (json.dumps({**row, "x": 1}).encode() + b"\n", cv.REFUSE_INDEX_MALFORMED),
             "short key": (json.dumps({**row, "key": "ab"}).encode() + b"\n", cv.REFUSE_INDEX_MALFORMED),
             "bad format": (json.dumps({**row, "format": "x"}).encode() + b"\n", cv.REFUSE_INDEX_MALFORMED),
+            "key v2 index": (
+                json.dumps({**row, "format": "task-gate-dedup-index/2"}).encode() + b"\n",
+                cv.REFUSE_INDEX_MALFORMED,
+            ),
             "repeated key": (((json.dumps(row) + "\n") * 2).encode(), cv.REFUSE_INDEX_MALFORMED),
             "no newline": (json.dumps(row).encode(), cv.REFUSE_INDEX_MALFORMED),
         }
