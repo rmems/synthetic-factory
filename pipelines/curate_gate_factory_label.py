@@ -160,6 +160,25 @@ def _is_blocking(finding: dict[str, Any]) -> bool:
     return "meta_factory" in finding
 
 
+def _keep_example(bucket: list[dict[str, Any]], finding: dict[str, Any]) -> None:
+    if len(bucket) < _EXAMPLE_LIMIT:
+        bucket.append(finding)
+
+
+def _tally_finding(
+    finding: dict[str, Any],
+    examples: list[dict[str, Any]],
+    prefix_notes: list[dict[str, Any]],
+) -> tuple[int, int]:
+    """Count one finding and keep it only while its example list is under the cap."""
+
+    if _is_blocking(finding):
+        _keep_example(examples, finding)
+        return 1, 0
+    _keep_example(prefix_notes, finding)
+    return 0, 1
+
+
 def factory_label_gate(cleaned: Path) -> dict[str, Any]:
     """Report records whose ``meta.factory`` disagrees with the file-path slug.
 
@@ -178,14 +197,9 @@ def factory_label_gate(cleaned: Path) -> dict[str, Any]:
         finding = _label_finding(relative, number, record, known)
         if finding is None:
             continue
-        if _is_blocking(finding):
-            mismatches += 1
-            if len(examples) < _EXAMPLE_LIMIT:
-                examples.append(finding)
-        else:
-            notes += 1
-            if len(prefix_notes) < _EXAMPLE_LIMIT:
-                prefix_notes.append(finding)
+        added_mismatches, added_notes = _tally_finding(finding, examples, prefix_notes)
+        mismatches += added_mismatches
+        notes += added_notes
     return {
         "passed": mismatches == 0,
         "count": mismatches,
