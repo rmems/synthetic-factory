@@ -33,6 +33,8 @@ _stamp = pathsnap._stamp
 _files = pathsnap._files
 _note = pathsnap._note
 snapshot = pathsnap.snapshot
+_BASELINE: dict[str, Stamp] | None = None
+_GRADE_SEEN: dict[str, Stamp] | None = None
 
 
 def _fresh(path: str, stamp: Stamp, seen: dict[str, Stamp]) -> bool:
@@ -122,6 +124,47 @@ def _trusted(path: Path, data: bytes, seen: dict[str, Stamp]) -> bool:
     if stamp[0] != len(data):
         return False
     return hashlib.sha256(data).hexdigest() == stamp[2]
+
+
+def bind_baseline(seen: dict[str, Stamp]) -> dict[str, Stamp] | None:
+    """Remember the import path from before any candidate code runs."""
+
+    global _BASELINE
+    previous = _BASELINE
+    _BASELINE = seen
+    return previous
+
+
+def restore_baseline(previous: dict[str, Stamp] | None) -> None:
+    global _BASELINE, _GRADE_SEEN
+    _BASELINE = previous
+    _GRADE_SEEN = None
+
+
+def include_tree(seen: dict[str, Stamp], root: Path) -> dict[str, Stamp]:
+    merged = dict(seen)
+    merged.update(pathsnap.snapshot_tree(root))
+    return merged
+
+
+def grade_view(folder: str) -> dict[str, Stamp]:
+    """Baseline plus this grade's suite tree. A later plant stays outside it."""
+
+    global _GRADE_SEEN
+    if _BASELINE is None:
+        _GRADE_SEEN = snapshot()
+        return _GRADE_SEEN
+    extra = pathsnap.snapshot_tree(Path(folder))
+    _GRADE_SEEN = {**_BASELINE, **extra}
+    return _GRADE_SEEN
+
+
+def drift_since_baseline() -> str:
+    if _BASELINE is not None:
+        return drift(_BASELINE)
+    if _GRADE_SEEN is None:
+        return ""
+    return drift(_GRADE_SEEN)
 
 
 def drift(seen: dict[str, Stamp]) -> str:

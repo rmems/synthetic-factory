@@ -12,6 +12,7 @@ import importlib.abc
 import importlib.util
 import io
 import os
+import shutil
 import signal
 import subprocess  # nosec B404
 import sys
@@ -170,11 +171,28 @@ def _child_environment() -> dict[str, str]:
     return env
 
 
+def _contain(argv: list[str]) -> list[str]:
+    """Run the worker as pid 1 so a setsid grandchild dies with it."""
+
+    unshare = shutil.which("unshare")
+    if unshare is None:
+        raise OSError("oracle worker is not contained")
+    return [
+        unshare,
+        "--map-current-user",
+        "--pid",
+        "--fork",
+        "--kill-child",
+        "--mount-proc",
+        *argv,
+    ]
+
+
 def _start_child(argv: list[str]) -> subprocess.Popen[str]:
     # The program text is the parent constant above, not a worktree path.
     # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit.dangerous-subprocess-use-audit
     return subprocess.Popen(  # nosec B603
-        argv,
+        _contain(argv),
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
         stderr=subprocess.DEVNULL,
@@ -377,7 +395,7 @@ def _grade_open(
     finder = _Finder(client, _stems(sources), src_names)
     sys.meta_path.insert(0, finder)
     _push_path(folder)
-    seen = _during_pause(pathguard.snapshot)
+    seen = _during_pause(lambda: pathguard.grade_view(folder))
     guard = pathguard.PathGuard(seen)
     sys.meta_path.insert(1, guard)
     hooks = None
@@ -385,11 +403,7 @@ def _grade_open(
     sys.dont_write_bytecode = True
     try:
         hooks = bridge.install_patches(client)
-        statuses, text = _execute(spec, cases, Path(folder))
-        changed = _during_pause(lambda: pathguard.drift(seen))
-        if changed:
-            return ["ERROR"] * len(cases), "oracle import path changed"
-        return statuses, text
+        return _execute(spec, cases, Path(folder))
     except (Exception, SystemExit) as exc:
         return ["ERROR"] * len(cases), f"{type(exc).__name__}: {exc}"
     finally:
@@ -420,16 +434,21 @@ def grade_cases(
     previous = _arm(_CHILD_TIMEOUT_S)
     previous_cwd = Path.cwd()
     os.chdir(work)
+    changed = ""
     try:
-        return _grade_open(proc, spec, cases, bundle)
+        statuses, text = _grade_open(proc, spec, cases, bundle)
     except KeyboardInterrupt:
         if not _alarm_tripped:
             raise
         raise VSetValidationError(ERR_ORACLE_EXECUTION_MISMATCH, _TIMEOUT_MESSAGE) from None
     finally:
-        os.chdir(previous_cwd)
         _disarm(previous)
         _stop(proc)
+        os.chdir(previous_cwd)
+        changed = pathguard.drift_since_baseline()
+    if changed:
+        return ["ERROR"] * len(cases), "oracle import path changed"
+    return statuses, text
 
 
 def grade_test(

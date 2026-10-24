@@ -34,6 +34,7 @@ if __package__:  # pragma: no cover - package-child import path
         pack_snapshot_hash,
 )
     from .vset_oracle_grade import grade_suite as _grade_suite
+    from . import vset_oracle_pathguard as pathguard
     from .vset_oracle_ids import declared_ids_from_text as _declared_ids_from_text
     from .vset_oracle_layout import (
         clear_pack as _clear_pack,
@@ -58,6 +59,7 @@ else:
         pack_snapshot_hash,
 )
     from vset_oracle_grade import grade_suite as _grade_suite
+    import vset_oracle_pathguard as pathguard
     from vset_oracle_ids import declared_ids_from_text as _declared_ids_from_text
     from vset_oracle_layout import (
         clear_pack as _clear_pack,
@@ -302,11 +304,14 @@ def run_oracle(
     reference_list = list(reference_tests)
     hidden_list = list(plan.get("tests") or ())
     protected = list(reference_list) + list(hidden_list)
+    previous = None
     try:
         with tempfile.TemporaryDirectory(prefix="vset-oracle-") as tmp:
             work = Path(tmp) / "pack"
             _copy_pack(pack_dir, work)
-            return _oracle_report(
+            seen = pathguard.snapshot()
+            previous = pathguard.bind_baseline(seen)
+            report = _oracle_report(
                 work,
                 pack_dir,
                 {
@@ -317,8 +322,18 @@ def run_oracle(
                     "protected": protected,
                 },
             )
+            _reject_import_drift(seen)
+            return report
     finally:
+        pathguard.restore_baseline(previous)
         _clear_pack()
+
+
+def _reject_import_drift(seen: dict[str, tuple[int, int, str]]) -> None:
+    if pathguard.drift(seen):
+        raise VSetValidationError(
+            ERR_ORACLE_EXECUTION_MISMATCH, "oracle import path changed"
+        )
 
 
 def execution_result_hash(execution: Mapping[str, Any]) -> str:
