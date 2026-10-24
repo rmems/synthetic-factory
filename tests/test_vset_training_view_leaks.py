@@ -67,6 +67,11 @@ class HiddenSuiteLeakForges(unittest.TestCase):
         record = _record({"hidden_\u0442ests": SUITE_PATH})
         self.assertTrue(vset.validate_record(record))
 
+    def test_separator_and_width_keys_are_refused(self) -> None:
+        for key in ("hidden.tests", "hidden tests", "hidden\uff34ests"):
+            with self.subTest(key=key):
+                self.assertTrue(vset.validate_record(_record({key: SUITE_PATH})))
+
     def test_one_quoted_marker_in_prose_passes(self) -> None:
         for prose in (
             "The note quotes def test_ as an example.",

@@ -13,6 +13,7 @@ import json
 import math
 import re
 import sys
+import unicodedata
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -272,15 +273,28 @@ _EMPTY_DIGESTS: frozenset[str] = frozenset()
 
 
 def _training_view_key(key: Any) -> str:
-    """Fold case, camel-case, and lookalikes so ``HIDDEN_TESTS`` matches.
+    """Fold case, separators, camel-case, and lookalikes so keys match.
 
-    Camel boundaries are split before the identity fold. ``normalize_identity``
-    maps confusable letters such as Cyrillic ``т``; splitting every capital
-    would turn ``HIDDEN_TESTS`` into a string of single letters.
+    Width variants are normalized before the camel split, so a fullwidth
+    ``Ｔ`` becomes ``T`` and ``hiddenＴests`` splits like ``hiddenTests``.
+    Separators become underscores before the identity fold, which deletes
+    whitespace rather than keeping it as a boundary. ``normalize_identity``
+    maps confusable letters such as Cyrillic ``т``.
     """
 
-    folded = normalize_identity(_CAMEL_BOUNDARY.sub("_", str(key)))
-    return folded.replace("-", "_")
+    text = unicodedata.normalize("NFKC", str(key))
+    split = _CAMEL_BOUNDARY.sub("_", text)
+    separated = re.sub(r"[^\w]+", "_", split, flags=re.UNICODE)
+    folded = normalize_identity(separated)
+    return re.sub(r"[^a-z0-9]+", "_", folded).strip("_")
+
+
+def _is_hidden_suite_path(path: Path) -> bool:
+    if not path.is_file():
+        return False
+    if not path.name.startswith("hidden_"):
+        return False
+    return path.suffix == ".py"
 
 
 def _hidden_suite_pins(pack_dir: Path | None) -> tuple[frozenset[str], tuple[str, ...]]:
@@ -298,7 +312,7 @@ def _hidden_suite_pins(pack_dir: Path | None) -> tuple[frozenset[str], tuple[str
     digests: list[str] = []
     snippets: list[str] = []
     for path in sorted(tests.iterdir()):
-        if not path.is_file() or not path.name.startswith("hidden_") or path.suffix != ".py":
+        if not _is_hidden_suite_path(path):
             continue
         raw = path.read_bytes()
         digest = hashlib.sha256(raw).hexdigest()
