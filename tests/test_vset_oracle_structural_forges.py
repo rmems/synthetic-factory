@@ -169,7 +169,71 @@ _METHOD_TESTS = textwrap.indent(
 )
 
 
+_FLIP = textwrap.dedent(
+    """\
+    class Flip:
+        n = 0
+        def __bool__(self):
+            Flip.n += 1
+            return Flip.n % 2 == 0
+    class Item:
+        def __eq__(self, other):
+            return Flip()
+        def __lt__(self, other):
+            return Flip()
+        __hash__ = None
+    def add(a, b):
+        return Item()
+    def total(a, b):
+        return a + b
+    """
+)
+
+_FLIP_TESTS = textwrap.indent(
+    textwrap.dedent(
+        """\
+        def test_equal(self):
+            self.assertEqual(c.add(2, 2), 5)
+            self.assertLess(c.add(2, 2), 5)
+        def test_number(self):
+            self.assertEqual(c.total(1, 2), 3)
+        """
+    ),
+    "    ",
+)
+
+_FLIP_COUNTER = textwrap.dedent(
+    """\
+    class Flip:
+        n = 0
+        def __bool__(self):
+            Flip.n += 1
+            return Flip.n % 2 == 0
+    class Item:
+        def __eq__(self, other):
+            return Flip()
+        __hash__ = None
+    class Counter:
+        def __init__(self, value=0):
+            self._value = int(value)
+        def add(self, delta):
+            if delta is None:
+                raise ValueError("delta")
+            self._value += int(delta)
+            return self._value
+        def sub(self, delta):
+            return Item()
+        def get(self):
+            return Item()
+    """
+)
+
+
 class StructuralForgeTests(unittest.TestCase):
+    def test_flipping_bool_cannot_force_equality(self) -> None:
+        _expect_refused(self, _FLIP, _FLIP_TESTS, ("test_equal",))
+        self.assertGreater(_error_count(_record(_FLIP_COUNTER)), 0)
+
     def test_userlist_record_is_refused(self) -> None:
         self.assertGreater(_error_count(_record(_USERLIST)), 0)
 
