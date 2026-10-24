@@ -290,25 +290,29 @@ def _status(result: unittest.TestResult) -> str:
     return "ERROR"
 
 
-def _run_case(module: types.ModuleType, names: tuple[str, str]) -> tuple[str, str]:
+def _run_case(module: types.ModuleType, names: tuple[str, str]) -> str:
     class_name, method_name = names
     case = getattr(module, class_name)
     suite = unittest.TestSuite([case(method_name)])
-    buffer = io.StringIO()
     result = unittest.TestResult()
-    previous = sys.stdout
-    sys.stdout = buffer
-    try:
-        suite.run(result)
-    finally:
-        sys.stdout = previous
-    return _status(result), buffer.getvalue()[-4000:]
+    suite.run(result)
+    return _status(result)
 
 
 def _execute(spec: dict[str, str], names: tuple[str, str], folder: Path) -> tuple[str, str]:
     suffix = f"__{names[0]}__{names[1]}"
-    module = _load_saved(spec, suffix, folder)
-    return _run_case(module, names)
+    buffer = io.StringIO()
+    previous_out = sys.stdout
+    previous_err = sys.stderr
+    sys.stdout = buffer
+    sys.stderr = buffer
+    try:
+        module = _load_saved(spec, suffix, folder)
+        status = _run_case(module, names)
+    finally:
+        sys.stdout = previous_out
+        sys.stderr = previous_err
+    return status, buffer.getvalue()[-4000:]
 
 
 def _materialize(sources: dict[str, str]) -> tempfile.TemporaryDirectory[str]:
