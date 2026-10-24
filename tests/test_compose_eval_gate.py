@@ -142,6 +142,26 @@ class GateDecisionTests(unittest.TestCase):
         with self.assertRaisesRegex(ComposeError, "refuse the shard"):
             gate.apply_gate(retained(record), self.policy)
 
+    def test_payload_do_not_train_ids_still_refuse_the_shard(self):
+        task = {"goal": "g", "steps": [], "task_id": "fixture-task-do-not-train"}
+        with self.assertRaisesRegex(ComposeError, "refuse the shard"):
+            gate.apply_gate(retained(task), self.policy)
+        with tempfile.TemporaryDirectory() as tmp:
+            listed = write_policy(tmp, do_not_train={"program_ids": ["tap-secret"]})
+            program = {"goal": "g", "steps": [], "meta": {"program_id": "tap-secret"}}
+            with self.assertRaisesRegex(ComposeError, "refuse the shard"):
+                gate.apply_gate(retained(program), listed)
+
+    def test_a_second_payload_repository_on_the_denylist_refuses_the_shard(self):
+        orders = (
+            {"chosen": {"repository": "someone/else"}, "rejected": {"repository": "clap-rs/clap"}},
+            {"rejected": {"repository": "clap-rs/clap"}, "chosen": {"repository": "someone/else"}},
+        )
+        for record in orders:
+            with self.subTest(record=record):
+                with self.assertRaisesRegex(ComposeError, "refuse the shard"):
+                    gate.apply_gate(retained(record), self.policy)
+
     def test_spike_viz_episode_is_not_a_denylist_repo_hit(self):
         episode = {"goal": "g", "steps": [], "meta": {"repository": "rmems/spike-viz"}}
         self.assertEqual(gate.apply_gate(retained(episode)).action, "retained")

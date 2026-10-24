@@ -44,6 +44,14 @@ class SourceIdentityTests(unittest.TestCase):
         self.assertEqual(rule, subject.RULE_PAYLOAD)
         self.assertEqual(identity, SourceIdentity("clap-rs/clap"))
 
+    def test_payload_scan_evaluates_every_repository(self):
+        record = {
+            "chosen": {"repository": "someone/else"},
+            "rejected": {"repository": "clap-rs/clap"},
+        }
+        repos = [identity.repo for _rule, identity in subject.source_identities(record)]
+        self.assertCountEqual(repos, ["someone/else", "clap-rs/clap"])
+
     def test_instance_id_maps_to_owner_slash_name(self):
         self.assertEqual(subject.repo_from_instance_id("clap-rs__clap-5873"), "clap-rs/clap")
         self.assertEqual(subject.repo_from_instance_id("burntsushi__ripgrep-12"),

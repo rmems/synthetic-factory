@@ -90,21 +90,35 @@ def _gate_stage(rule: str, identity: Any, evaluation: Any) -> dict[str, Any]:
     }
 
 
-def _without_do_not_train(evaluation: Any) -> Any:
-    """Payload nested repos refuse only eval-denylist hits, not do-not-train names."""
+def _without_payload_do_not_train_repos(evaluation: Any) -> Any:
+    """Drop do-not-train repository hits on a payload scan; keep id hits.
 
-    codes = tuple(code for code in evaluation.reason_codes if code != _policy.REASON_DO_NOT_TRAIN)
-    if codes == evaluation.reason_codes:
+    A nested ``repository`` is not a public-source claim, so a do-not-train
+    repo name alone does not refuse the shard. A payload ``program_id`` or
+    ``task_id`` that is on the do-not-train list still does. Eval-denylist
+    matches are never removed.
+    """
+
+    kept = tuple(
+        match for match in evaluation.matches
+        if match["list"] != "do_not_train" or match["key"] != "repos"
+    )
+    if len(kept) == len(evaluation.matches):
         return evaluation
-    matches = tuple(match for match in evaluation.matches if match["list"] != "do_not_train")
-    return _policy.Evaluation(codes, evaluation.canonical_repo, matches)
+    listed = {_policy.REASON_BY_SLOT[match["list"]] for match in kept}
+    extra = {
+        code for code in evaluation.reason_codes
+        if code not in (_policy.REASON_DO_NOT_TRAIN, _policy.REASON_EVAL_DENYLISTED)
+    }
+    ordered = tuple(code for code in _policy.REASON_ORDER if code in listed | extra)
+    return _policy.Evaluation(ordered, evaluation.canonical_repo, kept)
 
 
 def _evaluation_for_rule(loaded: Any, rule: str, identity: Any) -> Any:
     evaluation = loaded.evaluate(identity, require_repo=requires_repo(rule))
     if rule != RULE_PAYLOAD:
         return evaluation
-    return _without_do_not_train(evaluation)
+    return _without_payload_do_not_train_repos(evaluation)
 
 
 def _refuse_listed_hit(evaluation: Any) -> None:
