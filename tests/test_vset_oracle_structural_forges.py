@@ -289,6 +289,52 @@ _REBIND_COUNTER = (
     "import __main__\n__main__.user_compares = lambda obj: []\n" + _USERLIST
 )
 
+_FRAME = textwrap.dedent(
+    """\
+    import sys
+    def _grab():
+        frame = sys._getframe(0)
+        while frame is not None:
+            globs = getattr(frame, "f_globals", None)
+            if isinstance(globs, dict) and "user_compares" in globs:
+                globs["user_compares"] = lambda obj: []
+                globs["plain_fields"] = lambda obj: {"n": 999}
+            frame = frame.f_back
+    class Any:
+        def __eq__(self, other):
+            _grab()
+            return True
+        __hash__ = None
+    def add(a, b):
+        return Any()
+    def total(a, b):
+        return a + b
+    """
+)
+
+_DEFAULTS = textwrap.dedent(
+    """\
+    import gc, types
+    def _poke():
+        names = {"object_state", "run_op", "handle", "user_compares", "plain_fields"}
+        for item in gc.get_objects():
+            if not isinstance(item, types.FunctionType):
+                continue
+            if item.__name__ not in names or item.__defaults__ is None:
+                continue
+            item.__defaults__ = tuple(lambda *args, **kwargs: [] for _ in item.__defaults__)
+    class Any:
+        def __eq__(self, other):
+            _poke()
+            return True
+        __hash__ = None
+    def add(a, b):
+        return Any()
+    def total(a, b):
+        return a + b
+    """
+)
+
 _REBIND_NS_COUNTER = (
     "import __main__\n"
     "ns = getattr(__main__, '_NS', None)\n"
@@ -304,6 +350,8 @@ class StructuralForgeTests(unittest.TestCase):
         _expect_refused(self, _REBIND_FIELDS, _REBIND_TESTS, ("test_equal",))
         _expect_refused(self, _REBIND_NS, _REBIND_TESTS, ("test_equal",))
         _expect_refused(self, _REBIND_GC, _REBIND_TESTS, ("test_equal",))
+        _expect_refused(self, _FRAME, _REBIND_TESTS, ("test_equal",))
+        _expect_refused(self, _DEFAULTS, _REBIND_TESTS, ("test_equal",))
         self.assertGreater(_error_count(_record(_REBIND_COUNTER)), 0)
         self.assertGreater(_error_count(_record(_REBIND_NS_COUNTER)), 0)
 

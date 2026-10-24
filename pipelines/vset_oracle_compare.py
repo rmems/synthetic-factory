@@ -164,12 +164,26 @@ def _answer(result: object) -> object:
     return _affirms(result)
 
 
-def _kept(name: str, info: dict[str, object] | None, other: object, verdict: object) -> object:
-    if verdict is NotImplemented or info is None or verdict is False:
-        return verdict
+def _release(verdict: object, info: dict[str, object] | None) -> bool:
+    if verdict is NotImplemented:
+        return True
+    if info is None:
+        return True
+    return verdict is False
+
+
+def _deny(name: str, info: dict[str, object], other: object) -> bool:
     if not _user_defined(info, name):
+        return False
+    if name == "__contains__":
+        return True
+    return not _agreed(name, info, other)
+
+
+def _kept(name: str, info: dict[str, object] | None, other: object, verdict: object) -> object:
+    if _release(verdict, info):
         return verdict
-    if name == "__contains__" or not _agreed(name, info, other):
+    if _deny(name, info, other):  # type: ignore[arg-type]
         return NotImplemented
     return verdict
 
