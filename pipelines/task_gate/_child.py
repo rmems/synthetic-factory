@@ -20,6 +20,8 @@ import sys
 
 MARKER = "TASK-GATE-REPORT "
 PROTOCOL = "task-gate-harness/1"
+# Matches vocabulary.DETAIL_STDOUT_EQUIVALENT. This file cannot import the package.
+DETAIL_STDOUT_EQUIVALENT = "stdout_equivalent"
 ADDRESS_SPACE_BYTES = 1 << 30
 FILE_SIZE_BYTES = 1 << 20
 BLOCKED_SOCKET_FUNCTIONS = (
@@ -88,17 +90,51 @@ def load_program(workdir):
     return module
 
 
+def stdout_equivalent(want, got):
+    """True when ``got`` is ``want`` plus extra stdout and the same displayed value.
+
+    Doctest's ``got`` is the example's stdout followed by the repr of a non-None result.
+    A suffix equal to ``want`` means that value (and any expected stdout) is unchanged and
+    only a prefix was printed. A different last line is a real miss, including ``print(3) or 0``
+    whose got ends in ``0`` rather than ``3``.
+    """
+
+    want_lines = want.splitlines() if isinstance(want, str) else []
+    got_lines = got.splitlines() if isinstance(got, str) else []
+    if not want_lines or not got_lines:
+        return False
+    if got == want:
+        return False
+    return got_lines[-len(want_lines):] == want_lines
+
+
+class _Runner(doctest.DocTestRunner):
+    """Counts doctest misses and whether every miss is stdout around the expected value."""
+
+    def __init__(self):
+        super().__init__(verbose=False, optionflags=0)
+        self.stdout_only = True
+
+    def report_failure(self, out, test, example, got):
+        noisy = example.exc_msg is None and stdout_equivalent(example.want, got)
+        self.stdout_only = self.stdout_only and noisy
+
+    def report_unexpected_exception(self, out, test, example, exc_info):
+        self.stdout_only = False
+
+
 def _doctests(module, function):
     target = getattr(module, function)
     finder = doctest.DocTestFinder(recurse=False)
     tests = finder.find(target, function, module=module, globs=dict(module.__dict__))
-    runner = doctest.DocTestRunner(verbose=False, optionflags=0)
+    runner = _Runner()
     attempted = failed = 0
     for test in tests:
         result = runner.run(test, out=lambda _text: None, clear_globs=False)
         attempted += result.attempted
         failed += result.failed
-    return attempted, failed
+    detail = DETAIL_STDOUT_EQUIVALENT if failed and runner.stdout_only else ""
+    return attempted, failed, detail
 
 
 def silence_stdout():
@@ -121,11 +157,11 @@ def main(argv):
     _block_network()
     try:
         module = load_program(workdir)
-        attempted, failed = _doctests(module, function)
+        attempted, failed, detail = _doctests(module, function)
     except BaseException as exc:  # the program may raise anything, including SystemExit
         _emit(report_stream, _report("load_error", detail=type(exc).__name__))
         return 0
-    _emit(report_stream, _report("ran", attempted, failed))
+    _emit(report_stream, _report("ran", attempted, failed, detail))
     return 0
 
 

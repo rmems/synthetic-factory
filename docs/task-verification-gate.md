@@ -23,7 +23,9 @@ python3 -m unittest tests.test_task_gate tests.test_task_gate_harness tests.test
   span as either `start_byte`/`end_byte` (UTF-8 byte offsets, the procedural `Site` shape;
   `original_text` is then optional and must match the bytes) or `original_text` alone, which
   must occur exactly once in the module. The procedural mutator is adapted to this same type in
-  `procedural.py`; the gate never branches on `source`.
+  `procedural.py`. The gate records `source` only when it is `unspecified`, `model`, or
+  `procedural`; any other self-declared value is stored as `unspecified`. Verdicts do not
+  branch on it.
 * **Denylist** is a required input: UTF-8, LF-framed, one program id per line, no blank lines,
   padding or duplicates, at least one entry. A missing, unreadable, empty or malformed list
   refuses the run (exit 2, nothing written). The vendored #494 list is wired in once #504 lands.
@@ -36,13 +38,13 @@ The first failing rule wins.
 
 | Order | Verdict | Meaning |
 | --- | --- | --- |
-| 1 | `denylisted` | program id is on the eval denylist; nothing is parsed or executed for it |
+| 1 | `denylisted` | program id is on the eval denylist, or the program's normalized text matches a denylisted program's; nothing is parsed or executed for it |
 | 2 | `parse_error` | malformed row, unknown program, span not resolving to exactly one span of the target body (outside its docstring), mutant does not compile, does not load, or kills the interpreter without a report, or the replacement changes anything outside the target body (`mutant_escapes_target_body`: another module statement, the target's header or docstring, a new write to its own name, `__doc__` or `__test__`, or a new read of a docstring, code object or source: `.__doc__`, `.__code__`, a `"__doc__"`/`"__code__"` literal, or `inspect.getsource`/`getdoc` and the like) |
-| 3 | `duplicate` | `sha256(program_id, span, replacement_text)` of the canonical (minimal) edit, bound to the program's sha256, was kept in a prior run or earlier in this one; proposals that produce the same mutant share a key |
+| 3 | `duplicate` | `sha256(program_id, program_sha256, normalized mutant)` (`task-gate-key/3`) was kept in a prior run or earlier in this one. Normalization is the AST dump, so whitespace and redundant parentheses share a key. The index row still stores the raw minimal-edit span. Keys from `task-gate-key/2` do not match |
 | 4 | `original_fails` | the unmodified program does not pass all its doctests, has none, does not load, or times out |
 | 5 | `timeout` | the mutant exceeded the wall-clock budget (rejected, never kept) |
-| 6 | `mutant_passes` | the mutant passes every doctest |
-| 7 | `kept` | the mutant fails at least one doctest |
+| 6 | `mutant_passes` | the mutant passes every doctest, or its only misses are extra stdout around the expected value (`mutant_equivalent_stdout`) |
+| 7 | `kept` | the mutant fails at least one doctest for a reason other than that stdout |
 
 Each row also carries a `detail` code (for example `span_touches_docstring`). Only kept
 proposals enter the dedup index: a rejected proposal is deterministic and is rejected again on

@@ -21,10 +21,12 @@ ADD = '''def add(a, b):
     """
     return a + b
 '''
+# Distinct from ADD so a content denylist does not also refuse the honest training program.
+EVAL = ADD.replace("Add two numbers.", "Holdout add, excluded from training.")
 BROKEN = ADD.replace("return a + b", "return a - b")
 NO_DOCTESTS = "def add(a, b):\n    return a + b\n"
 PROGRAM = proposal.GateProgram("prog-add", ADD, "add")
-EVAL_PROGRAM = proposal.GateProgram("prog-eval", ADD, "add")
+EVAL_PROGRAM = proposal.GateProgram("prog-eval", EVAL, "add")
 PROGRAMS = {"prog-add": PROGRAM, "prog-eval": EVAL_PROGRAM}
 DENY = denylist.Denylist.of(["prog-eval"])
 PASSED = harness.HarnessResult(cv.OUTCOME_PASSED, 2, 0)
