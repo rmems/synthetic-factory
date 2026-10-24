@@ -158,12 +158,20 @@ def _agreed(name: str, info: dict[str, object], other: object) -> bool:
     return _agrees(name, fields, other)
 
 
-def _frozen(info: dict[str, object] | None, name: str, verdict: bool) -> bool:
-    if info is None:
-        return True
-    if not verdict:
-        return True
-    return not _user_defined(info, name)
+def _answer(result: object) -> object:
+    if result is NotImplemented:
+        return NotImplemented
+    return _affirms(result)
+
+
+def _kept(name: str, info: dict[str, object] | None, other: object, verdict: object) -> object:
+    if verdict is NotImplemented or info is None or verdict is False:
+        return verdict
+    if not _user_defined(info, name):
+        return verdict
+    if name == "__contains__" or not _agreed(name, info, other):
+        return NotImplemented
+    return verdict
 
 
 def decide(name: str, result: object, info: dict[str, object] | None, other: object) -> object:
@@ -171,16 +179,7 @@ def decide(name: str, result: object, info: dict[str, object] | None, other: obj
 
     if name not in _CHECKED:
         return result
-    if result is NotImplemented:
-        return NotImplemented
-    verdict = _affirms(result)
-    if _frozen(info, name, verdict):
-        return verdict
-    if name == "__contains__":
-        return NotImplemented
-    if not _agreed(name, info, other):
-        return NotImplemented
-    return verdict
+    return _kept(name, info, other, _answer(result))
 
 
 if __package__:  # pragma: no cover - package-child import path
