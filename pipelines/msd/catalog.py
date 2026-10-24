@@ -19,7 +19,7 @@ import sys
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, TypeGuard
 
 from . import _contract
 from ._contract import (
@@ -199,15 +199,20 @@ def sha256_bytes(payload: bytes) -> str:
 
 
 def _const_eval(node: ast.AST) -> Any:
-    """Literal values only. Refuses names, starred dicts, and unknown calls."""
+    """Literal values only. Refuses names, starred dicts, and unknown calls.
+
+    The recursion stays in this function: one frame per nested value (two for a
+    tuple's generator), the same as before the helpers below were split out.
+    A dict literal goes through ``const_dict``, which refuses ``**`` unpacking.
+    """
 
     if isinstance(node, ast.Constant):
         return node.value
-    if isinstance(node, (ast.List, ast.Tuple)):
-        values = [_const_eval(item) for item in node.elts]
-        return values if isinstance(node, ast.List) else tuple(values)
-    if isinstance(node, ast.Set):
-        return {_const_eval(item) for item in node.elts}
+    if isinstance(node, (ast.List, ast.Set)):
+        collect = set if isinstance(node, ast.Set) else list
+        return collect(map(_const_eval, node.elts))
+    if isinstance(node, ast.Tuple):
+        return tuple(_const_eval(item) for item in node.elts)
     if isinstance(node, ast.Dict):
         return const_dict(
             node,
@@ -216,26 +221,40 @@ def _const_eval(node: ast.AST) -> Any:
                 FINDING_SOURCE_NOT_PARSEABLE, "plant source uses dict unpacking"
             ),
         )
-    if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
-        return -_const_eval(node.operand)
-    raise MsdRefusal(
-        FINDING_SOURCE_NOT_PARSEABLE,
-        f"plant source is not a constant ({type(node).__name__})",
-    )
+    operand = _negation_operand(node)
+    if operand is None:
+        raise MsdRefusal(FINDING_SOURCE_NOT_PARSEABLE, _refusal_message(node))
+    return -_const_eval(operand)
+
+
+def _negation_operand(node: ast.AST) -> ast.expr | None:
+    if not isinstance(node, ast.UnaryOp) or not isinstance(node.op, ast.USub):
+        return None
+    return node.operand
+
+
+def _refusal_message(node: ast.AST) -> str:
+    """A node that is not a literal, a container, or a unary minus."""
+
+    return f"plant source is not a constant ({type(node).__name__})"
 
 
 def _call_kwargs(node: ast.AST, where: str) -> dict[str, Any]:
-    if (
-        not isinstance(node, ast.Call)
-        or not isinstance(node.func, ast.Name)
-        or node.func.id not in PLANT_CALLS
-        or node.args
-        or any(kw.arg is None for kw in node.keywords)
-    ):
+    keywords = _plant_call_keywords(node)
+    if keywords is None:
         raise MsdRefusal(
             FINDING_SOURCE_NOT_PARSEABLE, f"{where} is not a constant P()/dict() call"
         )
-    return {cast(str, kw.arg): _const_eval(kw.value) for kw in node.keywords}
+    return {name: _const_eval(value) for name, value in keywords}
+
+def _plant_call_keywords(node: ast.AST) -> list[tuple[str, ast.expr]] | None:
+    """``(name, value)`` keywords of a keyword-only ``P(...)``/``dict(...)`` call, else None."""
+
+    match node:
+        case ast.Call(func=ast.Name(id=name)) if name in PLANT_CALLS and not node.args:
+            named = [(kw.arg, kw.value) for kw in node.keywords if kw.arg is not None]
+            return named if len(named) == len(node.keywords) else None
+    return None
 
 
 def _assigned_name(node: ast.AST) -> tuple[str, ast.AST] | None:
@@ -244,9 +263,7 @@ def _assigned_name(node: ast.AST) -> tuple[str, ast.AST] | None:
         if isinstance(target, ast.Name):
             return target.id, node.value
     if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
-        value = node.value
-        if value is not None:
-            return node.target.id, value
+        return None if node.value is None else (node.target.id, node.value)
     return None
 
 
@@ -322,27 +339,36 @@ def _extract_pair_elts(payload: ast.AST, source: str) -> list[dict[str, Any]]:
         raise MsdRefusal(FINDING_SOURCE_NOT_PARSEABLE, f"{source} has no PAIRS/PLANTS list")
     rows: list[dict[str, Any]] = []
     for index, item in enumerate(payload.elts):
-        if isinstance(item, (ast.Tuple, ast.List)):
-            if len(item.elts) != 2:
-                raise MsdRefusal(
-                    FINDING_SOURCE_NOT_PARSEABLE, f"{source} PAIRS[{index}] is not a pair"
-                )
-            for side, node in (("adapt", item.elts[0]), ("freeze", item.elts[1])):
-                where = f"{source} PAIRS[{index}].{side}"
-                rows.append(_normalize_unified(_call_kwargs(node, where), where))
-            continue
-        if isinstance(item, ast.Call):
-            where = f"{source} PAIRS[{index}]"
-            rows.append(_normalize_unified(_call_kwargs(item, where), where))
-            continue
-        if isinstance(item, ast.Dict):
-            where = f"{source} PLANTS[{index}]"
-            rows.append(_normalize_unified(_const_eval(item), where))
-            continue
+        rows.extend(_rows_for_item(item, index, source))
+    return rows
+
+def _rows_for_item(item: ast.AST, index: int, source: str) -> list[dict[str, Any]]:
+    """An adapt/freeze pair of calls, a single ``P()``/``dict()`` call, or a plant object."""
+
+    if isinstance(item, (ast.Tuple, ast.List)):
+        return _adapt_freeze_rows(item, index, source)
+    if isinstance(item, ast.Call):
+        where = f"{source} PAIRS[{index}]"
+        return [_normalize_unified(_call_kwargs(item, where), where)]
+    if isinstance(item, ast.Dict):
+        where = f"{source} PLANTS[{index}]"
+        return [_normalize_unified(_const_eval(item), where)]
+    raise MsdRefusal(
+        FINDING_SOURCE_NOT_PARSEABLE,
+        f"{source} catalog[{index}] is not a pair, P()/dict() call, or object",
+    )
+
+def _adapt_freeze_rows(
+    item: ast.Tuple | ast.List, index: int, source: str
+) -> list[dict[str, Any]]:
+    if len(item.elts) != 2:
         raise MsdRefusal(
-            FINDING_SOURCE_NOT_PARSEABLE,
-            f"{source} catalog[{index}] is not a pair, P()/dict() call, or object",
+            FINDING_SOURCE_NOT_PARSEABLE, f"{source} PAIRS[{index}] is not a pair"
         )
+    rows: list[dict[str, Any]] = []
+    for side, node in (("adapt", item.elts[0]), ("freeze", item.elts[1])):
+        where = f"{source} PAIRS[{index}].{side}"
+        rows.append(_normalize_unified(_call_kwargs(node, where), where))
     return rows
 
 
@@ -371,14 +397,7 @@ def plants_from_source(
 ) -> tuple[dict[str, Any], ...]:
     """AST-extract leftover surfaces from mill source text. Never exec."""
 
-    try:
-        tree = ast.parse(text)
-    except SyntaxError as exc:
-        raise MsdRefusal(
-            FINDING_SOURCE_NOT_PARSEABLE, f"{source} does not parse: {exc}"
-        ) from exc
-    if not isinstance(tree, ast.Module):
-        raise MsdRefusal(FINDING_SOURCE_NOT_PARSEABLE, f"{source} is not a module")
+    tree = _parsed_module(text, source)
     payload = _pairs_payload(tree) or _plants_payload(tree)
     if payload is None:
         raise MsdRefusal(FINDING_SOURCE_NOT_PARSEABLE, f"{source} has no PAIRS or PLANTS list")
@@ -388,6 +407,24 @@ def plants_from_source(
     if not isinstance(base, int) or isinstance(base, bool) or base < 1:
         raise MsdRefusal(FINDING_PLANT_FIELD_INVALID, f"{source} BASE must be a positive int")
     raw_rows = _extract_pair_elts(payload, source)
+    return _surface_rows(raw_rows, mill_id, source, base)
+
+def _parsed_module(text: str, source: str) -> ast.Module:
+    try:
+        tree = ast.parse(text)
+    except SyntaxError as exc:
+        raise MsdRefusal(
+            FINDING_SOURCE_NOT_PARSEABLE, f"{source} does not parse: {exc}"
+        ) from exc
+    if not isinstance(tree, ast.Module):
+        raise MsdRefusal(FINDING_SOURCE_NOT_PARSEABLE, f"{source} is not a module")
+    return tree
+
+def _surface_rows(
+    raw_rows: list[dict[str, Any]], mill_id: str, source: str, base: int
+) -> tuple[dict[str, Any], ...]:
+    """Prefix each normalized surface with its plant id, mill, source, and base round."""
+
     rows = []
     for raw in raw_rows:
         row = {
@@ -425,17 +462,7 @@ def _plant_from_row(row: Any, where: str) -> Plant:
         raise MsdRefusal(FINDING_PLANT_FIELD_INVALID, f"{where} must be an object")
     mill_id = _require_text(row.get("mill_id"), f"{where}.mill_id", FINDING_PLANT_FIELD_INVALID)
     slug = _require_text(row.get("slug"), f"{where}.slug", FINDING_PLANT_FIELD_INVALID)
-    if not MILL_ID_RE.fullmatch(mill_id):
-        raise MsdRefusal(FINDING_PLANT_FIELD_INVALID, f"{where}.mill_id is not msd_rNNN")
-    if not SLUG_RE.fullmatch(slug):
-        raise MsdRefusal(FINDING_PLANT_FIELD_INVALID, f"{where}.slug is not a plant slug")
-    plant_id = _require_text(row.get("plant_id"), f"{where}.plant_id", FINDING_PLANT_FIELD_INVALID)
-    expected = f"{mill_id}:{slug}"
-    if plant_id != expected:
-        raise MsdRefusal(FINDING_PLANT_FIELD_INVALID, f"{where}.plant_id must be {expected!r}")
-    base_round = row.get("base_round")
-    if not isinstance(base_round, int) or isinstance(base_round, bool) or base_round < 1:
-        raise MsdRefusal(FINDING_PLANT_FIELD_INVALID, f"{where}.base_round must be a positive int")
+    plant_id, base_round = _checked_identity_and_round(row, where, mill_id, slug)
     fields = {
         key: _require_text(row.get(key), f"{where}.{key}", FINDING_PLANT_FIELD_MISSING)
         for key in PLANT_KEYS
@@ -464,6 +491,29 @@ def _plant_from_row(row: Any, where: str) -> Plant:
         schema_note=fields["schema_note"],
         peer=fields["peer"],
     )
+
+def _is_plain_int(value: Any) -> TypeGuard[int]:
+    """An ``int`` that is not a ``bool``."""
+
+    return isinstance(value, int) and not isinstance(value, bool)
+
+def _checked_identity_and_round(
+    row: dict[str, Any], where: str, mill_id: str, slug: str
+) -> tuple[str, int]:
+    """Well-formed mill_id/slug, the joined plant_id, and a positive base round."""
+
+    if not MILL_ID_RE.fullmatch(mill_id):
+        raise MsdRefusal(FINDING_PLANT_FIELD_INVALID, f"{where}.mill_id is not msd_rNNN")
+    if not SLUG_RE.fullmatch(slug):
+        raise MsdRefusal(FINDING_PLANT_FIELD_INVALID, f"{where}.slug is not a plant slug")
+    plant_id = _require_text(row.get("plant_id"), f"{where}.plant_id", FINDING_PLANT_FIELD_INVALID)
+    expected = f"{mill_id}:{slug}"
+    if plant_id != expected:
+        raise MsdRefusal(FINDING_PLANT_FIELD_INVALID, f"{where}.plant_id must be {expected!r}")
+    base_round = row.get("base_round")
+    if not _is_plain_int(base_round) or base_round < 1:
+        raise MsdRefusal(FINDING_PLANT_FIELD_INVALID, f"{where}.base_round must be a positive int")
+    return plant_id, base_round
 
 
 def _mill_from_row(row: Any, where: str) -> Mill:
@@ -534,7 +584,6 @@ def load_catalog(directory: Path | None = None) -> Catalog:
     """Load a catalog directory and refuse unless every pin holds."""
 
     return load_pinned_catalog(directory, sys.modules[__name__], _contract, MsdRefusal)
-
 
 
 def catalog_check(directory: Path | None = None) -> list[dict[str, str]]:

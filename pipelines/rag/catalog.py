@@ -16,7 +16,7 @@ import sys
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, TypeGuard
 
 from . import _contract
 from ._contract import (
@@ -190,9 +190,7 @@ def _assigned_name(node: ast.AST) -> tuple[str, ast.AST] | None:
         if isinstance(target, ast.Name):
             return target.id, node.value
     if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
-        value = node.value
-        if value is not None:
-            return node.target.id, value
+        return None if node.value is None else (node.target.id, node.value)
     return None
 
 
@@ -206,21 +204,87 @@ def _p_call_args(node: ast.AST) -> tuple[str, str, str, str] | None:
         raise RagRefusal(FINDING_SOURCE_NOT_PARSEABLE, "P() must be four positional literals")
     if len(node.args) != 4:
         raise RagRefusal(FINDING_SOURCE_NOT_PARSEABLE, "P() must have four arguments")
+    return _four_strings(node)
+
+def _four_strings(node: ast.Call) -> tuple[str, str, str, str]:
+    """The four ``P()`` arguments as non-empty literal strings."""
+
     values = [_const_eval(arg) for arg in node.args]
     if any(not isinstance(item, str) or not item for item in values):
         raise RagRefusal(FINDING_SOURCE_NOT_PARSEABLE, "P() arguments must be non-empty strings")
     return values[0], values[1], values[2], values[3]
 
 
-def _rows_from_pairs(
-    elts: list[ast.AST],
+def plants_from_source(
+    text: str,
+    *,
     mill_id: str,
     source: str,
-    base: int,
+    base_round: int | None = None,
 ) -> tuple[dict[str, Any], ...]:
+    """AST-extract ``PAIRS = [P(...), ...]`` from leftover-mill text. Never exec."""
+
+    raw_pairs, inferred_base, factory = _scan_mill_source(text, source)
+    if factory is not None and factory != FACTORY:
+        raise RagRefusal(
+            FINDING_SOURCE_NOT_PARSEABLE,
+            f"{source} FACTORY {factory!r} is not {FACTORY}",
+        )
+    if not isinstance(raw_pairs, ast.List) or not raw_pairs.elts:
+        raise RagRefusal(FINDING_SOURCE_NOT_PARSEABLE, f"{source} has no PAIRS list")
+    if not MILL_ID_RE.fullmatch(mill_id):
+        raise RagRefusal(FINDING_PLANT_FIELD_INVALID, f"mill_id {mill_id!r} is not rag_rNNN")
+    base = _catalog_first_round(inferred_base, base_round, mill_id, source)
+    return _p_call_rows(raw_pairs, mill_id, source, base)
+
+def _scan_mill_source(text: str, source: str) -> tuple[ast.AST | None, Any, Any]:
+    """``PAIRS`` node plus literal ``CATALOG_FIRST`` and ``FACTORY``; the last of each wins."""
+
+    try:
+        tree = ast.parse(text)
+    except SyntaxError as exc:
+        raise RagRefusal(
+            FINDING_SOURCE_NOT_PARSEABLE, f"{source} does not parse: {exc}"
+        ) from exc
+    raw_pairs: ast.AST | None = None
+    inferred_base: Any = None
+    factory: Any = None
+    for node in tree.body:
+        assigned = _assigned_name(node)
+        if assigned is None:
+            continue
+        name, value = assigned
+        if name == "PAIRS":
+            raw_pairs = value
+        elif name == "CATALOG_FIRST":
+            inferred_base = _const_eval(value)
+        elif name == "FACTORY":
+            factory = _const_eval(value)
+    return raw_pairs, inferred_base, factory
+
+def _catalog_first_round(
+    inferred_base: Any, base_round: int | None, mill_id: str, source: str
+) -> int:
+    """The explicit base round, else ``CATALOG_FIRST``, else the ``rag_rNNN`` number."""
+
+    return require_positive_base(
+        inferred_base if base_round is None else base_round,
+        mill_id,
+        "rag_r",
+        lambda: RagRefusal(
+            FINDING_PLANT_FIELD_INVALID,
+            f"{source} CATALOG_FIRST must be a positive int",
+        ),
+    )
+
+def _p_call_rows(
+    raw_pairs: ast.List, mill_id: str, source: str, base: int
+) -> tuple[dict[str, Any], ...]:
+    """One row per ``P(eng, leftover, ticket_ok, ticket_fail)``; a repeated plant refuses."""
+
     rows = []
     seen: set[str] = set()
-    for index, item in enumerate(elts):
+    for index, item in enumerate(raw_pairs.elts):
         args = _p_call_args(item)
         if args is None:
             raise RagRefusal(
@@ -247,56 +311,6 @@ def _rows_from_pairs(
             }
         )
     return tuple(rows)
-
-
-def plants_from_source(
-    text: str,
-    *,
-    mill_id: str,
-    source: str,
-    base_round: int | None = None,
-) -> tuple[dict[str, Any], ...]:
-    """AST-extract ``PAIRS = [P(...), ...]`` from leftover-mill text. Never exec."""
-
-    try:
-        tree = ast.parse(text)
-    except SyntaxError as exc:
-        raise RagRefusal(
-            FINDING_SOURCE_NOT_PARSEABLE, f"{source} does not parse: {exc}"
-        ) from exc
-    raw_pairs: ast.AST | None = None
-    inferred_base: Any = None
-    factory: Any = None
-    for node in tree.body:
-        assigned = _assigned_name(node)
-        if assigned is None:
-            continue
-        name, value = assigned
-        if name == "PAIRS":
-            raw_pairs = value
-        elif name == "CATALOG_FIRST":
-            inferred_base = _const_eval(value)
-        elif name == "FACTORY":
-            factory = _const_eval(value)
-    if factory is not None and factory != FACTORY:
-        raise RagRefusal(
-            FINDING_SOURCE_NOT_PARSEABLE,
-            f"{source} FACTORY {factory!r} is not {FACTORY}",
-        )
-    if not isinstance(raw_pairs, ast.List) or not raw_pairs.elts:
-        raise RagRefusal(FINDING_SOURCE_NOT_PARSEABLE, f"{source} has no PAIRS list")
-    if not MILL_ID_RE.fullmatch(mill_id):
-        raise RagRefusal(FINDING_PLANT_FIELD_INVALID, f"mill_id {mill_id!r} is not rag_rNNN")
-    base = require_positive_base(
-        inferred_base if base_round is None else base_round,
-        mill_id,
-        "rag_r",
-        lambda: RagRefusal(
-            FINDING_PLANT_FIELD_INVALID,
-            f"{source} CATALOG_FIRST must be a positive int",
-        ),
-    )
-    return _rows_from_pairs(cast(list[ast.AST], raw_pairs.elts), mill_id, source, base)
 
 
 def _field(mapping: Any, key: str, kinds: type | tuple[type, ...], where: str) -> Any:
@@ -331,20 +345,7 @@ def _plant_from_row(row: Any, where: str) -> Plant:
     expected = f"{mill_id}:{slug}"
     if plant_id != expected:
         raise RagRefusal(FINDING_PLANT_FIELD_INVALID, f"{where}.plant_id must be {expected!r}")
-    base_round = row.get("base_round")
-    if not isinstance(base_round, int) or isinstance(base_round, bool) or base_round < 1:
-        raise RagRefusal(FINDING_PLANT_FIELD_INVALID, f"{where}.base_round must be a positive int")
-    eng = _require_text(row.get("eng"), f"{where}.eng", FINDING_PLANT_FIELD_MISSING)
-    leftover = _require_text(row.get("leftover"), f"{where}.leftover", FINDING_PLANT_FIELD_MISSING)
-    if not TOKEN_RE.fullmatch(eng):
-        raise RagRefusal(FINDING_PLANT_FIELD_INVALID, f"{where}.eng is not a token")
-    if not TOKEN_RE.fullmatch(leftover):
-        raise RagRefusal(FINDING_PLANT_FIELD_INVALID, f"{where}.leftover is not a token")
-    if slug != f"{eng}-{leftover}":
-        raise RagRefusal(
-            FINDING_PLANT_FIELD_INVALID,
-            f"{where}.slug must be {eng!s}-{leftover}",
-        )
+    base_round, eng, leftover = _round_and_tokens(row, where, slug)
     return Plant(
         plant_id=plant_id,
         mill_id=mill_id,
@@ -360,6 +361,30 @@ def _plant_from_row(row: Any, where: str) -> Plant:
             row.get("ticket_fail"), f"{where}.ticket_fail", FINDING_PLANT_FIELD_MISSING
         ),
     )
+
+def _is_plain_int(value: Any) -> TypeGuard[int]:
+    """An ``int`` that is not a ``bool``."""
+
+    return isinstance(value, int) and not isinstance(value, bool)
+
+def _round_and_tokens(row: dict[str, Any], where: str, slug: str) -> tuple[int, str, str]:
+    """Positive base round plus the eng/leftover tokens the slug is built from."""
+
+    base_round = row.get("base_round")
+    if not _is_plain_int(base_round) or base_round < 1:
+        raise RagRefusal(FINDING_PLANT_FIELD_INVALID, f"{where}.base_round must be a positive int")
+    eng = _require_text(row.get("eng"), f"{where}.eng", FINDING_PLANT_FIELD_MISSING)
+    leftover = _require_text(row.get("leftover"), f"{where}.leftover", FINDING_PLANT_FIELD_MISSING)
+    if not TOKEN_RE.fullmatch(eng):
+        raise RagRefusal(FINDING_PLANT_FIELD_INVALID, f"{where}.eng is not a token")
+    if not TOKEN_RE.fullmatch(leftover):
+        raise RagRefusal(FINDING_PLANT_FIELD_INVALID, f"{where}.leftover is not a token")
+    if slug != f"{eng}-{leftover}":
+        raise RagRefusal(
+            FINDING_PLANT_FIELD_INVALID,
+            f"{where}.slug must be {eng!s}-{leftover}",
+        )
+    return base_round, eng, leftover
 
 
 def _mill_from_row(row: Any, where: str) -> Mill:
@@ -430,7 +455,6 @@ def load_catalog(directory: Path | None = None) -> Catalog:
     """Load a catalog directory and refuse unless every pin holds."""
 
     return load_pinned_catalog(directory, sys.modules[__name__], _contract, RagRefusal)
-
 
 
 def catalog_check(directory: Path | None = None) -> list[dict[str, str]]:

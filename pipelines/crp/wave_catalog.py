@@ -78,7 +78,7 @@ _WAVE_PIN_ROWS: tuple[tuple[object, ...], ...] = (
     ('leftover3_prior', 'crp-leftover3-prior-v1', 'crp-leftover3-prior-catalog/1', 'CATALOG-leftover3-prior.json', 'plants-leftover3-prior.jsonl', 679, 48, 'crp-leftover3-prior-run/1', _SOURCE_REF, '813f93f1969c1c4421e5663492e9663739efa642', 'experiments/crp-mill-leftover3.py', _SOURCE_METHOD, '257941ca424fddb16608fe1a9eec0f4029a62857', 'eaa3867b23fdc726d55e2c347e00fed9b234d9cb51dc9667db2ed170149441c2', 466),
 )
 
-WAVE_PINS: dict[str, dict[str, object]] = {
+WAVE_PINS: dict[str, dict[str, Any]] = {
     str(row[0]): {
         field: row[i + 1]
         for i, field in enumerate(_WAVE_PIN_FIELDS)

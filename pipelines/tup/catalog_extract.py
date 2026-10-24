@@ -433,7 +433,7 @@ def expand_family_rows(
         grep = str(family["grep"])
         for short, verify_args, destroy in family["cmds"]:
             slug = f"{bin_name}-{short}"
-            if _expansion_skips(slug, banned, prefixes):
+            if is_skipped_slug(slug, banned, prefixes):
                 continue
             plants.append(
                 {
@@ -451,7 +451,7 @@ def expand_family_rows(
     return plants
 
 
-def _expansion_skips(slug: str, banned: frozenset[str], prefixes: tuple[str, ...]) -> bool:
+def is_skipped_slug(slug: str, banned: frozenset[str], prefixes: tuple[str, ...]) -> bool:
     """Banned slugs and prefixes, plus the ``yq-eval`` / ``pacman`` waves, never expand."""
 
     if slug in banned or any(slug.startswith(prefix) for prefix in prefixes):

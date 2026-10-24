@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import ast
+import json
 import subprocess
 import sys
 import tempfile
@@ -21,6 +22,10 @@ from mdb.catalog_extract import (  # noqa: E402
     SHAPE_RAW,
     SHAPE_SLUGS,
     SHAPE_TOOLS,
+    _p_ctor_pairs,
+    _r_ctor_pairs,
+    _raw_pairs,
+    _tools_pairs,
     catalog_document,
     catalog_json_path,
     dumps_catalog,
@@ -31,8 +36,10 @@ from mdb.catalog_extract import (  # noqa: E402
 )
 from mdb.pairs import (  # noqa: E402
     PAIRS,
+    _parse_line,
     compact_pair_row,
     deferred_sources,
+    dumps_pair_line,
     dumps_pairs_jsonl,
     load_pairs,
     pairs_jsonl_path,
@@ -166,14 +173,9 @@ class MdbSkeletonTests(unittest.TestCase):
                 "experiments/mdb-mill-r1934.py",
             },
         )
-        self.assertEqual(
-            next(s.companion_mill_path for s in loop_sources() if s.mill_id == "mdb-loop-r1084"),
-            "experiments/mdb-mill-r1148.py",
-        )
-        self.assertEqual(
-            next(s.companion_mill_path for s in loop_sources() if s.mill_id == "mdb-loop-r776"),
-            "experiments/mdb-mill-r840.py",
-        )
+        companions = {s.mill_id: s.companion_mill_path for s in loop_sources()}
+        self.assertEqual(companions["mdb-loop-r1084"], "experiments/mdb-mill-r1148.py")
+        self.assertEqual(companions["mdb-loop-r776"], "experiments/mdb-mill-r840.py")
 
     def test_no_vendored_mill_scripts(self):
         hits = []
@@ -314,6 +316,60 @@ class MdbDeferredPairsTests(unittest.TestCase):
         jsonl_slugs = {(pair.mill_id, pair.success_slug) for pair in PAIRS}
         for row in r709.pairs:
             self.assertNotIn((cv.SLICE_MILL_ID, row["success_slug"]), jsonl_slugs)
+
+
+class MdbShapeRefusalTests(unittest.TestCase):
+    """Constructor and row tables whose arguments are not literal slugs extract nothing."""
+
+    def test_600_deep_plus_and_minus_chains_resolve_as_constants(self):
+        deep = "CATALOG_FIRST = " + "-" * 600 + "1534"
+        chained = _SLUGS_SNIPPET.replace("CATALOG_FIRST = 1534", deep)
+        chained += "GEN = " + " + ".join(['"g"'] * 600) + "\n"
+        extracted = extract_mill_catalog(chained, path="experiments/mdb-mill-r1534.py")
+        self.assertEqual((extracted["catalog_first"], extracted["generator"]), (1534, "g" * 600))
+
+    def test_fstring_constants_resolve_and_negated_text_does_not(self):
+        source = _SLUGS_SNIPPET + 'X = 2\nGEN = f"mdb-{X}"\nCATALOG_FIRST = -"a"\n'
+        extracted = extract_mill_catalog(source, path="experiments/mdb-mill-r1534.py")
+        self.assertEqual((extracted["generator"], extracted["catalog_first"]), ("mdb-2", 1534))
+
+    def test_constructor_tables_need_literal_slug_arguments(self):
+        cases = (
+            (_p_ctor_pairs, 'PAIRS = [(P("a"), P("b"))]\n'),
+            (_r_ctor_pairs, 'RAW = [R("rebar3", "lock")]\n'),
+            (_r_ctor_pairs, 'RAW = [R("rebar3", 3, "ranch")]\n'),
+            (_raw_pairs, 'RAW = [("a-ok",), []]\n'),
+            (_tools_pairs, 'TOOLS = [("a-ok", 1), "b-fail"]\n'),
+        )
+        for finder, source in cases:
+            with self.subTest(source=source):
+                self.assertIsNone(finder(ast.parse(source)))
+
+
+class MdbPairLineTests(unittest.TestCase):
+    """Each deferred pairs.jsonl line is checked field by field after decoding."""
+
+    def setUp(self):
+        first = pairs_jsonl_path().read_text(encoding="utf-8").splitlines()[0]
+        self.row = json.loads(first)
+
+    def parse(self, **changes):
+        return _parse_line(dumps_pair_line({**self.row, **changes}), 4)
+
+    def test_a_null_plant_is_allowed(self):
+        self.assertIsNone(self.parse(success_plant=None)["success_plant"])
+
+    def test_field_errors_name_the_line_and_field(self):
+        for changes, suffix in (
+            ({"mill_id": cv.SLICE_MILL_ID}, ":4 repeats the r709 slice"),
+            ({"fail": "yes"}, ":4.fail must be a bool"),
+            ({"path": ""}, ":4.path must be a nonempty string"),
+            ({"fail_plant": 7}, ":4.fail_plant must be a string or null"),
+        ):
+            with self.subTest(changes=changes):
+                with self.assertRaises(ValueError) as caught:
+                    self.parse(**changes)
+                self.assertEqual(str(caught.exception), cv.PAIRS_FILENAME + suffix)
 
 
 class MdbLegacyExtractTests(unittest.TestCase):

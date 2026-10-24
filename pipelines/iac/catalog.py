@@ -280,6 +280,12 @@ def _bind_sources(catalog: IacCatalog) -> None:
     slice_mill = catalog.mills["iac-mill-r609"]
     if len(slice_mill.pairs) != slice_mill.n_rows:
         raise ValueError("r609 slice n_rows does not match extracted pairs")
+    _check_mill_pins(catalog, expected)
+
+
+def _check_mill_pins(catalog: IacCatalog, expected: Mapping[str, Any]) -> None:
+    """Every mill matches its sources.py pin; only the r609 slice carries pair rows."""
+
     for mill_id, mill in catalog.mills.items():
         source = expected[mill_id]
         if mill.path != source.path or mill.blob_sha != source.blob_sha:

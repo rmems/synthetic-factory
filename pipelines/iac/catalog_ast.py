@@ -7,7 +7,8 @@ Nothing here executes source. ``ast.parse`` is the only interpreter step.
 from __future__ import annotations
 
 import ast
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping, Sequence
+from functools import partial
 from typing import Any
 
 UNSET = object()
@@ -33,37 +34,61 @@ def assignment_names(node: ast.stmt) -> tuple[str, ...]:
     return ()
 
 
+# The container each sequence literal builds; ``ast.parse`` only yields these exact classes.
+_SEQUENCE_TYPES: dict[type, type] = {ast.Tuple: tuple, ast.List: list, ast.Set: set}
+
+
 def literal_value(node: ast.AST, env: Mapping[str, Any] | None = None) -> Any:
-    """Resolve constants, names, containers, and constant f-strings; else ``UNSET``."""
+    """Resolve constants, names, containers, and constant f-strings; else ``UNSET``.
+
+    ``-x`` and ``a + b`` recurse straight back into this function and containers
+    recurse through ``_sequence`` / ``_mapping`` / ``_joined_string``, so every
+    nesting level costs the frames it always did. The patterns are checked without
+    calling any Python helper, so a leaf of any kind needs no extra frame either.
+    """
 
     bound = env or {}
-    if isinstance(node, ast.Constant):
-        return node.value
-    if isinstance(node, ast.Name):
-        return bound[node.id] if node.id in bound else UNSET
-    if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
-        inner = literal_value(node.operand, bound)
-        return -inner if isinstance(inner, (int, float)) else UNSET
-    if isinstance(node, ast.Tuple):
-        return _sequence(node.elts, bound, tuple)
-    if isinstance(node, ast.List):
-        return _sequence(node.elts, bound, list)
-    if isinstance(node, ast.Set):
-        values = _sequence(node.elts, bound, list)
-        return set(values) if values is not UNSET else UNSET
-    if isinstance(node, ast.Dict):
-        return _mapping(node, bound)
-    if isinstance(node, ast.JoinedStr):
-        return _joined_string(node, bound)
-    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
-        left = literal_value(node.left, bound)
-        right = literal_value(node.right, bound)
-        if isinstance(left, str) and isinstance(right, str):
-            return left + right
+    value: Any = UNSET
+    match node:
+        case ast.Constant():
+            value = node.value
+        case ast.Name(id=name) if name in bound:
+            value = bound[name]
+        case ast.UnaryOp(op=ast.USub(), operand=operand):
+            value = _negated(literal_value(operand, bound))
+        case ast.BinOp(op=ast.Add(), left=left, right=right):
+            value = _concatenated(literal_value(left, bound), literal_value(right, bound))
+        case ast.Tuple() | ast.List() | ast.Set() | ast.Dict() | ast.JoinedStr():
+            value = _container_reader(node)(bound)
+    return value
+
+
+def _negated(inner: Any) -> Any:
+    return -inner if isinstance(inner, (int, float)) else UNSET
+
+
+def _concatenated(left: Any, right: Any) -> Any:
+    """``str + str`` of two resolved literals; anything else is ``UNSET``."""
+
+    if isinstance(left, str) and isinstance(right, str):
+        return left + right
     return UNSET
 
 
-def _sequence(elts: list[ast.AST], env: Mapping[str, Any], ctor):
+_ContainerNode = ast.Tuple | ast.List | ast.Set | ast.Dict | ast.JoinedStr
+
+
+def _container_reader(node: _ContainerNode) -> Callable[[Mapping[str, Any]], Any]:
+    """Pick the reader that resolves ``node`` against the bound names (no recursion here)."""
+
+    if isinstance(node, (ast.Tuple, ast.List, ast.Set)):
+        return partial(_sequence, node.elts, ctor=_SEQUENCE_TYPES[type(node)])
+    if isinstance(node, ast.Dict):
+        return partial(_mapping, node)
+    return partial(_joined_string, node)
+
+
+def _sequence(elts: Sequence[ast.AST], env: Mapping[str, Any], ctor):
     values: list[Any] = []
     for elt in elts:
         item = literal_value(elt, env)
@@ -114,6 +139,12 @@ def call_kwargs(node: ast.AST, env: Mapping[str, Any] | None = None) -> dict[str
         return None
     if node.args or any(keyword.arg is None for keyword in node.keywords):
         return None
+    return _literal_keywords(node, env)
+
+
+def _literal_keywords(node: ast.Call, env: Mapping[str, Any] | None) -> dict[str, Any] | None:
+    """Every keyword value as a literal, or None as soon as one is not."""
+
     out: dict[str, Any] = {}
     for keyword in node.keywords:
         value = literal_value(keyword.value, env)

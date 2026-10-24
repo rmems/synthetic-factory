@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Shared review preference step sequences for code-review and code-leftover generators.
 
-Consolidates the chosen and rejected review tail steps across ``crp`` and
-``code_leftover3`` generators so review steps are defined once.
+Consolidates the shared review prefix and the chosen/rejected tail steps across
+``crp`` and ``code_leftover3`` generators so review steps are defined once.
 """
 
 from __future__ import annotations
@@ -21,6 +21,7 @@ else:
 
 __all__ = [
     "chosen_tail",
+    "inventory_steps",
     "rejected_tail",
 ]
 
@@ -42,6 +43,51 @@ def _step(
 
 def _bash(cmd: str) -> dict[str, Any]:
     return {"name": "bash", "args": {"command": cmd}}
+
+
+def _feature_title_tail(plant: Any) -> str:
+    return plant.title.split(":", 1)[-1].strip()
+
+
+def inventory_steps(plant: Any, pr: int) -> list[dict[str, Any]]:
+    """Steps 1-3: inventory the PR, diff the core hunk, read the implementation."""
+    repo, core, boot, test = plant.repo, plant.core, plant.boot, plant.test
+    feat = _feature_title_tail(plant)
+    return [
+        _step(
+            1,
+            (
+                f"Observation: operator asked for a merge-blocking review of "
+                f"{repo} PR {pr} if the change has a real defect."
+            ),
+            _bash(f"gh pr view {pr} --repo {repo} --json number,title,files,additions,headRefName"),
+            (
+                f'designed: {{"number":{pr},"title":"{plant.title}","additions":{8},'
+                f'"files":[{{"path": "{core}"}}, {{"path": "{boot}"}}, '
+                f'{{"path": "{test}"}}],"headRefName":"feat/{plant.slug}"}}',
+                "Inventory the PR before commenting.",
+            ),
+        ),
+        _step(
+            2,
+            "Observation: core file named in the files list. Diff that hunk.",
+            _bash(f"gh pr diff {pr} --repo {repo} -- {core}"),
+            (
+                f"designed: +{feat}  # {plant.defect}",
+                "Read the implementation next, not just the hunk.",
+            ),
+        ),
+        _step(
+            3,
+            "Observation: diff shows the suspect pattern. Read the full function.",
+            {"name": "read_file", "args": {"path": core}},
+            (
+                f"designed: {plant.defect}. this is {plant.family}, not the "
+                f"{plant.notfam}. serial tests never cover {plant.missing}.",
+                "Confirm callers and tests before verdict.",
+            ),
+        ),
+    ]
 
 
 def _step_10_repro(plant: Any, pr: int) -> dict[str, Any]:
