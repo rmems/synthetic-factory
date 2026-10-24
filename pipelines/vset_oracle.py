@@ -182,7 +182,10 @@ def validate_record_with_oracle(
     require_registry_sha: bool = False,
 ) -> tuple[list[VSetValidationError], dict[str, Any] | None]:
     errors = validate_record(
-        record, registry_path=registry_path, require_registry_sha=require_registry_sha
+        record,
+        registry_path=registry_path,
+        require_registry_sha=require_registry_sha,
+        pack_dir=pack_dir,
     )
     if not isinstance(record, dict):
         return errors, None

@@ -8,6 +8,7 @@ bytes, and the training view mirrors the record's own verdicts.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 import re
@@ -261,13 +262,13 @@ _TRAINING_VIEW_LEAKS = frozenset(
     }
 )
 
-# A training view may name a suite in prose ("hidden tests not certified") and
-# may quote one of these phrases. Pasted suite source carries every marker at
-# once. The same scan applies to values and to mapping keys.
-_SUITE_SOURCE_MARKERS = ("def test_", "import unittest")
-
+# Shorter than this, a hidden file is not a safe substring: a generic line
+# such as ``def test_`` would flag the factory's own visible edits.
+_MIN_HIDDEN_SNIPPET = 64
 
 _CAMEL_BOUNDARY = re.compile(r"(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])")
+
+_EMPTY_DIGESTS: frozenset[str] = frozenset()
 
 
 def _training_view_key(key: Any) -> str:
@@ -282,35 +283,72 @@ def _training_view_key(key: Any) -> str:
     return folded.replace("-", "_")
 
 
-def _suite_source_leaks(value: str) -> bool:
-    folded = value.casefold()
-    return all(marker in folded for marker in _SUITE_SOURCE_MARKERS)
+def _hidden_suite_pins(pack_dir: Path | None) -> tuple[frozenset[str], tuple[str, ...]]:
+    """sha256 and source text of each ``tests/hidden_*.py`` in the pack.
+
+    A string leaks when it is one of those files or contains one. Ordinary
+    ``def test_`` code does not, because the marker is the hidden file itself.
+    """
+
+    if pack_dir is None:
+        return _EMPTY_DIGESTS, ()
+    tests = Path(pack_dir) / "tests"
+    if not tests.is_dir():
+        return _EMPTY_DIGESTS, ()
+    digests: list[str] = []
+    snippets: list[str] = []
+    for path in sorted(tests.iterdir()):
+        if not path.is_file() or not path.name.startswith("hidden_") or path.suffix != ".py":
+            continue
+        raw = path.read_bytes()
+        digest = hashlib.sha256(raw).hexdigest()
+        digests.append(digest)
+        snippet = raw.decode("utf-8").strip()
+        if len(snippet) >= _MIN_HIDDEN_SNIPPET:
+            snippets.append(snippet)
+    return frozenset(digests), tuple(snippets)
 
 
-def _key_leaks(key: Any) -> bool:
+def _text_matches_hidden(
+    value: str, digests: frozenset[str], snippets: tuple[str, ...]
+) -> bool:
+    if hashlib.sha256(value.encode("utf-8")).hexdigest() in digests:
+        return True
+    if any(digest in value for digest in digests):
+        return True
+    return any(snippet in value for snippet in snippets)
+
+
+def _key_leaks(key: Any, digests: frozenset[str], snippets: tuple[str, ...]) -> bool:
     if _training_view_key(key) in _TRAINING_VIEW_LEAKS:
         return True
-    return isinstance(key, str) and _suite_source_leaks(key)
+    return isinstance(key, str) and _text_matches_hidden(key, digests, snippets)
 
 
-def _mapping_leaks(value: dict[str, Any]) -> bool:
-    if any(_key_leaks(key) for key in value):
+def _mapping_leaks(
+    value: dict[str, Any], digests: frozenset[str], snippets: tuple[str, ...]
+) -> bool:
+    if any(_key_leaks(key, digests, snippets) for key in value):
         return True
-    return any(_training_view_leaks(item) for item in value.values())
+    return any(_training_view_leaks(item, digests, snippets) for item in value.values())
 
 
-def _training_view_leaks(value: Any) -> bool:
-    """Walk dicts and lists. Keys and strings are checked at every depth."""
+def _training_view_leaks(
+    value: Any, digests: frozenset[str], snippets: tuple[str, ...]
+) -> bool:
+    """Walk dicts and lists. Keys are case-insensitive; strings match the pack."""
     if isinstance(value, str):
-        return _suite_source_leaks(value)
+        return _text_matches_hidden(value, digests, snippets)
     if isinstance(value, dict):
-        return _mapping_leaks(value)
+        return _mapping_leaks(value, digests, snippets)
     if isinstance(value, list):
-        return any(_training_view_leaks(item) for item in value)
+        return any(_training_view_leaks(item, digests, snippets) for item in value)
     return False
 
 
-def _training_view_errors(training_view: Any) -> list[VSetValidationError]:
+def _training_view_errors(
+    training_view: Any, pack_dir: Path | None = None
+) -> list[VSetValidationError]:
     if not isinstance(training_view, dict):
         return [
             VSetValidationError(
@@ -318,7 +356,9 @@ def _training_view_errors(training_view: Any) -> list[VSetValidationError]:
                 "training_view is required and must be an object",
             )
         ]
-    if contains_hidden_reasoning_key(training_view) or _training_view_leaks(training_view):
+    digests, snippets = _hidden_suite_pins(pack_dir)
+    leaked = _training_view_leaks(training_view, digests, snippets)
+    if contains_hidden_reasoning_key(training_view) or leaked:
         return [
             VSetValidationError(
                 "vset.hidden_reasoning_in_training_view",
