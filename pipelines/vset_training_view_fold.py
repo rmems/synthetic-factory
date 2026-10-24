@@ -11,12 +11,12 @@ if __package__:  # pragma: no cover - package-child import path
     from . import _assert_direct_sibling, _expose_package_sibling
 
     _assert_direct_sibling("vset_training_view_fold")
-    from .vset_constants import normalize_identity
+    from .vset_constants import _INVISIBLE_CHARS, normalize_identity
 else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
         "vset_training_view_fold"
     )
-    from vset_constants import normalize_identity
+    from vset_constants import _INVISIBLE_CHARS, normalize_identity
 
 
 TRAINING_VIEW_LEAKS = frozenset(
@@ -63,16 +63,21 @@ def _split_camel_boundaries(text: str) -> str:
     return "".join(chars)
 
 
+def _strip_invisible(text: str) -> str:
+    return "".join(char for char in text if char not in _INVISIBLE_CHARS)
+
+
 def training_view_key(key: Any) -> str:
     """Fold case, separators, camel-case, and lookalikes so keys match.
 
     Width variants are normalized before the camel split, so a fullwidth
     ``Ｔ`` becomes ``T``. The split uses ``str.isupper`` so a Cyrillic
-    capital also starts a word. Separators become underscores before the
-    identity fold, which deletes whitespace rather than keeping it.
+    capital also starts a word. Invisible characters are removed before
+    separators become underscores, so a zero-width mark inside a word
+    does not split it. The identity fold then deletes whitespace.
     """
 
-    text = unicodedata.normalize("NFKC", str(key))
+    text = _strip_invisible(unicodedata.normalize("NFKC", str(key)))
     split = _split_camel_boundaries(text)
     separated = re.sub(r"[^\w]+", "_", split, flags=re.UNICODE)
     folded = normalize_identity(separated)

@@ -65,6 +65,11 @@ class HiddenSuiteLeakForges(unittest.TestCase):
         errors, _execution = vset.validate_record_with_oracle(record, PACK)
         self.assertTrue(errors)
 
+    def test_invisible_character_inside_a_key_is_refused(self) -> None:
+        for key in ("hid\u200bden_tests", "orac\u200ble", "solv\u00ader", "hidden\u00adTests"):
+            with self.subTest(key=key):
+                self.assertTrue(vset.validate_record(_record({key: SUITE_PATH})))
+
     def test_lookalike_hidden_tests_key_is_refused(self) -> None:
         # Small te, capital te, and small ie before an ASCII capital.
         for key in ("hidden_\u0442ests", "hidden\u0422ests", "oracl\u0435Suite"):
