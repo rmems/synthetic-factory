@@ -64,9 +64,10 @@ class HiddenSuiteLeakForges(unittest.TestCase):
         self.assertTrue(errors)
 
     def test_lookalike_hidden_tests_key_is_refused(self) -> None:
-        # Cyrillic small te, U+0442, folds to ASCII t.
-        record = _record({"hidden_\u0442ests": SUITE_PATH})
-        self.assertTrue(vset.validate_record(record))
+        # Small te, capital te, and small ie before an ASCII capital.
+        for key in ("hidden_\u0442ests", "hidden\u0422ests", "oracl\u0435Suite"):
+            with self.subTest(key=key):
+                self.assertTrue(vset.validate_record(_record({key: SUITE_PATH})))
 
     def test_separator_and_width_keys_are_refused(self) -> None:
         for key in ("hidden.tests", "hidden tests", "hidden\uff34ests"):

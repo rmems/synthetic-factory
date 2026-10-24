@@ -63,22 +63,46 @@ _MIN_HIDDEN_SNIPPET = 64
 # Lines shorter than this are shared boilerplate (``import unittest``).
 _MIN_DISTINCTIVE_LINE = 24
 
-_CAMEL_BOUNDARY = re.compile(r"(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])")
 _EMPTY_DIGESTS: frozenset[str] = frozenset()
 _LEAK_MESSAGE = "training_view must not carry hidden suites, oracle, payload, patch, or solver"
+
+
+def _boundary_before(previous: str, char: str, following: str) -> bool:
+    """A camel boundary, including non-ASCII capitals such as Cyrillic ``Т``."""
+
+    if not previous or not char.isupper():
+        return False
+    if previous.islower():
+        return True
+    if previous.isdigit():
+        return True
+    if not previous.isupper():
+        return False
+    return following.islower()
+
+
+def _split_camel_boundaries(text: str) -> str:
+    chars: list[str] = []
+    for index, char in enumerate(text):
+        previous = text[index - 1] if index else ""
+        following = text[index + 1] if index + 1 < len(text) else ""
+        if _boundary_before(previous, char, following):
+            chars.append("_")
+        chars.append(char)
+    return "".join(chars)
 
 
 def _training_view_key(key: Any) -> str:
     """Fold case, separators, camel-case, and lookalikes so keys match.
 
     Width variants are normalized before the camel split, so a fullwidth
-    ``Ｔ`` becomes ``T`` and ``hiddenＴests`` splits like ``hiddenTests``.
-    Separators become underscores before the identity fold, which deletes
-    whitespace rather than keeping it as a boundary.
+    ``Ｔ`` becomes ``T``. The split uses ``str.isupper`` so a Cyrillic
+    capital also starts a word. Separators become underscores before the
+    identity fold, which deletes whitespace rather than keeping it.
     """
 
     text = unicodedata.normalize("NFKC", str(key))
-    split = _CAMEL_BOUNDARY.sub("_", text)
+    split = _split_camel_boundaries(text)
     separated = re.sub(r"[^\w]+", "_", split, flags=re.UNICODE)
     folded = normalize_identity(separated)
     return re.sub(r"[^a-z0-9]+", "_", folded).strip("_")
