@@ -13,6 +13,7 @@ import hashlib
 import sys
 import unittest
 from pathlib import Path
+from unittest import mock
 
 _TESTS = Path(__file__).resolve().parent
 if str(_TESTS) not in sys.path:
@@ -104,10 +105,14 @@ class HiddenSuiteLeakForges(unittest.TestCase):
 
     def test_embedded_hidden_source_is_refused(self) -> None:
         digest = hashlib.sha256(HIDDEN.encode("utf-8")).hexdigest()
+        class_body = HIDDEN[HIDDEN.index("class ") :]
         cases = {
             "observation": {"steps": [{"observation": "notes\n" + HIDDEN}]},
             "edit": {"tool_call": {"args": {"old": "pass\n", "new": HIDDEN}}},
             "digest": {"decision_basis": f"hidden pin {digest}"},
+            "class_body": {"decision_basis": class_body},
+            "crlf": {"decision_basis": HIDDEN.replace("\n", "\r\n")},
+            "truncated": {"decision_basis": HIDDEN.rstrip()[:-5]},
         }
         for name, extra in cases.items():
             with self.subTest(variant=name):
@@ -115,6 +120,18 @@ class HiddenSuiteLeakForges(unittest.TestCase):
                 self.assertTrue(vset.validate_record(record, pack_dir=PACK))
                 errors, _execution = vset.validate_record_with_oracle(record, PACK)
                 self.assertTrue(errors)
+
+    def test_unreadable_hidden_suite_is_reported(self) -> None:
+        real_read = Path.read_bytes
+
+        def deny_pack_tests(self: Path) -> bytes:
+            if self.parent.name == "tests":
+                raise OSError("denied")
+            return real_read(self)
+
+        with mock.patch.object(Path, "read_bytes", deny_pack_tests):
+            errors = vset.validate_record(_record(), pack_dir=PACK)
+        self.assertIn("vset.payload_invalid", [item.code for item in errors])
 
     def test_forge_validate_record_refuses_leak(self) -> None:
         for name, extra in FORGES.items():

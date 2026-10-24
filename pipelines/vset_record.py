@@ -33,9 +33,9 @@ if __package__:  # pragma: no cover - package-child import path
         _curation_errors,
         _environment_errors,
         _release_errors,
-        _training_view_errors,
     )
     from .vset_source import payload_errors, source_kind_errors
+    from .vset_training_view import _training_view_errors
 else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
         "vset_record"
@@ -63,9 +63,9 @@ else:
         _curation_errors,
         _environment_errors,
         _release_errors,
-        _training_view_errors,
     )
     from vset_source import payload_errors, source_kind_errors
+    from vset_training_view import _training_view_errors
 
 
 def validate_record(

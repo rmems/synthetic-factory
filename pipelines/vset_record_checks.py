@@ -8,12 +8,9 @@ bytes, and the training view mirrors the record's own verdicts.
 
 from __future__ import annotations
 
-import hashlib
 import json
 import math
-import re
 import sys
-import unicodedata
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -21,7 +18,6 @@ if __package__:  # pragma: no cover - package-child import path
     from . import _assert_direct_sibling, _expose_package_sibling
 
     _assert_direct_sibling("vset_record_checks")
-    from .curate_coding import contains_hidden_reasoning_key
     from .curate_identity import REGISTRY_SCHEMA_VERSION
     from .vset_constants import (
         CURATION_DECISIONS,
@@ -32,7 +28,6 @@ if __package__:  # pragma: no cover - package-child import path
         VSetValidationError,
         _is_nonempty,
         _is_sha256,
-        normalize_identity,
         reason_codes_error,
         registry_pin,
 )
@@ -40,7 +35,6 @@ else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
         "vset_record_checks"
     )
-    from curate_coding import contains_hidden_reasoning_key
     from curate_identity import REGISTRY_SCHEMA_VERSION
     from vset_constants import (
         CURATION_DECISIONS,
@@ -51,7 +45,6 @@ else:
         VSetValidationError,
         _is_nonempty,
         _is_sha256,
-        normalize_identity,
         reason_codes_error,
         registry_pin,
 )
@@ -243,145 +236,6 @@ def _stamped_registry_errors(
             "release.factory_registry_sha256 must match the reviewed FACTORY-REGISTRY.json bytes",
         )
     ]
-
-
-_TRAINING_VIEW_LEAKS = frozenset(
-    {
-        "hidden_tests",
-        "hidden_suite",
-        "reference_tests",
-        "reference_suite",
-        "private_tests",
-        "oracle_suite",
-        "grading_tests",
-        "tests_source",
-        "oracle",
-        "payload",
-        "patch",
-        "solver",
-        "solver_run_id",
-    }
-)
-
-# Shorter than this, a hidden file is not a safe substring: a generic line
-# such as ``def test_`` would flag the factory's own visible edits.
-_MIN_HIDDEN_SNIPPET = 64
-
-_CAMEL_BOUNDARY = re.compile(r"(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])")
-
-_EMPTY_DIGESTS: frozenset[str] = frozenset()
-
-
-def _training_view_key(key: Any) -> str:
-    """Fold case, separators, camel-case, and lookalikes so keys match.
-
-    Width variants are normalized before the camel split, so a fullwidth
-    ``Ｔ`` becomes ``T`` and ``hiddenＴests`` splits like ``hiddenTests``.
-    Separators become underscores before the identity fold, which deletes
-    whitespace rather than keeping it as a boundary. ``normalize_identity``
-    maps confusable letters such as Cyrillic ``т``.
-    """
-
-    text = unicodedata.normalize("NFKC", str(key))
-    split = _CAMEL_BOUNDARY.sub("_", text)
-    separated = re.sub(r"[^\w]+", "_", split, flags=re.UNICODE)
-    folded = normalize_identity(separated)
-    return re.sub(r"[^a-z0-9]+", "_", folded).strip("_")
-
-
-def _is_hidden_suite_path(path: Path) -> bool:
-    if not path.is_file():
-        return False
-    if not path.name.startswith("hidden_"):
-        return False
-    return path.suffix == ".py"
-
-
-def _hidden_suite_pins(pack_dir: Path | None) -> tuple[frozenset[str], tuple[str, ...]]:
-    """sha256 and source text of each ``tests/hidden_*.py`` in the pack.
-
-    A string leaks when it is one of those files or contains one. Ordinary
-    ``def test_`` code does not, because the marker is the hidden file itself.
-    """
-
-    if pack_dir is None:
-        return _EMPTY_DIGESTS, ()
-    tests = Path(pack_dir) / "tests"
-    if not tests.is_dir():
-        return _EMPTY_DIGESTS, ()
-    digests: list[str] = []
-    snippets: list[str] = []
-    for path in sorted(tests.iterdir()):
-        if not _is_hidden_suite_path(path):
-            continue
-        raw = path.read_bytes()
-        digest = hashlib.sha256(raw).hexdigest()
-        digests.append(digest)
-        snippet = raw.decode("utf-8").strip()
-        if len(snippet) >= _MIN_HIDDEN_SNIPPET:
-            snippets.append(snippet)
-    return frozenset(digests), tuple(snippets)
-
-
-def _text_matches_hidden(
-    value: str, digests: frozenset[str], snippets: tuple[str, ...]
-) -> bool:
-    if hashlib.sha256(value.encode("utf-8")).hexdigest() in digests:
-        return True
-    if any(digest in value for digest in digests):
-        return True
-    return any(snippet in value for snippet in snippets)
-
-
-def _key_leaks(key: Any, digests: frozenset[str], snippets: tuple[str, ...]) -> bool:
-    if _training_view_key(key) in _TRAINING_VIEW_LEAKS:
-        return True
-    return isinstance(key, str) and _text_matches_hidden(key, digests, snippets)
-
-
-def _mapping_leaks(
-    value: dict[str, Any], digests: frozenset[str], snippets: tuple[str, ...]
-) -> bool:
-    if any(_key_leaks(key, digests, snippets) for key in value):
-        return True
-    return any(_training_view_leaks(item, digests, snippets) for item in value.values())
-
-
-def _training_view_leaks(
-    value: Any, digests: frozenset[str], snippets: tuple[str, ...]
-) -> bool:
-    """Walk dicts and lists. Keys are case-insensitive; strings match the pack."""
-    if isinstance(value, str):
-        return _text_matches_hidden(value, digests, snippets)
-    if isinstance(value, dict):
-        return _mapping_leaks(value, digests, snippets)
-    if isinstance(value, list):
-        return any(_training_view_leaks(item, digests, snippets) for item in value)
-    return False
-
-
-def _training_view_errors(
-    training_view: Any, pack_dir: Path | None = None
-) -> list[VSetValidationError]:
-    if not isinstance(training_view, dict):
-        return [
-            VSetValidationError(
-                "vset.hidden_reasoning_in_training_view",
-                "training_view is required and must be an object",
-            )
-        ]
-    digests, snippets = _hidden_suite_pins(pack_dir)
-    leaked = _training_view_leaks(training_view, digests, snippets)
-    if contains_hidden_reasoning_key(training_view) or leaked:
-        return [
-            VSetValidationError(
-                "vset.hidden_reasoning_in_training_view",
-                "training_view must not carry hidden suites, oracle, payload, patch, or solver",
-            )
-        ]
-    return []
-
-
 
 
 if __package__:  # pragma: no cover - package-child import path
