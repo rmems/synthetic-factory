@@ -153,10 +153,22 @@ def _doctests(module, function):
         result = runner.run(test, out=lambda _text: None, clear_globs=False)
         attempted += result.attempted
         failed += result.failed
-    # REPORT_ONLY_FIRST_FAILURE still counts later misses but does not report them.
-    every_miss_reported = failed == runner.reported
-    detail = DETAIL_STDOUT_EQUIVALENT if failed and runner.stdout_only and every_miss_reported else ""
-    return attempted, failed, detail
+    return attempted, failed, _equivalent_detail(failed, runner)
+
+
+def _equivalent_detail(failed, runner):
+    """``stdout_equivalent`` only when every counted miss was reported as such.
+
+    ``REPORT_ONLY_FIRST_FAILURE`` counts later misses and does not report them.
+    """
+
+    if not failed:
+        return ""
+    if not runner.stdout_only:
+        return ""
+    if failed != runner.reported:
+        return ""
+    return DETAIL_STDOUT_EQUIVALENT
 
 
 def silence_stdout():
