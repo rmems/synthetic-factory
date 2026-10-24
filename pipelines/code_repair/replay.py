@@ -381,8 +381,11 @@ def _run_identity(run_dir: Path) -> dict[str, Any]:
         f"{run_file} is not a run summary",
     )
     cv.refuse_when(
-        summary.get("format") != generate.RUN_FORMAT
-        or not _replayable_run_generator(summary.get("generator")),
+        summary.get("format") != generate.RUN_FORMAT,
+        cv.FINDING_RECORD_MALFORMED, "run or generator version is unsupported; regenerate legacy runs",
+    )
+    cv.refuse_when(
+        not _replayable_run_generator(summary.get("generator")),
         cv.FINDING_RECORD_MALFORMED, "run or generator version is unsupported; regenerate legacy runs",
     )
     candidates_digest = hashlib.sha256(candidates.read_bytes()).hexdigest()
