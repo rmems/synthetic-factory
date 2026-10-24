@@ -78,6 +78,17 @@ def _walk(suite: unittest.TestSuite, found: list[str]) -> None:
 
 
 def _load_ids(spec: dict[str, str], path: Path) -> set[str]:
+    """Collect ids without writing ``.pyc`` under an import root."""
+
+    previous = sys.dont_write_bytecode
+    sys.dont_write_bytecode = True
+    try:
+        return _imported_ids(spec, path)
+    finally:
+        sys.dont_write_bytecode = previous
+
+
+def _imported_ids(spec: dict[str, str], path: Path) -> set[str]:
     module_spec = importlib.util.spec_from_file_location(spec["module"], path)
     if module_spec is None:
         raise VSetValidationError(

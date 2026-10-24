@@ -112,6 +112,21 @@ def _grade_specifier(src: str) -> dict[str, object]:
         sys.modules.update(saved)
 
 
+def _grandchild_source(target: str) -> str:
+    wait = "while True:\n        try:\n            os.kill(os.getppid(), 0)\n        except OSError:\n            break\n        time.sleep(0.01)\n"
+    plant = "    handle = open({0}, 'w')\n    handle.write('import unittest\\n')\n    handle.write('unittest.TestCase.assertEqual = lambda *a, **k: None\\n')\n    handle.close()\n    os._exit(0)\n"
+    return "import os, time\ndef add(a, b):\n    return 0\npid = os.fork()\nif pid == 0:\n    os.setsid()\n    " + wait + plant.format(repr(target))
+
+
+def _case(method: str, body: str) -> str:
+    return (
+        "import unittest\nimport c\n"
+        "class T(unittest.TestCase):\n"
+        f"    def {method}(self):\n"
+        f"        {body}\n"
+    )
+
+
 def _clear_plant() -> None:
     (PIPELINES / "statistics.py").unlink(missing_ok=True)
     package = PIPELINES / "statistics"
@@ -399,49 +414,20 @@ class PathGuardTests(unittest.TestCase):
 
     def test_escaped_child_cannot_seed_the_next_grade(self) -> None:
         _clear_plant()
-        target = str(PIPELINES / "statistics.py")
-        source = (
-            "import os, time\n"
-            "def add(a, b):\n"
-            "    return 0\n"
-            "pid = os.fork()\n"
-            "if pid == 0:\n"
-            "    os.setsid()\n"
-            "    while True:\n"
-            "        try:\n"
-            "            os.kill(os.getppid(), 0)\n"
-            "        except OSError:\n"
-            "            break\n"
-            "        time.sleep(0.01)\n"
-            f"    handle = open({target!r}, 'w')\n"
-            "    handle.write('import unittest\\n')\n"
-            "    handle.write('unittest.TestCase.assertEqual = lambda *a, **k: None\\n')\n"
-            "    handle.close()\n"
-            "    os._exit(0)\n"
-        )
-        suite_a = (
-            "import unittest\nimport c\n"
-            "class T(unittest.TestCase):\n"
-            "    def test_a(self):\n"
-            "        self.assertEqual(c.add(1, 2), 0)\n"
-        )
-        suite_b = (
-            "import unittest\nimport c\n"
-            "class T(unittest.TestCase):\n"
-            "    def test_b(self):\n"
-            "        import statistics\n"
-            "        self.assertEqual(c.add(1, 2), 3)\n"
-        )
         saved = sys.modules.pop("statistics", None)
         try:
-            with tempfile.TemporaryDirectory() as tmp:
-                pack = Path(tmp)
-                (pack / "src").mkdir()
-                (pack / "tests").mkdir()
-                (pack / "src" / "c.py").write_text(source, encoding="utf-8")
-                (pack / "tests" / "a.py").write_text(suite_a, encoding="utf-8")
-                (pack / "tests" / "b.py").write_text(suite_b, encoding="utf-8")
-                report = vset.run_oracle(pack, reference_tests=["tests/a.py", "tests/b.py"])
+            report = reference_report(
+                "a.py",
+                {
+                    "src/c.py": _grandchild_source(str(PIPELINES / "statistics.py")),
+                    "tests/a.py": _case("test_a", "self.assertEqual(c.add(1, 2), 0)"),
+                    "tests/b.py": _case(
+                        "test_b",
+                        "import statistics\n        self.assertEqual(c.add(1, 2), 3)",
+                    ),
+                },
+                tests=("tests/a.py", "tests/b.py"),
+            )
             statuses = {
                 row["id"].rsplit(".", 1)[-1]: row["status"] for row in report["reference"]["tests"]
             }
@@ -455,6 +441,37 @@ class PathGuardTests(unittest.TestCase):
             sys.modules.pop("statistics", None)
             if saved is not None:
                 sys.modules["statistics"] = saved
+
+    def test_collection_does_not_write_bytecode_on_the_import_path(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            prefix = Path(tmp) / "pyc"
+            prefix.mkdir()
+            previous_prefix = sys.pycache_prefix
+            previous_flag = sys.dont_write_bytecode
+            sys.pycache_prefix = str(prefix)
+            sys.dont_write_bytecode = False
+            sys.path.insert(0, str(prefix))
+            saved = sys.modules.pop("statistics", None)
+            try:
+                report = reference_report(
+                    "use.py",
+                    {
+                        "src/c.py": "def add(a, b):\n    return a + b\n",
+                        "tests/use.py": _case(
+                            "test_sum",
+                            "import statistics\n        self.assertEqual(c.add(1, 2), 3)",
+                        ),
+                    },
+                )
+                self.assertTrue(report["reference"]["ok"], report["reference"])
+                self.assertEqual(list(prefix.rglob("*.pyc")), [])
+            finally:
+                sys.dont_write_bytecode = previous_flag
+                sys.pycache_prefix = previous_prefix
+                sys.path.remove(str(prefix))
+                sys.modules.pop("statistics", None)
+                if saved is not None:
+                    sys.modules["statistics"] = saved
 
     def test_import_path_write_refuses_the_oracle(self) -> None:
         _clear_plant()
