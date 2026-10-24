@@ -210,25 +210,26 @@ class ParentOracleTests(unittest.TestCase):
 
     def test_parent_subclass_of_a_candidate_class_runs(self) -> None:
         tests = (
-            "    def test_square(self):\n" "        before = shapes.Base.built\n" "        value = Square(3)\n" "        self.assertEqual(value.area(), 9)\n" "        self.assertEqual(value.describe(), 9)\n" "        self.assertEqual(value.kind, 'square')\n"
-            "        self.assertEqual(value.tagged(), 'square')\n" "        self.assertEqual(value.scaled(), 6)\n" "        self.assertEqual(value.show(), 'cm')\n" "        self.assertEqual(value.marked(), 'ok')\n" "        self.assertIsInstance(value, Square)\n" "        self.assertIsInstance(value, shapes.Base)\n"
-            "        self.assertEqual(shapes.Base.built, before + 1)\n" "        self.assertEqual(value.born(), 3)\n" "        self.assertTrue(value.cmp(Square(3)))\n" "    def test_plain(self):\n" "        before = shapes.Base.built\n" "        self.assertEqual(shapes.Base(2).area(), 2)\n"
-            "        self.assertEqual(shapes.Base.built, before + 1)\n" "    def test_inner(self):\n" "        class Inner(shapes.Base):\n" "            def area(self):\n" "                return self.side + 1\n" "        self.assertEqual(Inner(4).area(), 5)\n"
+            "    def test_square(self):\n        before = shapes.Base.built\n        value = Square(3)\n"
+            "        self.assertEqual(value.area(), 9)\n        self.assertEqual(value.describe(), 9)\n"
+            "        self.assertEqual(value.kind, 'square')\n        self.assertEqual(value.tagged(), 'square')\n"
+            "        self.assertEqual(value.scaled(), 6)\n        self.assertEqual(value.show(), 'cm')\n"
+            "        self.assertEqual(value.marked(), 'ok')\n        self.assertIsInstance(value, Square)\n"
+            "        self.assertIsInstance(value, shapes.Base)\n        self.assertEqual(shapes.Base.built, before + 1)\n"
+            "        self.assertEqual(value.born(), 3)\n        self.assertTrue(value.cmp(Square(3)))\n"
+            "    def test_plain(self):\n        before = shapes.Base.built\n"
+            "        self.assertEqual(shapes.Base(2).area(), 2)\n        self.assertEqual(shapes.Base.built, before + 1)\n"
+            "    def test_inner(self):\n        class Inner(shapes.Base):\n            def area(self):\n"
+            "                return self.side + 1\n        self.assertEqual(Inner(4).area(), 5)\n"
             "        self.assertEqual(Inner(4).describe(), 5)\n"
         )
         self._ok_files("use.py", _shapes("", tests))
 
     def test_nested_subclass_uses_the_parent_override(self) -> None:
         extra = "class Cube(Square):\n    def area(self):\n        return self.side * 3\n"
-        tests = _join(
-            [
-                "    def test_cube(self):\n",
-                "        value = Cube(3)\n",
-                "        self.assertEqual(value.area(), 9)\n",
-                "        self.assertEqual(value.describe(), 9)\n",
-                "        self.assertEqual(value.kind, 'square')\n",
-                "        self.assertIsInstance(value, Square)\n",
-                "        self.assertEqual(shapes.Base.built, 1)\n",
-            ]
+        tests = (
+            "    def test_cube(self):\n        value = Cube(3)\n        self.assertEqual(value.area(), 9)\n"
+            "        self.assertEqual(value.describe(), 9)\n        self.assertEqual(value.kind, 'square')\n"
+            "        self.assertIsInstance(value, Square)\n        self.assertEqual(shapes.Base.built, 1)\n"
         )
         self._ok_files("use.py", _shapes(extra, tests))
