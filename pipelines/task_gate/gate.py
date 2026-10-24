@@ -3,18 +3,21 @@
 
 Evaluation order, first failing rule wins:
 
-1. ``denylisted`` -- the program id is on the eval denylist (checked first so eval programs are
-   never parsed or executed on behalf of a proposal).
+1. ``denylisted`` -- the program id is on the eval denylist, or its whole-module normalized
+   text matches a denylisted program that is loaded in this same catalog (checked first so
+   eval programs are never parsed or executed on behalf of a proposal). A renamed function or
+   a changed docstring is a different module and is not denied by content.
 2. ``parse_error`` -- the row is malformed, the program is unknown, the edit does not resolve
    to exactly one span inside the target body (outside the docstring), the mutant does not
    compile, does not load, or kills the interpreter.
-3. ``duplicate`` -- the key of the canonical (minimal) edit, bound to ``program_id`` and the
-   program's sha256 (see ``dedup_index.dedup_key``), was kept in a prior run or earlier in
-   this one, so two spellings of one mutant are one duplicate.
+3. ``duplicate`` -- the key of the normalized mutant, bound to ``program_id`` and the program's
+   sha256 (see ``dedup_index.dedup_key``), was kept in a prior run or earlier in this one, so
+   whitespace and parenthesis spellings of one mutant are one duplicate.
 4. ``original_fails`` -- the unmodified program does not pass all of its doctests (or has none).
 5. ``timeout`` -- the mutant exceeded the wall-clock budget (rejected, never kept).
-6. ``mutant_passes`` -- the mutant passes every doctest.
-7. ``kept`` -- the mutant fails at least one doctest.
+6. ``mutant_passes`` -- the mutant passes every doctest, or its only misses are extra stdout
+   around the expected value (an equivalent mutant, not a bug).
+7. ``kept`` -- the mutant fails at least one doctest for a reason other than that stdout.
 """
 
 from __future__ import annotations
@@ -27,10 +30,10 @@ from typing import Any, NamedTuple, Protocol
 from . import mutation
 from . import vocabulary as cv
 from ._contract import bind_import_twin
-from .dedup_index import PriorIndex, dedup_key
+from .dedup_index import PriorIndex, dedup_key, normalized_text
 from .denylist import Denylist
 from .harness import HarnessResult
-from .proposal import GateProgram, GateProposal, MalformedProposal
+from .proposal import GateProgram, GateProposal, MalformedProposal, accepted_source
 
 __all__ = ["Decision", "Gate", "Harness", "Rules"]
 
@@ -91,6 +94,16 @@ _MUTANT_VERDICTS = {
 }
 
 
+def _mutant_verdict(result: HarnessResult) -> tuple[str, str]:
+    """Map a harness result to a verdict. Stdout-only misses are not bugs."""
+
+    if result.outcome == cv.OUTCOME_FAILED and result.detail == cv.DETAIL_STDOUT_EQUIVALENT:
+        return cv.VERDICT_MUTANT_PASSES, cv.DETAIL_MUTANT_EQUIVALENT
+    return _MUTANT_VERDICTS.get(
+        result.outcome, (cv.VERDICT_PARSE_ERROR, cv.DETAIL_MUTANT_CRASHED),
+    )
+
+
 class Rules(NamedTuple):
     """What a run is judged against: the required eval denylist and the prior-run index."""
 
@@ -124,6 +137,12 @@ class Gate:
             selfcheck()
         self.programs, self.harness = programs, harness
         self.denylist, self.prior = rules.denylist, rules.prior
+        self._content = {
+            program.program_id: normalized_text(program.text) for program in programs.values()
+        }
+        self._denied_content = frozenset(
+            text for pid, text in self._content.items() if pid in self.denylist
+        )
         self.kept: dict[str, dict[str, Any]] = {}
         self._originals: dict[str, str | None] = {}
         self._mutants: dict[str, HarnessResult] = {}
@@ -131,11 +150,22 @@ class Gate:
     def run(self, items: Iterable[GateProposal | MalformedProposal]) -> list[Decision]:
         return [self.decide(item) for item in items]
 
-    def decide(self, item: GateProposal | MalformedProposal) -> Decision:
-        source = item.source if isinstance(item, GateProposal) else None
+    def _denial(self, item: GateProposal | MalformedProposal) -> str | None:
+        """Why ``item`` is denylisted, or None. Id first, then the program's normalized text."""
+
         if item.program_id is not None and item.program_id in self.denylist:
-            return Decision(item.proposal_id, item.program_id, source, cv.VERDICT_DENYLISTED,
-                            cv.DETAIL_ON_DENYLIST)
+            return cv.DETAIL_ON_DENYLIST
+        if self._content.get(item.program_id) in self._denied_content:
+            return cv.DETAIL_CONTENT_ON_DENYLIST
+        return None
+
+    def decide(self, item: GateProposal | MalformedProposal) -> Decision:
+        source = accepted_source(item.source) if isinstance(item, GateProposal) else None
+        denial = self._denial(item)
+        if denial is not None:
+            return Decision(
+                item.proposal_id, item.program_id, source, cv.VERDICT_DENYLISTED, denial,
+            )
         if isinstance(item, MalformedProposal):
             return Decision(item.proposal_id, item.program_id, None, cv.VERDICT_PARSE_ERROR, item.detail)
         program = self.programs.get(item.program_id)
@@ -152,7 +182,8 @@ class Gate:
     ) -> Decision:
         key, edit_start, edit_end = dedup_key(item.program_id, program.text, resolved.mutant_text)
         base = {
-            "proposal_id": item.proposal_id, "program_id": item.program_id, "source": item.source,
+            "proposal_id": item.proposal_id, "program_id": item.program_id,
+            "source": accepted_source(item.source),
             "start_byte": resolved.start, "end_byte": resolved.end,
             "original_text": resolved.original_text, "replacement_text": item.replacement_text,
             "dedup_key": key, "program_sha256": _sha(program.text),
@@ -164,9 +195,7 @@ class Gate:
         if problem is not None:
             return Decision(verdict=cv.VERDICT_ORIGINAL_FAILS, detail=problem, **base)
         result = self._mutant(key, program, resolved)
-        verdict, detail = _MUTANT_VERDICTS.get(
-            result.outcome, (cv.VERDICT_PARSE_ERROR, cv.DETAIL_MUTANT_CRASHED),
-        )
+        verdict, detail = _mutant_verdict(result)
         decision = Decision(
             verdict=verdict, detail=detail, mutant_sha256=_sha(resolved.mutant_text),
             doctests={"attempted": result.attempted, "failed": result.failed}, **base,

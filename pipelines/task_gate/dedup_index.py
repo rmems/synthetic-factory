@@ -1,22 +1,24 @@
 #!/usr/bin/env python3
 """The persisted duplicate index: kept-proposal keys across runs, read-only until a new write.
 
-A key is ``sha256(program_id, span, replacement_text)`` taken over the *canonical* edit: the
-smallest byte span and replacement that turn the program into the mutant (the common prefix and
-suffix of original and mutant trimmed away). Two proposals written with more or less surrounding
-context but producing the same mutant therefore share one key. The key also binds the program's
-own sha256, so a key kept against an older catalog text never matches the program once its text
-changes. The hashed bytes are exact JSON of ``[KEY_FORMAT, program_id, program_sha256,
-start_byte, end_byte, replacement_hex]`` (hex, because a minimal byte slice need not be valid
-UTF-8 on its own). Only kept proposals
-are indexed: a rejected proposal is deterministic and is re-rejected on its own merits, so
-the index stays the list of tasks that already exist. Each run reads every prior index file
-it is given and writes a new, cumulative ``dedup-index.jsonl`` into its own new destination;
-no existing file is touched, and the next run needs only the newest one.
+A key is ``sha256(program_id, program_sha256, normalized mutant)``. The mutant is normalized
+by an iterative AST walk before hashing, so whitespace and redundant parentheses are one
+mutant and a long left-nested chain does not overflow the call stack.
+``minimal_edit`` still returns the raw byte span for the index row. The key also binds the
+program's own sha256, so a key kept against an older catalog text never matches the program
+once its text changes. The hashed bytes are exact JSON of ``[KEY_FORMAT, program_id,
+program_sha256, normalized_mutant]``. Only kept proposals are indexed: a rejected proposal is
+deterministic and is re-rejected on its own merits, so the index stays the list of tasks that
+already exist. Each run reads every prior index file it is given and writes a new, cumulative
+``dedup-index.jsonl`` into its own new destination; no existing file is touched, and the next
+run needs only the newest one. An index minted under ``task-gate-dedup-index/2`` is
+refused: its keys were the raw edit (``task-gate-key/2``) and must not be applied as if
+they still matched.
 """
 
 from __future__ import annotations
 
+import ast
 import hashlib
 import os
 import re
@@ -32,10 +34,112 @@ from ._contract import (
 )
 from .checks import is_count
 
-__all__ = ["PriorIndex", "dedup_key", "index_bytes", "load_prior", "minimal_edit"]
+__all__ = [
+    "PriorIndex", "dedup_key", "index_bytes", "load_prior", "minimal_edit", "normalized_text",
+]
 
 _KEY = re.compile(r"[0-9a-f]{64}")
 _FIELDS = frozenset({"format", "key", "program_id", "start_byte", "end_byte"})
+
+
+_SKIP = object()
+
+
+def _skip_field(name: str, value: object) -> bool:
+    """Defaults that ``ast.dump`` prints on one of 3.14 and 3.15 and not the other."""
+
+    if name == "is_lazy" and not value:
+        return True
+    return name == "ctx" and isinstance(value, ast.Load)
+
+
+def _empty_list_field(node: ast.AST, name: str, value: object) -> bool:
+    if value != []:
+        return False
+    field_type = type(node)._field_types.get(name, object)
+    return getattr(field_type, "__origin__", ...) is list
+
+
+def _field_value(node: ast.AST, name: str) -> object:
+    """The field to dump, or ``_SKIP`` when this dump omits it."""
+
+    try:
+        value = getattr(node, name)
+    except AttributeError:
+        return _SKIP
+    if _skip_field(name, value):
+        return _SKIP
+    if value is None and getattr(type(node), name, ...) is None:
+        return _SKIP
+    if _empty_list_field(node, name, value):
+        return _SKIP
+    return value
+
+
+def _kept_fields(node: ast.AST) -> list[tuple[str, object]]:
+    kept = []
+    for name in node._fields:
+        value = _field_value(node, name)
+        if value is not _SKIP:
+            kept.append((name, value))
+    return kept
+
+
+def _push_node(stack: list[tuple[str, object]], node: ast.AST) -> None:
+    stack.append(("text", ")"))
+    for index, (name, child) in enumerate(reversed(_kept_fields(node))):
+        if index:
+            stack.append(("text", ", "))
+        stack.append(("value", child))
+        stack.append(("text", f"{name}="))
+    stack.append(("text", f"{type(node).__name__}("))
+
+
+def _push_list(stack: list[tuple[str, object]], items: list) -> None:
+    stack.append(("text", "]"))
+    for index, item in enumerate(reversed(items)):
+        if index:
+            stack.append(("text", ", "))
+        stack.append(("value", item))
+    stack.append(("text", "["))
+
+
+def _push_value(stack: list[tuple[str, object]], value: object) -> None:
+    if isinstance(value, ast.AST):
+        _push_node(stack, value)
+    elif isinstance(value, list):
+        _push_list(stack, value)
+    else:
+        stack.append(("text", repr(value)))
+
+
+def _dump(node: object) -> str:
+    """``ast.dump`` with those defaults removed from the tree, not from the text.
+
+    The walk is a stack, not recursion: a left-nested ``BinOp`` chain is as deep as the
+    expression is long, and a recursive walk raised ``RecursionError`` on one proposal and
+    aborted the run. A string replace would also edit a literal that contains ``ctx=Load()``.
+    """
+
+    stack: list[tuple[str, object]] = [("value", node)]
+    parts: list[str] = []
+    while stack:
+        kind, value = stack.pop()
+        if kind == "text":
+            parts.append(str(value))
+            continue
+        _push_value(stack, value)
+    return "".join(parts)
+
+
+def normalized_text(text: str) -> str:
+    """The mutant's tree without positions, so spacing and redundant parentheses collapse.
+
+    A falsy ``is_lazy`` and a ``Load`` context are omitted, because 3.15 prints the first and
+    3.14 prints the second. A true lazy import and a ``Store`` or ``Del`` context stay.
+    """
+
+    return _dump(ast.parse(text))
 
 
 def minimal_edit(original: bytes, mutant: bytes) -> tuple[int, int, bytes]:
@@ -49,13 +153,13 @@ def minimal_edit(original: bytes, mutant: bytes) -> tuple[int, int, bytes]:
 
 
 def dedup_key(program_id: str, program_text: str, mutant_text: str) -> tuple[str, int, int]:
-    """The key of the canonical edit from ``program_text`` to ``mutant_text``, and its span."""
+    """The key of the normalized mutant, plus the raw minimal-edit span of the program."""
 
     original = program_text.encode("utf-8")
-    start, end, replacement = minimal_edit(original, mutant_text.encode("utf-8"))
+    start, end, _replacement = minimal_edit(original, mutant_text.encode("utf-8"))
     payload = dumps_exact_json([
-        cv.KEY_FORMAT, program_id, hashlib.sha256(original).hexdigest(), start, end,
-        replacement.hex(),
+        cv.KEY_FORMAT, program_id, hashlib.sha256(original).hexdigest(),
+        normalized_text(mutant_text),
     ])
     return hashlib.sha256(payload.encode("utf-8")).hexdigest(), start, end
 

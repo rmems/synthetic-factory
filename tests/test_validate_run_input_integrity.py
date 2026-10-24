@@ -150,23 +150,16 @@ class RunDirectoryIntegrityTests(unittest.TestCase):
             hidden = root / "hidden"
             hidden.mkdir()
             (hidden / "unseen.jsonl").write_text(json.dumps(TINY_THALAMIC) + "\n")
-            original_is_dir = os.DirEntry.is_dir
             original_stat = Path.stat
-
-            def fail_hidden_is_dir(entry, *args, **kwargs):
-                if Path(entry.path) == hidden:
-                    raise OSError(errno.EIO, "metadata read failed", str(hidden))
-                return original_is_dir(entry, *args, **kwargs)
 
             def fail_hidden_stat(path, *args, **kwargs):
                 if path == hidden:
                     raise OSError(errno.EIO, "metadata read failed", str(hidden))
                 return original_stat(path, *args, **kwargs)
 
-            with (
-                mock.patch.object(os.DirEntry, "is_dir", fail_hidden_is_dir),
-                mock.patch.object(Path, "stat", fail_hidden_stat),
-            ):
+            # Inspection goes through Path.stat. posix.DirEntry.is_dir is
+            # immutable on Python 3.15, so it cannot be the fault seam.
+            with mock.patch.object(Path, "stat", fail_hidden_stat):
                 result = _invoke_inprocess(str(root))
 
             self.assertEqual(result.returncode, 1, result.stderr)
