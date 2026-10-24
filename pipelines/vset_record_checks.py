@@ -18,7 +18,6 @@ if __package__:  # pragma: no cover - package-child import path
     from . import _assert_direct_sibling, _expose_package_sibling
 
     _assert_direct_sibling("vset_record_checks")
-    from .curate_coding import contains_hidden_reasoning_key
     from .curate_identity import REGISTRY_SCHEMA_VERSION
     from .vset_constants import (
         CURATION_DECISIONS,
@@ -29,7 +28,6 @@ if __package__:  # pragma: no cover - package-child import path
         VSetValidationError,
         _is_nonempty,
         _is_sha256,
-        normalize_identity,
         reason_codes_error,
         registry_pin,
 )
@@ -37,7 +35,6 @@ else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
         "vset_record_checks"
     )
-    from curate_coding import contains_hidden_reasoning_key
     from curate_identity import REGISTRY_SCHEMA_VERSION
     from vset_constants import (
         CURATION_DECISIONS,
@@ -48,7 +45,6 @@ else:
         VSetValidationError,
         _is_nonempty,
         _is_sha256,
-        normalize_identity,
         reason_codes_error,
         registry_pin,
 )
@@ -240,61 +236,6 @@ def _stamped_registry_errors(
             "release.factory_registry_sha256 must match the reviewed FACTORY-REGISTRY.json bytes",
         )
     ]
-
-
-_TRAINING_VIEW_LEAKS = frozenset(
-    {
-        "hidden_tests",
-        "hidden_suite",
-        "reference_tests",
-        "reference_suite",
-        "oracle",
-        "payload",
-        "patch",
-        "solver",
-        "solver_run_id",
-    }
-)
-
-
-def _training_view_key(key: Any) -> str:
-    text = str(key)
-    separated = "".join(f"_{char}" if char.isupper() else char for char in text)
-    return normalize_identity(separated).replace("-", "_")
-
-
-def _mapping_leaks(value: dict[str, Any]) -> bool:
-    if any(_training_view_key(key) in _TRAINING_VIEW_LEAKS for key in value):
-        return True
-    return any(_training_view_leaks(item) for item in value.values())
-
-
-def _training_view_leaks(value: Any) -> bool:
-    if isinstance(value, dict):
-        return _mapping_leaks(value)
-    if isinstance(value, list):
-        return any(_training_view_leaks(item) for item in value)
-    return False
-
-
-def _training_view_errors(training_view: Any) -> list[VSetValidationError]:
-    if not isinstance(training_view, dict):
-        return [
-            VSetValidationError(
-                "vset.hidden_reasoning_in_training_view",
-                "training_view is required and must be an object",
-            )
-        ]
-    if contains_hidden_reasoning_key(training_view) or _training_view_leaks(training_view):
-        return [
-            VSetValidationError(
-                "vset.hidden_reasoning_in_training_view",
-                "training_view must not carry hidden suites, oracle, payload, patch, or solver",
-            )
-        ]
-    return []
-
-
 
 
 if __package__:  # pragma: no cover - package-child import path

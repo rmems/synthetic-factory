@@ -62,6 +62,25 @@ class KeywordNames(unittest.TestCase):
 
 
 class Structure(unittest.TestCase):
+    def test_eager_import_digest_matches_interpreters_without_is_lazy(self):
+        """Python 3.15 adds Import.is_lazy. The default must not move the digest."""
+
+        text = "import math\n"
+        pinned = (
+            '["Module",[["body",[["Import",[["names",[["alias",'
+            '[["name",["str","\'math\'"]],["asname",["str","\'v0\'"]]]]]]]]]],'
+            '["type_ignores",[]]]]'
+        )
+        self.assertEqual(lineage.canonical_ast(text), pinned)
+        try:
+            compile("lazy import math\n", "<lazy>", "exec")
+        except SyntaxError:
+            return
+        self.assertNotEqual(
+            lineage.structure_digest(text),
+            lineage.structure_digest("lazy import math\n"),
+        )
+
     def test_optional_import_aliases_do_not_separate_equivalent_programs(self):
         pairs = (
             ("import math\ndef f(x):\n    return math.floor(x)\n",
