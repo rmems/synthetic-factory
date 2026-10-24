@@ -115,7 +115,11 @@ def _content_without_identity(value, path=()):
             cleaned[key] = _content_without_identity(child, child_path)
         return cleaned
     if isinstance(value, list):
-        return [_content_without_identity(child, path) for child in value]
+        # An index keeps a list element's ``id`` off the stamped owner paths.
+        return [
+            _content_without_identity(child, path + (str(index),))
+            for index, child in enumerate(value)
+        ]
     if isinstance(value, str):
         return value.strip()
     return value

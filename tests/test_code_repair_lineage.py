@@ -102,6 +102,13 @@ class Structure(unittest.TestCase):
         try:
             ast.parse(lazy)
         except SyntaxError:
+            node = ast.parse("import math\n").body[0]
+            eager = lineage._kept_fields(node)
+            node.is_lazy = 0
+            node._fields = tuple(node._fields) + ("is_lazy",)
+            self.assertEqual(lineage._kept_fields(node), eager)
+            node.is_lazy = 1
+            self.assertEqual(lineage._kept_fields(node), [*eager, "is_lazy"])
             return
         self.assertNotEqual(lineage.structure_digest("import math\n"), lineage.structure_digest(lazy))
 

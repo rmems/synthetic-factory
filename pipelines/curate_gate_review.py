@@ -347,15 +347,41 @@ def _review_author_blockers(review: dict[str, Any]) -> list[str]:
 
 
 def _parsed_reviewed_at(text: str) -> datetime | None:
-    """Parse an ISO-8601 review timestamp, treating a trailing ``Z`` as UTC."""
+    """Parse an ISO-8601 review timestamp, treating a trailing ``Z`` as UTC.
+
+    A value that cannot be placed on the timeline, including one whose UTC
+    conversion falls outside the year range, is not a review date.
+    """
     normalized = text[:-1] + "+00:00" if text.endswith("Z") else text
     try:
         parsed = datetime.fromisoformat(normalized)
-    except ValueError:
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(timezone.utc)
+    except (ValueError, OverflowError):
         return None
-    if parsed.tzinfo is None:
-        return parsed.replace(tzinfo=timezone.utc)
-    return parsed.astimezone(timezone.utc)
+
+
+def _review_timestamp(value: Any) -> datetime | None:
+    """The filled-in review instant, or None when the value is not one."""
+    if not isinstance(value, str):
+        return None
+    text = value.strip()
+    if not text:
+        return None
+    return _parsed_reviewed_at(text)
+
+
+def _reviewed_at_code(value: Any) -> str | None:
+    """Blocker for one review date, or None when it is blank or already past."""
+    if value is None or value == "":
+        return None
+    parsed = _review_timestamp(value)
+    if parsed is None:
+        return "REVIEW_REVIEWED_AT_INVALID"
+    if parsed > datetime.now(timezone.utc):
+        return "REVIEW_REVIEWED_AT_FUTURE"
+    return None
 
 
 def _reviewed_at_blocker(review: dict[str, Any]) -> str | None:
@@ -365,15 +391,7 @@ def _reviewed_at_blocker(review: dict[str, Any]) -> str | None:
     date. A value that was filled in has to be a real timestamp no later than
     the moment of promotion.
     """
-    value = review.get("reviewed_at")
-    blank = value is None or value == ""
-    text = value.strip() if isinstance(value, str) else ""
-    parsed = None if blank or not text else _parsed_reviewed_at(text)
-    if parsed is not None and parsed > datetime.now(timezone.utc):
-        return "REVIEW_REVIEWED_AT_FUTURE"
-    if not blank and parsed is None:
-        return "REVIEW_REVIEWED_AT_INVALID"
-    return None
+    return _reviewed_at_code(review.get("reviewed_at"))
 
 
 def _review_header_blockers(

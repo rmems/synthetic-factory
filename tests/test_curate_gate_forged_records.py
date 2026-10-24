@@ -30,6 +30,7 @@ if str(_PIPELINES) not in sys.path:
     sys.path.insert(0, str(_PIPELINES))
 
 import curate_gate_gates  # noqa: E402
+import curate_gate_review  # noqa: E402
 import training_audit  # noqa: E402
 
 _RIGHTS_PASS = mock.patch.object(
@@ -188,6 +189,36 @@ class ForgedRecordTests(unittest.TestCase):
             training_audit.content_identity_blob(chosen),
             training_audit.content_identity_blob(other_chosen),
         )
+
+    def test_review_date_edges_and_list_element_ids(self):
+        self.assertIsNone(curate_gate_review._reviewed_at_blocker({}))
+        self.assertIsNone(curate_gate_review._reviewed_at_blocker({"reviewed_at": ""}))
+        self.assertIsNone(curate_gate_review._reviewed_at_blocker({"reviewed_at": "2026-08-23T00:00:00"}))
+        self.assertEqual(
+            curate_gate_review._reviewed_at_blocker({"reviewed_at": "   "}), "REVIEW_REVIEWED_AT_INVALID"
+        )
+        self.assertEqual(
+            curate_gate_review._reviewed_at_blocker({"reviewed_at": 12}), "REVIEW_REVIEWED_AT_INVALID"
+        )
+        self.assertEqual(
+            curate_gate_review._reviewed_at_blocker({"reviewed_at": "yesterday"}),
+            "REVIEW_REVIEWED_AT_INVALID",
+        )
+        self.assertEqual(
+            curate_gate_review._reviewed_at_blocker({"reviewed_at": "0001-01-01T00:00:00+01:00"}),
+            "REVIEW_REVIEWED_AT_INVALID",
+        )
+        self.assertEqual(
+            curate_gate_review._reviewed_at_blocker({"reviewed_at": "9999-12-31T23:59:59-01:00"}),
+            "REVIEW_REVIEWED_AT_INVALID",
+        )
+        rows = {"id": "a", "chosen": [{"id": "arm-1", "text": "x"}]}
+        other = {"id": "a", "chosen": [{"id": "arm-2", "text": "x"}]}
+        self.assertNotEqual(
+            training_audit.content_identity_blob(rows),
+            training_audit.content_identity_blob(other),
+        )
+        self.assertEqual(training_audit.declared_label_errors(["nope"]), [])
 
     def test_matching_kind_and_synthetic_source_kind_are_not_labels(self):
         record = _thalamic("t-1")
