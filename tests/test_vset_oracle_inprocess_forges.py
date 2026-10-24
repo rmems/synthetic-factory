@@ -297,50 +297,48 @@ class InProcessForgeTests(unittest.TestCase):
         report, _statuses = _reference(source, tests)
         self.assertTrue(report["reference"]["ok"], report["reference"])
 
-    def test_derived_values_compare_with_literals(self) -> None:
-        source = "".join(
+    def test_one_true_answer_and_known_samples_cannot_force_equality(self) -> None:
+        once = "".join(
             [
-                "class Money:\n",
-                "    def __init__(self, cents, qty=1):\n",
-                "        self.cents = cents\n",
-                "        self.qty = qty\n",
+                "class E:\n",
+                "    def __init__(self):\n",
+                "        self.spent = False\n",
                 "    def __eq__(self, other):\n",
-                "        return self.cents == other\n",
-                "    def __gt__(self, other):\n",
-                "        return self.cents > other\n",
-                "class Ratio:\n",
-                "    def __init__(self, num, den):\n",
-                "        self.num = num\n",
-                "        self.den = den\n",
+                "        if self.spent:\n",
+                "            return False\n",
+                "        self.spent = True\n",
+                "        return True\n",
+                "    __hash__ = None\n",
+                "def add(a, b):\n",
+                "    return E()\n",
+                "def total(a, b):\n",
+                "    return a + b\n",
+            ]
+        )
+        known = "".join(
+            [
+                "class E:\n",
                 "    def __eq__(self, other):\n",
-                "        return self.num / self.den == other\n",
-                "class Version:\n",
-                "    def __init__(self, major, minor):\n",
-                "        self.major = major\n",
-                "        self.minor = minor\n",
-                "    def __lt__(self, other):\n",
-                "        return (self.major, self.minor) < tuple(other)\n",
-                "def money():\n",
-                "    return Money(500, qty=3)\n",
-                "def ratio():\n",
-                "    return Ratio(1, 2)\n",
-                "def version():\n",
-                "    return Version(1, 2)\n",
+                "        if other in ('\\x00vset', (), 0, 1, 10 ** 9):\n",
+                "            return False\n",
+                "        return True\n",
+                "    __hash__ = None\n",
+                "def add(a, b):\n",
+                "    return E()\n",
+                "def total(a, b):\n",
+                "    return a + b\n",
             ]
         )
         tests = "".join(
             [
-                "    def test_money(self):\n",
-                "        self.assertEqual(c.money(), 500)\n",
-                "        self.assertGreater(c.money(), 100)\n",
-                "    def test_ratio(self):\n",
-                "        self.assertEqual(c.ratio(), 0.5)\n",
-                "    def test_version(self):\n",
-                "        self.assertLess(c.version(), (1, 3))\n",
+                "    def test_equal(self):\n",
+                "        self.assertEqual(c.add(1, 2), 999)\n",
+                "    def test_number(self):\n",
+                "        self.assertEqual(c.total(1, 2), 3)\n",
             ]
         )
-        report, _statuses = _reference(source, tests)
-        self.assertTrue(report["reference"]["ok"], report["reference"])
+        _expect_refused(self, once, tests, ("test_equal",))
+        _expect_refused(self, known, tests, ("test_equal",))
 
     def test_import_time_print_stays_inside_the_json_report(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
