@@ -73,6 +73,12 @@ class Structure(unittest.TestCase):
             with self.subTest(import_statement=plain.splitlines()[0]):
                 self.assertEqual(lineage.structure_digest(plain), lineage.structure_digest(aliased))
 
+    def test_eager_imports_omit_the_3_15_is_lazy_field(self):
+        """Python 3.15 records ``is_lazy=0`` on ordinary imports. The pinned digests do not."""
+
+        text = "import math\nfrom math import log2\ndef f(n):\n    return n\n"
+        self.assertNotIn("is_lazy", lineage.canonical_ast(text))
+
     def test_import_api_identity_survives_optional_alias_normalization(self):
         pairs = (
             ("import math as m\ndef f(x):\n    return m.sqrt(x)\n",

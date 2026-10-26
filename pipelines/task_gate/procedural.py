@@ -4,7 +4,8 @@
 ``code_repair.planning.ProposalPlan`` draws seeded single-span sites from a pinned catalog.
 Each becomes a :class:`GateProposal` carrying the site's byte span, original text and
 replacement text, and then goes through the same :class:`Gate` as a model-backed proposal:
-nothing here pre-judges a proposal, and the gate never looks at ``source``.
+nothing here pre-judges a proposal. ``source`` is this module's label, which the gate
+records only because it is an accepted source, not because the row declared it.
 """
 
 from __future__ import annotations
@@ -25,7 +26,7 @@ else:
     from code_repair import planning as _planning
     from code_repair import vocabulary as _repair_vocabulary
 
-SOURCE = "procedural"
+SOURCE = cv.SOURCE_PROCEDURAL
 
 __all__ = ["SOURCE", "load_catalog", "programs_from_catalog", "proposals_from_plan"]
 
