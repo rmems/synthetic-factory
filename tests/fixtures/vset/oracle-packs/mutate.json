@@ -1,0 +1,4 @@
+{
+  "src/c.py": "def fill(xs):\n    xs.append(1)\nclass E(ValueError):\n    def __init__(self, code):\n        super().__init__('bad')\n        self.code = code\ndef boom():\n    raise E(3)\n",
+  "tests/use.py": "import unittest\nimport c\nclass T(unittest.TestCase):\n    def test_fill(self):\n        xs = []\n        c.fill(xs)\n        self.assertEqual(xs, [1])\n    def test_code(self):\n        with self.assertRaises(c.E) as cm:\n            c.boom()\n        self.assertEqual(cm.exception.code, 3)\n        self.assertEqual(cm.exception.args, ('bad',))\n"
+}
