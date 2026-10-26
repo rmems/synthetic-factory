@@ -315,10 +315,14 @@ class DistillationRasterAudit(unittest.TestCase):
                 root / BRIDGE_FACTORY / "batch-r01.jsonl",
                 [gate_snn_bridge("bridge-1")],
             )
-            write(
-                root / THALAMIC_FACTORY / "batch-r02.jsonl",
-                [thalamic(f"ttf-{index}") for index in range(3)],
-            )
+            # Distinct trajectories: an id by itself is not training content, so
+            # three copies of one body would be exact duplicates.
+            thalamic_records = []
+            for index in range(3):
+                record = thalamic(f"ttf-{index}")
+                record["state"]["domain"] = f"audit-test-{index}"
+                thalamic_records.append(record)
+            write(root / THALAMIC_FACTORY / "batch-r02.jsonl", thalamic_records)
             report = training_audit.audit_run(root)
             markdown = training_audit.render_markdown(report)
 

@@ -463,6 +463,10 @@ class ExportMemberFifoSwap(unittest.TestCase):
                         os.pwrite(writer, b"B" * chunk_size, chunk_size)
                     finally:
                         os.close(writer)
+                    # A same-sized rewrite can stay inside one timestamp tick, so
+                    # mtime_ns does not move. The reader compares that field.
+                    current = os.fstat(descriptor)
+                    os.utime(member, ns=(current.st_atime_ns, current.st_mtime_ns + 1))
                 return chunk
 
             with mock.patch.object(

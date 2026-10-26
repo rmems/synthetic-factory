@@ -21,6 +21,7 @@ if __package__:
     from . import training_audit_reasoning as _reasoning
     from .exact_json import dumps_exact_json
     from .quality_gate_identity import canonical_numeric_value
+    from . import training_audit_content as _content
     from .validate_run import episode_like
 else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
@@ -29,6 +30,7 @@ else:
     import training_audit_reasoning as _reasoning
     from exact_json import dumps_exact_json
     from quality_gate_identity import canonical_numeric_value
+    import training_audit_content as _content
     from validate_run import episode_like
 
 
@@ -90,6 +92,10 @@ def embedded_episode_errors(obj, kind, where, readers):
 
 def canonical_blob(value):
     return dumps_exact_json(value, sort_keys=True, ensure_ascii=False)
+
+
+content_identity_blob = _content.content_identity_blob
+declared_label_errors = _content.declared_label_errors
 
 
 def dict_field(value, key):
