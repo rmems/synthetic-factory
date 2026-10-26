@@ -172,9 +172,25 @@ def _is_identifier(node: ast.AST, name: str, value: Any) -> bool:
     return not isinstance(node, ast.keyword) and not (isinstance(node, ast.alias) and name == "name")
 
 
+def _omit_default_lazy(name: str, value: Any) -> bool:
+    """Python 3.15 stores eager imports as ``is_lazy=0``.
+
+    Interpreters without the field omit it. Dropping the default keeps one
+    digest; a real ``lazy import`` (``is_lazy=1``) stays a different structure.
+    """
+
+    return name == "is_lazy" and not value
+
+
 def _serialise_node(node: ast.AST, namer: _Namer) -> list:
-    kept = [name for name in node._fields if name not in _DROPPED_FIELDS]
-    fields = [[name, _serialise(_field_value(node, name, namer), namer)] for name in kept]
+    fields = []
+    for name in node._fields:
+        if name in _DROPPED_FIELDS:
+            continue
+        value = _field_value(node, name, namer)
+        if _omit_default_lazy(name, value):
+            continue
+        fields.append([name, _serialise(value, namer)])
     return [type(node).__name__, fields]
 
 
