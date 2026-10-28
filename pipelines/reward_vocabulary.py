@@ -4,11 +4,15 @@
 from __future__ import annotations
 
 import re
+import sys
 from collections import Counter
 from collections.abc import Collection
 from typing import NamedTuple
 
 if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("reward_vocabulary")
     from .reward_mapping import (
         COMPONENT_DISPOSITIONS,
         VALUE_TYPES,
@@ -29,6 +33,9 @@ if __package__:
         _unknown_members,
     )
 else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "reward_vocabulary"
+    )
     from reward_mapping import (
         COMPONENT_DISPOSITIONS,
         VALUE_TYPES,
@@ -425,3 +432,7 @@ def _validate_expected_classification(document, catalogues, run, where):
             "by_factory reason-code counts must match the global census",
         )
     return expected
+
+
+if __package__:
+    _expose_package_sibling(__name__)

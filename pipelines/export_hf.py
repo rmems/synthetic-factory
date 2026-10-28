@@ -38,6 +38,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("export_hf")
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)("export_hf")
+
 _PIPELINES = Path(__file__).resolve().parent
 if str(_PIPELINES) not in sys.path:
     sys.path.insert(0, str(_PIPELINES))
@@ -459,6 +466,10 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     print(json.dumps(provenance, ensure_ascii=False, indent=2, sort_keys=True))
     return 0
+
+
+if __package__:
+    _expose_package_sibling(__name__)
 
 
 if __name__ == "__main__":

@@ -41,10 +41,14 @@ Every public name any of them defines is re-exported here, so existing
 
 from __future__ import annotations
 
+import sys
 from collections.abc import Hashable, Mapping
 from typing import Any
 
 if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("mill_family")
     from .mill_evidence import (
         GOAL_FAMILY_MIN_FOREIGN_TOKENS,
         GOAL_FAMILY_MIN_SUPPORT,
@@ -87,6 +91,7 @@ if __package__:
         record_id,
     )
 else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)("mill_family")
     from mill_evidence import (
         GOAL_FAMILY_MIN_FOREIGN_TOKENS,
         GOAL_FAMILY_MIN_SUPPORT,
@@ -324,3 +329,7 @@ class MillIndex:
                 )
             )
         return tuple(results)
+
+
+if __package__:
+    _expose_package_sibling(__name__)

@@ -2,15 +2,22 @@
 """Shared mill-quarantine preparation for the training-readiness audit."""
 
 import json
+import sys
 from pathlib import Path
 
 if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("training_audit_mill")
     from .census import factory_identity_for_path
     from .check_records import reject_json_constant
     from .exact_json import parse_finite_json_float
     from .mill_family import MillFinding, MillIndex, summarize
     from .tag_jsonutil import reject_duplicate_object_keys
 else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "training_audit_mill"
+    )
     from census import factory_identity_for_path
     from check_records import reject_json_constant
     from exact_json import parse_finite_json_float
@@ -90,3 +97,7 @@ def index_mill_quarantine(
     report = summarize(findings)
     report["quarantined_records"] = [_finding_row(item) for item in findings]
     return {item.ref: item for item in findings}, report
+
+
+if __package__:
+    _expose_package_sibling(__name__)

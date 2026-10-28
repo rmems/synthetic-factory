@@ -47,10 +47,16 @@ if str(_PIPELINES) not in sys.path:
 from oracle_grounded import distill_contract as oc  # noqa: E402
 
 if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("validate_distill")
     from . import distill_manifest as _distill_manifest
     from . import distill_records as _distill_records
     from .distill_records import validate_path
 else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "validate_distill"
+    )
     import distill_manifest as _distill_manifest
     import distill_records as _distill_records
     from distill_records import validate_path
@@ -131,6 +137,10 @@ def _emit_findings(report: dict[str, Any]) -> None:
             f"INVALID: {finding['file']}:{finding['line']} — {finding['error']}",
             file=sys.stderr,
         )
+
+
+if __package__:
+    _expose_package_sibling(__name__)
 
 
 if __name__ == "__main__":
