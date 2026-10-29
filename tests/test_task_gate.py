@@ -391,6 +391,27 @@ class Duplicates(unittest.TestCase):
         )
         self.assertNotIn(key, others)
 
+    def test_an_importing_program_keeps_one_key_on_3_14_and_3_15(self):
+        text = "import math\n\ndef add(a, b):\n    return a + b\n"
+        key = dedup_index.dedup_key("prog-import", text, text.replace("a + b", "a - b"))[0]
+        self.assertEqual(key, "21e95b41b4a7a06a5fe060af23ce7d2152546ddb683d5f9f776b93326e19d3ff")
+
+    def test_a_long_binop_chain_keeps_one_key(self):
+        original = "def add(a, b):\n    return a + b\n"
+        wide = " + ".join(["a"] * 700) + " - b"
+        tight = "+".join(["a"] * 700) + "-b"
+        left = dedup_index.dedup_key("prog", original, original.replace("a + b", wide))[0]
+        right = dedup_index.dedup_key("prog", original, original.replace("a + b", tight))[0]
+        self.assertEqual(left, right)
+
+    def test_a_literal_that_names_a_default_field_is_not_rewritten(self):
+        original = "def add(a, b):\n    return a\n"
+        with_field = "def add(a, b):\n    return ', ctx=Load()'\n"
+        without_field = "def add(a, b):\n    return ''\n"
+        left = dedup_index.dedup_key("prog", original, with_field)[0]
+        right = dedup_index.dedup_key("prog", original, without_field)[0]
+        self.assertNotEqual(left, right)
+
     def test_minimal_edit_trims_the_common_prefix_and_suffix(self):
         cases = {
             (b"return x + 1", b"return x - 1"): (9, 10, b"-"),
@@ -483,6 +504,10 @@ class Duplicates(unittest.TestCase):
             "extra field": (json.dumps({**row, "x": 1}).encode() + b"\n", cv.REFUSE_INDEX_MALFORMED),
             "short key": (json.dumps({**row, "key": "ab"}).encode() + b"\n", cv.REFUSE_INDEX_MALFORMED),
             "bad format": (json.dumps({**row, "format": "x"}).encode() + b"\n", cv.REFUSE_INDEX_MALFORMED),
+            "key v2 index": (
+                json.dumps({**row, "format": "task-gate-dedup-index/2"}).encode() + b"\n",
+                cv.REFUSE_INDEX_MALFORMED,
+            ),
             "repeated key": (((json.dumps(row) + "\n") * 2).encode(), cv.REFUSE_INDEX_MALFORMED),
             "no newline": (json.dumps(row).encode(), cv.REFUSE_INDEX_MALFORMED),
         }

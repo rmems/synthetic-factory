@@ -27,6 +27,9 @@ from pathlib import Path
 from typing import Any
 
 if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("preference_repair")
     from .preference_context import (
         all_context_diffs,
         context_is_pure,
@@ -35,6 +38,9 @@ if __package__:
     )
     from .preference_model import ACTION_REPAIRED, CurationDecision, canonical_json
 else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "preference_repair"
+    )
     _PIPELINES = Path(__file__).resolve().parent
     if str(_PIPELINES) not in sys.path:
         sys.path.insert(0, str(_PIPELINES))
@@ -228,3 +234,7 @@ def _repair_proposal_annotations(
 # Public aliases: the decision module applies these two rules in order.
 repair_attested_identity = _repair_identity_annotations
 repair_attested_proposal = _repair_proposal_annotations
+
+
+if __package__:
+    _expose_package_sibling(__name__)

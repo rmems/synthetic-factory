@@ -23,8 +23,14 @@ if str(_PIPELINES) not in sys.path:
 from oracle_grounded import distill_contract as oc  # noqa: E402
 
 if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("fault_preflight")
     from .fault_types import PARAMETER_SPEC
 else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "fault_preflight"
+    )
     from fault_types import PARAMETER_SPEC
 
 if TYPE_CHECKING:
@@ -100,6 +106,7 @@ def _check_touches_primary(kind: str, declared: list[str], channels: list[str]) 
         "disturbance with nothing to affect"
     )
 
+
 def _affected(parameters: dict[str, Any], channels: list[str]) -> list[str]:
     """Narrow the disturbance's declared channels to the relay's own."""
 
@@ -155,6 +162,7 @@ def _unknown_channel_names(declared: list[Any], known: set[str]) -> list[str]:
         if not isinstance(name, str) or name not in known
     )
 
+
 def _detection_latency_ms(
     detection_ms: float | None, spec: "_DisturbanceSpec", system: dict[str, Any]
 ) -> float | None:
@@ -170,3 +178,7 @@ def _detection_latency_ms(
     if detection_ms is not None:
         detection_ms = round(max(detection_ms - spec.onset_ms, 0.0), 3)
     return detection_ms
+
+
+if __package__:
+    _expose_package_sibling(__name__)

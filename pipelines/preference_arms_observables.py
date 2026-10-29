@@ -11,6 +11,15 @@ from typing import Any, Sequence
 import sys
 from pathlib import Path
 
+if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("preference_arms_observables")
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "preference_arms_observables"
+    )
+
 _PIPELINES = Path(__file__).resolve().parent
 if str(_PIPELINES) not in sys.path:
     sys.path.insert(0, str(_PIPELINES))
@@ -615,3 +624,7 @@ def _validated_distance_floor(value: Any) -> float:
     if not math.isfinite(value) or not 0.0 <= value < 1.0:
         raise ValueError(f"arm-distance floor must be a finite value in [0, 1): {value!r}")
     return value
+
+
+if __package__:
+    _expose_package_sibling(__name__)

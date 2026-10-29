@@ -4,7 +4,17 @@ from __future__ import annotations
 
 import json
 import re
+import sys
 import unicodedata
+
+if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("round_txn_coverage")
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "round_txn_coverage"
+    )
 
 CASCADE_GENERIC_TERMS = frozenset(
     {
@@ -515,3 +525,7 @@ def sparse_step_progress_errors(where, steps):
         if error:
             return [error]
     return []
+
+
+if __package__:
+    _expose_package_sibling(__name__)

@@ -16,6 +16,15 @@ import sys
 from pathlib import Path
 from typing import Any
 
+if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("moe_featurizer")
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "moe_featurizer"
+    )
+
 _PIPELINES = Path(__file__).resolve().parent
 if str(_PIPELINES) not in sys.path:
     sys.path.insert(0, str(_PIPELINES))
@@ -227,3 +236,7 @@ def softmax(values: list[float]) -> list[float]:
 
 def entropy_nats(probabilities: list[float]) -> float:
     return -sum(p * math.log(p) for p in probabilities if p > 0.0)
+
+
+if __package__:
+    _expose_package_sibling(__name__)

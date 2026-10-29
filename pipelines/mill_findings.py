@@ -14,10 +14,20 @@ Split out of ``mill_family.py`` verbatim; every name is re-exported from
 
 from __future__ import annotations
 
+import sys
 from collections import Counter
 from collections.abc import Hashable, Iterable
 from dataclasses import dataclass
 from typing import Any
+
+if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("mill_findings")
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "mill_findings"
+    )
 
 REASON_FOREIGN_PAYLOAD_FACTORY = "FOREIGN_PAYLOAD_FACTORY"
 REASON_FOREIGN_MILL_ID_PREFIX = "FOREIGN_MILL_ID_PREFIX"
@@ -94,3 +104,7 @@ def summarize(findings: Iterable[MillFinding], id_limit: int = 200) -> dict[str,
         "record_ids": identifiers[:id_limit],
         "record_ids_truncated": len(identifiers) > id_limit,
     }
+
+
+if __package__:
+    _expose_package_sibling(__name__)
