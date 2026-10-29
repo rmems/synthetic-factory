@@ -2,7 +2,7 @@
 
 Synthetic-factory produces agentic and coding datasets for LLMs and neuromorphic
 data for SNNs. The Rust backend adds real calls to the published axon-encoder
-0.4.0 and neuromod 0.6.0 crates for two neuromorphic families. Python continues
+0.6.0 and neuromod 0.7.0 crates for two neuromorphic families. Python continues
 to orchestrate generation, admission, composition, and export.
 
 ## Build and run locally
@@ -79,7 +79,7 @@ and source coordinates through the existing authenticated dataset pipeline.
 
 Rust tests compare traces against direct crate calls. Python integration covers
 generation, reproduction, composition, and local export, including tampering
-and unavailable executables. CI installs Rust 1.98.1, builds with `--locked`,
+and unavailable executables. CI installs Rust 1.99.0, builds with `--locked`,
 runs formatting, Clippy, and Rust tests, and exercises the Python integration
 using the latest Python CI version.
 

@@ -318,7 +318,7 @@ A committed fixture round lives in `tests/fixtures/parity-run/`.
 
 The factory supports agentic and coding datasets for LLMs and neuromorphic
 datasets for SNNs. An explicit [Rust backend](docs/oracle-rust-backend.md) uses
-`axon-encoder 0.4.0` and `neuromod 0.6.0` for crate-native encoder and neuron
+`axon-encoder 0.6.0` and `neuromod 0.7.0` for crate-native encoder and neuron
 episodes, with fresh execution replay during assembly and local export.
 
 Oracle-grounded families (generator proposes, oracle measures — see
