@@ -19,9 +19,9 @@ checksum = "f2032f911046de80f0a198e0901378627c33f59ea0ac00e363d481118bd70a53"
 
 [[package]]
 name = "axon-encoder"
-version = "0.4.0"
+version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b8cb7affb1e0b7e9c1dc56da16119d9076abba50ab86254aa9b5765e5bb0c26e"
+checksum = "a9a7cc719717f712b69baf57edb06c056b390a5a23c3fdca39d6e35f9ff59733"
 dependencies = [
  "rand",
 ]
@@ -303,9 +303,9 @@ checksum = "cf8baf1c55e62ffcace7a9f06f4bd9cd3f0c4beb022d3b367256b91b87513d98"
 
 [[package]]
 name = "neuromod"
-version = "0.6.0"
+version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7e0a02908726636a6c0ce971df297923914a67766d497c5436facf743c68c329"
+checksum = "24e8c6418345bd055f33bfb45d90cdb98f3caad2fd16c62b43fca6d91c1182d0"
 dependencies = [
  "rand",
  "serde",
@@ -313,9 +313,9 @@ dependencies = [
 
 [[package]]
 name = "nir-rs"
-version = "0.4.4"
+version = "0.4.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "781fb461c661ef87d0d94b29a40792862b9df5179209f42fd1bb43cce6b20be9"
+checksum = "cd21419b28aac9b71ec7abc63ec9c596e578f8fa7ce87019c255b93f84d09e00"
 dependencies = [
  "indexmap",
  "serde",

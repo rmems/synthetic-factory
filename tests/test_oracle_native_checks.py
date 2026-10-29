@@ -12,9 +12,9 @@ ROOT = Path(__file__).resolve().parents[1]
 def fixture(profile="axon-stream-v1"):
     encoder = profile == "axon-stream-v1"
     name, version, revision = (
-        ("axon-encoder", "0.4.0", "102946f40dd55287a89aa363cd2d080a9d6195d8")
+        ("axon-encoder", "0.6.0", "bf5ded147f4fbfa433d4781bf02b1576ba6ce638")
         if encoder else
-        ("neuromod", "0.6.0", "184c80cbdad84c83042987e1b3ec6fed69578a87")
+        ("neuromod", "0.7.0", "a897cc91f7e97efb465d41247fa907e2c1f2332d")
     )
     identity = dict(crate_name=name, crate_version=version, source_revision=revision,
                     lock_sha256="a" * 64, adapter_source_sha256="b" * 64,
