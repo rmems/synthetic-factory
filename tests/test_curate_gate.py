@@ -85,6 +85,7 @@ class IntegrationTests(unittest.TestCase):
             "canonical_id_coverage",
             "reward_ontology",
             "reward_sidecars",
+            "factory_label",
         ):
             self.assertTrue(manifest["gates"][gate]["passed"], gate)
         self.assertFalse(manifest["gates"]["rights"]["passed"])
