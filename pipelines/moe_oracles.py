@@ -26,6 +26,9 @@ from oracle_grounded import distill_contract as oc  # noqa: E402
 
 
 if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("moe_oracles")
     from .moe_featurizer import (
         FAMILY,
         FEATURE_DIM,
@@ -43,6 +46,7 @@ if __package__:
     from .moe_oracle_types import RouterOracle, _summarise
     from .moe_teacher_router import RecordedTeacherRouter
 else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)("moe_oracles")
     from moe_featurizer import (
         FAMILY,
         FEATURE_DIM,
@@ -410,3 +414,7 @@ def oracles_report() -> dict[str, Any]:
             },
         ],
     }
+
+
+if __package__:
+    _expose_package_sibling(__name__)

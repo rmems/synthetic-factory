@@ -21,6 +21,16 @@ if str(_PIPELINES) not in sys.path:
 from oracle_grounded import distill_contract as oc  # noqa: E402
 
 if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("fault_system")
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "fault_system"
+    )
+
+
+if __package__:
     from .fault_types import (
         _genuine_count_from,
         _non_negative_number,
@@ -183,3 +193,7 @@ def _check_system_margins(system: dict[str, Any]) -> None:
         raise oc.ContractError("system hard_deadline_ms must exceed deadline_ms")
     if system["min_healthy_channels"] > len(system["channels"]):
         raise oc.ContractError("system min_healthy_channels exceeds primary channel count")
+
+
+if __package__:
+    _expose_package_sibling(__name__)

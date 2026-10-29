@@ -225,7 +225,9 @@ class Procedural(unittest.TestCase):
                  "source": "procedural", "start_byte": item.start_byte, "end_byte": item.end_byte},
                 "x",
             )
-            self.assertEqual(left.decide(item), right.decide(twin))
+            self.assertEqual(twin.source, "unspecified")
+            self.assertEqual(left.decide(item).verdict, right.decide(twin).verdict)
+            self.assertNotEqual(left.decide(item).source, right.decide(twin).source)
 
     def test_procedural_run_goes_through_the_unmodified_gate_end_to_end(self):
         items = procedural.proposals_from_plan(self.catalog, seed=3, count=3)

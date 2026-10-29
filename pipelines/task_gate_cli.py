@@ -11,12 +11,25 @@ import importlib
 import sys
 from pathlib import Path
 
+if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("task_gate_cli")
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "task_gate_cli"
+    )
+
 
 def main() -> int:
     pipelines = str(Path(__file__).resolve().parent)
     if pipelines not in sys.path:
         sys.path.insert(0, pipelines)
     return importlib.import_module("task_gate.cli").run()
+
+
+if __package__:
+    _expose_package_sibling(__name__)
 
 
 if __name__ == "__main__":

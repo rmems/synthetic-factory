@@ -463,6 +463,11 @@ class ExportMemberFifoSwap(unittest.TestCase):
                         os.pwrite(writer, b"B" * chunk_size, chunk_size)
                     finally:
                         os.close(writer)
+                    # A same-size write does not change the inode identity when it
+                    # lands inside one timestamp tick. The reader compares that
+                    # identity, so move mtime past the tick the read observed.
+                    observed = os.fstat(descriptor).st_mtime_ns
+                    os.utime(member, ns=(observed + 10_000_000, observed + 10_000_000))
                 return chunk
 
             with mock.patch.object(

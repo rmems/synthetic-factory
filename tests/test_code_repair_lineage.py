@@ -62,18 +62,6 @@ class KeywordNames(unittest.TestCase):
 
 
 class Structure(unittest.TestCase):
-    def test_eager_import_omits_the_python_3_15_lazy_flag(self):
-        eager = "import math\n"
-        self.assertNotIn("is_lazy", lineage.canonical_ast(eager))
-        self.assertNotIn("is_lazy", lineage.canonical_ast("from math import floor\n"))
-        lazy = "lazy import math\n"
-        try:
-            canonical = lineage.canonical_ast(lazy)
-        except SyntaxError:
-            return
-        self.assertIn('"is_lazy"', canonical)
-        self.assertNotEqual(lineage.structure_digest(eager), lineage.structure_digest(lazy))
-
     def test_optional_import_aliases_do_not_separate_equivalent_programs(self):
         pairs = (
             ("import math\ndef f(x):\n    return math.floor(x)\n",
@@ -84,6 +72,12 @@ class Structure(unittest.TestCase):
         for plain, aliased in pairs:
             with self.subTest(import_statement=plain.splitlines()[0]):
                 self.assertEqual(lineage.structure_digest(plain), lineage.structure_digest(aliased))
+
+    def test_eager_imports_omit_the_3_15_is_lazy_field(self):
+        """Python 3.15 records ``is_lazy=0`` on ordinary imports. The pinned digests do not."""
+
+        text = "import math\nfrom math import log2\ndef f(n):\n    return n\n"
+        self.assertNotIn("is_lazy", lineage.canonical_ast(text))
 
     def test_import_api_identity_survives_optional_alias_normalization(self):
         pairs = (

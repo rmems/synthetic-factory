@@ -450,7 +450,7 @@ def _file_pair_elts(value: ast.AST | None) -> list[ast.expr] | None:
 
 def _file_pair_identity(node: ast.AST) -> dict[str, Any] | None:
     kwargs = call_kwargs(node)
-    if kwargs is None or "s" not in kwargs:
+    if kwargs is None or not isinstance(kwargs.get("s"), str):
         return None
     slug = kwargs["s"]
     return _gem_handoff_row(slug, slug.replace("-vs-old", "-old-leftover"), kwargs.get("g"))

@@ -14,6 +14,15 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Sequence
 
+if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("export_replay_verify")
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "export_replay_verify"
+    )
+
 _PIPELINES = Path(__file__).resolve().parent
 if str(_PIPELINES) not in sys.path:
     sys.path.insert(0, str(_PIPELINES))
@@ -169,3 +178,7 @@ def _authenticated_calibration_state(
 
     catalog, descriptor = _authenticated_calibration(summary, source_root)
     return catalog, descriptor, _calibration_evidence_identity(descriptor, source_root)
+
+
+if __package__:
+    _expose_package_sibling(__name__)

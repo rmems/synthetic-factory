@@ -1,0 +1,316 @@
+"""Candidate class bases and blank builtin instances.
+
+Imported by ``vset_oracle_values``. That module is loaded lazily from here
+so the two files do not import each other at module scope.
+"""
+
+from __future__ import annotations
+
+import builtins
+import dataclasses
+import os
+import sys
+import unittest.mock
+
+if __package__:  # pragma: no cover - package-child import path
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("vset_oracle_shape")
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "vset_oracle_shape"
+    )
+
+
+def _values():
+    # vset_oracle_values imports this module. A top-level import would cycle.
+    if __package__:
+        from . import vset_oracle_values as values
+    else:
+        import vset_oracle_values as values
+    return values
+
+
+_PROXIES: dict[type, type] = {}
+
+
+def _proxy(builtin: type) -> type:
+    found = _PROXIES.get(builtin)
+    if found is not None:
+        return found
+    remote = _values().RemoteObject
+    created = type(
+        "Remote" + builtin.__name__.capitalize(),
+        (remote, builtin),
+        {"__hash__": None},
+    )
+    _PROXIES[builtin] = created
+    return created
+
+
+class _DequeMark:
+    _vset_deque = True
+
+
+def container_base(info: dict[str, object]) -> type | None:
+    """Parent stand-in for ``collections.deque`` described by the child."""
+
+    if info.get("container") != "deque":
+        return None
+    return _DequeMark
+
+
+def container_proxy(builtin: type) -> type | None:
+    """List, dict, and set stay real containers while methods still forward."""
+
+    if builtin is list:
+        return _proxy(list)
+    if builtin is dict:
+        return _proxy(dict)
+    if builtin is set:
+        return _proxy(set)
+    return None
+
+
+def builtin_type(info: dict[str, object]) -> type | None:
+    """Real builtin when the child describes one, instead of a proxy class."""
+
+    name = info.get("builtin")
+    if not isinstance(name, str):
+        return None
+    found = getattr(builtins, name, None)
+    if isinstance(found, type):
+        return found
+    return None
+
+
+def _collect_parents(client: object, host: object, raw: list[object]) -> list[type]:
+    parents: list[type] = []
+    for base in raw:
+        if not isinstance(base, dict):
+            continue
+        builtin = builtin_type(base)
+        if builtin is not None:
+            parents.append(builtin)
+            continue
+        parents.append(host._class_from(client, base))  # type: ignore[attr-defined]
+    return parents
+
+
+def _with_remote(host: object, parents: list[type]) -> list[type]:
+    remote = host.RemoteObject  # type: ignore[attr-defined]
+    for parent in parents:
+        if issubclass(parent, remote):
+            return parents
+    return [remote, *parents]
+
+
+def parent_types(client: object, info: dict[str, object]) -> list[type]:
+    """Bases for a reconstructed candidate class, preserving builtin ancestry."""
+
+    host = _values()
+    raw = info.get("bases")
+    if not isinstance(raw, list):
+        return [host.RemoteObject]
+    if not raw:
+        return [host.RemoteObject]
+    parents = _collect_parents(client, host, raw)
+    if not parents:
+        return [host.RemoteObject]
+    return _with_remote(host, parents)
+
+
+def _new_list(cls: type) -> object:
+    return list.__new__(cls)
+
+
+def _new_dict(cls: type) -> object:
+    return dict.__new__(cls)
+
+
+def _new_set(cls: type) -> object:
+    return set.__new__(cls)
+
+
+def _new_tuple(cls: type) -> object:
+    return tuple.__new__(cls, ())
+
+
+def _new_str(cls: type) -> object:
+    return str.__new__(cls, "")
+
+
+def _new_bytes(cls: type) -> object:
+    return bytes.__new__(cls, b"")
+
+
+def _new_bytearray(cls: type) -> object:
+    return bytearray.__new__(cls)
+
+
+def _new_int(cls: type) -> object:
+    return int.__new__(cls, 0)
+
+
+def _new_float(cls: type) -> object:
+    return float.__new__(cls, 0.0)
+
+
+_BLANK = (
+    (list, _new_list),
+    (dict, _new_dict),
+    (set, _new_set),
+    (tuple, _new_tuple),
+    (str, _new_str),
+    (bytes, _new_bytes),
+    (bytearray, _new_bytearray),
+    (int, _new_int),
+    (float, _new_float),
+)
+
+
+def _blank_of(cls: type) -> object | None:
+    for base, maker in _BLANK:
+        if cls is base:
+            continue
+        if not issubclass(cls, base):
+            continue
+        try:
+            return maker(cls)
+        except TypeError:
+            return None
+    return None
+
+
+def _fresh(cls: type) -> object:
+    try:
+        return object.__new__(cls)
+    except TypeError:
+        remote = _values().RemoteObject
+        return remote.__new__(remote)
+
+
+def _parent_field(name: str) -> dataclasses.Field[object]:
+    item = dataclasses.field()
+    item.name = name
+    item._field_type = dataclasses._FIELD  # type: ignore[attr-defined]
+    return item
+
+
+def attach_dataclass_fields(cls: type, info: dict[str, object]) -> None:
+    """Give a remote class real parent fields so ``dataclasses.asdict`` works."""
+
+    if "dc_fields" not in info:
+        return
+    raw = info["dc_fields"]
+    names = raw if isinstance(raw, list) else []
+    cls.__dataclass_fields__ = {  # type: ignore[attr-defined]
+        name: _parent_field(name) for name in names if isinstance(name, str)
+    }
+
+
+def blank_instance(cls: type) -> object:
+    """Empty instance whose real builtin bases ``isinstance`` still sees."""
+
+    made = _blank_of(cls)
+    if made is not None:
+        return made
+    return _fresh(cls)
+
+
+def _targets_environ(patcher: object) -> bool:
+    target = getattr(patcher, "in_dict", None)
+    if target is os.environ:
+        return True
+    if target == "os.environ":
+        return True
+    return False
+
+
+def _environ_delta(before: dict[str, str], after: dict[str, str]) -> tuple[dict[str, str], list[str]]:
+    changed: dict[str, str] = {}
+    for key, value in after.items():
+        if before.get(key) != value:
+            changed[key] = value
+    dropped = [key for key in before if key not in after]
+    return changed, dropped
+
+
+def _enter_environ(saved: tuple[object, object], client: object, patcher: object) -> object:
+    before = None
+    if _targets_environ(patcher):
+        before = dict(os.environ)
+    entered = saved[0](patcher)
+    if before is None:
+        return entered
+    if getattr(patcher, "in_dict", None) is not os.environ:
+        return entered
+    changed, dropped = _environ_delta(before, dict(os.environ))
+    client.shift_environ(changed, dropped)  # type: ignore[attr-defined]
+    return entered
+
+
+def _leave_environ(
+    saved: tuple[object, object], client: object, patcher: object, args: tuple[object, ...]
+) -> object:
+    tracked = getattr(patcher, "in_dict", None) is os.environ
+    result = saved[1](patcher, *args)
+    if not tracked:
+        return result
+    try:
+        client.undo_environ()  # type: ignore[attr-defined]
+    except Exception:
+        return result
+    return result
+
+
+def install_dict_patches(client: object) -> tuple[object, object]:
+    """Mirror ``patch.dict(os.environ)`` into the child."""
+
+    patch_cls = unittest.mock._patch_dict
+    saved = (patch_cls.__enter__, patch_cls.__exit__)
+
+    def enter(self: object, _saved: tuple[object, object] = saved, _client: object = client) -> object:
+        return _enter_environ(_saved, _client, self)
+
+    def leave(
+        self: object, *args: object, _saved: tuple[object, object] = saved, _client: object = client
+    ) -> object:
+        return _leave_environ(_saved, _client, self, args)
+
+    patch_cls.__enter__ = enter  # type: ignore[method-assign]
+    patch_cls.__exit__ = leave  # type: ignore[method-assign]
+    return saved
+
+
+def restore_dict_patches(saved: tuple[object, object]) -> None:
+    unittest.mock._patch_dict.__enter__ = saved[0]  # type: ignore[method-assign]
+    unittest.mock._patch_dict.__exit__ = saved[1]  # type: ignore[method-assign]
+
+
+def remote_hash(obj: object) -> int:
+    try:
+        func = obj.client.get(obj.oid, "__hash__")  # type: ignore[attr-defined]
+    except AttributeError:
+        return object.__hash__(obj)
+    if func is None:
+        raise TypeError("unhashable type")
+    return func()
+
+
+def truth(obj: object) -> bool:
+    try:
+        func = obj.client.get(obj.oid, "__bool__")  # type: ignore[attr-defined]
+    except AttributeError:
+        func = None
+    if func is not None:
+        return bool(func())
+    try:
+        func = obj.client.get(obj.oid, "__len__")  # type: ignore[attr-defined]
+    except AttributeError:
+        return True
+    return bool(func())
+
+
+if __package__:  # pragma: no cover - package-child import path
+    _expose_package_sibling(__name__)

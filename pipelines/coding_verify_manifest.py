@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+import sys
 from typing import Any, NamedTuple
 
 if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("coding_verify_manifest")
     from .coding_constants import (
         EXCLUSION_REASONS,
         PRE_STEP_EXCLUSION_REASONS,
@@ -33,6 +37,9 @@ if __package__:
         _step_action_violations,
     )
 else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "coding_verify_manifest"
+    )
     from coding_constants import (
         EXCLUSION_REASONS,
         PRE_STEP_EXCLUSION_REASONS,
@@ -598,3 +605,7 @@ def _verify_one_manifest(
     if source_count is None:
         return 0
     return source_count
+
+
+if __package__:
+    _expose_package_sibling(__name__)

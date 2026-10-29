@@ -8,6 +8,15 @@ from typing import Any
 import sys
 from pathlib import Path
 
+if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("preference_arms_report")
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "preference_arms_report"
+    )
+
 _PIPELINES = Path(__file__).resolve().parent
 if str(_PIPELINES) not in sys.path:
     sys.path.insert(0, str(_PIPELINES))
@@ -78,3 +87,7 @@ def render_human(scan: ArmScan) -> str:
         verdict = "BLOCKED [" + ",".join(decision.reason_codes) + "]" if decision.blocked else "ok"
         lines.append(f"- {location} {record_id}: distance={decision.arm_distance} {verdict}")
     return "\n".join(lines)
+
+
+if __package__:
+    _expose_package_sibling(__name__)
