@@ -31,7 +31,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
-          python-version: "3.14"
+          python-version: "3.15"
 
       - name: Install ruff
         run: python -m pip install --only-binary ':all:' ruff==0.16.8
@@ -61,13 +61,20 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
-          python-version: "3.14"
+          python-version: "3.15"
 
       - name: Install coverage.py
         run: python -m pip install --only-binary ':all:' coverage==7.15.4
 
       - name: Install Rust oracle toolchain
         run: rustup toolchain install 1.98.1 --profile minimal --component rustfmt,clippy
+
+      # Restores ~/.cargo registry/git and target/ keyed on Cargo.lock and the rustc
+      # version, so an unchanged lockfile skips the cold dependency build.
+      - name: Cache cargo registry and target
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          cache-on-failure: true
 
       - name: Check and build crate-backed oracle
         run: |
@@ -109,7 +116,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
-          python-version: "3.14"
+          python-version: "3.15"
 
       - name: Install bubblewrap for the code-repair OS sandbox
         run: |
@@ -136,53 +143,8 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
-  shard_py315:
-    name: unittest shard ${{ matrix.shard }} (Python 3.15)
-    runs-on: ubuntu-latest
-    timeout-minutes: 25
-    strategy:
-      fail-fast: false
-      matrix:
-        shard: [0, 1, 2, 3]
-    steps:
-      - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          fetch-depth: 0
-          persist-credentials: false
-
-      - name: Set up Python
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
-        with:
-          python-version: "3.15"
-
-      - name: Install bubblewrap for the code-repair OS sandbox
-        run: |
-          sudo apt-get update && sudo apt-get install -y --no-install-recommends bubblewrap
-          # Ubuntu 24.04 AppArmor blocks unprivileged user namespaces by default.
-          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
-          bwrap --ro-bind / / --unshare-all --die-with-parent --uid 65534 --gid 65534 /bin/true
-
-      - name: Compile Python sources and tests
-        run: python -m compileall -q pipelines scripts tests .claude/skills/run-synthetic-factory/driver.py
-
-      - name: Install coverage.py
-        run: python -m pip install --only-binary ':all:' coverage==7.15.4
-
-      - name: Run unittest shard with branch coverage
-        run: python scripts/ci_shard_tests.py --shard ${{ matrix.shard }} --shards 4 --coverage
-
-      - name: Upload coverage shard
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: py315-coverage-${{ matrix.shard }}
-          path: .coverage.*
-          include-hidden-files: true
-          if-no-files-found: error
-          retention-days: 1
-
   test:
-    name: unittest (Python 3.14)
+    name: unittest (Python 3.15)
     needs: [lint, shard, oracle]
     # A failed prerequisite would otherwise skip this job, and a skipped required
     # check reads as passing to branch protection, so it runs unless the whole run
@@ -216,7 +178,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
-          python-version: "3.14"
+          python-version: "3.15"
 
       - name: Install coverage.py
         run: python -m pip install --only-binary ':all:' coverage==7.15.4
@@ -238,46 +200,3 @@ jobs:
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           slug: rmems/synthetic-factory
-
-  test_py315:
-    name: unittest (Python 3.15)
-    needs: [shard_py315]
-    # Same skip-is-not-pass rule as the 3.14 aggregator. This job does not
-    # download the 3.14 artifacts (those stay named coverage-*) and does not
-    # upload to Codecov, so the 3.14 report remains the patch-coverage source.
-    if: ${{ !cancelled() }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - name: Require every Python 3.15 shard to have succeeded
-        env:
-          SHARD_RESULT: ${{ needs.shard_py315.result }}
-        run: |
-          echo "shard=$SHARD_RESULT"
-          test "$SHARD_RESULT" = success
-
-      - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          fetch-depth: 0
-          persist-credentials: false
-
-      - name: Set up Python
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
-        with:
-          python-version: "3.15"
-
-      - name: Install coverage.py
-        run: python -m pip install --only-binary ':all:' coverage==7.15.4
-
-      - name: Download coverage shards
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
-        with:
-          pattern: py315-coverage-*
-          merge-multiple: true
-
-      - name: Combine coverage reports
-        run: |
-          python -m coverage combine
-          python -m coverage report --show-missing
-          python -m coverage xml

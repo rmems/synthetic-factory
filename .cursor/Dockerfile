@@ -1,8 +1,8 @@
 # Cursor Cloud Agent environment for the synthetic data factory.
 # Do not COPY the repository; Cursor checks out the target commit itself.
-# Official CPython 3.14 line (same family as GitHub Actions setup-python),
+# Official CPython 3.15 line (same family as GitHub Actions setup-python),
 # not Ubuntu 24.04's distro python3 (3.12).
-FROM python:3.14-slim-bookworm
+FROM python:3.15-slim-bookworm
 
 ENV DEBIAN_FRONTEND=noninteractive \
     LANG=C.UTF-8 \
