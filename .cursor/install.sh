@@ -3,8 +3,8 @@
 # Lint, unit tests, and operator smoke belong in GitHub Actions, not the snapshot build.
 set -euo pipefail
 
-python3 -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 14) else 1)' \
-  || { echo "install.sh requires Python >= 3.14 (got $(python3 --version 2>&1))" >&2; exit 1; }
+python3 -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 15) else 1)' \
+  || { echo "install.sh requires Python >= 3.15 (got $(python3 --version 2>&1))" >&2; exit 1; }
 
 # Code-repair bwrap hides /workspace only when the harness workdir is outside it.
 # Keep temp dirs on /tmp so a long agent session does not point TMPDIR under the repo.
