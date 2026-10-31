@@ -44,7 +44,6 @@ queue_rules:
       - -label=queue-mill
     merge_conditions:
       # Explicit success conditions also wait for asynchronously posted checks.
-      - check-success=@github-actions/unittest (Python 3.14)
       - check-success=@github-actions/unittest (Python 3.15)
       - check-success=@github-actions/operator smoke + fixture census
       - check-success=codecov/patch
@@ -80,7 +79,6 @@ queue_rules:
       - -conflict
       - label=queue-mill
     merge_conditions:
-      - check-success=@github-actions/unittest (Python 3.14)
       - check-success=@github-actions/unittest (Python 3.15)
       - check-success=@github-actions/operator smoke + fixture census
       - check-success=codecov/patch
