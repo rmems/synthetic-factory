@@ -8,6 +8,7 @@ TESTS = Path(__file__).resolve().parent
 REPO = TESTS.parent
 sys.path[:0] = [str(REPO / "pipelines")]
 
+import eval_exclusion_lists as lists
 from task_gate import dedup_index, denylist, gate, harness, proposal
 from task_gate import vocabulary as cv
 
@@ -33,10 +34,27 @@ PASSED = harness.HarnessResult(cv.OUTCOME_PASSED, 2, 0)
 FAILED = harness.HarnessResult(cv.OUTCOME_FAILED, 2, 1)
 
 
-def rules(deny=DENY, prior=None):
+def write_denylist_json(path: Path, program_ids: list[str], *, repos: list[str] | None = None) -> None:
+    """A canonical ``eval_denylist`` document for loader and CLI tests."""
+
+    document = {
+        "schema_version": lists.LIST_SCHEMA_VERSION,
+        "list": lists.LIST_EVAL_DENYLIST,
+        "status": "reviewed",
+        "note": "task-gate test denylist",
+        "repos": sorted(repos or []),
+        "program_ids": sorted(program_ids),
+        "task_ids": [],
+    }
+    path.write_bytes(lists.canonical_bytes(document))
+
+
+def rules(deny=DENY, prior=None, eval_program_ids=frozenset()):
     """The gate's rules: the denylist and a prior index (empty unless given)."""
 
-    return gate.Rules(deny, dedup_index.PriorIndex.empty() if prior is None else prior)
+    return gate.Rules(
+        deny, dedup_index.PriorIndex.empty() if prior is None else prior, eval_program_ids,
+    )
 
 
 def refused(call, *args):
@@ -85,3 +103,9 @@ class FakeHarness:
     def run(self, program_text, function):
         self.calls.append((program_text, function))
         return self.results.get(program_text, self.default)
+
+
+def decide(item, fake=None, rule_set=None, programs=None):
+    fake = fake or FakeHarness({ADD: PASSED})
+    machine = gate.Gate(PROGRAMS if programs is None else programs, rule_set or rules(), fake)
+    return machine.decide(item), fake

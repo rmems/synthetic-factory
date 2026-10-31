@@ -32,6 +32,7 @@ from . import executor as ex
 from . import generate
 from . import mutate
 from . import record_validation as validation
+from . import run_validation
 from . import verify
 from . import views
 from . import vocabulary as cv
@@ -308,7 +309,7 @@ def _record_identity_matches(record: dict[str, Any], catalog: cat.Catalog) -> bo
     generator = record["generator"]
     seed, index = generator["seed"], record["intervention"]["draw_index"]
     catalog_digest = cat.sha256_text(oc.canonical_json([catalog.catalog_id, catalog.programs_sha256]))
-    if (generator.get("name"), generator.get("version")) != (cv.GENERATOR_NAME, cv.GENERATOR_VERSION):
+    if not run_validation.replayable_generator_version(generator):
         return False
     if not _draw_identity_valid(seed, index):
         return False
@@ -364,8 +365,11 @@ def _run_identity(run_dir: Path) -> dict[str, Any]:
         f"{run_file} is not a run summary",
     )
     cv.refuse_when(
-        summary.get("format") != generate.RUN_FORMAT
-        or summary.get("generator") != {"name": cv.GENERATOR_NAME, "version": cv.GENERATOR_VERSION},
+        summary.get("format") != generate.RUN_FORMAT,
+        cv.FINDING_RECORD_MALFORMED, "run or generator version is unsupported; regenerate legacy runs",
+    )
+    cv.refuse_when(
+        not run_validation.supported_generator(summary.get("generator")),
         cv.FINDING_RECORD_MALFORMED, "run or generator version is unsupported; regenerate legacy runs",
     )
     candidates_digest = hashlib.sha256(candidates.read_bytes()).hexdigest()
@@ -380,9 +384,8 @@ def _run_identity(run_dir: Path) -> dict[str, Any]:
         type(count) is not int or count != len(_records(run_dir)),  # pylint: disable=unidiomatic-typecheck
         cv.FINDING_RECORD_MALFORMED, "candidates count differs from generation",
     )
-    from .run_validation import run_identity
     try:
-        return run_identity(summary, candidates_digest)
+        return run_validation.run_identity(summary, candidates_digest)
     except (KeyError, TypeError) as exc:
         raise cv.RepairRefusal(cv.FINDING_RECORD_MALFORMED, "malformed run identity") from exc
 

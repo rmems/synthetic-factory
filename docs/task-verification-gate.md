@@ -7,10 +7,10 @@ one test. Every proposal gets exactly one verdict row, so survival rate by reaso
 ```bash
 # Gate a JSONL file of proposals against a pinned code-repair catalog
 python3 pipelines/task_gate_cli.py verify --catalog <catalog_dir> --proposals proposals.jsonl \
-  --denylist <denylist.txt> [--prior-index <old>/dedup-index.jsonl ...] --out <new_dir>
+  [--denylist <denylist.txt>] [--prior-index <old>/dedup-index.jsonl ...] --out <new_dir>
 # Gate the procedural mutator's seeded proposals through the same code path
 python3 pipelines/task_gate_cli.py procedural --catalog <catalog_dir> --seed 1 --count 200 \
-  --denylist <denylist.txt> --out <new_dir>
+  [--denylist <denylist.txt>] --out <new_dir>
 python3 -m unittest tests.test_task_gate tests.test_task_gate_harness tests.test_task_gate_sandboxed \
   tests.test_task_gate_sandboxed_report -q -b
 ```
@@ -26,9 +26,14 @@ python3 -m unittest tests.test_task_gate tests.test_task_gate_harness tests.test
   `procedural.py`. A JSON row may record `unspecified` or `model`. `procedural` is set only by
   the procedural mutator. Any other self-declared value is stored as `unspecified`. Verdicts
   do not branch on it.
-* **Denylist** is a required input: UTF-8, LF-framed, one program id per line, no blank lines,
-  padding or duplicates, at least one entry. A missing, unreadable, empty or malformed list
-  refuses the run (exit 2, nothing written). The vendored #494 list is wired in once #504 lands.
+* **Denylist** defaults to `config/eval-exclusion/eval-denylist.json`. An explicit
+  `--denylist` overrides it. JSON input is an `eval-exclusion-list-v1` document; a legacy
+  UTF-8, LF-framed text file (one program id per line, no blank lines, padding, or
+  duplicates) is still accepted. The file bytes are recorded by digest. A missing,
+  unreadable, empty, or malformed list, including the vendored file, refuses the run
+  (exit 2, nothing written). A proposal is denied when its program id is listed, when it is
+  a held-out or validation catalog program, or when its normalized text matches a denied
+  program's.
 * **Prior indexes** (`--prior-index`, repeatable, optional on a first run) are earlier runs'
   `dedup-index.jsonl` files. They are read, never modified.
 

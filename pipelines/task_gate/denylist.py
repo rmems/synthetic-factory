@@ -1,10 +1,14 @@
 #!/usr/bin/env python3
 """The eval denylist: program ids the gate must never turn into training tasks.
 
-The denylist is a REQUIRED input (#494 supplies the vendored list; its wiring follows #504).
-It is a UTF-8, LF-framed text file with one program id per line: no blank lines, no padding,
-no duplicates, at least one entry. A missing, unreadable, empty or malformed list refuses the
-run -- an absent denylist must never read as "nothing is denied".
+``None`` and an omitted ``--denylist`` select the vendored
+``config/eval-exclusion/eval-denylist.json``. An explicit path overrides that default.
+JSON input is an ``eval-exclusion-list-v1`` document, loaded by the same strict loader
+compose uses (``eval_exclusion_lists.load_list`` for the ``eval_denylist`` slot). A legacy
+UTF-8, LF-framed text file with one program id per line is still accepted as an override,
+and the file bytes are recorded by digest. A missing, unreadable, empty ``program_ids``
+(including a reviewed list whose ``repos`` are populated), or malformed payload refuses
+the run -- an absent file must never read as "nothing is denied".
 """
 
 from __future__ import annotations
@@ -20,7 +24,16 @@ from . import vocabulary as cv
 from ._contract import StrictJsonlError, bind_import_twin, strict_lf_jsonl_lines
 from .checks import is_identifier
 
-__all__ = ["Denylist", "load_denylist"]
+if __name__.startswith("pipelines."):
+    from .. import eval_exclusion_lists as _exclusion_lists
+else:
+    import eval_exclusion_lists as _exclusion_lists
+
+__all__ = ["Denylist", "VENDORED_DENYLIST", "load_denylist"]
+
+VENDORED_DENYLIST = (
+    Path(__file__).resolve().parents[2] / "config" / "eval-exclusion" / "eval-denylist.json"
+)
 
 
 @dataclass(frozen=True)
@@ -54,6 +67,44 @@ class Denylist:
         return len(self.program_ids)
 
 
+_JSON_START = (b"{", b"[")
+
+
+def _refuse_empty_program_ids(program_ids: frozenset[str], repos: frozenset[str], location: str) -> None:
+    """Empty ``program_ids`` is always a refusal; populated ``repos`` names the gap."""
+
+    if program_ids:
+        return
+    if repos:
+        raise cv.GateRefusal(
+            cv.REFUSE_DENYLIST_MALFORMED,
+            f"{location}: program_ids is empty while repos names {len(repos)} entries",
+        )
+    raise cv.GateRefusal(cv.REFUSE_DENYLIST_MALFORMED, f"{location}: denylist has no entries")
+
+
+def _json_program_ids(location: Path, digest: str) -> frozenset[str]:
+    """Program ids from one strict ``eval_denylist`` document, or a coded refusal.
+
+    Compose and the gate share ``eval_exclusion_lists.load_list``. A do-not-train
+    document, a placeholder that carries entries, unsorted ids, or non-canonical
+    bytes are the same refusal here as they are there. An empty ``program_ids``
+    array is still a refusal even when ``repos`` is populated: the gate's input
+    is the program-id denylist, not the repository list.
+    """
+
+    try:
+        loaded = _exclusion_lists.load_list(location, _exclusion_lists.LIST_EVAL_DENYLIST)
+    except _exclusion_lists.ExclusionPolicyError as exc:
+        raise cv.GateRefusal(cv.REFUSE_DENYLIST_MALFORMED, str(exc)) from exc
+    cv.refuse_when(
+        loaded.sha256 != digest, cv.REFUSE_DENYLIST_MALFORMED,
+        f"{location} changed while it was being read",
+    )
+    _refuse_empty_program_ids(loaded.program_ids, loaded.repos, str(location))
+    return loaded.program_ids
+
+
 def _read(path: Path) -> bytes:
     cv.refuse_when(
         not path.exists(), cv.REFUSE_DENYLIST_MISSING, f"denylist {path} does not exist",
@@ -74,17 +125,19 @@ def _read(path: Path) -> bytes:
 
 
 def load_denylist(path: Path | str | None) -> Denylist:
-    """Load the denylist file or refuse; ``None`` is a refusal, never an empty list."""
+    """Load ``path``, or the vendored eval-exclusion list when ``path`` is omitted."""
 
-    cv.refuse_when(path is None, cv.REFUSE_DENYLIST_MISSING, "a denylist is required")
-    location = Path(str(path))
+    location = VENDORED_DENYLIST if path is None else Path(str(path))
     data = _read(location)
+    digest = hashlib.sha256(data).hexdigest()
+    if data.lstrip()[:1] in _JSON_START:
+        return Denylist(_json_program_ids(location, digest), digest)
     try:
         lines = strict_lf_jsonl_lines(data, str(location))
     except StrictJsonlError as exc:
         raise cv.GateRefusal(cv.REFUSE_DENYLIST_MALFORMED, str(exc)) from exc
     listed = Denylist.of(lines)
-    return Denylist(listed.program_ids, hashlib.sha256(data).hexdigest())
+    return Denylist(listed.program_ids, digest)
 
 
 bind_import_twin(__name__)

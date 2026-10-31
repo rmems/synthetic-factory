@@ -29,7 +29,11 @@ __all__ = ["GateRequest", "run"]
 
 @dataclass(frozen=True)
 class GateRequest:
-    """Everything one run needs. ``denylist`` has no default: it is a required input."""
+    """Everything one run needs.
+
+    ``denylist`` is a loaded list, a path, or ``None`` for the vendored eval-exclusion
+    list. A missing or malformed file refuses the run.
+    """
 
     programs: Mapping[str, GateProgram]
     proposals: Sequence[GateProposal | MalformedProposal]
@@ -38,6 +42,7 @@ class GateRequest:
     prior_index_paths: Sequence[Path | str] = ()
     timeout_s: float = cv.DEFAULT_TIMEOUT_S
     provenance: Mapping[str, Any] = field(default_factory=dict)
+    eval_program_ids: frozenset[str] = frozenset()
 
 
 def _programs_digest(programs: Mapping[str, GateProgram]) -> str:
@@ -60,7 +65,7 @@ def _loaded_prior(request: GateRequest) -> PriorIndex:
     return load_prior(request.prior_index_paths) if request.prior_index_paths else PriorIndex.empty()
 
 
-_COMPUTED_EVIDENCE = ("denylist", "prior_indexes", "programs", "harness")
+_COMPUTED_EVIDENCE = ("denylist", "prior_indexes", "programs", "harness", "eval_program_ids")
 
 
 def _harness_evidence(harness: Harness) -> dict[str, Any]:
@@ -70,9 +75,22 @@ def _harness_evidence(harness: Harness) -> dict[str, Any]:
     return {"protocol": cv.HARNESS_PROTOCOL}
 
 
+def _eval_ids_evidence(program_ids: frozenset[str]) -> dict[str, Any]:
+    """Count and digest of the catalog eval ids overlaid on the denylist.
+
+    The digest is over the sorted ids, one per line, so a caller cannot replace
+    it through provenance. Moving a program between splits changes this digest
+    even when ``programs.sha256`` does not record the split.
+    """
+
+    payload = "".join(f"{item}\n" for item in sorted(program_ids)).encode("utf-8")
+    return {"count": len(program_ids), "sha256": hashlib.sha256(payload).hexdigest()}
+
+
 def _evidence(request: GateRequest, rules: Rules, harness: Harness) -> dict[str, Any]:
     return {
         "denylist": {"sha256": rules.denylist.sha256, "entries": len(rules.denylist)},
+        "eval_program_ids": _eval_ids_evidence(rules.eval_program_ids),
         "prior_indexes": list(rules.prior.files),
         "programs": {"count": len(request.programs), "sha256": _programs_digest(request.programs)},
         "harness": _harness_evidence(harness),
@@ -106,7 +124,9 @@ def run(request: GateRequest, harness: Harness | None = None) -> dict[str, Any]:
     """Run the gate and return the summary that was written to ``summary.json``."""
 
     check_destination(Path(request.out))
-    rules = Rules(_loaded_denylist(request), _loaded_prior(request))
+    rules = Rules(
+        _loaded_denylist(request), _loaded_prior(request), frozenset(request.eval_program_ids),
+    )
     cv.refuse_when(not request.proposals, cv.REFUSE_NO_PROPOSALS, "no proposals to verify")
     cv.refuse_when(not request.programs, cv.REFUSE_PROGRAM_INVALID, "no programs")
     active = harness if harness is not None else SubprocessHarness(request.timeout_s)

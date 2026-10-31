@@ -10,16 +10,10 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from task_gate_test_support import (
-    ADD, DENY, FAILED, NO_DOCTESTS, PASSED, PROGRAM, PROGRAMS, FakeHarness, cv, dedup_index,
+    ADD, DENY, FAILED, NO_DOCTESTS, PASSED, PROGRAM, PROGRAMS, FakeHarness, cv, decide, dedup_index,
     denylist, gate, harness, proposal, proposal_for, refused, rules, span_of,
 )
 from task_gate import mutation, report, runner
-
-
-def decide(item, fake=None, rule_set=None, programs=None):
-    fake = fake or FakeHarness({ADD: PASSED})
-    machine = gate.Gate(PROGRAMS if programs is None else programs, rule_set or rules(), fake)
-    return machine.decide(item), fake
 
 
 class Verdicts(unittest.TestCase):
@@ -88,7 +82,9 @@ class Denylist(unittest.TestCase):
 
     def test_loader_fails_closed_on_absent_or_malformed_files(self):
         cases = {
-            "absent": (None, cv.REFUSE_DENYLIST_MISSING),
+            "empty json program_ids with repos": (
+                b'{"program_ids": [], "repos": ["clap-rs/clap"]}\n', cv.REFUSE_DENYLIST_MALFORMED,
+            ),
             "empty": (b"", cv.REFUSE_DENYLIST_MALFORMED),
             "no trailing newline": (b"a", cv.REFUSE_DENYLIST_MALFORMED),
             "blank line": (b"a\n\nb\n", cv.REFUSE_DENYLIST_MALFORMED),
@@ -117,15 +113,6 @@ class Denylist(unittest.TestCase):
             loaded = denylist.load_denylist(path)
         self.assertEqual(loaded.program_ids, frozenset({"prog-eval", "other"}))
         self.assertEqual(loaded.sha256, hashlib.sha256(b"prog-eval\nother\n").hexdigest())
-
-    def test_run_without_a_denylist_refuses_and_writes_nothing(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            out = Path(tmp) / "out"
-            request = runner.GateRequest(PROGRAMS, [proposal_for()], None, out)
-            code = refused(runner.run, request, FakeHarness({ADD: PASSED}))
-            self.assertEqual(code, cv.REFUSE_DENYLIST_MISSING)
-            self.assertFalse(out.exists())
-            self.assertEqual(list(Path(tmp).iterdir()), [])
 
 
 class ParseErrors(unittest.TestCase):

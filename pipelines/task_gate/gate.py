@@ -109,6 +109,7 @@ class Rules(NamedTuple):
 
     denylist: Denylist
     prior: PriorIndex
+    eval_program_ids: frozenset[str] = frozenset()
 
 
 def _check_rules(rules: Rules) -> None:
@@ -137,11 +138,12 @@ class Gate:
             selfcheck()
         self.programs, self.harness = programs, harness
         self.denylist, self.prior = rules.denylist, rules.prior
+        self.eval_program_ids = frozenset(rules.eval_program_ids)
         self._content = {
             program.program_id: normalized_text(program.text) for program in programs.values()
         }
         self._denied_content = frozenset(
-            text for pid, text in self._content.items() if pid in self.denylist
+            text for pid, text in self._content.items() if self._denied_id(pid)
         )
         self.kept: dict[str, dict[str, Any]] = {}
         self._originals: dict[str, str | None] = {}
@@ -150,10 +152,16 @@ class Gate:
     def run(self, items: Iterable[GateProposal | MalformedProposal]) -> list[Decision]:
         return [self.decide(item) for item in items]
 
-    def _denial(self, item: GateProposal | MalformedProposal) -> str | None:
-        """Why ``item`` is denylisted, or None. Id first, then the program's normalized text."""
+    def _denied_id(self, program_id: str | None) -> bool:
+        if program_id is None:
+            return False
+        return program_id in self.denylist or program_id in self.eval_program_ids
 
-        if item.program_id is not None and item.program_id in self.denylist:
+    def _denial(self, item: GateProposal | MalformedProposal) -> str | None:
+        """Why ``item`` is denylisted, or None. Id first (denylist or held-out eval ids),
+        then the program's normalized text."""
+
+        if self._denied_id(item.program_id):
             return cv.DETAIL_ON_DENYLIST
         if self._content.get(item.program_id) in self._denied_content:
             return cv.DETAIL_CONTENT_ON_DENYLIST

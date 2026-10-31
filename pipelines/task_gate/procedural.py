@@ -10,6 +10,7 @@ records only because it is an accepted source, not because the row declared it.
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 
 from . import vocabulary as cv
@@ -27,8 +28,27 @@ else:
     from code_repair import vocabulary as _repair_vocabulary
 
 SOURCE = cv.SOURCE_PROCEDURAL
+EVAL_SPLITS = frozenset({"validation", "held_out"})
 
-__all__ = ["SOURCE", "load_catalog", "programs_from_catalog", "proposals_from_plan"]
+__all__ = [
+    "EVAL_SPLITS", "SOURCE", "eval_program_ids", "load_catalog",
+    "programs_from_catalog", "proposals_from_plan",
+]
+
+
+def _catalog_without_eval_splits(catalog: _catalog.Catalog) -> _catalog.Catalog:
+    """Leave validation and held-out programs out of the draw.
+
+    A program with no split stays eligible. Catalogs that do not assign a
+    split policy are a supported training set, the same rule as the generator draw.
+    """
+
+    return replace(
+        catalog,
+        programs=tuple(
+            program for program in catalog.programs if program.split not in EVAL_SPLITS
+        ),
+    )
 
 
 def load_catalog(directory: Path) -> _catalog.Catalog:
@@ -38,6 +58,14 @@ def load_catalog(directory: Path) -> _catalog.Catalog:
         return _catalog.load_catalog(Path(directory))
     except _repair_vocabulary.RepairRefusal as exc:
         raise cv.GateRefusal(cv.REFUSE_PROGRAM_INVALID, f"{directory}: {exc}") from exc
+
+
+def eval_program_ids(catalog: _catalog.Catalog) -> frozenset[str]:
+    """Validation and held-out program ids the verify step must never keep."""
+
+    return frozenset(
+        program.program_id for program in catalog.programs if program.split in EVAL_SPLITS
+    )
 
 
 def programs_from_catalog(catalog: _catalog.Catalog) -> dict[str, GateProgram]:
@@ -58,7 +86,7 @@ def proposals_from_plan(
                    "count must be a positive integer")
     cv.refuse_when(not is_count(per_program_cap) or per_program_cap < 1, cv.REFUSE_INPUT_INVALID,
                    "per_program_cap must be a positive integer")
-    plan = _planning.ProposalPlan(catalog, seed, per_program_cap)
+    plan = _planning.ProposalPlan(_catalog_without_eval_splits(catalog), seed, per_program_cap)
     return [
         GateProposal(
             proposal_id=proposal.record_id, program_id=proposal.program.program_id,

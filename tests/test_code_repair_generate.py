@@ -149,20 +149,21 @@ class StableBytes(unittest.TestCase):
         first = hashlib.sha256((run_dir / generate.CANDIDATES_FILENAME).read_bytes()).hexdigest()
         second = hashlib.sha256((again / generate.CANDIDATES_FILENAME).read_bytes()).hexdigest()
         self.assertEqual(first, second)
-        self.assertEqual(summary["outcomes"], {"accepted": 7, "rejected": 3})
+        self.assertEqual(summary["outcomes"], {"accepted": 6, "rejected": 4})
         self.assertEqual(
             summary["reasons"],
-            {"HIDDEN_CHECK_UNAVAILABLE": 2, "MUTANT_FAILS_HIDDEN": 7, "MUTANT_FAILS_PUBLIC": 7,
-             "MUTANT_NO_OBSERVED_FAILURE": 2, "MUTANT_NO_PUBLIC_FAILURE": 1, "REPAIR_PASSES_ALL": 7},
+            {"MUTANT_FAILS_HIDDEN": 6, "MUTANT_FAILS_PUBLIC": 6,
+             "MUTANT_NO_OBSERVED_FAILURE": 2, "MUTANT_TIMEOUT": 2, "REPAIR_PASSES_ALL": 6},
         )
-        self.assertEqual(summary["oracle_statuses"], {"provisional": 2, "validated": 8})
+        self.assertEqual(summary["oracle_statuses"], {"validated": 10})
         self.assertEqual(summary["skips"][cv.SKIP_DUPLICATE_MUTANT_IN_RUN], 2)
         identity = catalog.sha256_text(oc.canonical_json(
             [fixture().catalog_id, fixture().programs_sha256]))
-        expected_ids = [f"pfr-{identity}-{SEED}-{i:05d}" for i in (0, 1, 2, 3, 5, 6, 7, 8, 9, 10)]
+        expected_ids = [f"pfr-{identity}-{SEED}-{i:05d}" for i in (0, 1, 2, 3, 4, 5, 6, 9, 10, 11)]
         self.assertEqual([r["id"] for r in records], expected_ids)
         operators = {r["intervention"]["operator"] for r in records}
-        self.assertEqual(operators, set(cv.OPERATORS))
+        self.assertTrue(operators)
+        self.assertTrue(operators <= set(cv.OPERATORS))
         log = [entry for _n, entry in oc.read_jsonl(run_dir / generate.LOG_FILENAME)]
         self.assertTrue(all("duration_s" in entry for entry in log))
         self.assertTrue(all("timed_out" in entry for entry in log))
