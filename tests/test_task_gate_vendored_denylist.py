@@ -1,5 +1,6 @@
 """The omitted denylist is the vendored eval-exclusion list."""
 
+import hashlib
 import sys
 import tempfile
 import unittest
@@ -9,7 +10,8 @@ from unittest import mock
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from task_gate_test_support import (
-    ADD, PASSED, PROGRAMS, REPO, FakeHarness, cv, denylist, proposal_for, refused,
+    ADD, PASSED, PROGRAMS, REPO, FakeHarness, cv, decide, denylist, proposal, proposal_for, refused,
+    rules,
 )
 from task_gate import runner
 
@@ -60,3 +62,28 @@ class VendoredDenylist(unittest.TestCase):
                         code = refused(runner.run, request, FakeHarness({ADD: PASSED}))
                     self.assertEqual(code, code_name)
                     self.assertFalse(out.exists())
+
+    def test_vendored_held_out_program_ids_are_all_denylisted(self):
+        loaded = denylist.load_denylist(REPO / "config/eval-exclusion/eval-denylist.json")
+        self.assertEqual(len(loaded.program_ids), 19)
+        gate_rules = rules(deny=loaded)
+        for program_id in loaded.program_ids:
+            with self.subTest(program_id=program_id):
+                item = proposal.MalformedProposal("held-out", program_id, cv.DETAIL_MALFORMED_ROW)
+                decision, fake = decide(item, rule_set=gate_rules)
+                self.assertEqual(decision.verdict, cv.VERDICT_DENYLISTED)
+                self.assertEqual(fake.calls, [])
+
+    def test_run_summary_records_the_denylist_file_digest(self):
+        path = REPO / "config/eval-exclusion/eval-denylist.json"
+        loaded = denylist.load_denylist(path)
+        with tempfile.TemporaryDirectory() as tmp:
+            summary = runner.run(
+                runner.GateRequest(PROGRAMS, [proposal_for()], loaded, Path(tmp) / "out"),
+                FakeHarness({ADD: PASSED}),
+            )
+        self.assertEqual(summary["inputs"]["denylist"]["sha256"], loaded.sha256)
+        self.assertEqual(summary["inputs"]["eval_program_ids"], {
+            "count": 0,
+            "sha256": hashlib.sha256(b"").hexdigest(),
+        })

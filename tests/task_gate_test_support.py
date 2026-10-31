@@ -103,3 +103,9 @@ class FakeHarness:
     def run(self, program_text, function):
         self.calls.append((program_text, function))
         return self.results.get(program_text, self.default)
+
+
+def decide(item, fake=None, rule_set=None, programs=None):
+    fake = fake or FakeHarness({ADD: PASSED})
+    machine = gate.Gate(PROGRAMS if programs is None else programs, rule_set or rules(), fake)
+    return machine.decide(item), fake

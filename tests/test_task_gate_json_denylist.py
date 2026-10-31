@@ -97,3 +97,12 @@ class JsonDenylistRefusals(unittest.TestCase):
             )
             self.assertEqual(code, cv.REFUSE_INPUT_INVALID)
             self.assertFalse(overridden.exists())
+
+    def test_json_loader_reads_program_ids_and_binds_the_file_digest(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "deny.json"
+            write_denylist_json(path, ["other", "prog-eval"])
+            payload = path.read_bytes()
+            loaded = denylist.load_denylist(path)
+        self.assertEqual(loaded.program_ids, frozenset({"prog-eval", "other"}))
+        self.assertEqual(loaded.sha256, hashlib.sha256(payload).hexdigest())
