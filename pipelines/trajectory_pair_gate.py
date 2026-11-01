@@ -11,9 +11,13 @@ Reasons accumulate in a fixed order so manifests are byte-stable across runs.
 
 from __future__ import annotations
 
+import sys
 from typing import Any
 
 if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("trajectory_pair_gate")
     from .curate_agentic import canonical_json, prefix_overlap, shared_preference_goal
     from .trajectory_pair_shape import (
         classify_pair_schema,
@@ -47,6 +51,9 @@ if __package__:
         is_finite_json_number,
     )
 else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "trajectory_pair_gate"
+    )
     from curate_agentic import canonical_json, prefix_overlap, shared_preference_goal
     from trajectory_pair_shape import (
         classify_pair_schema,
@@ -284,3 +291,7 @@ def pair_passes_gate(record: Any, policy: GatePolicy = DEFAULT_POLICY) -> bool:
     return classify_pair_schema(record, policy) == "trajectory_pair" and not gate_failures(
         record, policy
     )
+
+
+if __package__:
+    _expose_package_sibling(__name__)

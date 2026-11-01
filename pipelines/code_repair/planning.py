@@ -28,20 +28,40 @@ def _sites_by_operator(program: cat.Program) -> dict[str, tuple[mutate.Site, ...
     return {operator: tuple(found) for operator, found in grouped.items()}
 
 
-class ProposalPlan:
-    """One incremental DrawStream; syntax checks compile but never execute source."""
+_EVAL_SPLITS = ("validation", "held_out")
 
-    def __init__(self, catalog: cat.Catalog, seed: int, cap: int):
+
+class ProposalPlan:
+    """One incremental DrawStream; syntax checks compile but never execute source.
+
+    ``generator_version`` selects the draw that produced a run. ``2.1.0`` (the
+    default) leaves validation and held-out programs out. ``2.0.0`` draws every
+    split, which is what runs stamped with that version replay.
+    """
+
+    def __init__(self, catalog: cat.Catalog, seed: int, cap: int,
+                 generator_version: str | None = None):
         self.catalog, self.seed, self.cap = catalog, seed, cap
+        self.generator_version = (
+            cv.GENERATOR_VERSION if generator_version is None else generator_version
+        )
+        self._omit_eval_splits = self.generator_version != cv.GENERATOR_VERSION_INCLUSIVE_DRAW
         self.stream = rng.DrawStream(seed)
         self.sites = {p.program_id: _sites_by_operator(p) for p in catalog.programs}
         self.per_program: Counter[str] = Counter()
         self.skips = Counter({cv.SKIP_MUTATION_NO_SITES: sum(not s for s in self.sites.values())})
         self.seen: set[tuple[str, str]] = set()
 
+    def _eligible(self, program: cat.Program) -> bool:
+        # A catalog with no split policy leaves ``split`` null; those programs
+        # are the whole training set and remain eligible under either rule.
+        if self._omit_eval_splits and program.split in _EVAL_SPLITS:
+            return False
+        has_sites = bool(self.sites[program.program_id])
+        return has_sites and self.per_program[program.program_id] < self.cap
+
     def _draw_program(self) -> cat.Program | None:
-        eligible = [p for p in self.catalog.programs
-                    if self.sites[p.program_id] and self.per_program[p.program_id] < self.cap]
+        eligible = [program for program in self.catalog.programs if self._eligible(program)]
         return self.stream.choice(eligible) if eligible else None
 
     def _proposal(self, program: cat.Program, index: int) -> Proposal | str:

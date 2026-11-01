@@ -14,8 +14,18 @@ resolve unchanged.
 
 from __future__ import annotations
 
+import sys
 from collections.abc import Iterable
 from pathlib import Path
+
+if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("mill_locations")
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "mill_locations"
+    )
 
 
 def factory_identity_for_path(
@@ -61,3 +71,7 @@ def _belongs_to_outer_root(relative: Path, factories: frozenset[str]) -> bool:
         return True
     nested_root = relative.parts[0]
     return nested_root not in factories and not nested_root.endswith("-factory")
+
+
+if __package__:
+    _expose_package_sibling(__name__)

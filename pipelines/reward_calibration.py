@@ -4,8 +4,12 @@
 from __future__ import annotations
 
 import math
+import sys
 
 if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("reward_calibration")
     from .reward_mapping import _decimal, _json_number
     from .reward_policy import (
         CANONICAL_UNIT_USD,
@@ -14,6 +18,9 @@ if __package__:
         RECORD_ID_RE,
     )
 else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "reward_calibration"
+    )
     from reward_mapping import _decimal, _json_number
     from reward_policy import (
         CANONICAL_UNIT_USD,
@@ -44,3 +51,7 @@ def _entry_calibrations(entry, *, path, index):
             "canonical_factor": canonical_factor,
             "evidence_ref": f"{path.as_posix()}#/records/{index}",
         }
+
+
+if __package__:
+    _expose_package_sibling(__name__)

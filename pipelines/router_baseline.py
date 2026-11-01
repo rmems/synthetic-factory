@@ -50,6 +50,9 @@ if str(_PIPELINES) not in sys.path:
     sys.path.insert(0, str(_PIPELINES))
 
 if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("router_baseline")
     from . import baseline_dataset as _baseline_dataset
     from . import baseline_eval as _baseline_eval
     from . import baseline_models as _baseline_models
@@ -66,6 +69,9 @@ if __package__:
         evaluate_baselines,
     )
 else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "router_baseline"
+    )
     import baseline_dataset as _baseline_dataset
     import baseline_eval as _baseline_eval
     import baseline_models as _baseline_models
@@ -145,6 +151,10 @@ def main(argv: list[str] | None = None) -> int:
     report["escalation"] = escalation_gate(report)
     print(json.dumps(report, indent=2, sort_keys=True))
     return 0 if report["escalation"]["escalate_to_snn"] else 1
+
+
+if __package__:
+    _expose_package_sibling(__name__)
 
 
 if __name__ == "__main__":

@@ -15,6 +15,7 @@ import base64
 import doctest
 from typing import NamedTuple
 
+from . import _child
 from . import _sandboxed_record as record
 from . import vocabulary as cv
 from ._contract import bind_import_twin
@@ -28,6 +29,7 @@ class _Observation(NamedTuple):
     branch: str
     text: str
     cut: bool
+    displayed: str
 
 
 def report_limit(examples: int) -> int:
@@ -52,7 +54,7 @@ def _kind(body: object) -> object:
     return body.get("kind") if isinstance(body, dict) else None
 
 
-_OBSERVATION_FIELDS = {"kind": str, "branch": str, "data": str, "cut": bool}
+_OBSERVATION_FIELDS = {"kind": str, "branch": str, "data": str, "cut": bool, "displayed": str}
 _BRANCHES = frozenset({record.BRANCH_OUTPUT, record.BRANCH_EXCEPTION})
 
 
@@ -74,7 +76,7 @@ def _observation(body: object) -> _Observation | None:
     text = _text_of(body["data"], body["cut"]) if typed else None
     if text is None or body["branch"] not in _BRANCHES:
         return None
-    return _Observation(body["branch"], text, body["cut"])
+    return _Observation(body["branch"], text, body["cut"], body["displayed"])
 
 
 def _load_error_detail(body: object) -> str | None:
@@ -131,10 +133,23 @@ def _passes(example: doctest.Example, seen: _Observation) -> bool:
     return _exception_matches(example, seen.text, flags)
 
 
+def _stdout_only(example: doctest.Example, seen: _Observation) -> bool:
+    if seen.branch != record.BRANCH_OUTPUT or example.exc_msg is not None:
+        return False
+    return _child.value_with_extra_stdout(example.want, seen.text, seen.displayed, _flags(example))
+
+
+def _failure_detail(failed: list[tuple[doctest.Example, _Observation]]) -> str:
+    if failed and all(_stdout_only(example, item) for example, item in failed):
+        return cv.DETAIL_STDOUT_EQUIVALENT
+    return ""
+
+
 def _verdict(examples: tuple[doctest.Example, ...], seen: list[_Observation]) -> HarnessResult:
-    failed = sum(not _passes(example, item) for example, item in zip(examples, seen, strict=True))
+    pairs = zip(examples, seen, strict=True)
+    failed = [(example, item) for example, item in pairs if not _passes(example, item)]
     outcome = cv.OUTCOME_FAILED if failed else cv.OUTCOME_PASSED
-    return HarnessResult(outcome, len(examples), failed)
+    return HarnessResult(outcome, len(examples), len(failed), _failure_detail(failed))
 
 
 def judged(examples: tuple[doctest.Example, ...], report: bytes, key: bytes) -> HarnessResult:

@@ -15,6 +15,15 @@ from typing import Any
 import sys
 from pathlib import Path
 
+if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("preference_arms_text")
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "preference_arms_text"
+    )
+
 _PIPELINES = Path(__file__).resolve().parent
 if str(_PIPELINES) not in sys.path:
     sys.path.insert(0, str(_PIPELINES))
@@ -450,3 +459,7 @@ def cosine_similarity(left: Counter[str], right: Counter[str]) -> float:
     # Clamp and round: identical vectors must land on exactly 1.0 rather than
     # 1 - 2e-16, and no decision here turns on the twelfth decimal.
     return round(max(0.0, min(1.0, dot / (left_norm * right_norm))), 12)
+
+
+if __package__:
+    _expose_package_sibling(__name__)

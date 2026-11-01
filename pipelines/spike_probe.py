@@ -27,6 +27,13 @@ from collections import Counter
 from pathlib import Path
 from typing import Any, Iterable, Optional
 
+if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("spike_probe")
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)("spike_probe")
+
 _PIPELINES = Path(__file__).resolve().parent
 if str(_PIPELINES) not in sys.path:
     sys.path.insert(0, str(_PIPELINES))
@@ -260,6 +267,10 @@ def main(argv=None):
             )
         )
     return 1 if problems and (args.strict or args.jsonl) else 0
+
+
+if __package__:
+    _expose_package_sibling(__name__)
 
 
 if __name__ == "__main__":

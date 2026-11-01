@@ -10,8 +10,19 @@ unchanged.
 from __future__ import annotations
 
 import platform
+import sys
 from dataclasses import dataclass
 from typing import Any, Callable
+
+if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("energy_meter_types")
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "energy_meter_types"
+    )
+
 
 @dataclass(frozen=True)
 class MeterReading:
@@ -59,4 +70,8 @@ class EnergyOracle:
             "machine": platform.machine(),
             "python": platform.python_version(),
         }
+
+
+if __package__:
+    _expose_package_sibling(__name__)
 

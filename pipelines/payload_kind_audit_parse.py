@@ -16,6 +16,15 @@ import sys
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 
+if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("payload_kind_audit_parse")
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "payload_kind_audit_parse"
+    )
+
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 
@@ -262,3 +271,7 @@ def _parse_json_record(source_file: str, line_number: int, line: str) -> dict:
     if not isinstance(record, dict):
         raise PayloadKindAuditError(f"{source_file}:{line_number}: record must be a JSON object")
     return record
+
+
+if __package__:
+    _expose_package_sibling(__name__)

@@ -29,6 +29,15 @@ import sys
 from pathlib import Path
 from typing import Iterable
 
+if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("payload_kind_audit")
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "payload_kind_audit"
+    )
+
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from curate_identity import LEGACY_ID_KEYS as LEGACY_ID_KEYS  # noqa: E402
@@ -90,6 +99,10 @@ def build_audit(corpus: Path, payload_names: Iterable[str] | None = None) -> dic
 
 def main(argv: list[str] | None = None) -> int:
     return run_main(build_audit, __doc__.splitlines()[0], argv)
+
+
+if __package__:
+    _expose_package_sibling(__name__)
 
 
 if __name__ == "__main__":

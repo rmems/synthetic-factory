@@ -140,6 +140,18 @@ class BuiltBundle(unittest.TestCase):
                 declared = f"path: data/{directory}/{split}.jsonl" in self.head
                 self.assertEqual(declared, self.summary["rows"][name][split] > 0, (name, split))
 
+    def test_card_names_the_train_only_held_out_omission(self):
+        self.assertIn("`TRAIN_ONLY_DRAW_OMITS_EVAL_SPLITS`", self.body)
+        sft = self.summary["rows"]["sft"]
+        if sft["train"] and not sft["held_out"]:
+            self.assertIn("`held_out`", self.body)
+            self.assertNotIn("Generator 2.1.0", self.body)
+            self.assertTrue(self.summary["warnings"])
+            if sft["validation"]:
+                self.assertNotIn("`validation`", self.summary["warnings"][0])
+        else:
+            self.assertEqual(self.summary["warnings"], [])
+
     def test_card_body_states_the_blockers_and_no_unreal_catalog_path(self):
         self.assertIn("**not training-ready.**", self.body)
         for code in self.manifest["admission"]["blockers"]:
@@ -334,6 +346,25 @@ class Cli(unittest.TestCase):
                          (payload["sft"]["prompt"], payload["sft"]["completion"]))
         self.assertEqual(set(payload["edit"]), {"prompt", "completion"})
         self.assertTrue(payload["edit"]["completion"].startswith(cv.EDIT_SEARCH_MARKER))
+
+
+class OmissionWording(unittest.TestCase):
+    def test_names_only_the_empty_splits(self):
+        self.assertIsNone(hub_bundle.train_only_omission(
+            {"sft": {"train": 1, "validation": 1, "held_out": 1}},
+        ))
+        held_out = hub_bundle.train_only_omission(
+            {"sft": {"train": 2, "validation": 1, "held_out": 0}},
+        )
+        self.assertIn("`held_out`", held_out)
+        self.assertNotIn("validation", held_out)
+        self.assertNotIn("2.1.0", held_out)
+        both = hub_bundle.train_only_omission(
+            {"sft": {"train": 2, "validation": 0, "held_out": 0}},
+        )
+        self.assertIn("`validation`", both)
+        self.assertIn("`held_out`", both)
+        self.assertNotIn("2.1.0", both)
 
 
 if __name__ == "__main__":

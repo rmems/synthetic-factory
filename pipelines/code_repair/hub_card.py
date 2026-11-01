@@ -231,10 +231,39 @@ def _file_table(digests: dict[str, str], counts: dict[str, int]) -> list[str]:
     return lines
 
 
+def _empty_consumer_splits(sft: dict[str, int]) -> tuple[str, ...]:
+    return tuple(split for split in ("validation", "held_out") if not sft.get(split))
+
+
+def _omission_sentence(empty: tuple[str, ...]) -> str:
+    named = " and ".join(f"`{split}`" for split in empty)
+    if len(empty) > 1:
+        files, splits = "files are", "those splits are"
+    else:
+        files, splits = "file is", "that split is"
+    return (
+        f"The {named} consumer {files} empty and {splits} omitted from the "
+        "configs. That omission is limitation `TRAIN_ONLY_DRAW_OMITS_EVAL_SPLITS`."
+    )
+
+
+def train_only_omission(counts: dict[str, dict[str, int]]) -> str | None:
+    """Name consumer splits that are empty while train rows exist.
+
+    The sentence follows the counts. It names ``validation`` only when that
+    split is empty, and it does not attribute the omission to a generator version.
+    """
+
+    sft = counts.get("sft") or {}
+    if not sft.get("train") or sft.get("held_out"):
+        return None
+    return _omission_sentence(_empty_consumer_splits(sft))
+
+
 def _card_splits(facts: BundleFacts) -> list[str]:
     frozen = facts.freeze.get("canonical_ids", [])
     agoge_keys = "`, `".join(export.VIEW_FORMATS["agoge"]["keys"])
-    return [
+    lines = [
         "## Configs and splits",
         "",
         ("Splits are assigned per program group by the catalog's pinned policy "
@@ -249,6 +278,10 @@ def _card_splits(facts: BundleFacts) -> list[str]:
          "Agoge trainer and is not declared as a config."),
         "",
     ]
+    omission = train_only_omission(facts.counts)
+    if omission:
+        lines.extend((omission, ""))
+    return lines
 
 
 def _card_limitations(manifest: dict[str, Any]) -> list[str]:

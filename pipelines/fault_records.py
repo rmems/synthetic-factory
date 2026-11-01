@@ -22,6 +22,9 @@ if str(_PIPELINES) not in sys.path:
 from oracle_grounded import distill_contract as oc  # noqa: E402
 
 if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("fault_records")
     from .fault_simulator import RelayReflexSimulator
     from .fault_types import (
         DEFAULT_SYSTEM,
@@ -36,6 +39,9 @@ if __package__:
         _oracle_meters,
     )
 else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "fault_records"
+    )
     from fault_simulator import RelayReflexSimulator
     from fault_types import (
         DEFAULT_SYSTEM,
@@ -290,3 +296,7 @@ def _derived_measurements(result: "FaultResult") -> dict[str, int | float | None
         "corrupt_ratio": round(result.realised_corrupt_ratio, 6),
         "peak_temperature_c": result.peak_temperature_c,
     }
+
+
+if __package__:
+    _expose_package_sibling(__name__)

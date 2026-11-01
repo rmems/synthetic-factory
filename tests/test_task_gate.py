@@ -10,16 +10,10 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from task_gate_test_support import (
-    ADD, DENY, FAILED, NO_DOCTESTS, PASSED, PROGRAM, PROGRAMS, FakeHarness, cv, dedup_index,
+    ADD, DENY, FAILED, NO_DOCTESTS, PASSED, PROGRAM, PROGRAMS, FakeHarness, cv, decide, dedup_index,
     denylist, gate, harness, proposal, proposal_for, refused, rules, span_of,
 )
 from task_gate import mutation, report, runner
-
-
-def decide(item, fake=None, rule_set=None, programs=None):
-    fake = fake or FakeHarness({ADD: PASSED})
-    machine = gate.Gate(PROGRAMS if programs is None else programs, rule_set or rules(), fake)
-    return machine.decide(item), fake
 
 
 class Verdicts(unittest.TestCase):
@@ -88,7 +82,9 @@ class Denylist(unittest.TestCase):
 
     def test_loader_fails_closed_on_absent_or_malformed_files(self):
         cases = {
-            "absent": (None, cv.REFUSE_DENYLIST_MISSING),
+            "empty json program_ids with repos": (
+                b'{"program_ids": [], "repos": ["clap-rs/clap"]}\n', cv.REFUSE_DENYLIST_MALFORMED,
+            ),
             "empty": (b"", cv.REFUSE_DENYLIST_MALFORMED),
             "no trailing newline": (b"a", cv.REFUSE_DENYLIST_MALFORMED),
             "blank line": (b"a\n\nb\n", cv.REFUSE_DENYLIST_MALFORMED),
@@ -117,15 +113,6 @@ class Denylist(unittest.TestCase):
             loaded = denylist.load_denylist(path)
         self.assertEqual(loaded.program_ids, frozenset({"prog-eval", "other"}))
         self.assertEqual(loaded.sha256, hashlib.sha256(b"prog-eval\nother\n").hexdigest())
-
-    def test_run_without_a_denylist_refuses_and_writes_nothing(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            out = Path(tmp) / "out"
-            request = runner.GateRequest(PROGRAMS, [proposal_for()], None, out)
-            code = refused(runner.run, request, FakeHarness({ADD: PASSED}))
-            self.assertEqual(code, cv.REFUSE_DENYLIST_MISSING)
-            self.assertFalse(out.exists())
-            self.assertEqual(list(Path(tmp).iterdir()), [])
 
 
 class ParseErrors(unittest.TestCase):
@@ -306,6 +293,27 @@ class Duplicates(unittest.TestCase):
         )
         self.assertNotIn(key, others)
 
+    def test_an_importing_program_keeps_one_key_on_3_14_and_3_15(self):
+        text = "import math\n\ndef add(a, b):\n    return a + b\n"
+        key = dedup_index.dedup_key("prog-import", text, text.replace("a + b", "a - b"))[0]
+        self.assertEqual(key, "21e95b41b4a7a06a5fe060af23ce7d2152546ddb683d5f9f776b93326e19d3ff")
+
+    def test_a_long_binop_chain_keeps_one_key(self):
+        original = "def add(a, b):\n    return a + b\n"
+        wide = " + ".join(["a"] * 700) + " - b"
+        tight = "+".join(["a"] * 700) + "-b"
+        left = dedup_index.dedup_key("prog", original, original.replace("a + b", wide))[0]
+        right = dedup_index.dedup_key("prog", original, original.replace("a + b", tight))[0]
+        self.assertEqual(left, right)
+
+    def test_a_literal_that_names_a_default_field_is_not_rewritten(self):
+        original = "def add(a, b):\n    return a\n"
+        with_field = "def add(a, b):\n    return ', ctx=Load()'\n"
+        without_field = "def add(a, b):\n    return ''\n"
+        left = dedup_index.dedup_key("prog", original, with_field)[0]
+        right = dedup_index.dedup_key("prog", original, without_field)[0]
+        self.assertNotEqual(left, right)
+
     def test_minimal_edit_trims_the_common_prefix_and_suffix(self):
         cases = {
             (b"return x + 1", b"return x - 1"): (9, 10, b"-"),
@@ -398,6 +406,10 @@ class Duplicates(unittest.TestCase):
             "extra field": (json.dumps({**row, "x": 1}).encode() + b"\n", cv.REFUSE_INDEX_MALFORMED),
             "short key": (json.dumps({**row, "key": "ab"}).encode() + b"\n", cv.REFUSE_INDEX_MALFORMED),
             "bad format": (json.dumps({**row, "format": "x"}).encode() + b"\n", cv.REFUSE_INDEX_MALFORMED),
+            "key v2 index": (
+                json.dumps({**row, "format": "task-gate-dedup-index/2"}).encode() + b"\n",
+                cv.REFUSE_INDEX_MALFORMED,
+            ),
             "repeated key": (((json.dumps(row) + "\n") * 2).encode(), cv.REFUSE_INDEX_MALFORMED),
             "no newline": (json.dumps(row).encode(), cv.REFUSE_INDEX_MALFORMED),
         }

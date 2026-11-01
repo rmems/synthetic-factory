@@ -25,6 +25,10 @@ from ._contract import bind_import_twin, oc
 SPLIT_ALGORITHM = "sha256-atomic-bucket-v1"
 SPLITS = ("train", "validation", "held_out")
 _DROPPED_FIELDS = frozenset({"annotation", "returns", "type_comment", "type_params"})
+# Python 3.15 adds ``is_lazy`` on Import and ImportFrom (0 for an ordinary import).
+# Pinned structure digests were taken without that field. Omit the default so 3.14 and
+# 3.15 agree; a true lazy import still records the field.
+_DEFAULT_OMITTED = frozenset({"is_lazy"})
 
 __all__ = [
     "SPLITS", "SPLIT_ALGORITHM", "SplitPolicy", "anchor_for", "bucket_split", "canonical_ast",
@@ -172,25 +176,22 @@ def _is_identifier(node: ast.AST, name: str, value: Any) -> bool:
     return not isinstance(node, ast.keyword) and not (isinstance(node, ast.alias) and name == "name")
 
 
-def _omit_default_lazy(name: str, value: Any) -> bool:
-    """Python 3.15 stores eager imports as ``is_lazy=0``.
+def _kept_fields(node: ast.AST) -> list[str]:
+    """Field names that participate in the structure digest."""
 
-    Interpreters without the field omit it. Dropping the default keeps one
-    digest; a real ``lazy import`` (``is_lazy=1``) stays a different structure.
-    """
-
-    return name == "is_lazy" and not value
-
-
-def _serialise_node(node: ast.AST, namer: _Namer) -> list:
-    fields = []
+    kept = []
     for name in node._fields:
         if name in _DROPPED_FIELDS:
             continue
-        value = _field_value(node, name, namer)
-        if _omit_default_lazy(name, value):
+        if name in _DEFAULT_OMITTED and not getattr(node, name, False):
             continue
-        fields.append([name, _serialise(value, namer)])
+        kept.append(name)
+    return kept
+
+
+def _serialise_node(node: ast.AST, namer: _Namer) -> list:
+    kept = _kept_fields(node)
+    fields = [[name, _serialise(_field_value(node, name, namer), namer)] for name in kept]
     return [type(node).__name__, fields]
 
 

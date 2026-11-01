@@ -2,7 +2,18 @@
 
 from __future__ import annotations
 
+import sys
 from typing import Any, NamedTuple, TypeGuard
+
+if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("coding_verify_steps")
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "coding_verify_steps"
+    )
+
 
 if __package__:
     from .coding_constants import (
@@ -251,3 +262,7 @@ def _step_action_violations(entry: dict[str, Any], where: str) -> list[str]:
         return violations
     violations.append(f"{step_where}: unknown step action {action!r}")
     return violations
+
+
+if __package__:
+    _expose_package_sibling(__name__)
