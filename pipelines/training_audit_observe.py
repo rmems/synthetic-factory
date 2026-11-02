@@ -257,8 +257,14 @@ class CorpusAudit(AuditAxes):
             return True
         return False
 
+    def _observe_declared_labels(self, obj, where):
+        self.record_errors.extend(
+            f"{where}: {error}" for error in self.api.declared_label_errors(obj)
+        )
+
     def _observe_valid_record(self, obj, where, factory):
         bucket = self.factories[factory]
+        self._observe_declared_labels(obj, where)
         if self._observe_specialist_route(obj, where, factory):
             return
         kind = self._observe_record(obj, where, factory)

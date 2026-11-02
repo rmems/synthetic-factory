@@ -71,7 +71,10 @@ class AuditAxes:
             self.root_ids.setdefault(root_id, where)
 
     def _observe_duplicate(self, obj, where):
-        digest = hashlib.sha256(self.api.canonical_blob(obj).encode("utf-8")).hexdigest()
+        # Identity is stamped per source line, so the duplicate key hashes
+        # normalized content with those stamps removed.
+        blob = self.api.content_identity_blob(obj)
+        digest = hashlib.sha256(blob.encode("utf-8")).hexdigest()
         if digest in self.content_seen:
             self.exact_duplicates.append({"first": self.content_seen[digest], "again": where})
         else:

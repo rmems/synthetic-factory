@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import sys
 from collections import Counter, defaultdict
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, NamedTuple, Sequence
 
@@ -330,7 +331,7 @@ class _VerdictTally(NamedTuple):
 
 
 def _review_author_blockers(review: dict[str, Any]) -> list[str]:
-    """A supported review schema and a named reviewer."""
+    """A supported review schema, a named reviewer, and a review date not in the future."""
     blockers: list[str] = []
     schema = review.get("schema")
     if schema is not None and schema != REVIEW_SCHEMA:
@@ -339,7 +340,58 @@ def _review_author_blockers(review: dict[str, Any]) -> list[str]:
     reviewer = review.get("reviewer")
     if not isinstance(reviewer, str) or not reviewer.strip():
         blockers.append("REVIEW_REVIEWER_MISSING")
+    reviewed_at = _reviewed_at_blocker(review)
+    if reviewed_at is not None:
+        blockers.append(reviewed_at)
     return blockers
+
+
+def _parsed_reviewed_at(text: str) -> datetime | None:
+    """Parse an ISO-8601 review timestamp, treating a trailing ``Z`` as UTC.
+
+    A value that cannot be placed on the timeline, including one whose UTC
+    conversion falls outside the year range, is not a review date.
+    """
+    normalized = text[:-1] + "+00:00" if text.endswith("Z") else text
+    try:
+        parsed = datetime.fromisoformat(normalized)
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(timezone.utc)
+    except (ValueError, OverflowError):
+        return None
+
+
+def _review_timestamp(value: Any) -> datetime | None:
+    """The filled-in review instant, or None when the value is not one."""
+    if not isinstance(value, str):
+        return None
+    text = value.strip()
+    if not text:
+        return None
+    return _parsed_reviewed_at(text)
+
+
+def _reviewed_at_code(value: Any) -> str | None:
+    """Blocker for one review date, or None when it is blank or already past."""
+    if value is None or value == "":
+        return None
+    parsed = _review_timestamp(value)
+    if parsed is None:
+        return "REVIEW_REVIEWED_AT_INVALID"
+    if parsed > datetime.now(timezone.utc):
+        return "REVIEW_REVIEWED_AT_FUTURE"
+    return None
+
+
+def _reviewed_at_blocker(review: dict[str, Any]) -> str | None:
+    """Refuse a non-empty review date that does not parse or is still in the future.
+
+    An omitted date stays the template's blank and is not, by itself, a future
+    date. A value that was filled in has to be a real timestamp no later than
+    the moment of promotion.
+    """
+    return _reviewed_at_code(review.get("reviewed_at"))
 
 
 def _review_header_blockers(
