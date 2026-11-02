@@ -53,7 +53,17 @@ class RasterSchemaParity(unittest.TestCase):
         self.assertEqual(self.schema["properties"]["gate_compute"], ref)
         self.assertEqual(trajectory["gate_compute"], ref)
         self.assertEqual(trajectory["safety_decision"]["properties"]["gate_compute"], ref)
-        self.assertIn("per_check", self.schema["$defs"]["gate_compute"]["properties"])
+        gate_compute = self.schema["$defs"]["gate_compute"]
+        self.assertEqual(gate_compute["required"], ["per_check"])
+        self.assertEqual(gate_compute["properties"]["per_check"]["minItems"], 1)
+        self.assertEqual(
+            gate_compute["anyOf"],
+            [
+                {"required": ["total_energy_uJ"]},
+                {"required": ["total_energy_pJ"]},
+            ],
+        )
+        self.assertIn("per_check", gate_compute["properties"])
 
         for location in (
             "gate_compute",

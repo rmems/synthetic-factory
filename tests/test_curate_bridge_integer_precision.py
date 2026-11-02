@@ -139,14 +139,21 @@ class BridgeIntegerPrecision(unittest.TestCase):
         self.assertTrue(gate_status["raster_valid"], gate_status["reason_codes"])
 
     def test_extreme_integer_rate_keeps_an_exact_gate_compute_product(self):
-        compute_status = self._gate_compute_status(
-            {
-                "neurons": 1,
-                "mean_rate_hz": self.extreme_rate,
-                "window_s": 0.02,
-                "spikes": self.extreme_expected_spikes,
-            }
-        )
+        record = gate_snn_fixture()
+        record["gate_compute"] = {
+            "per_check": [
+                {
+                    "neurons": 1,
+                    "mean_rate_hz": self.extreme_rate,
+                    "window_s": 0.02,
+                    "spikes": self.extreme_expected_spikes,
+                }
+            ],
+            "total_energy_pJ": (
+                self.extreme_expected_spikes * curate_bridge.RASTER_ENERGY_PJ_PER_SPIKE
+            ),
+        }
+        compute_status = curate_bridge.raster_status(record)
         self.assertTrue(compute_status["raster_valid"], compute_status["reason_codes"])
 
     def test_large_exact_gate_spike_product_is_checked_without_overflow(self):

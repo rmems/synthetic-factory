@@ -45,10 +45,16 @@
   "$defs": {
     "gate_compute": {
       "type": "object",
-      "description": "Alternative carrier for spike-budget checks: per-check neurons/rate/window/spikes entries",
+      "description": "Spike-budget evidence. per_check is a non-empty list of neurons/rate/window/spikes entries, and at least one of total_energy_uJ or total_energy_pJ must be declared. An empty object is not zero spikes or zero energy.",
+      "required": ["per_check"],
+      "anyOf": [
+        { "required": ["total_energy_uJ"] },
+        { "required": ["total_energy_pJ"] }
+      ],
       "properties": {
         "per_check": {
           "type": "array",
+          "minItems": 1,
           "items": {
             "type": "object",
             "description": "One spike-budget check. The rate accepts the rate_hz alias and the window may be given as window_s or as window_ms (converted to seconds).",
