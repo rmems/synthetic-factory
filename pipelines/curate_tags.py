@@ -29,6 +29,13 @@ import json
 import sys
 from pathlib import Path
 
+if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("curate_tags")
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)("curate_tags")
+
 _PIPELINES = Path(__file__).resolve().parent
 if str(_PIPELINES) not in sys.path:
     sys.path.insert(0, str(_PIPELINES))
@@ -226,6 +233,10 @@ def main(argv: list[str] | None = None) -> int:
         _write_cli_outputs(parser, args, result)
         _emit_summary(result["summary"])
     return 0
+
+
+if __package__:
+    _expose_package_sibling(__name__)
 
 
 if __name__ == "__main__":

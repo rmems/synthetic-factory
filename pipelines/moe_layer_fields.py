@@ -22,6 +22,16 @@ if str(_PIPELINES) not in sys.path:
 from oracle_grounded import distill_contract as oc  # noqa: E402
 
 if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("moe_layer_fields")
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "moe_layer_fields"
+    )
+
+
+if __package__:
     from .moe_featurizer import RECOMPUTE_TOLERANCE, entropy_nats, softmax
 else:
     from moe_featurizer import RECOMPUTE_TOLERANCE, entropy_nats, softmax
@@ -290,5 +300,9 @@ def _check_layer_signals(
         + _check_layer_margin(layer, spot, exposed_logits)
         + _check_layer_entropy(layer, spot, exposed_logits, expert_count)
     )
+
+
+if __package__:
+    _expose_package_sibling(__name__)
 
 

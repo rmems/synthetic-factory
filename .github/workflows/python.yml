@@ -31,7 +31,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
-          python-version: "3.14"
+          python-version: "3.15"
 
       - name: Install ruff
         run: python -m pip install --only-binary ':all:' ruff==0.16.8
@@ -61,13 +61,20 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
-          python-version: "3.14"
+          python-version: "3.15"
 
       - name: Install coverage.py
         run: python -m pip install --only-binary ':all:' coverage==7.15.4
 
       - name: Install Rust oracle toolchain
         run: rustup toolchain install 1.98.1 --profile minimal --component rustfmt,clippy
+
+      # Restores ~/.cargo registry/git and target/ keyed on Cargo.lock and the rustc
+      # version, so an unchanged lockfile skips the cold dependency build.
+      - name: Cache cargo registry and target
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          cache-on-failure: true
 
       - name: Check and build crate-backed oracle
         run: |
@@ -109,7 +116,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
-          python-version: "3.14"
+          python-version: "3.15"
 
       - name: Install bubblewrap for the code-repair OS sandbox
         run: |
@@ -137,7 +144,7 @@ jobs:
           retention-days: 1
 
   test:
-    name: unittest (Python 3.14)
+    name: unittest (Python 3.15)
     needs: [lint, shard, oracle]
     # A failed prerequisite would otherwise skip this job, and a skipped required
     # check reads as passing to branch protection, so it runs unless the whole run
@@ -171,7 +178,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
-          python-version: "3.14"
+          python-version: "3.15"
 
       - name: Install coverage.py
         run: python -m pip install --only-binary ':all:' coverage==7.15.4

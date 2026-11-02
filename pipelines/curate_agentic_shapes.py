@@ -23,15 +23,22 @@ import copy
 import hashlib
 import json
 import re
+import sys
 from typing import Any
 
 if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("curate_agentic_shapes")
     from .coding_constants import HIDDEN_REASONING_KEYS, HIDDEN_REASONING_PREFIX
     from .record_kind import (
         classify_kind as classify_payload_kind,
         preference_side_kinds,
     )
 else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "curate_agentic_shapes"
+    )
     from coding_constants import HIDDEN_REASONING_KEYS, HIDDEN_REASONING_PREFIX
     from record_kind import (
         classify_kind as classify_payload_kind,
@@ -341,3 +348,7 @@ def prefix_overlap(chosen: Any, rejected: Any) -> dict[str, Any]:
         "rejected_steps": rejected_len,
         "noted": shared > 0,
     }
+
+
+if __package__:
+    _expose_package_sibling(__name__)

@@ -57,6 +57,19 @@ class ProceduralIntegrationTests(unittest.TestCase):
                 self.assertTrue(findings)
                 self.assertIn("PROCEDURAL_CATALOG_UNREADABLE", findings[0])
 
+    def test_a_2_0_0_record_validates_and_is_refused_at_admission(self):
+        record = copy.deepcopy(self.records[0])
+        record["generator"]["version"] = vocabulary.GENERATOR_VERSION_INCLUSIVE_DRAW
+        actors = record["provenance"]["actors"]
+        for role in (vocabulary.ROLE_TASK_AUTHOR, vocabulary.ROLE_SOLVER):
+            actors[role]["version"] = vocabulary.GENERATOR_VERSION_INCLUSIVE_DRAW
+        restamp(record)
+        self.assertEqual(validation.validate_record(record, catalog=self.real_catalog), [])
+        with self.assertRaisesRegex(
+            source_policy.SourcePolicyError, "PROCEDURAL_GENERATOR_MISMATCH",
+        ):
+            admission.natural_eligibility(record, self.row)
+
     def test_generator_extensions_cannot_survive_identity_admission(self):
         changes = (("model", "example-model"), ("provider", "example-provider"),
                    ("source_kind", "model_generated"))

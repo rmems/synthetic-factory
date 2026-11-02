@@ -14,6 +14,15 @@ import sys
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
+if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("export_compose_auth")
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "export_compose_auth"
+    )
+
 _PIPELINES = Path(__file__).resolve().parent
 if str(_PIPELINES) not in sys.path:
     sys.path.insert(0, str(_PIPELINES))
@@ -481,3 +490,7 @@ def _compose_metadata(
             evidence,
         )
     )
+
+
+if __package__:
+    _expose_package_sibling(__name__)

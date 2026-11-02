@@ -150,8 +150,6 @@ class RunDirectoryIntegrityTests(unittest.TestCase):
             hidden = root / "hidden"
             hidden.mkdir()
             (hidden / "unseen.jsonl").write_text(json.dumps(TINY_THALAMIC) + "\n")
-            # Inspection uses Path.stat. os.DirEntry is immutable on Python 3.15,
-            # so the metadata failure is injected on the call that actually runs.
             original_stat = Path.stat
 
             def fail_hidden_stat(path, *args, **kwargs):
@@ -159,6 +157,8 @@ class RunDirectoryIntegrityTests(unittest.TestCase):
                     raise OSError(errno.EIO, "metadata read failed", str(hidden))
                 return original_stat(path, *args, **kwargs)
 
+            # Inspection goes through Path.stat. posix.DirEntry.is_dir is
+            # immutable on Python 3.15, so it cannot be the fault seam.
             with mock.patch.object(Path, "stat", fail_hidden_stat):
                 result = _invoke_inprocess(str(root))
 

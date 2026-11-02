@@ -19,6 +19,9 @@ if str(_PIPELINES) not in sys.path:
 
 from oracle_grounded import distill_contract as oc  # noqa: E402
 if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("moe_teacher_checks")
     from .moe_checkpoint_checks import _claims_transformers
     from .moe_featurizer import (
         NON_TEACHER_IMPLEMENTATIONS,
@@ -29,6 +32,9 @@ if __package__:
     )
     from .moe_oracles import TransformersMoERouter
 else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "moe_teacher_checks"
+    )
     from moe_checkpoint_checks import _claims_transformers
     from moe_featurizer import (
         NON_TEACHER_IMPLEMENTATIONS,
@@ -135,6 +141,7 @@ def _check_teacher_fingerprint(oracle: Any, fingerprint: Any, where: str) -> lis
         + _check_teacher_oracle_type(oracle, where)
     )
 
+
 def _check_teacher_oracle_type(oracle: Any, where: str) -> list[str]:
     """An authoritative router record must name a teacher-capable oracle type."""
 
@@ -207,3 +214,7 @@ def _check_teacher_grounding(
     if isinstance(oracle, dict):
         errors += _check_teacher_grounded(result, oracle, where)
     return errors
+
+
+if __package__:
+    _expose_package_sibling(__name__)

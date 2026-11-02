@@ -43,7 +43,7 @@ def repair_document() -> dict[str, Any]:
         "path_id": REPAIR_PATH_ID,
         "payload_factory": REPAIR_PATH_ID,
         "generator": "python-repair-mutator",
-        "generator_version": "2.0.0",
+        "generator_version": "2.1.0",
         "intended_use": "training_candidate",
         "project_training_policy": "allowed",
         "source_license_evidence": {
@@ -58,7 +58,7 @@ def repair_document() -> dict[str, Any]:
         "catalog_sha256": "2402fe1d85a9a4a978ef4cc5e4491859cdf302b9c4b33415a66a4c00a5311f98",
         "programs_sha256": "fbd012638c92cbad072553405c545e5f8dc26bc677100a11e693d61b7bf9d904",
         "procedural_policy_sha256": (
-            "b8d1621798eb13eed8e5d73de365dc1028b08cef9645d08aff9d909630b23b1b"
+            "c517874c7fe74bbaaefd13f938be162fac328c9704e378a937f1c080eb8b6cd4"
         ),
         "release_license": "apache-2.0",
         "training_ready": False,

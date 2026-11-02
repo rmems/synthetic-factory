@@ -26,6 +26,14 @@ from oracle_grounded import distill_contract as oc  # noqa: E402
 
 
 if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("moe_layers")
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)("moe_layers")
+
+
+if __package__:
     from .moe_featurizer import RECOMPUTE_TOLERANCE
     from .moe_layer_fields import (
         _check_layer_index,
@@ -307,3 +315,7 @@ def _recomputed_layer_mismatches(
             )
             break
     return errors
+
+
+if __package__:
+    _expose_package_sibling(__name__)

@@ -1,0 +1,4 @@
+{
+  "src/pt.py": "class Pt:\n    def __init__(self, x):\n        self.x = x\n    def __eq__(self, other):\n        if type(other) is not Pt:\n            return NotImplemented\n        return self.x == other.x\n    def __hash__(self):\n        return hash(self.x)\n    def pair(self):\n        return {self, Pt(self.x)}\n",
+  "tests/use.py": "import unittest\nfrom pt import Pt\nclass T(unittest.TestCase):\n    def test_eq(self):\n        self.assertEqual(Pt(1), Pt(1))\n        self.assertNotEqual(Pt(1), Pt(2))\n        self.assertIn(Pt(1), Pt(1).pair())\n"
+}

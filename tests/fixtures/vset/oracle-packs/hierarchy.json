@@ -1,0 +1,4 @@
+{
+  "src/counter.py": "class Base:\n    def size(self):\n        return 1\nclass Counter(Base):\n    def __init__(self, value):\n        self.value = value\n    def sub(self, delta):\n        if delta > self.value:\n            raise NegativeError('neg')\n        return self.value - delta\nclass CounterError(ValueError):\n    pass\nclass NegativeError(CounterError):\n    pass\n",
+  "tests/use.py": "import unittest\nfrom counter import Base, Counter, CounterError\nclass T(unittest.TestCase):\n    def test_hierarchy(self):\n        self.assertIsInstance(Counter(1), Base)\n        self.assertEqual(Counter(1).size(), 1)\n        self.assertEqual(Counter(3).sub(1), 2)\n        with self.assertRaises(CounterError):\n            Counter(0).sub(1)\n        with self.assertRaises(ValueError):\n            Counter(0).sub(1)\n"
+}

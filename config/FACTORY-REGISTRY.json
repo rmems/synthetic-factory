@@ -1238,7 +1238,7 @@
     {
       "path_id": "python-function-repair-factory",
       "generator": "python-repair-mutator",
-      "generator_version": "2.0.0",
+      "generator_version": "2.1.0",
       "generator_ownership": "project_owned",
       "generation_method": "deterministic_execution",
       "catalog_id": "python-repair-v1",
@@ -1255,7 +1255,7 @@
         "license": "MIT",
         "license_sha256": "4395a1dc4bda1d6054c45b4d1230c709c7398e6d66f1d0aff4b22d95973bea56"
       },
-      "procedural_policy_sha256": "b8d1621798eb13eed8e5d73de365dc1028b08cef9645d08aff9d909630b23b1b",
+      "procedural_policy_sha256": "c517874c7fe74bbaaefd13f938be162fac328c9704e378a937f1c080eb8b6cd4",
       "record_kinds": [
         "code_repair"
       ],

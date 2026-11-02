@@ -14,6 +14,15 @@ import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("distill_manifest")
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "distill_manifest"
+    )
+
 _PIPELINES = Path(__file__).resolve().parent
 if str(_PIPELINES) not in sys.path:
     sys.path.insert(0, str(_PIPELINES))
@@ -196,5 +205,9 @@ def _manifest_summary_findings(
         if field in validation
         and oc.canonical_json(validation[field]) != oc.canonical_json(actual[field])
     ]
+
+
+if __package__:
+    _expose_package_sibling(__name__)
 
 

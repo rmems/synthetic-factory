@@ -13,12 +13,16 @@ Split out of ``mill_family.py``: the phase order, the branch order inside
 
 from __future__ import annotations
 
+import sys
 from collections import Counter, defaultdict
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from typing import Any
 
 if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("mill_ownership")
     from .mill_evidence import (
         GOAL_FAMILY_MIN_FOREIGN_TOKENS,
         GOAL_FAMILY_MIN_SUPPORT,
@@ -45,6 +49,9 @@ if __package__:
     )
     from .mill_reviewed_vocabulary import REVIEWED_GOAL_TOKEN_HOMES
 else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "mill_ownership"
+    )
     from mill_evidence import (
         GOAL_FAMILY_MIN_FOREIGN_TOKENS,
         GOAL_FAMILY_MIN_SUPPORT,
@@ -444,3 +451,7 @@ def ownership_context(entries: Sequence[Entry]) -> dict[str, Any]:
         resolve_entry_goal_ownership(entry, context, found)
 
     return _report(entries, context, found, prefix_factories)
+
+
+if __package__:
+    _expose_package_sibling(__name__)

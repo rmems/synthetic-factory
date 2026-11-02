@@ -4,6 +4,16 @@
 import json
 import math
 import statistics
+import sys
+
+if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("training_audit_report")
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "training_audit_report"
+    )
 
 if __package__:
     from .check_records import ALLOWED_PROVENANCE
@@ -483,3 +493,7 @@ def render_markdown(report):
         lines.append("- None detected.")
     lines.extend(_corpus_observation_lines(report))
     return "\n".join(lines) + "\n"
+
+
+if __package__:
+    _expose_package_sibling(__name__)

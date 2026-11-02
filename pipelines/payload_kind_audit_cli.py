@@ -12,6 +12,15 @@ from payload_kind_audit_expect import load_expected_audit, report_drift
 from payload_kind_audit_markdown import render_markdown
 from payload_kind_audit_parse import PayloadKindAuditError
 
+if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("payload_kind_audit_cli")
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "payload_kind_audit_cli"
+    )
+
 
 def _build_arg_parser(description: str) -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=description)
@@ -60,3 +69,7 @@ def run_main(build_audit, description: str, argv: list[str] | None = None) -> in
 
     _emit_audit(audit, markdown=args.markdown)
     return 0
+
+
+if __package__:
+    _expose_package_sibling(__name__)

@@ -6,9 +6,17 @@ script under a second module name.
 
 from __future__ import annotations
 
+import sys
+
 if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("coding_constants")
     from .validate_run_episode import HIDDEN_THOUGHT_KEYS
 else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "coding_constants"
+    )
     from validate_run_episode import HIDDEN_THOUGHT_KEYS
 
 
@@ -100,3 +108,7 @@ RECORD_TRANSFORMATION_REASONS = frozenset(
     }
 )
 RECORD_STRUCTURAL_REASONS = frozenset({REASON_WRAP_RECORD})
+
+
+if __package__:
+    _expose_package_sibling(__name__)

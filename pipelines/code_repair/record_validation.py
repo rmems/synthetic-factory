@@ -173,14 +173,21 @@ def _identity_shape(record: dict[str, Any]) -> None:
     _require(lineage["split"] is None or isinstance(lineage["split"], str))
 
 
-def _provenance_shape(provenance: dict) -> None:
+def _recorded_generator_version(record: dict[str, Any]) -> str:
+    generator = record.get("generator")
+    version = generator.get("version") if isinstance(generator, dict) else None
+    _require(isinstance(version, str) and version in cv.REPLAYABLE_GENERATOR_VERSIONS)
+    return version
+
+
+def _provenance_shape(provenance: dict, generator_version: str) -> None:
     """Bind the emitter-owned identity, leaving generic provenance metadata alone."""
     expected = {
         'producer': cv.PRODUCER, 'source_kind': cv.SOURCE_KIND, 'oracle_run': cv.ORACLE_RUN,
         'actors': {
             cv.ROLE_TASK_AUTHOR: assembly.actor(
-                cv.ROLE_TASK_AUTHOR, cv.GENERATOR_NAME, cv.GENERATOR_VERSION),
-            cv.ROLE_SOLVER: assembly.actor(cv.ROLE_SOLVER, cv.SOLVER_NAME, cv.GENERATOR_VERSION),
+                cv.ROLE_TASK_AUTHOR, cv.GENERATOR_NAME, generator_version),
+            cv.ROLE_SOLVER: assembly.actor(cv.ROLE_SOLVER, cv.SOLVER_NAME, generator_version),
             cv.ROLE_ORACLE_CERTIFIER: assembly.actor(
                 cv.ROLE_ORACLE_CERTIFIER, cv.ORACLE_NAME, cv.ORACLE_VERSION),
         },
@@ -194,7 +201,7 @@ def _envelope_shape(record: Any) -> None:
     where = str(record.get("id", "record"))
     _require(not (oc.check_envelope(record, where) + oc.check_digest(record, where)))
     _require(not check_provenance_publish(record, where))
-    _provenance_shape(record['provenance'])
+    _provenance_shape(record['provenance'], _recorded_generator_version(record))
 
 
 def _result_shape(result: dict[str, Any]) -> None:

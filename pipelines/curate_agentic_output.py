@@ -20,12 +20,19 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 from pathlib import Path
 from typing import Any
 
 if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("curate_agentic_output")
     from .curate_agentic_shapes import canonical_json
 else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "curate_agentic_output"
+    )
     from curate_agentic_shapes import canonical_json
 
 
@@ -168,3 +175,7 @@ def write_cleaned_tree(run: dict[str, Any], out: Path) -> None:
     except BaseException:
         _remove_partial_tree(out, created)
         raise
+
+
+if __package__:
+    _expose_package_sibling(__name__)

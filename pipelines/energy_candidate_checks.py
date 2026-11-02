@@ -18,6 +18,9 @@ if str(_PIPELINES) not in sys.path:
 
 from oracle_grounded import distill_contract as oc  # noqa: E402
 if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("energy_candidate_checks")
     from .energy_allocation import (
         _allocation_shape_error,
         _derive_safety,
@@ -33,6 +36,9 @@ if __package__:
     from .energy_measurement_checks import _check_quality_derivation
     from .energy_task import ProblemSpec
 else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "energy_candidate_checks"
+    )
     from energy_allocation import (
         _allocation_shape_error,
         _derive_safety,
@@ -394,6 +400,7 @@ def _reproduction_error(candidate_id: str, expected: list[float], spot: str) -> 
         f"state with the recorded solver settings ({expected})"
     )
 
+
 def _check_candidate(
     candidate: Any,
     spot: str,
@@ -432,3 +439,7 @@ def _check_candidate_quality_field(
     if not oc.is_number(candidate.get("task_quality")):
         errors.append(f"{spot}.task_quality must be a number")
     return errors + _check_quality_derivation(candidate, spot, context)
+
+
+if __package__:
+    _expose_package_sibling(__name__)
