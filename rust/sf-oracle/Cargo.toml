@@ -2,10 +2,12 @@
 name = "sf-oracle"
 version = "0.1.0"
 edition = "2021"
+# axon-encoder 0.6.0 requires Rust 1.99.0; this crate is the workspace's floor.
+rust-version = "1.99.0"
 
 [dependencies]
-axon-encoder = "=0.4.0"
-neuromod = "=0.6.0"
+axon-encoder = "=0.6.0"
+neuromod = "=0.7.0"
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["float_roundtrip", "raw_value"] }
 sha2 = "0.10"

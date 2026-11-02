@@ -140,7 +140,7 @@ NIR_RS_CONTRACT_MISMATCH_DETAIL = (
 class NirRsRuntime:
     """The ``nir-rs`` crate driven through this workspace's ``nir-rs`` binary.
 
-    The binary (``rust/nir-rs``, crate ``nir-rs =0.4.4``) is the authority
+    The binary (``rust/nir-rs``, crate ``nir-rs =0.4.5``) is the authority
     contract: it builds real ``NirGraph``/``NirNode``/``Tensor`` values, runs
     the crate's serde codec for the roundtrip claim, and executes under this
     family's declared ``subtract``/``steps``/``insertion`` conventions so both
@@ -184,7 +184,7 @@ class NirRsRuntime:
         return {
             "available": True,
             "reason_code": None,
-            "detail": f"nir-rs adapter at {binary} (crate nir-rs 0.4.4)",
+            "detail": f"nir-rs adapter at {binary} (crate nir-rs 0.4.5)",
         }
 
     def serialize_graph(self, graph):

@@ -157,7 +157,7 @@ fn read_stdin() -> Result<Value, AdapterError> {
 fn availability() -> Value {
     json!({
         "adapter": "nir-rs",
-        "crate": "nir-rs 0.4.4",
+        "crate": "nir-rs 0.4.5",
         "conventions": {
             "reset": "subtract",
             "delay_unit": "steps",
