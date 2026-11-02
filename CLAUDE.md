@@ -60,7 +60,7 @@ python3 scripts/publish_grok46_hub.py status --hf-root <dir> --factory-root <dir
 python3 pipelines/verify_hf_release.py [--repo rmems/<dataset>]
 ```
 
-CI runs the unit suite with branch coverage on Python 3.14, the smoke check,
+CI runs the unit suite with branch coverage on Python 3.15, the smoke check,
 the ruff correctness gate above, Qodana (`qodana.yaml` documents the deliberate
 inspection exclusions), and a scheduled, path-filtered Hub release verification.
 CodeScene, Codacy, qlty (`.qlty/qlty.toml`, `smells.mode = "block"`) and Codecov

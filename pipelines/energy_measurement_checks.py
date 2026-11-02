@@ -18,6 +18,9 @@ if str(_PIPELINES) not in sys.path:
 
 from oracle_grounded import distill_contract as oc  # noqa: E402
 if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("energy_measurement_checks")
     from .energy_allocation import (
         _allocation_rejection,
     )
@@ -36,6 +39,9 @@ if __package__:
         objective,
     )
 else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "energy_measurement_checks"
+    )
     from energy_allocation import (
         _allocation_rejection,
     )
@@ -145,6 +151,7 @@ def _conflict_error(
         f"both as {previous.value!r} ({previous.meter}) and "
         f"{reading.value!r} ({reading.meter})"
     )
+
 
 def _usable_caps(caps: Any) -> bool:
     if not isinstance(caps, list):
@@ -281,6 +288,7 @@ def _quality_drift_error(recorded: Any, derived: float, spot: str) -> str | None
         f"state yields {derived}"
     )
 
+
 def _check_reference_objective(
     result: dict[str, Any], context: _CandidateContext, where: str
 ) -> list[str]:
@@ -305,3 +313,7 @@ def _check_reference_objective(
             f"scenario state yields {round(context.optimum, 12)}"
         ]
     return []
+
+
+if __package__:
+    _expose_package_sibling(__name__)

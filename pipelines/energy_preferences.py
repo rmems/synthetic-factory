@@ -66,6 +66,9 @@ if str(_PIPELINES) not in sys.path:
 from oracle_grounded import distill_contract as oc  # noqa: E402
 
 if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("energy_preferences")
     from . import energy_check as _energy_check
     from . import energy_contract as _energy_contract
     from . import energy_generator as _energy_generator
@@ -74,6 +77,9 @@ if __package__:
     from .energy_generator import MeterSpec, build_records
     from .energy_meters import meters_report
 else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "energy_preferences"
+    )
     import energy_check as _energy_check
     import energy_contract as _energy_contract
     import energy_generator as _energy_generator
@@ -159,6 +165,10 @@ def main(argv: list[str] | None = None) -> int:  # NOSONAR - successful commands
         for record in records:
             print(oc.canonical_json(record))
     return 0
+
+
+if __package__:
+    _expose_package_sibling(__name__)
 
 
 if __name__ == "__main__":

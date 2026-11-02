@@ -17,6 +17,16 @@ if str(_PIPELINES) not in sys.path:
     sys.path.insert(0, str(_PIPELINES))
 
 if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("energy_audit_checks")
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "energy_audit_checks"
+    )
+
+
+if __package__:
     from .energy_contract import (
         MAX_REPLAY_STEPS,
         _ORACLE_TYPE_BY_IMPLEMENTATION,
@@ -261,3 +271,7 @@ def _declared_fingerprint_meter(record: dict[str, Any]) -> str | None:
     if not isinstance(meter, str) or not meter.strip():
         return None
     return meter
+
+
+if __package__:
+    _expose_package_sibling(__name__)

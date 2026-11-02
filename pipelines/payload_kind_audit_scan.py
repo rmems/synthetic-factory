@@ -14,6 +14,15 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable, Mapping, TypeGuard
 
+if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("payload_kind_audit_scan")
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "payload_kind_audit_scan"
+    )
+
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from curate_identity import (  # noqa: E402
@@ -259,4 +268,8 @@ def _scan_payload_file(path: Path, stats: _AuditStats) -> tuple[list[dict], dict
         "kinds": dict(sorted(file_kinds.items())),
     }
     return rows, file_summary
+
+
+if __package__:
+    _expose_package_sibling(__name__)
 

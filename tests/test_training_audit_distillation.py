@@ -209,7 +209,7 @@ class DistillationRasterAudit(unittest.TestCase):
         self.assertEqual(bridge["gate_compute_valid_records"], 0)
         self.assertEqual(
             bridge["gate_compute_defect_codes"],
-            {"BRIDGE_SPIKE_BUDGET_MISMATCH": 1},
+            {"BRIDGE_ENERGY_MISMATCH": 1, "BRIDGE_SPIKE_BUDGET_MISMATCH": 1},
         )
         self.assertTrue(
             any("gate-compute specs are invalid" in item for item in report["blockers"]),
@@ -237,7 +237,7 @@ class DistillationRasterAudit(unittest.TestCase):
         self.assertEqual(bridge["gate_compute_valid_records"], 0)
         self.assertEqual(
             bridge["gate_compute_defect_codes"],
-            {"BRIDGE_SPIKE_BUDGET_MISMATCH": 1},
+            {"BRIDGE_ENERGY_MISMATCH": 1, "BRIDGE_SPIKE_BUDGET_MISMATCH": 1},
         )
 
     def test_other_factory_thalamic_record_is_not_distillation_data(self):

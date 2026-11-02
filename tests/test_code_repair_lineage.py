@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """Lineage, structural groups and the consumer's bucket policy (pinned against Agoge)."""
 
-import ast
 import json
 import re
 import sys
@@ -74,6 +73,12 @@ class Structure(unittest.TestCase):
             with self.subTest(import_statement=plain.splitlines()[0]):
                 self.assertEqual(lineage.structure_digest(plain), lineage.structure_digest(aliased))
 
+    def test_eager_imports_omit_the_3_15_is_lazy_field(self):
+        """Python 3.15 records ``is_lazy=0`` on ordinary imports. The pinned digests do not."""
+
+        text = "import math\nfrom math import log2\ndef f(n):\n    return n\n"
+        self.assertNotIn("is_lazy", lineage.canonical_ast(text))
+
     def test_import_api_identity_survives_optional_alias_normalization(self):
         pairs = (
             ("import math as m\ndef f(x):\n    return m.sqrt(x)\n",
@@ -86,31 +91,6 @@ class Structure(unittest.TestCase):
         for one, other in pairs:
             with self.subTest(import_statement=one.splitlines()[0]):
                 self.assertNotEqual(lineage.structure_digest(one), lineage.structure_digest(other))
-
-    def test_eager_import_digest_ignores_the_interpreter_default_lazy_flag(self):
-        """Python 3.15 stores ``is_lazy=0`` on eager imports; that flag is not structure."""
-
-        self.assertEqual(
-            lineage.structure_digest("from math import log2\n"),
-            "d33e67f124057ff18c70c496dc4616d0360bfc8fc49909ea191311fc9a576cb9",
-        )
-        self.assertEqual(
-            lineage.structure_digest("import math\n"),
-            "43a22ec18736e0406571985bac0467c74b7ae2e68c60c8ebabd34cc38683b05c",
-        )
-        lazy = "lazy import math\n"
-        try:
-            ast.parse(lazy)
-        except SyntaxError:
-            node = ast.parse("import math\n").body[0]
-            eager = lineage._kept_fields(node)
-            node.is_lazy = 0
-            node._fields = tuple(node._fields) + ("is_lazy",)
-            self.assertEqual(lineage._kept_fields(node), eager)
-            node.is_lazy = 1
-            self.assertEqual(lineage._kept_fields(node), [*eager, "is_lazy"])
-            return
-        self.assertNotEqual(lineage.structure_digest("import math\n"), lineage.structure_digest(lazy))
 
     def test_renamed_copies_share_a_structure_digest_and_different_programs_do_not(self):
         text = program("sum_of_digits").text

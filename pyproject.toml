@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "Prompts, schemas, and stdlib Python pipelines for Spikenaut/Agoge synthetic data."
 readme = "README.md"
 license = { file = "LICENSE" }
-requires-python = ">=3.14"
+requires-python = ">=3.15"
 # Pipelines and tests use the Python standard library only.
 dependencies = []
 

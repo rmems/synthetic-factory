@@ -6,8 +6,9 @@ A :class:`GateProgram` is one pinned module text and the function whose doctests
 that module: ``program_id`` plus ``replacement_text`` and either an explicit byte span
 (``start_byte``/``end_byte``, the procedural ``Site`` shape) or the ``original_text`` to be
 found exactly once (the search/replace shape a model emits). Procedural and model-backed
-proposals are the same type; nothing downstream looks at ``source`` except to copy it into
-the verdict row.
+proposals are the same type. ``source`` is recorded only when it is one of the accepted
+labels (``unspecified``, ``model``, ``procedural``); any other self-declared value is
+``unspecified``.
 """
 
 from __future__ import annotations
@@ -22,7 +23,8 @@ from ._contract import (
 )
 
 __all__ = [
-    "GateProgram", "GateProposal", "MalformedProposal", "parse_proposals", "proposal_from_row",
+    "GateProgram", "GateProposal", "MalformedProposal", "accepted_source", "parse_proposals",
+    "proposal_from_row", "row_source",
 ]
 
 _TEXT_KEYS = ("proposal_id", "source", "original_text")
@@ -88,6 +90,33 @@ class GateProgram:
             )
 
 
+def accepted_source(declared: object) -> str:
+    """``declared`` when it is an accepted label, otherwise ``unspecified``.
+
+    The procedural mutator passes ``procedural`` to the constructor. A decoded row
+    may not: see ``row_source``.
+    """
+
+    if isinstance(declared, str) and declared in cv.ACCEPTED_SOURCES:
+        return declared
+    return cv.SOURCE_UNSPECIFIED
+
+
+_ROW_SOURCES = frozenset({cv.SOURCE_UNSPECIFIED, cv.SOURCE_MODEL})
+
+
+def row_source(declared: object) -> str:
+    """The source a JSON row may claim: ``unspecified`` or ``model``.
+
+    ``procedural`` is not a row label. Only ``procedural.proposals_from_plan`` sets it,
+    on the constructor, so a model file cannot call its own rows procedural.
+    """
+
+    if isinstance(declared, str) and declared in _ROW_SOURCES:
+        return declared
+    return cv.SOURCE_UNSPECIFIED
+
+
 def _has_offsets(start: object, end: object) -> bool:
     return start is not None and end is not None
 
@@ -99,12 +128,15 @@ class GateProposal:
     proposal_id: str
     program_id: str
     replacement_text: str
-    source: str = "unspecified"
+    source: str = cv.SOURCE_UNSPECIFIED
     original_text: str | None = None
     start_byte: int | None = None
     end_byte: int | None = None
 
     def __post_init__(self) -> None:
+        source = accepted_source(self.source)
+        if source != self.source:
+            object.__setattr__(self, "source", source)
         if not (_has_offsets(self.start_byte, self.end_byte) or self.original_text):
             raise cv.GateRefusal(
                 cv.REFUSE_PROPOSALS_INVALID,
@@ -179,7 +211,8 @@ def proposal_from_row(row: object, fallback_id: str) -> GateProposal | Malformed
         return MalformedProposal(str(identity), program_id, cv.DETAIL_MALFORMED_ROW)
     return GateProposal(
         proposal_id=str(identity), program_id=str(program_id),
-        replacement_text=row["replacement_text"], source=row.get("source", "unspecified"),
+        replacement_text=row["replacement_text"],
+        source=row_source(row.get("source", cv.SOURCE_UNSPECIFIED)),
         original_text=row.get("original_text"), start_byte=row.get("start_byte"),
         end_byte=row.get("end_byte"),
     )

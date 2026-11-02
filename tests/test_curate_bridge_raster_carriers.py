@@ -31,7 +31,8 @@ def declared_null_case(carrier):
         return record, curate_bridge.gate_snn_sidecar, curate_bridge.REASON_GATE_SNN_INVALID
     record["gate_compute"] = None
     record["language_view"]["trajectory"]["gate_compute"] = {
-        "per_check": [{"neurons": 2, "mean_rate_hz": 10.0, "window_s": 0.05, "spikes": 1}]
+        "per_check": [{"neurons": 2, "mean_rate_hz": 10.0, "window_s": 0.05, "spikes": 1}],
+        "total_energy_uJ": curate_bridge.RASTER_ENERGY_UJ_PER_SPIKE,
     }
     return record, curate_bridge._gate_compute_sidecar, curate_bridge.REASON_RASTER_SPIKE_BUDGET
 
@@ -120,7 +121,8 @@ class DeclaredNullCarriersAndEnergyBounds(unittest.TestCase):
                 record["gate_compute"] = {
                     "per_check": [
                         {"neurons": 2, "mean_rate_hz": 10.0, "window_s": 0.05, "spikes": 1}
-                    ]
+                    ],
+                    "total_energy_pJ": curate_bridge.RASTER_ENERGY_PJ_PER_SPIKE,
                 }
                 target = record
                 for key in location.split(".")[:-1]:
@@ -146,7 +148,8 @@ class DeclaredNullCarriersAndEnergyBounds(unittest.TestCase):
             "gate_snn": copy.deepcopy(record["gate_snn"]),
         }
         record["gate_compute"] = {
-            "per_check": [{"neurons": 2, "mean_rate_hz": 10.0, "window_s": 0.05, "spikes": 1}]
+            "per_check": [{"neurons": 2, "mean_rate_hz": 10.0, "window_s": 0.05, "spikes": 1}],
+            "total_energy_pJ": curate_bridge.RASTER_ENERGY_PJ_PER_SPIKE,
         }
         record["language_view"]["trajectory"]["gate_compute"] = copy.deepcopy(
             record["gate_compute"]
@@ -154,13 +157,15 @@ class DeclaredNullCarriersAndEnergyBounds(unittest.TestCase):
 
         self.assertTrue(curate_bridge.raster_status(record)["raster_valid"])
 
-    def test_an_absent_per_check_block_stays_optional(self):
+    def test_an_absent_per_check_block_is_refused(self):
         record = gate_snn_fixture()
         record["gate_compute"] = {}
 
         status = curate_bridge.raster_status(record)
 
-        self.assertTrue(status["raster_valid"])
+        self.assertFalse(status["raster_valid"])
+        self.assertIn(curate_bridge.REASON_RASTER_SPIKE_BUDGET, status["reason_codes"])
+        self.assertIn(curate_bridge.REASON_RASTER_ENERGY, status["reason_codes"])
 
     def test_negative_declared_raster_energy_is_rejected_inside_tolerance(self):
         for key, value in (("energy_pJ", -5e-7), ("energy_uJ", -5e-10)):

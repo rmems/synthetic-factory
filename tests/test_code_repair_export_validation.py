@@ -234,7 +234,7 @@ class SharedValidation(unittest.TestCase):
                 self.assertTrue(validate({**run, key: value}, [], catalog=fixture(),
                                          candidates_sha256=run['candidates_sha256']))
         corrupted = copy.deepcopy(run)
-        program_id = required_item(k for k, v in corrupted['programs'].items() if v['records'] == 1)
+        program_id = required_item(k for k, v in corrupted['programs'].items() if v['records'] >= 1)
         corrupted['programs'][program_id]['records'] = True
         self.assertTrue(validate(corrupted, records, catalog=fixture(),
                                  candidates_sha256=run['candidates_sha256']))

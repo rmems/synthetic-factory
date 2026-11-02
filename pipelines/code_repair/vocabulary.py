@@ -21,7 +21,12 @@ from ._contract import bind_import_twin, oc, refusals
 
 FAMILY = "python-function-repair"
 GENERATOR_NAME = "python-repair-mutator"
-GENERATOR_VERSION = "2.0.0"
+GENERATOR_VERSION = "2.1.0"
+# 2.0.0 draws every catalog split. 2.1.0 leaves validation and held_out out.
+GENERATOR_VERSION_INCLUSIVE_DRAW = "2.0.0"
+REPLAYABLE_GENERATOR_VERSIONS = frozenset({
+    GENERATOR_VERSION_INCLUSIVE_DRAW, GENERATOR_VERSION,
+})
 GENERATOR_KIND = "programmatic"
 ORACLE_NAME = "python-doctest-reference-harness"
 ORACLE_VERSION = "1.0.0"
@@ -283,8 +288,12 @@ BLOCKER_CODE_SET = frozenset(BLOCKER_CODES)
 # Evaluation limitations: recorded, never blockers (owner ruling 2026-09-08).
 LIMITATION_PRETRAINING_EXPOSURE_UNKNOWN = "PRETRAINING_EXPOSURE_UNKNOWN"
 LIMITATION_POSSIBLE_UPSTREAM_CODE_RECALL = "POSSIBLE_UPSTREAM_CODE_RECALL"
+# Generator 2.1.0 draws train programs only, so validation and held-out consumer
+# files are empty and the Hub bundle omits those splits.
+LIMITATION_TRAIN_ONLY_DRAW_OMITS_EVAL_SPLITS = "TRAIN_ONLY_DRAW_OMITS_EVAL_SPLITS"
 LIMITATION_CODES = (
     LIMITATION_PRETRAINING_EXPOSURE_UNKNOWN, LIMITATION_POSSIBLE_UPSTREAM_CODE_RECALL,
+    LIMITATION_TRAIN_ONLY_DRAW_OMITS_EVAL_SPLITS,
 )
 LIMITATION_CODE_SET = frozenset(LIMITATION_CODES)
 # The offline recall probe that measures POSSIBLE_UPSTREAM_CODE_RECALL: two prompt

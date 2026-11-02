@@ -22,6 +22,15 @@ if str(_PIPELINES) not in sys.path:
 from oracle_grounded import distill_contract as oc  # noqa: E402
 
 if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("fault_parameters")
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "fault_parameters"
+    )
+
+if __package__:
     from .fault_types import MALFORMED_KINDS, PARAMETER_SPEC
 else:
     from fault_types import MALFORMED_KINDS, PARAMETER_SPEC
@@ -114,6 +123,7 @@ def _require_named_channels(
         f"{kind} channels must name at least one channel; an empty "
         "list would run the declared disturbance as a no-op"
     )
+
 
 def _check_parameter_values(
     kind: str, parameters: dict[str, Any], system: dict[str, Any]
@@ -218,3 +228,7 @@ def _violates_floor(value: Any, floor: float, exclusive: bool) -> bool:
     if exclusive:
         return value <= floor
     return value < floor
+
+
+if __package__:
+    _expose_package_sibling(__name__)

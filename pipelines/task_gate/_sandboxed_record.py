@@ -107,12 +107,16 @@ def opened(key, line, seq):
     return inner["body"] if header == (PROTOCOL, int, seq) else None
 
 
-def observation(branch, data, cut=False):
+def observation(branch, data, cut=False, displayed=""):
     """What one example produced (UTF-8 bytes of its output or exception line); ``cut``
-    when ``data`` is only a prefix because the run's output budget ran out."""
+    when ``data`` is only a prefix because the run's output budget ran out.
+
+    ``displayed`` is the repr of the value the example displayed, or empty when it
+    displayed nothing. The parent uses it to tell extra stdout from a printed line.
+    """
 
     return {"kind": KIND_OBSERVED, "branch": branch,
-            "data": base64.b64encode(data).decode("ascii"), "cut": cut}
+            "data": base64.b64encode(data).decode("ascii"), "cut": cut, "displayed": displayed}
 
 
 def load_error(detail):

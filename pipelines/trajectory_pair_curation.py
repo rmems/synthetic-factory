@@ -10,9 +10,13 @@ is never rewritten.
 from __future__ import annotations
 
 import copy
+import sys
 from typing import Any
 
 if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("trajectory_pair_curation")
     from .curate_agentic import (
         REASON_THOUGHT_REMOVED,
         canonical_json,
@@ -43,6 +47,9 @@ if __package__:
         TrajectoryDecision,
     )
 else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "trajectory_pair_curation"
+    )
     from curate_agentic import (
         REASON_THOUGHT_REMOVED,
         canonical_json,
@@ -242,3 +249,7 @@ def curate_trajectory_pair(
     if schema == "malformed_trajectory_pair":
         return _malformed_decision(record, policy)
     return _gated_decision(record, policy)
+
+
+if __package__:
+    _expose_package_sibling(__name__)

@@ -17,6 +17,7 @@ process, so nothing here can report a pass; the parent compares (``sandboxed_jud
 Failures are data, never exit codes.
 """
 
+import builtins
 import doctest
 import importlib.util
 import json
@@ -115,20 +116,39 @@ class _Recorder(doctest.OutputChecker):
     """A checker that records what each example produced; the comparison is the parent's.
 
     Output is recorded in full until the run's budget is spent; past it, a prefix is kept and
-    the observation is marked ``cut``.
+    the observation is marked ``cut``. ``displayed`` is the repr of the value the example
+    displayed, recorded by ``note`` before doctest folds it into ``got``.
     """
 
     def __init__(self, channel, codec):
         self._channel, self._codec = channel, codec
         self._remaining = codec.OUTPUT_BUDGET
+        self.displayed = ""
+
+    def note(self, value):
+        if value is None:
+            return
+        builtins._ = value
+        self.displayed = repr(value)
+        sys.stdout.write(self.displayed + "\n")
 
     def check_output(self, want, got, optionflags):
         branch = self._codec.BRANCH_OUTPUT if want == WANT_SENTINEL else self._codec.BRANCH_EXCEPTION
         data = got.encode("utf-8", "surrogatepass")
         kept = data[:self._remaining]
         self._remaining -= len(kept)
-        self._channel.send(self._codec.observation(branch, kept, len(kept) < len(data)))
+        displayed = self.displayed
+        self.displayed = ""
+        self._channel.send(self._codec.observation(branch, kept, len(kept) < len(data), displayed))
         return True
+
+
+class _Runner(doctest.DocTestRunner):
+    """Installs the recorder's display hook before each example runs."""
+
+    def report_start(self, out, test, example):
+        self._checker.displayed = ""
+        sys.displayhook = self._checker.note
 
 
 class _Ending:
@@ -170,9 +190,7 @@ def _observe(inner, codec, channel, run):
     with _Ending(channel, codec):
         module = inner.load_program(workdir)
         getattr(module, function)  # a missing target is a load error, as in ``_child.py``
-        runner = doctest.DocTestRunner(
-            checker=_Recorder(channel, codec), verbose=False, optionflags=0,
-        )
+        runner = _Runner(checker=_Recorder(channel, codec), verbose=False, optionflags=0)
         runner.run(_test(module, function, sources), out=_discard, clear_globs=False)
         channel.send(codec.end(len(sources)))
 

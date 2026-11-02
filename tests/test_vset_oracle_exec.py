@@ -23,6 +23,7 @@ from vset_testutil import (  # noqa: E402
     load_record as _load,
     vset,
 )
+import vset_oracle_route as route  # noqa: E402
 
 class OracleExecutionTests(unittest.TestCase):
     def test_pack_snapshot_matches_accepted_fixtures(self) -> None:
@@ -140,6 +141,78 @@ class OracleExecutionTests(unittest.TestCase):
         _errors, execution = vset.validate_record_with_oracle(record, PACK)
         self.assertTrue(execution["reference"]["ok"])
         self.assertFalse(execution["hidden"]["ok"])
+
+    def test_patch_added_module_reaches_the_hidden_suite(self) -> None:
+        slug = "def slugify(text):\n    return text.lower().replace(' ', '-')\n"
+        hidden = (
+            "import unittest\nfrom slug import slugify\n"
+            "class T(unittest.TestCase):\n"
+            "    def test_slug(self):\n"
+            "        self.assertEqual(slugify('A B'), 'a-b')\n"
+        )
+        reference = (
+            "import unittest\nimport counter\n"
+            "class T(unittest.TestCase):\n"
+            "    def test_add(self):\n"
+            "        self.assertEqual(counter.add(1, 2), 3)\n"
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            pack = Path(tmp)
+            (pack / "src").mkdir()
+            (pack / "tests").mkdir()
+            (pack / "src" / "counter.py").write_text(
+                "def add(a, b):\n    return a + b\n", encoding="utf-8"
+            )
+            (pack / "tests" / "reference.py").write_text(reference, encoding="utf-8")
+            (pack / "tests" / "hidden.py").write_text(hidden, encoding="utf-8")
+            report = vset.run_oracle(
+                pack,
+                patch={"files": {"src/slug.py": slug}},
+                reference_tests=["tests/reference.py"],
+                hidden_suite={"tests": ["tests/hidden.py"], "fail_first": [None]},
+            )
+        self.assertFalse(report["fail_first"][0]["ok"])
+        self.assertTrue(report["reference"]["ok"], report["reference"])
+        self.assertTrue(report["hidden"]["ok"], report["hidden"])
+
+    def test_routed_names_drop_parent_shadows(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            pack = Path(tmp) / "pack"
+            work = Path(tmp) / "work"
+            (pack / "src").mkdir(parents=True)
+            (work / "src").mkdir(parents=True)
+            (pack / "src" / "counter.py").write_text("x = 1\n", encoding="utf-8")
+            for name in (
+                "counter.py",
+                "slug.py",
+                "statistics.py",
+                "vset_oracle_layout.py",
+                "__main__.py",
+                "a.b.py",
+                "123bad.py",
+            ):
+                (work / "src" / name).write_text("x = 1\n", encoding="utf-8")
+            main = sys.modules["__main__"]
+            previous = main.__spec__
+            main.__spec__ = None
+            try:
+                names = route.routed_names(pack, work)
+            finally:
+                main.__spec__ = previous
+            self.assertIn("counter", names)
+            self.assertIn("slug", names)
+            self.assertNotIn("statistics", names)
+            self.assertNotIn("vset_oracle_layout", names)
+            self.assertNotIn("__main__", names)
+            self.assertNotIn("a.b", names)
+            self.assertNotIn("123bad", names)
+            self.assertFalse(route._spec_is_outside(str(work), work))
+            self.assertFalse(route._spec_is_outside(str(work / "src" / "slug.py"), work))
+            self.assertTrue(route._spec_is_outside(None, work))
+            self.assertTrue(route._spec_is_outside("built-in", work))
+            self.assertTrue(route._spec_is_outside("frozen", work))
+            self.assertTrue(route._spec_is_outside(route.__file__, work))
+            self.assertIsNone(route._safe_spec("a.b.c").origin)
 
 
 def _staged_pack(tmp: str) -> Path:

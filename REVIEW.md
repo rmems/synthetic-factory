@@ -6,10 +6,10 @@ the repository root before pushing a pull request. They mirror the `Python`,
 
 ## One-time setup
 
-Use Python 3.14, matching GitHub Actions. Keep the coverage dependency local:
+Use Python 3.15, matching GitHub Actions. Keep the coverage dependency local:
 
 ```bash
-python3.14 -m venv .venv
+python3.15 -m venv .venv
 . .venv/bin/activate
 python -m pip install coverage==7.15.4
 ```

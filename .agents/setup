@@ -98,11 +98,11 @@ install_uv() {
 
 install_python() {
   export PATH="$HOME/.local/bin:$PATH"
-  uv python install --default 3.14
+  uv python install --default 3.15
 
   if [[ ! -x .venv/bin/python ]] || ! .venv/bin/python -c \
-    'import sys; raise SystemExit(sys.version_info < (3, 14))'; then
-    uv venv --clear --python 3.14 .venv
+    'import sys; raise SystemExit(sys.version_info < (3, 15))'; then
+    uv venv --clear --python 3.15 .venv
   fi
 
   uv pip install --python .venv/bin/python --only-binary ':all:' "coverage==${COVERAGE_VERSION}"

@@ -15,6 +15,15 @@ import sys
 from pathlib import Path
 from typing import Any
 
+if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("spike_probe_normalize")
+else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "spike_probe_normalize"
+    )
+
 _PIPELINES = Path(__file__).resolve().parent
 if str(_PIPELINES) not in sys.path:
     sys.path.insert(0, str(_PIPELINES))
@@ -216,3 +225,7 @@ def normalize_raster(record: Any, *, source: str | None = None) -> dict[str, Any
         "events": _events_us(raster),
     }
     return normalized
+
+
+if __package__:
+    _expose_package_sibling(__name__)

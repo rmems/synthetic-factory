@@ -10,13 +10,20 @@ named lanes) and owns raster, routing, and gate-head coverage.
 
 from __future__ import annotations
 
+import sys
 from collections import Counter, defaultdict
 from typing import Any
 
 if __package__:
+    from . import _assert_direct_sibling, _expose_package_sibling
+
+    _assert_direct_sibling("distillation_audit")
     from .curate_bridge import raster_status
     from .training_audit_bridge import event_stream_status
 else:
+    getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
+        "distillation_audit"
+    )
     from curate_bridge import raster_status
     from training_audit_bridge import event_stream_status
 
@@ -184,3 +191,7 @@ class DistillationAudit:
             "gate_compute_defect_codes": dict(sorted(self.gate_compute_defect_codes.items())),
             "wrong_kind_examples": self.wrong_kind_examples,
         }
+
+
+if __package__:
+    _expose_package_sibling(__name__)

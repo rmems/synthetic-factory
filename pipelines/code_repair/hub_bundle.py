@@ -50,6 +50,7 @@ from .hub_card import (
     BundleRequest,
     front_matter,
     render_card,
+    train_only_omission,
 )
 
 # The lossless viewer writer the published datasets use, under this module's import form.
@@ -441,11 +442,13 @@ def _companions(facts: BundleFacts) -> dict[str, bytes]:
 
 
 def _summary(facts: BundleFacts, bundled: dict[str, bytes]) -> dict[str, Any]:
+    warning = train_only_omission(facts.counts)
     return {
         "format": BUNDLE_FORMAT, "dataset_id": facts.request.dataset_id,
         "training_ready": facts.ready, "export_manifest_sha256": facts.manifest_sha256,
         "configs": [config["config_name"] for config in facts.configs],
         "rows": {**facts.counts, VIEWER_CONFIG: {"train": facts.viewer_rows}},
+        "warnings": [warning] if warning else [],
         "files": {path: _sha(payload) for path, payload in sorted(bundled.items())},
     }
 
