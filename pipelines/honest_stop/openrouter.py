@@ -182,14 +182,14 @@ def _send(http: urllib.request.Request) -> bytes:
         return _consume(http)
     except urllib.error.HTTPError:
         raise cv.FamilyError("openrouter.http", "OpenRouter rejected the request") from None
-    except urllib.error.URLError, OSError:
+    except (urllib.error.URLError, OSError):
         raise cv.FamilyError("openrouter.transport", "OpenRouter request failed") from None
 
 
 def _parsed(payload: bytes) -> object:
     try:
         return load_strict_json(payload.decode("utf-8"))
-    except ValueError, RecursionError:
+    except (ValueError, RecursionError):
         raise cv.FamilyError("openrouter.response", "OpenRouter response was not JSON") from None
 
 

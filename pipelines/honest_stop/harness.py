@@ -50,7 +50,7 @@ def _refuse(code: str) -> GateReport:
 def _kill_group(process: subprocess.Popen) -> None:
     try:
         os.killpg(process.pid, signal.SIGKILL)
-    except ProcessLookupError, PermissionError:
+    except (ProcessLookupError, PermissionError):
         pass
 
 
@@ -150,7 +150,7 @@ def _parse(raw: bytes | None) -> GateReport:
         return _refuse("harness.report")
     try:
         report = load_strict_json(line)
-    except ValueError, RecursionError:
+    except (ValueError, RecursionError):
         return _refuse("harness.report")
     return _from_report(report)
 

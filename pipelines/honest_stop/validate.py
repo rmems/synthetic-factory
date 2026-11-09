@@ -112,7 +112,7 @@ def validate_text(text: str) -> tuple[str, ...]:
 
     try:
         record = load_strict_json(text)
-    except ValueError, RecursionError:
+    except (ValueError, RecursionError):
         return ("record.json",)
     return validate_record(record)
 
