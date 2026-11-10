@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
+from fractions import Fraction
 from typing import Any, TypeGuard, cast
 
 if __package__:
@@ -99,7 +100,11 @@ def _nonnegative_json_integer(value: Any) -> int | None:
     return integer if integer >= 0 else None
 
 
-def _expected_spikes(neurons: Any, mean_rate_hz: Any, window_s: Any) -> int | None:
+def _spike_product(
+    neurons: Any, mean_rate_hz: Any, window_s: Any
+) -> Fraction | None:
+    """Return the exact ``neurons × rate × window`` product, or ``None``."""
+
     normalized_neurons = _nonnegative_json_integer(neurons)
     if normalized_neurons is None:
         return None
@@ -111,10 +116,42 @@ def _expected_spikes(neurons: Any, mean_rate_hz: Any, window_s: Any) -> int | No
         # Keep the validated population exact and interpret both factors using
         # their JSON-decimal spellings. Float conversion can erase spike units
         # above 2**53 or magnify the approximation of 0.1 into a false defect.
-        expected = round(rate * window * normalized_neurons)
+        return rate * window * normalized_neurons
+    except (OverflowError, ValueError):
+        return None
+
+
+def _expected_spikes(neurons: Any, mean_rate_hz: Any, window_s: Any) -> int | None:
+    product = _spike_product(neurons, mean_rate_hz, window_s)
+    if product is None:
+        return None
+    try:
+        expected = round(product)
     except (OverflowError, ValueError):
         return None
     return expected if json_integer_is_bounded(expected) else None
+
+
+def _spikes_match_product(
+    spikes: int, neurons: Any, mean_rate_hz: Any, window_s: Any
+) -> bool:
+    """Accept ``spikes`` only at the floor or ceiling of the exact product.
+
+    A whole-number product therefore requires an exact match. A fractional
+    product still accepts producers that round, floor, or ceil that check.
+    """
+
+    product = _spike_product(neurons, mean_rate_hz, window_s)
+    if product is None:
+        return False
+    try:
+        low = math.floor(product)
+        high = math.ceil(product)
+    except (OverflowError, ValueError):
+        return False
+    if not (json_integer_is_bounded(low) and json_integer_is_bounded(high)):
+        return False
+    return low <= spikes <= high
 
 
 def _raster_spike_budget(
