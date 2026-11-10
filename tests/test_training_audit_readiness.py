@@ -7,6 +7,7 @@ or legacy meta.id/thought warning must each surface in the report's
 blockers/metrics without raising.
 """
 
+import copy
 import json
 import os
 import subprocess
@@ -527,6 +528,20 @@ class TrainingAuditReadinessReport(unittest.TestCase):
         self.assertEqual(len(report["identity"]["duplicates"]), 1)
         self.assertEqual(len(report["exact_duplicates"]), 1)
         self.assertFalse(report["training_ready"])
+
+    def test_edge_whitespace_does_not_count_as_an_exact_duplicate(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            first = thalamic("one")
+            second = copy.deepcopy(first)
+            second["id"] = "two"
+            second["state"]["domain"] = first["state"]["domain"] + " "
+            write(root / "a" / "one.jsonl", [first])
+            write(root / "b" / "two.jsonl", [second])
+            report = training_audit.audit_run(root)
+
+        self.assertEqual(len(report["exact_duplicates"]), 0)
+        self.assertEqual(len(report["identity"]["duplicates"]), 0)
 
     def test_reward_arithmetic_error_blocks_training(self):
         with tempfile.TemporaryDirectory() as td:
