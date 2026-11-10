@@ -182,7 +182,7 @@ def _send(http: urllib.request.Request) -> bytes:
         return _consume(http)
     except urllib.error.HTTPError:
         raise cv.FamilyError("openrouter.http", "OpenRouter rejected the request") from None
-    except (urllib.error.URLError, OSError):
+    except OSError:
         raise cv.FamilyError("openrouter.transport", "OpenRouter request failed") from None
 
 
