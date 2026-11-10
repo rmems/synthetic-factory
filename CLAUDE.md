@@ -21,7 +21,13 @@ carries the project goal, the rights lanes, and the pipeline command reference.
 
 ## Commands
 
+Operator recipes live in the root `justfile` (`just --list`). `just` is optional
+dev tooling; each recipe expands to the raw command shown under it. Writers are
+named `write-*`, require an explicit destination, refuse an existing path, and
+never target `outputs/raw/`.
+
 ```bash
+# just test / just smoke
 # Full unit suite (about 3,700 tests; 15-30 min locally -- CI shards it with scripts/ci_shard_tests.py;
 # the procedural publication/replay coverage churns tens of GB of temp files) and the operator smoke
 # check; both run in CI. -b keeps CLI payloads the tests print off the console. Set TMPDIR
@@ -29,24 +35,34 @@ carries the project goal, the rights lanes, and the pipeline command reference.
 python3 -m unittest discover -s tests -p 'test_*.py' -q -b
 python3 .claude/skills/run-synthetic-factory/driver.py smoke
 
+# just test-module test_rights_policy
+# just test-target tests.test_rights_policy.RightsPolicyTests
+# just test-family 'test_rights_*.py'
 # One module, one class, one test (tests put pipelines/ on sys.path themselves)
 python3 -m unittest tests.test_rights_policy
 python3 -m unittest tests.test_rights_policy.RightsPolicyTests
 python3 -m unittest tests.test_rights_policy.RightsPolicyTests.test_committed_policy_is_loaded_and_bound_to_its_exact_bytes
 python3 -m unittest discover -s tests -p 'test_rights_*.py'   # one family of modules
 
+# just compile / just census-fixture
 # Also run by CI (python.yml, python-smoke.yml)
 python -m compileall -q pipelines scripts tests .claude/skills/run-synthetic-factory/driver.py
 python3 pipelines/census.py tests/fixtures/mini-run   # validate_run.py on this fixture exits nonzero by design
 
-# Lint: CI (python.yml, ruff 0.16.8) gates only these correctness rules -- pyflakes, syntax
-# errors, pylint errors, bugbear -- and fails on any finding; fix the code, do not add noqa.
+# just lint / just lint-style
+# Lint: CI (python.yml, ruff 0.16.8 from the justfile pin) gates only these correctness
+# rules -- pyflakes, syntax errors, pylint errors, bugbear -- and fails on any finding;
+# fix the code, do not add noqa.
 ruff check --select F,E9,PLE,B --ignore PLE0605,B007,B008,B009,B010,B905 \
   pipelines scripts tests .claude/skills/run-synthetic-factory/driver.py
 # The default rule set (pyproject.toml: py314, line length 100) still reports thousands of
 # style findings and is not gated
 ruff check pipelines tests
 
+# just training-audit <run> --strict --markdown
+# just leftover-mill <run> --strict
+# just validate|audit|frontiers|token-efficiency <run>
+# just write-snapshot <run> <label>
 # Operator audits on a run tree (read-only)
 python3 pipelines/training_audit.py [--strict] [--markdown] <run_dir>
 python3 pipelines/leftover_mill.py [--strict] <run_dir>
@@ -54,6 +70,7 @@ python3 .claude/skills/run-synthetic-factory/driver.py validate|audit|frontiers|
 # The one driver command that writes: copies the run to the sibling <run_dir>-<label> and refuses an existing one
 python3 .claude/skills/run-synthetic-factory/driver.py snapshot <run_dir> <label>
 
+# just hub-schemas / just hub-status / just hf-verify --repo rmems/<dataset>
 # Hugging Face: card viewer-schema audit and public release verification (network)
 python3 scripts/publish_grok46_hub.py schemas            # --strict exits nonzero while any gap remains
 python3 scripts/publish_grok46_hub.py status --hf-root <dir> --factory-root <dir>   # local counts, read-only
@@ -250,6 +267,7 @@ fallback that produces a plausible result in their place. See
 `tests/fixtures/parity-run/`.
 
 ```bash
+# just oracle-availability
 python3 pipelines/neuro_oracle.py
 python3 pipelines/nir_equivalence.py availability
 ```
@@ -266,10 +284,13 @@ first slice is generator side only: no registry row, sealed policy, or shared
 validator change, and nothing writes under `outputs/raw/`.
 
 ```bash
+# just tw-catalog-check / just write-tw-generate <label> / just tw-replay outputs/tool-world/<label>
 python3 pipelines/tool_world_cli.py catalog-check --json
 python3 pipelines/tool_world_cli.py generate --seed 1 --count 3 --out outputs/tool-world/<label> --json
 python3 pipelines/tool_world_cli.py replay outputs/tool-world/<label> --json
+# just test-family 'test_tool_world_*.py'
 python3 -m unittest discover -s tests -p 'test_tool_world_*.py' -q
+# just write-tw-repin
 # After an intentional pack edit: re-pin in place, then regenerate the byte-reproduced
 # fixture with the command in tests/test_tool_world_fixture.py
 python3 pipelines/tool_world_cli.py catalog-check --write-pins --json
