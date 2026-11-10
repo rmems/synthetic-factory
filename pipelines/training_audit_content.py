@@ -8,6 +8,7 @@ whole-file complexity stays the measurement surface it already was.
 from __future__ import annotations
 
 import sys
+import unicodedata
 from typing import Any
 
 if __package__:
@@ -34,16 +35,31 @@ _STAMPED_ID_PATHS = frozenset({
     ("language_view", "trajectory", "id"),
 })
 _HUMAN_VERIFIED_SOURCE = "human_verified"
+_MISSING = object()
+_NON_STRING_CLAIM = "non-string"
+
+# Kind labels. Preference-arm ``chosen`` / ``rejected`` sides are out of scope.
+_KIND_CLAIM_PATHS = (
+    ("record_kind",),
+    ("meta", "kind"),
+    ("meta", "record_kind"),
+)
+# Source-kind labels, including ``meta.provenance``. Preference-arm sides are
+# out of scope.
+_SOURCE_KIND_CLAIM_PATHS = (
+    ("source_kind",),
+    ("meta", "source_kind"),
+    ("provenance", "source_kind"),
+    ("meta", "provenance", "source_kind"),
+)
 
 
 def _content_without_identity(value, path=()):
-    """Drop identity stamps and surrounding whitespace from ``value``."""
+    """Drop identity stamps from ``value``; content whitespace is kept."""
     if isinstance(value, dict):
         return _mapping_without_identity(value, path)
     if isinstance(value, list):
         return _list_without_identity(value, path)
-    if isinstance(value, str):
-        return value.strip()
     return value
 
 
@@ -66,48 +82,62 @@ def _list_without_identity(value, path):
 
 
 def content_identity_blob(value):
-    """Canonical JSON of training content, without ids or edge whitespace."""
+    """Canonical JSON of training content, without identity stamps.
+
+    Surrounding whitespace in content strings is kept, so an indented patch
+    line is not the same record as the flush version. That revises #535.
+    """
     return dumps_exact_json(
         _content_without_identity(value), sort_keys=True, ensure_ascii=False
     )
 
 
-def _text_claim(value: Any) -> str | None:
-    if not isinstance(value, str):
+def _lookup(record: dict[str, Any], path: tuple[str, ...]) -> Any:
+    current: Any = record
+    for key in path:
+        if not isinstance(current, dict) or key not in current:
+            return _MISSING
+        current = current[key]
+    return current
+
+
+def _mapped_claim_char(char: str) -> str:
+    if unicodedata.category(char) == "Cf":
+        return ""
+    if char == "-" or char.isspace():
+        return "_"
+    return char
+
+
+def _normalize_claim(text: str) -> str:
+    """NFKC, casefold, drop format chars, and read ``-`` / spaces as ``_``."""
+    folded = unicodedata.normalize("NFKC", text).casefold()
+    return "".join(_mapped_claim_char(char) for char in folded).strip("_")
+
+
+def _claim_at(record: dict[str, Any], path: tuple[str, ...]) -> str | None:
+    value = _lookup(record, path)
+    if value is _MISSING:
         return None
-    text = value.strip()
-    return text or None
-
-
-def _claim_texts(values: tuple[Any, ...]) -> list[str]:
-    texts: list[str] = []
-    for value in values:
-        text = _text_claim(value)
-        if text is not None:
-            texts.append(text)
-    return texts
-
-
-def _nested_mapping(record: dict[str, Any], key: str) -> dict[str, Any]:
-    value = record.get(key)
-    if isinstance(value, dict):
-        return value
-    return {}
+    if not isinstance(value, str):
+        return _NON_STRING_CLAIM
+    return _normalize_claim(value)
 
 
 def _kind_claims(record: dict[str, Any]) -> list[str]:
-    meta = _nested_mapping(record, "meta")
-    return _claim_texts((
-        record.get("record_kind"), meta.get("kind"), meta.get("record_kind"),
-    ))
+    return [
+        claim
+        for claim in (_claim_at(record, path) for path in _KIND_CLAIM_PATHS)
+        if claim
+    ]
 
 
 def _source_kind_claims(record: dict[str, Any]) -> list[str]:
-    meta = _nested_mapping(record, "meta")
-    provenance = _nested_mapping(record, "provenance")
-    return _claim_texts((
-        record.get("source_kind"), meta.get("source_kind"), provenance.get("source_kind"),
-    ))
+    return [
+        claim
+        for claim in (_claim_at(record, path) for path in _SOURCE_KIND_CLAIM_PATHS)
+        if claim
+    ]
 
 
 def _kind_disagrees(claim: str, kind: str) -> bool:
@@ -119,12 +149,15 @@ def _label_errors(obj: dict[str, Any]) -> list[str]:
     errors = [
         f"DECLARED_KIND_MISMATCH:{claim}!={kind}"
         for claim in _kind_claims(obj)
-        if _kind_disagrees(claim, kind)
+        if claim == _NON_STRING_CLAIM or _kind_disagrees(claim, kind)
     ]
     errors.extend(
         f"DECLARED_SOURCE_KIND:{claim}"
         for claim in _source_kind_claims(obj)
-        if claim == _HUMAN_VERIFIED_SOURCE or _kind_disagrees(claim, kind)
+        if (
+            claim in {_HUMAN_VERIFIED_SOURCE, _NON_STRING_CLAIM}
+            or _kind_disagrees(claim, kind)
+        )
     )
     return errors
 
@@ -132,9 +165,14 @@ def _label_errors(obj: dict[str, Any]) -> list[str]:
 def declared_label_errors(obj: Any) -> list[str]:
     """Refuse a self-declared kind or a human-verified source claim.
 
-    Payload classification stays the authority. A ``meta.kind`` or
-    ``record_kind`` that names a different supported kind is a label, not
-    evidence, and ``source_kind`` ``human_verified`` is not a factory product.
+    Payload classification stays the authority. Claims are compared after
+    NFKC, casefold, dropping format characters, and reading ``-`` and spaces
+    as ``_``. A non-string value at a claim path is refused.
+
+    Kind paths: ``record_kind``, ``meta.kind``, ``meta.record_kind``.
+    Source-kind paths: ``source_kind``, ``meta.source_kind``,
+    ``provenance.source_kind``, ``meta.provenance.source_kind``.
+    Preference-arm ``chosen`` / ``rejected`` labels are out of scope.
     """
     if not isinstance(obj, dict):
         return []

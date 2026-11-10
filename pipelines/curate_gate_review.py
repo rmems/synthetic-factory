@@ -23,6 +23,7 @@ to a different tree.
 
 from __future__ import annotations
 
+import re
 import sys
 from collections import Counter, defaultdict
 from datetime import datetime, timezone
@@ -346,30 +347,41 @@ def _review_author_blockers(review: dict[str, Any]) -> list[str]:
     return blockers
 
 
-def _parsed_reviewed_at(text: str) -> datetime | None:
-    """Parse an ISO-8601 review timestamp, treating a trailing ``Z`` as UTC.
+# Strict RFC 3339 with an explicit offset. Lowercase ``z`` is accepted;
+# leap seconds (``:60``) and naive timestamps are not.
+_RFC3339_REVIEWED_AT = re.compile(
+    r"\A"
+    r"\d{4}-\d{2}-\d{2}"
+    r"[Tt]"
+    r"(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d"
+    r"(?:\.\d+)?"
+    r"(?:[Zz]|[+-](?:[01]\d|2[0-3]):[0-5]\d)"
+    r"\Z"
+)
 
-    A value that cannot be placed on the timeline, including one whose UTC
-    conversion falls outside the year range, is not a review date.
+
+def _parsed_reviewed_at(text: str) -> datetime | None:
+    """Parse a strict RFC 3339 review timestamp with an explicit offset.
+
+    The whole string must match before parsing, so trailing text and an
+    embedded NUL cannot be a date. A value that cannot be placed on the
+    timeline, including one whose UTC conversion falls outside the year
+    range, is not a review date.
     """
-    normalized = text[:-1] + "+00:00" if text.endswith("Z") else text
+    if _RFC3339_REVIEWED_AT.match(text) is None:
+        return None
+    normalized = text[:-1] + "+00:00" if text.endswith(("Z", "z")) else text
     try:
-        parsed = datetime.fromisoformat(normalized)
-        if parsed.tzinfo is None:
-            parsed = parsed.replace(tzinfo=timezone.utc)
-        return parsed.astimezone(timezone.utc)
+        return datetime.fromisoformat(normalized).astimezone(timezone.utc)
     except (ValueError, OverflowError):
         return None
 
 
 def _review_timestamp(value: Any) -> datetime | None:
     """The filled-in review instant, or None when the value is not one."""
-    if not isinstance(value, str):
+    if not isinstance(value, str) or not value:
         return None
-    text = value.strip()
-    if not text:
-        return None
-    return _parsed_reviewed_at(text)
+    return _parsed_reviewed_at(value)
 
 
 def _reviewed_at_code(value: Any) -> str | None:
