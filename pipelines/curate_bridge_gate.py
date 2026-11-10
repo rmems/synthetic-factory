@@ -30,6 +30,7 @@ if __package__:
         _raster_energy_field,
         _record_alias_derivation,
         _spike_energy,
+        _spikes_match_product,
         _validation_state,
     )
 else:
@@ -53,6 +54,7 @@ else:
         _raster_energy_field,
         _record_alias_derivation,
         _spike_energy,
+        _spikes_match_product,
         _validation_state,
     )
 
@@ -166,7 +168,7 @@ def _gate_population_neurons(population: Any) -> int | None:
 def _gate_population_budget(
     population: dict[str, Any], neurons: int, window_s: Any | None
 ) -> tuple[str, int | None]:
-    """Return ``(absent|invalid|valid, expected_spikes)``."""
+    """Return ``(absent|invalid|mismatch|valid, expected_spikes)``."""
 
     rate = _rate_aliases(population)
     rate_declared = rate.primary_declared or rate.alias_declared
@@ -186,8 +188,11 @@ def _gate_population_budget(
     if not ready:
         return "invalid", None
     expected = _expected_spikes(neurons, rate.primary, window_s)
-    if expected is None:
+    spikes_n = _nonnegative_json_integer(spikes)
+    if expected is None or spikes_n is None:
         return "invalid", None
+    if not _spikes_match_product(spikes_n, neurons, rate.primary, window_s):
+        return "mismatch", expected
     return "valid", expected
 
 
@@ -220,11 +225,11 @@ def _gate_population_budget_outcome(
     budget, expected, neurons = outcome
     if budget in ("absent", "invalid"):
         return budget == "absent", budget == "invalid", neurons
+    if budget == "valid":
+        return True, False, neurons
     spikes = _nonnegative_json_integer(population["spikes"])
     if spikes is None or expected is None:
         return False, True, neurons
-    if abs(spikes - expected) <= 1:
-        return True, False, neurons
     state.reason_codes.append(REASON_RASTER_SPIKE_BUDGET)
     _append_mismatch(
         state.evidence.setdefault("gate_snn_spike_mismatches", []),
@@ -330,7 +335,9 @@ def _gate_check(
     if not shape_valid or spikes is None:
         return _invalid_gate_check(index, reason_codes, evidence)
     expected = _expected_spikes(neurons, rate.primary, window.primary)
-    if expected is not None and abs(spikes - expected) <= 1:
+    if expected is not None and _spikes_match_product(
+        spikes, neurons, rate.primary, window.primary
+    ):
         return True
     _append_mismatch(
         evidence.setdefault("gate_compute_spike_mismatches", []), index, expected, spikes
