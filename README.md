@@ -317,7 +317,7 @@ python3 pipelines/nir_equivalence.py generate outputs/staging/<date>-nir --round
 # NOTES-rNN.md carrying a "Novel coverage: <N>%" line, directly there):
 #   python3 pipelines/round_txn.py reserve outputs/raw/<date>/<family-slug> \
 #       --round N --expected <records>          # prints staging_dir + token
-#   mv outputs/staging/<date>/<family-slug>/batch-rNN.jsonl <staging_dir>/
+#   mv <dest>/<family-slug>/batch-rNN.jsonl <staging_dir>/
 #   $EDITOR <staging_dir>/NOTES-rNN.md
 #   python3 pipelines/round_txn.py publish outputs/raw/<date>/<family-slug> \
 #       --round N --token <token> --allow-inconclusive "<reason>"
