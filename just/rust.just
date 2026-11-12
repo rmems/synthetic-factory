@@ -24,7 +24,12 @@ rust-build: _require-rust
 # Run the full Rust check CI runs: fmt, clippy, crate tests and build
 rust-check: rust-fmt rust-clippy rust-test rust-build
 
-# Exercise native oracle generation end-to-end via coverage (builds sf-oracle first)
-oracle-e2e: rust-build
-    @{{python}} -m coverage --version | grep -Fq "{{coverage_version}}" || { echo "expected coverage {{coverage_version}}; run: {{python}} -m pip install --only-binary ':all:' coverage=={{coverage_version}}" >&2; exit 1; }
+[private]
+_oracle-e2e: _require-coverage
     SF_ORACLE_RUST_BIN="${SF_ORACLE_RUST_BIN:-$PWD/target/debug/sf-oracle}" {{python}} -m coverage run -p -m unittest discover -s tests -p 'test_oracle_rust_end_to_end.py' -v
+
+# Exercise native oracle generation end-to-end via coverage (builds sf-oracle first)
+oracle-e2e: rust-build _oracle-e2e
+
+# Exercise the same e2e check against an already-built sf-oracle (CI runs this after rust-check)
+oracle-e2e-bin: _oracle-e2e

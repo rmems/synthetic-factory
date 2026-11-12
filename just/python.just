@@ -14,15 +14,15 @@ test:
 
 # Run one test module by bare name, e.g. `just test-module test_rights_policy`
 test-module name:
-    {{python}} -m unittest tests.{{name}}
+    {{python}} -m unittest "tests.$1"
 
 # Run one fully-qualified test target, e.g. `just test-target tests.test_rights_policy.RightsPolicyTests`
 test-target target:
-    {{python}} -m unittest {{target}}
+    {{python}} -m unittest "$1"
 
 # Run one family of test modules by glob, e.g. `just test-family 'test_rights_*.py'`
 test-family pattern:
-    {{python}} -m unittest discover -s tests -p '{{pattern}}'
+    {{python}} -m unittest discover -s tests -p "$1"
 
 # Run the operator driver smoke check (read-only, temp-dir only)
 smoke:
@@ -42,6 +42,5 @@ lint-style:
     ruff check pipelines tests
 
 # Run one CI unittest shard with branch coverage, e.g. `just ci-shard 0` (coverage pin enforced)
-ci-shard shard shards="4":
-    @{{python}} -m coverage --version | grep -Fq "{{coverage_version}}" || { echo "expected coverage {{coverage_version}}; run: {{python}} -m pip install --only-binary ':all:' coverage=={{coverage_version}}" >&2; exit 1; }
-    {{python}} scripts/ci_shard_tests.py --shard {{shard}} --shards {{shards}} --coverage
+ci-shard shard shards="4": _require-coverage
+    {{python}} scripts/ci_shard_tests.py --shard "$1" --shards "$2" --coverage

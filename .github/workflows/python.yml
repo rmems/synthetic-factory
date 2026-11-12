@@ -91,7 +91,7 @@ jobs:
       - name: Exercise native generation through local export
         env:
           SF_ORACLE_RUST_BIN: ${{ github.workspace }}/target/debug/sf-oracle
-        run: just oracle-e2e
+        run: just oracle-e2e-bin
 
       - name: Upload coverage shard
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2

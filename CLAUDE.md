@@ -22,9 +22,13 @@ carries the project goal, the rights lanes, and the pipeline command reference.
 ## Commands
 
 Operator recipes live in the root `justfile` (`just --list`). `just` is optional
-dev tooling; each recipe expands to the raw command shown under it. Writers are
-named `write-*`, require an explicit destination, refuse an existing path, and
-never target `outputs/raw/`.
+dev tooling; each recipe expands to the raw command shown under it. New
+dataset/output trees are written only by `write-*` recipes, which require an
+explicit destination, refuse an existing path, and refuse paths that name or
+alias `outputs/raw/` (checked with `pipelines/raw_tree_guard.py`). Reviewed
+in-place maintenance recipes are `maintain-*` (`maintain-run-manifest`,
+`maintain-vset-pins`, `maintain-tw-catalog-pins`); they mutate an existing run
+manifest or fixed tracked fixture and are not new-tree writers.
 
 ```bash
 # just test / just smoke
@@ -269,6 +273,7 @@ fallback that produces a plausible result in their place. See
 ```bash
 # just oracle-availability
 python3 pipelines/neuro_oracle.py
+python3 pipelines/hardware_parity.py availability
 python3 pipelines/nir_equivalence.py availability
 ```
 
@@ -290,7 +295,7 @@ python3 pipelines/tool_world_cli.py generate --seed 1 --count 3 --out outputs/to
 python3 pipelines/tool_world_cli.py replay outputs/tool-world/<label> --json
 # just test-family 'test_tool_world_*.py'
 python3 -m unittest discover -s tests -p 'test_tool_world_*.py' -q
-# just write-tw-repin
+# just maintain-tw-catalog-pins
 # After an intentional pack edit: re-pin in place, then regenerate the byte-reproduced
 # fixture with the command in tests/test_tool_world_fixture.py
 python3 pipelines/tool_world_cli.py catalog-check --write-pins --json

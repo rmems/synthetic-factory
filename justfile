@@ -1,12 +1,15 @@
 ﻿# synthetic-factory operator recipes. `just` is dev tooling only: stdlib
 # Python never imports or shells out to it, and every recipe below wraps a
 # command that also works on its own (see README.md / CLAUDE.md for the raw
-# expansions). Read-only by default; recipes that write are named `write-*`,
-# take an explicit destination, refuse one that exists, and never target
-# `outputs/raw/`.
+# expansions). New dataset/output trees are written only by `write-*` recipes,
+# which take an explicit destination, refuse one that already exists, and refuse
+# paths that name or alias `outputs/raw/` (checked with pipelines/raw_tree_guard).
+# `maintain-*` recipes are the reviewed in-place exceptions: they mutate a named
+# existing path or fixed tracked fixture and say so in their description.
 
 set shell := ["bash", "-cu"]
 set dotenv-load := false
+set positional-arguments
 
 # Single pins for the command surface. python.yml / python-smoke.yml install
 # `just` and read these values (`just --evaluate`), then call the recipes
@@ -22,6 +25,7 @@ python := "python3"
 hf_root := env_var_or_default("SYNTHETIC_FACTORY_HF_ROOT", "")
 factory_root := env_var_or_default("SYNTHETIC_FACTORY_SOURCE_ROOT", "")
 
+import 'just/guard.just'
 import 'just/python.just'
 import 'just/audit.just'
 import 'just/rust.just'

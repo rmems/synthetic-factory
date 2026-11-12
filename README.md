@@ -182,8 +182,9 @@ when those three declarations disagree.
 
 Pipelines are stdlib Python 3.15+. There is no network service to boot.
 Operator recipes are in the root `justfile` (`just --list`); `just` is optional
-dev tooling and every recipe expands to the raw command below. `just test`
-adds `-b` (see CLAUDE.md).
+dev tooling and every recipe expands to the raw command below. New dataset/output
+trees are written only by `write-*` recipes; reviewed in-place maintenance
+commands are `maintain-*`. `just test` adds `-b` (see CLAUDE.md).
 
 ```bash
 # just test
@@ -280,7 +281,7 @@ the VSET tests fail. Restate them from the same functions the validator uses:
 ```bash
 # just vset-pins-check
 python3 scripts/refresh_vset_fixture_pins.py --check   # report drift only
-# just write-vset-pins
+# just maintain-vset-pins
 python3 scripts/refresh_vset_fixture_pins.py           # rewrite the pins
 ```
 
@@ -376,7 +377,7 @@ python3 pipelines/tool_world_cli.py catalog-check --json
 python3 pipelines/tool_world_cli.py generate --seed 1 --count 3 --out outputs/tool-world/<label> --json
 # just tw-replay outputs/tool-world/<label>
 python3 pipelines/tool_world_cli.py replay outputs/tool-world/<label> --json   # exit 1 on any disagreement
-# just write-tw-repin
+# just maintain-tw-catalog-pins
 python3 pipelines/tool_world_cli.py catalog-check --write-pins --json          # re-pin after a reviewed pack edit
 ```
 
