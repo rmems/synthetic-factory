@@ -308,9 +308,9 @@ python3 pipelines/hardware_parity.py availability
 # just write-hardware-generate outputs/staging/<date>
 python3 pipelines/hardware_parity.py generate outputs/staging/<date> --round 1
 python3 pipelines/nir_equivalence.py availability
-# just write-nir-generate outputs/staging/<date>
-python3 pipelines/nir_equivalence.py generate outputs/staging/<date> --round 1
-# `generate` writes outputs/staging/<date>/<family-slug>/batch-rNN.jsonl. To
+# just write-nir-generate outputs/staging/<date>-nir
+python3 pipelines/nir_equivalence.py generate outputs/staging/<date>-nir --round 1
+# `generate` writes <dest>/<family-slug>/batch-rNN.jsonl. To
 # promote a round into outputs/raw/, run the round transaction against the
 # raw factory directory and move the generated batch into the private stage
 # the reservation returns (publish expects batch-rNN.jsonl, plus a

@@ -56,9 +56,9 @@ vset-pins-check:
 write-snapshot run label:
     #!/usr/bin/env bash
     set -euo pipefail
-    src="$1"; src="${src%/}"
     case "$2" in ""|*[!A-Za-z0-9._-]*|.*|*..*) echo "refusing unsafe snapshot label: $2" >&2; exit 2;; esac
-    dest="$(dirname "$src")/$(basename "$src")-$2"
+    src="$("{{python}}" -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$1")"
+    dest="$("{{python}}" -c 'import sys; from pathlib import Path; s=Path(sys.argv[1]); print(s.parent / f"{s.name}-{sys.argv[2]}")' "$src" "$2")"
     {{python}} -c {{quote(_guard_raw_py)}} "$dest"
     {{python}} -c {{quote(_guard_exists_py)}} "$dest"
     exec {{python}} .claude/skills/run-synthetic-factory/driver.py snapshot "$src" "$2"

@@ -4,7 +4,7 @@
 
 _guard_raw_py := "import sys; from pathlib import Path; from pipelines import raw_tree_guard; p = Path(sys.argv[1]); bad = raw_tree_guard.is_under_raw(p); (print(f'refusing outputs/raw path: {p}', file=sys.stderr) if bad else None); sys.exit(2 if bad else 0)"
 
-_guard_exists_py := "import os, sys; bad = os.path.lexists(sys.argv[1]); (print(f'refusing existing path: {sys.argv[1]}', file=sys.stderr) if bad else None); sys.exit(2 if bad else 0)"
+_guard_exists_py := "import os, sys\ntry:\n    os.lstat(sys.argv[1])\nexcept FileNotFoundError:\n    sys.exit(0)\nexcept OSError as exc:\n    print(f'cannot inspect destination: {sys.argv[1]} ({exc})', file=sys.stderr)\n    sys.exit(2)\nprint(f'refusing existing path: {sys.argv[1]}', file=sys.stderr)\nsys.exit(2)"
 
 [private]
 _refuse-raw path:
