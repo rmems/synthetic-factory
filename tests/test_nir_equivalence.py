@@ -243,6 +243,22 @@ class Runtimes(unittest.TestCase):
                     entry["roundtrip"]["adapter"], f"{runtime.name}.nir_json"
                 )
 
+    def test_nir_rs_contract_requires_the_current_crate_version(self):
+        runtime = nir._ALL_RUNTIME_BY_NAME["nir_rs"]
+        probe = {
+            "adapter": runtime.crate_name,
+            "crate": f"{runtime.crate_name} {runtime.crate_version}",
+            "conventions": dict(runtime.conventions),
+            "supported_types": list(runtime.supported_types),
+        }
+        self.assertTrue(runtime._contract_ok(probe))
+        for field, value in (
+            ("adapter", "other-adapter"),
+            ("crate", "nir-rs 0.4.4"),
+            ("crate", "other-crate 0.4.5"),
+        ):
+            with self.subTest(field=field, value=value):
+                self.assertFalse(runtime._contract_ok({**probe, field: value}))
 
 
 if __name__ == "__main__":

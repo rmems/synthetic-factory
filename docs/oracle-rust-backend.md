@@ -76,6 +76,12 @@ Keep the matching executable, lockfile, and adapter sources for future replay.
 Rebuilding with another toolchain can change executable identity even if the
 model outputs agree. Composition and export preserve original record content
 and source coordinates through the existing authenticated dataset pipeline.
+Records measured under the previous crate pins name the prior crate versions,
+source revisions, and lock digest. They are historical evidence, not
+current-authority records: current native checks and replay bind to this
+lockfile and the published profile identities, so those records are rejected
+rather than migrated. Retain the matching executable, lockfile, and adapter
+sources to audit them outside the current checkout.
 
 Rust tests compare traces against direct crate calls. Python integration covers
 generation, reproduction, composition, and local export, including tampering

@@ -15,7 +15,7 @@ set positional-arguments
 # `just` and read these values (`just --evaluate`), then call the recipes
 # (Option A). CI still SHA-pins its own actions; those pins are not pins of
 # ruff, coverage, or the Rust toolchain.
-rust_toolchain := "1.98.1"
+rust_toolchain := "1.99.0"
 ruff_version := "0.16.8"
 coverage_version := "7.15.4"
 python := "python3"
