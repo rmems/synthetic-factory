@@ -181,10 +181,17 @@ when those three declarations disagree.
 ## Development environment
 
 Pipelines are stdlib Python 3.15+. There is no network service to boot.
+Operator recipes are in the root `justfile` (`just --list`); `just` is optional
+dev tooling and every recipe expands to the raw command below. New dataset/output
+trees are written only by `write-*` recipes; reviewed in-place maintenance
+commands are `maintain-*`. `just test` adds `-b` (see CLAUDE.md).
 
 ```bash
+# just test
 python3 -m unittest discover -s tests -p 'test_*.py' -q
+# just smoke
 python3 .claude/skills/run-synthetic-factory/driver.py smoke
+# just census-fixture
 python3 pipelines/census.py tests/fixtures/mini-run
 ```
 
@@ -243,14 +250,22 @@ python3 pipelines/mill_script_inventory.py --check
 ## Pipelines
 
 ```bash
+# just census outputs/raw/2026-08-17
 python3 pipelines/census.py outputs/raw/2026-08-17          # JSON counts + mill_mix; no writes
+# just write-curate-identity outputs/raw/2026-08-17 outputs/cleaned/<new-label>
 python3 pipelines/curate_identity.py outputs/raw/2026-08-17 --out outputs/cleaned/<new-label>
+# just validate-run outputs/raw/2026-08-17
 python3 pipelines/validate_run.py outputs/raw/2026-08-17    # shape gate; no manifest unless --write
+# just validate-vset tests/fixtures/vset/records/accept
 python3 pipelines/validate_vset.py tests/fixtures/vset/records/accept
+# just validate-vset tests/fixtures/vset/records/accept/issue-patch-validated.json --oracle --pack tests/fixtures/vset/repo-pack-counter
 python3 pipelines/validate_vset.py --oracle --pack tests/fixtures/vset/repo-pack-counter \
   tests/fixtures/vset/records/accept/issue-patch-validated.json
+# just validate-vset tests/fixtures/vset/manifests/pilot-v1.json --manifest
 python3 pipelines/validate_vset.py --manifest tests/fixtures/vset/manifests/pilot-v1.json
+# just check-records outputs/raw/2026-08-17
 python3 pipelines/check_records.py outputs/raw/2026-08-17   # reward / spike order / ids
+# just write-promote outputs/raw/2026-08-17 outputs/cleaned/2026-08-17
 python3 pipelines/promote.py outputs/raw/2026-08-17 outputs/cleaned/2026-08-17
 ```
 
@@ -264,7 +279,9 @@ counts and hash. Editing the registry or the counter pack invalidates them and
 the VSET tests fail. Restate them from the same functions the validator uses:
 
 ```bash
+# just vset-pins-check
 python3 scripts/refresh_vset_fixture_pins.py --check   # report drift only
+# just maintain-vset-pins
 python3 scripts/refresh_vset_fixture_pins.py           # rewrite the pins
 ```
 
@@ -285,19 +302,22 @@ survives deployment or interchange, rather than treating a successful export
 as proof that it did.
 
 ```bash
+# just oracle-availability
 python3 pipelines/neuro_oracle.py                           # which oracles can run here
 python3 pipelines/hardware_parity.py availability
+# just write-hardware-generate outputs/staging/<date>
 python3 pipelines/hardware_parity.py generate outputs/staging/<date> --round 1
 python3 pipelines/nir_equivalence.py availability
-python3 pipelines/nir_equivalence.py generate outputs/staging/<date> --round 1
-# `generate` writes outputs/staging/<date>/<family-slug>/batch-rNN.jsonl. To
+# just write-nir-generate outputs/staging/<date>-nir
+python3 pipelines/nir_equivalence.py generate outputs/staging/<date>-nir --round 1
+# `generate` writes <dest>/<family-slug>/batch-rNN.jsonl. To
 # promote a round into outputs/raw/, run the round transaction against the
 # raw factory directory and move the generated batch into the private stage
 # the reservation returns (publish expects batch-rNN.jsonl, plus a
 # NOTES-rNN.md carrying a "Novel coverage: <N>%" line, directly there):
 #   python3 pipelines/round_txn.py reserve outputs/raw/<date>/<family-slug> \
 #       --round N --expected <records>          # prints staging_dir + token
-#   mv outputs/staging/<date>/<family-slug>/batch-rNN.jsonl <staging_dir>/
+#   mv <dest>/<family-slug>/batch-rNN.jsonl <staging_dir>/
 #   $EDITOR <staging_dir>/NOTES-rNN.md
 #   python3 pipelines/round_txn.py publish outputs/raw/<date>/<family-slug> \
 #       --round N --token <token> --allow-inconclusive "<reason>"
@@ -325,7 +345,9 @@ Oracle-grounded families (generator proposes, oracle measures — see
 [`docs/oracle-grounded-datasets.md`](docs/oracle-grounded-datasets.md)):
 
 ```bash
+# just write-oracle-generate outputs/oracle-grounded/2026-09-01 --count 8
 python3 pipelines/oracle_generate.py --count 8 outputs/oracle-grounded/2026-09-01
+# just oracle-validate outputs/oracle-grounded/2026-09-01
 python3 pipelines/oracle_validate.py --reproduce outputs/oracle-grounded/2026-09-01
 ```
 
@@ -349,9 +371,13 @@ predicate over environment state, and every record replays from
 outside `outputs/raw/`.
 
 ```bash
+# just tw-catalog-check
 python3 pipelines/tool_world_cli.py catalog-check --json
+# just write-tw-generate <label>
 python3 pipelines/tool_world_cli.py generate --seed 1 --count 3 --out outputs/tool-world/<label> --json
+# just tw-replay outputs/tool-world/<label>
 python3 pipelines/tool_world_cli.py replay outputs/tool-world/<label> --json   # exit 1 on any disagreement
+# just maintain-tw-catalog-pins
 python3 pipelines/tool_world_cli.py catalog-check --write-pins --json          # re-pin after a reviewed pack edit
 ```
 
@@ -369,7 +395,9 @@ and is not invoked by this CLI. This slice writes no dataset records and does
 not publish to the Hugging Face Hub.
 
 ```bash
+# just honest-stop-dry-run
 python3 pipelines/honest_stop_cli.py generate --dry-run --seed 1 --count 4
+# just honest-stop-export-dry-run
 python3 pipelines/honest_stop_cli.py export --dry-run
 ```
 
@@ -394,12 +422,14 @@ repository root even when the plan itself lives under `outputs/curation/`;
 lane output, manifest, and artifact paths remain relative to the plan.
 
 ```bash
+# just write-curate-integrate outputs/curation/plan.json outputs/cleaned/2026-08-17-curated-v1
 python3 pipelines/curate_gate.py integrate \
   --plan outputs/curation/plan.json \
   --cleaned-out outputs/cleaned/2026-08-17-curated-v1
 # writes curation-manifest.json, review-sample.json, review-verdicts.json
 
 # a human records a verdict for every sampled record, then:
+# just write-curate-promote outputs/cleaned/2026-08-17-curated-v1 outputs/cleaned/2026-08-17-curated-v1/review-verdicts.json outputs/curated/2026-08-17-v1
 python3 pipelines/curate_gate.py promote \
   --cleaned outputs/cleaned/2026-08-17-curated-v1 \
   --review outputs/cleaned/2026-08-17-curated-v1/review-verdicts.json \
@@ -411,7 +441,7 @@ transform name and version of every lane, exclusions and quarantines with
 reason codes, per-kind and per-factory counts, gate results, and the recorded
 review. See the module docstring for the plan schema.
 
-Tests: `python3 -m unittest discover -s tests -p 'test_*.py' -q`
+Tests: `just test` / `python3 -m unittest discover -s tests -p 'test_*.py' -q`
 
 ## Compose and export (curated → train/eval split)
 
@@ -430,10 +460,13 @@ mixed side families are excluded with an explicit reason code.
 ```bash
 # 1. Compose: identity -> bridge -> preferences -> coding -> rewards
 #    (tag normalization is not composed yet). Never overwrites a destination.
+# just write-compose outputs/raw/2026-08-17 outputs/curated/2026-08-23
 python3 pipelines/compose_curated.py outputs/raw/2026-08-17 outputs/curated/2026-08-23
+# just write-compose outputs/raw/2026-08-17 outputs/curated/2026-08-23-strict --strict
 python3 pipelines/compose_curated.py --strict outputs/raw/2026-08-17 outputs/curated/2026-08-23-strict   # exit 1 unless training_ready
 
 # 2. Export: refuses unless training_audit reports training_ready: true
+# just write-export outputs/curated/2026-08-23 outputs/curated/2026-08-23-export
 python3 pipelines/export_hf.py outputs/curated/2026-08-23 outputs/curated/2026-08-23-export
 ```
 
