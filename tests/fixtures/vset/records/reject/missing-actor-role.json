@@ -28,7 +28,7 @@
     "factory_contract_version": "factory-registry-v0.4",
     "schema_version": "vset-record-v1",
     "manifest_hash": "sha256:7046c16502c1958bfd91a63cfe4851bc0f451de4c8c385437fd462b78ccf651b",
-    "factory_registry_sha256": "sha256:1418f061ac7818eb9aa13df2b1b13c8e6346f080a875705c9fde15594ec704a8"
+    "factory_registry_sha256": "sha256:7e6ef2611b857b3f56745d382ee911ab508638845d3c2a7ab5e7ba21d294da94"
   },
   "payload": {
     "task_specification": "Add Counter.sub(delta).",

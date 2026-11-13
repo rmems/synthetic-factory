@@ -53,7 +53,7 @@
     "factory_contract_version": "factory-registry-v0.4",
     "schema_version": "vset-record-v1",
     "manifest_hash": "sha256:791b7024aae286315b92c4e93cc4a63db550515b028b012b70b5af37d11153f8",
-    "factory_registry_sha256": "sha256:1418f061ac7818eb9aa13df2b1b13c8e6346f080a875705c9fde15594ec704a8"
+    "factory_registry_sha256": "sha256:7e6ef2611b857b3f56745d382ee911ab508638845d3c2a7ab5e7ba21d294da94"
   },
   "payload": {
     "initial_patch": {
