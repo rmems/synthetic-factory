@@ -140,7 +140,7 @@ NIR_RS_CONTRACT_MISMATCH_DETAIL = (
 class NirRsRuntime:
     """The ``nir-rs`` crate driven through this workspace's ``nir-rs`` binary.
 
-    The binary (``rust/nir-rs``, crate ``nir-rs =0.4.4``) is the authority
+    The binary (``rust/nir-rs``, crate ``nir-rs =0.4.5``) is the authority
     contract: it builds real ``NirGraph``/``NirNode``/``Tensor`` values, runs
     the crate's serde codec for the roundtrip claim, and executes under this
     family's declared ``subtract``/``steps``/``insertion`` conventions so both
@@ -153,6 +153,8 @@ class NirRsRuntime:
     runtime_class = "upstream_runtime"
     executable = "nir-rs"
     executable_env = "NIR_RS_EXECUTABLE"
+    crate_name = "nir-rs"
+    crate_version = "0.4.5"
     conventions = {"reset": "subtract", "delay_unit": "steps", "cycle_break_order": "insertion"}
     supported_types = tuple(sorted(ALL_KNOWN_TYPES))
 
@@ -184,7 +186,10 @@ class NirRsRuntime:
         return {
             "available": True,
             "reason_code": None,
-            "detail": f"nir-rs adapter at {binary} (crate nir-rs 0.4.4)",
+            "detail": (
+                f"{self.crate_name} adapter at {binary} "
+                f"(crate {self.crate_name} {self.crate_version})"
+            ),
         }
 
     def serialize_graph(self, graph):
@@ -247,11 +252,17 @@ class NirRsRuntime:
         }
 
     def _contract_ok(self, probe):
-        """The probe's declared conventions and coverage match this adapter."""
+        """The probe's crate identity, conventions, and coverage match this adapter."""
         if not isinstance(probe, dict):
             return False
+        crate = f"{self.crate_name} {self.crate_version}"
         types_ok = tuple(probe.get("supported_types") or ()) == self.supported_types
-        return probe.get("conventions") == self.conventions and types_ok
+        return (
+            probe.get("adapter") == self.crate_name
+            and probe.get("crate") == crate
+            and probe.get("conventions") == self.conventions
+            and types_ok
+        )
 
     def _binary(self):
         """The ``nir-rs`` adapter binary this run would drive, or None.

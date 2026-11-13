@@ -32,7 +32,7 @@
       "payload_factory": "nir-cross-runtime-equivalence",
       "source_type": "frontier_session",
       "generator": "synthetic-factory.nir_equivalence.graph_catalog",
-      "generator_version": "sha256:71cfe35c129f0c9b80e3ae4c5d9e2391bdf36d17900054dfcf0e92cda8804fc1",
+      "generator_version": "sha256:7cc7ea221c8aed3ccba93841d0a6525384d1de250f64bd35aa1880b843d9f9a5",
       "provider": null,
       "channel": null,
       "rights_profile_id": "native-parity-research-only-v1",

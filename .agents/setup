@@ -13,7 +13,7 @@ readonly RUSTUP_VERSION=1.28.2
 readonly RUSTUP_SHA256=20a06e644b0d9bd2fbdbfd52d42540bdde820ea7df86e92e533c073da0cdd43c
 readonly UV_VERSION=0.12.21
 readonly UV_SHA256=23f02075b652bb1df64178cfae41b5caf160822e720e2663568f3f5d63bc52c0
-readonly RUST_VERSION=1.98.1
+readonly RUST_VERSION=1.99.0
 readonly COVERAGE_VERSION=7.15.4
 
 if [[ "$(uname -m)" != x86_64 ]]; then
