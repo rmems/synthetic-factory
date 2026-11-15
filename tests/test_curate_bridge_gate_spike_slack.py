@@ -10,13 +10,16 @@ from __future__ import annotations
 import math
 import sys
 import unittest
+from fractions import Fraction
 from pathlib import Path
+from unittest import mock
 
 REPO = Path(__file__).resolve().parents[1]
 if str(REPO / "pipelines") not in sys.path:
     sys.path.insert(0, str(REPO / "pipelines"))
 
 import curate_bridge_gate as g  # noqa: E402
+import curate_bridge_raster_numbers as rn  # noqa: E402
 from curate_bridge_raster import (  # noqa: E402
     RASTER_ENERGY_PJ_PER_SPIKE as PJ,
     REASON_RASTER_SPIKE_BUDGET,
@@ -129,6 +132,27 @@ class BridgeGateSpikeSlack(unittest.TestCase):
                     "populations": [dict(fractional, spikes=spikes)],
                 }
                 self.assertEqual(_reasons_snn(spec)[0], [])
+
+    def test_helper_rejects_uncomputable_product(self):
+        self.assertFalse(_spikes_match_product(1, None, 1, 1))
+        self.assertFalse(_spikes_match_product(1, 1, None, 1))
+        self.assertIsNone(_expected_spikes(1, None, 1))
+
+    def test_helper_rejects_unbounded_product(self):
+        # floor/ceil of a product above the exact-JSON integer bound refuse.
+        huge = Fraction(10**5000)
+        self.assertFalse(_spikes_match_product(1, huge, 1, 1))
+        self.assertFalse(_spikes_match_product(1, 1, huge, 1))
+        self.assertIsNone(_expected_spikes(1, huge, 1))
+
+    def test_helper_arithmetic_failures_fail_closed(self):
+        with mock.patch.object(Fraction, "__mul__", side_effect=OverflowError):
+            self.assertFalse(_spikes_match_product(1, 1, 1, 1))
+            self.assertIsNone(_expected_spikes(1, 1, 1))
+        with mock.patch.object(Fraction, "__round__", side_effect=ValueError):
+            self.assertIsNone(_expected_spikes(1, 1, 1))
+        with mock.patch.object(rn.math, "floor", side_effect=OverflowError):
+            self.assertFalse(_spikes_match_product(1, 1, 1, 1))
 
     def test_helper_pins_whole_versus_fractional_bounds(self):
         self.assertTrue(_spikes_match_product(1, 1, 1, 1))
