@@ -25,14 +25,17 @@ if ! command -v rustup >/dev/null 2>&1; then
     echo "install.sh requires x86_64 for the pinned rustup download (got $(uname -m))." >&2
     exit 1
   fi
-  installer="$(mktemp)"
+  # rustup-init dispatches on argv[0]: the basename must start with
+  # "rustup-init" or it runs in proxy mode instead of installing.
+  installer_dir="$(mktemp -d)"
+  installer="${installer_dir}/rustup-init"
   curl --fail --location --silent --show-error --proto '=https' --tlsv1.2 \
     "https://static.rust-lang.org/rustup/archive/${RUSTUP_VERSION}/x86_64-unknown-linux-gnu/rustup-init" \
     --output "$installer"
   printf '%s  %s\n' "$RUSTUP_SHA256" "$installer" | sha256sum --check --status
   chmod 0755 "$installer"
   "$installer" -y --no-modify-path --default-toolchain none --profile minimal
-  rm -f "$installer"
+  rm -rf "$installer_dir"
 fi
 # shellcheck source=/dev/null
 source "${HOME}/.cargo/env"
