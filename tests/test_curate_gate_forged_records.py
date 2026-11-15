@@ -336,6 +336,9 @@ class ForgedRecordTests(unittest.TestCase):
             "human verified",
             " human_verified ",
             "human_\u200bverified",
+            "human--verified",
+            "human   verified",
+            "human_-_verified",
         )
         for claim in samples:
             with self.subTest(claim=repr(claim)):
@@ -343,6 +346,18 @@ class ForgedRecordTests(unittest.TestCase):
                 record["source_kind"] = claim
                 errors = training_audit.declared_label_errors(record)
                 self.assertIn("DECLARED_SOURCE_KIND:human_verified", errors)
+
+    def test_empty_normalized_claim_at_source_kind_is_refused(self):
+        for claim in (" ", "-", "_", "\u200b"):
+            with self.subTest(claim=repr(claim)):
+                record = _thalamic("t-1")
+                record["source_kind"] = claim
+                errors = training_audit.declared_label_errors(record)
+                self.assertIn("DECLARED_SOURCE_KIND:empty", errors)
+        record = _thalamic("t-2")
+        record["record_kind"] = " "
+        errors = training_audit.declared_label_errors(record)
+        self.assertIn("DECLARED_KIND_MISMATCH:empty!=thalamic", errors)
 
     def test_non_string_claim_at_source_kind_is_refused(self):
         record = _thalamic("t-1")
