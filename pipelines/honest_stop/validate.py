@@ -20,7 +20,7 @@ def _key_codes(record: dict) -> tuple[str, ...]:
 
 
 def _record_id_ok(record_id: object) -> bool:
-    if not text_ok(record_id):
+    if not isinstance(record_id, str) or not text_ok(record_id):
         return False
     if len(record_id) > 80:
         return False
