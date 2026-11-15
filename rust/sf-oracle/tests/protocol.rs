@@ -228,7 +228,7 @@ fn full_bounded_episode_and_executable_identity() {
     assert_eq!(answer["measured"]["identity"]["executable_sha256"], digest);
     assert_eq!(
         answer["runtime_commit"],
-        "102946f40dd55287a89aa363cd2d080a9d6195d8"
+        "bf5ded147f4fbfa433d4781bf02b1576ba6ce638"
     );
     let out = Command::new(env!("CARGO_BIN_EXE_sf-oracle"))
         .arg("--unexpected")

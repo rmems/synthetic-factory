@@ -59,8 +59,8 @@ asserted biological voltage unit.
 Versions are exact registry dependencies in the workspace lockfile. Published
 source revisions come from each released crate's `.cargo_vcs_info.json`:
 
-* axon-encoder 0.4.0: `102946f40dd55287a89aa363cd2d080a9d6195d8`
-* neuromod 0.6.0: `184c80cbdad84c83042987e1b3ec6fed69578a87`
+* axon-encoder 0.6.0: `bf5ded147f4fbfa433d4781bf02b1576ba6ce638`
+* neuromod 0.7.0: `a897cc91f7e97efb465d41247fa907e2c1f2332d`
 
 Each result includes SHA-256 of the locked dependency graph and current
 executable bytes, plus the adapter source digest and the Git HEAD at build time.

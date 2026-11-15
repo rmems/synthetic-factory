@@ -15,7 +15,7 @@ by code, not by convention — see [Separation](#how-the-separation-is-enforced)
 ## Status of the named oracles
 
 Issue #77 names six ground-truth runtimes. The optional Rust executable now
-uses published `axon-encoder 0.4.0` and `neuromod 0.6.0` dependencies for two
+uses published `axon-encoder 0.6.0` and `neuromod 0.7.0` dependencies for two
 versioned crate-native profiles. Generation defaults to reference simulation;
 `--backend rust --oracle-rust-bin PATH` explicitly selects crate execution.
 Runtime binding, rather than ambient `PATH` membership, is retained in data.

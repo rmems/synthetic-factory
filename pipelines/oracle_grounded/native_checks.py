@@ -16,12 +16,12 @@ ROUNDING_TOL = 10 ** -PRECISION
 
 PROFILES = {
     "axon-stream-v1": (
-        "spike-encoder-equivalence-pairs", "axon-encoder", "0.4.0",
-        "102946f40dd55287a89aa363cd2d080a9d6195d8",
+        "spike-encoder-equivalence-pairs", "axon-encoder", "0.6.0",
+        "bf5ded147f4fbfa433d4781bf02b1576ba6ce638",
     ),
     "neuromod-lif-v1": (
-        "neuron-dynamics-counterfactuals", "neuromod", "0.6.0",
-        "184c80cbdad84c83042987e1b3ec6fed69578a87",
+        "neuron-dynamics-counterfactuals", "neuromod", "0.7.0",
+        "a897cc91f7e97efb465d41247fa907e2c1f2332d",
     ),
 }
 

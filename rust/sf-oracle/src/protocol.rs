@@ -74,7 +74,7 @@ fn execute_encoder(signal: &[f64], cfg: Configuration) -> Result<Measurement, St
     Ok((
         encoder::run(signal, &p)?,
         json!({"t_ms":"millisecond","reconstruction":"normalized signal","rmse":"normalized signal","spike_count":"spikes"}),
-        "0.4.0",
+        "0.6.0",
         identity::AXON_REV,
     ))
 }
@@ -86,7 +86,7 @@ fn execute_neuron(signal: &[f64], cfg: Configuration) -> Result<Measurement, Str
     Ok((
         neuron::run(signal, &p, &intervention)?,
         json!({"spikes":"millisecond","v_trace":"crate membrane units","spike_count":"spikes","spike_count_delta":"spikes"}),
-        "0.6.0",
+        "0.7.0",
         identity::NEUROMOD_REV,
     ))
 }
