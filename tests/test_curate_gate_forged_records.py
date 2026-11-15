@@ -175,7 +175,7 @@ class ForgedRecordTests(unittest.TestCase):
 
     def test_near_future_review_is_refused_through_promote(self):
         soon = datetime.now(timezone.utc).replace(microsecond=0) + timedelta(minutes=30)
-        stamp = soon.strftime("%Y-%m-%dT%H:%M:%SZ")
+        stamp = soon.isoformat().replace("+00:00", "Z")
         integrate_code, promote_code, promoted, blockers = self._run(
             None,
             lambda document, value=stamp: document.update(reviewed_at=value),
