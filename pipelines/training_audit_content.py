@@ -37,6 +37,7 @@ _STAMPED_ID_PATHS = frozenset({
 _HUMAN_VERIFIED_SOURCE = "human_verified"
 _MISSING = object()
 _NON_STRING_CLAIM = "non-string"
+_EMPTY_CLAIM = "empty"
 
 # Kind labels. Preference-arm ``chosen`` / ``rejected`` sides are out of scope.
 _KIND_CLAIM_PATHS = (
@@ -110,9 +111,14 @@ def _mapped_claim_char(char: str) -> str:
 
 
 def _normalize_claim(text: str) -> str:
-    """NFKC, casefold, drop format chars, and read ``-`` / spaces as ``_``."""
+    """NFKC, casefold, drop format chars, and read ``-`` / spaces as ``_``.
+
+    Runs of separators collapse to one ``_`` so a respelled label cannot
+    smuggle a doubled underscore past the claim checks.
+    """
     folded = unicodedata.normalize("NFKC", text).casefold()
-    return "".join(_mapped_claim_char(char) for char in folded).strip("_")
+    chars = "".join(_mapped_claim_char(char) for char in folded)
+    return "_".join(part for part in chars.split("_") if part)
 
 
 def _claim_at(record: dict[str, Any], path: tuple[str, ...]) -> str | None:
@@ -121,7 +127,7 @@ def _claim_at(record: dict[str, Any], path: tuple[str, ...]) -> str | None:
         return None
     if not isinstance(value, str):
         return _NON_STRING_CLAIM
-    return _normalize_claim(value)
+    return _normalize_claim(value) or _EMPTY_CLAIM
 
 
 def _kind_claims(record: dict[str, Any]) -> list[str]:
@@ -146,16 +152,17 @@ def _kind_disagrees(claim: str, kind: str) -> bool:
 
 def _label_errors(obj: dict[str, Any]) -> list[str]:
     kind = classify_kind(obj)
+    malformed = {_NON_STRING_CLAIM, _EMPTY_CLAIM}
     errors = [
         f"DECLARED_KIND_MISMATCH:{claim}!={kind}"
         for claim in _kind_claims(obj)
-        if claim == _NON_STRING_CLAIM or _kind_disagrees(claim, kind)
+        if claim in malformed or _kind_disagrees(claim, kind)
     ]
     errors.extend(
         f"DECLARED_SOURCE_KIND:{claim}"
         for claim in _source_kind_claims(obj)
         if (
-            claim in {_HUMAN_VERIFIED_SOURCE, _NON_STRING_CLAIM}
+            claim in {_HUMAN_VERIFIED_SOURCE} | malformed
             or _kind_disagrees(claim, kind)
         )
     )
@@ -167,7 +174,8 @@ def declared_label_errors(obj: Any) -> list[str]:
 
     Payload classification stays the authority. Claims are compared after
     NFKC, casefold, dropping format characters, and reading ``-`` and spaces
-    as ``_``. A non-string value at a claim path is refused.
+    as ``_`` with separator runs collapsed. A non-string value, or a string
+    that normalizes to nothing, at a claim path is refused.
 
     Kind paths: ``record_kind``, ``meta.kind``, ``meta.record_kind``.
     Source-kind paths: ``source_kind``, ``meta.source_kind``,
