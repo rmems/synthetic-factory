@@ -17,7 +17,25 @@ python3 -m venv .venv
 export CC=gcc
 export CXX=g++
 if ! command -v rustup >/dev/null 2>&1; then
-  curl -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain 1.99.0 --profile minimal
+  # Pinned rustup-init, same download and checksum as .agents/setup. The
+  # checksum is only published for x86_64, matching the Cursor cloud image.
+  readonly RUSTUP_VERSION=1.28.2
+  readonly RUSTUP_SHA256=20a06e644b0d9bd2fbdbfd52d42540bdde820ea7df86e92e533c073da0cdd43c
+  if [[ "$(uname -m)" != x86_64 ]]; then
+    echo "install.sh requires x86_64 for the pinned rustup download (got $(uname -m))." >&2
+    exit 1
+  fi
+  # rustup-init dispatches on argv[0]: the basename must start with
+  # "rustup-init" or it runs in proxy mode instead of installing.
+  installer_dir="$(mktemp -d)"
+  installer="${installer_dir}/rustup-init"
+  curl --fail --location --silent --show-error --proto '=https' --tlsv1.2 \
+    "https://static.rust-lang.org/rustup/archive/${RUSTUP_VERSION}/x86_64-unknown-linux-gnu/rustup-init" \
+    --output "$installer"
+  printf '%s  %s\n' "$RUSTUP_SHA256" "$installer" | sha256sum --check --status
+  chmod 0755 "$installer"
+  "$installer" -y --no-modify-path --default-toolchain none --profile minimal
+  rm -rf "$installer_dir"
 fi
 # shellcheck source=/dev/null
 source "${HOME}/.cargo/env"
