@@ -138,7 +138,9 @@ def _spikes_match_product(
     """Accept ``spikes`` only at the floor or ceiling of the exact product.
 
     A whole-number product therefore requires an exact match. A fractional
-    product still accepts producers that round, floor, or ceil that check.
+    product still accepts producers that floor or ceil that check; the
+    residual slack is under one spike per fractional check and cannot be
+    tightened without changing that contract.
     """
 
     product = _spike_product(neurons, mean_rate_hz, window_s)
@@ -149,9 +151,9 @@ def _spikes_match_product(
         high = math.ceil(product)
     except (OverflowError, ValueError):
         return False
-    if not (json_integer_is_bounded(low) and json_integer_is_bounded(high)):
+    if not json_integer_is_bounded(low):
         return False
-    return low <= spikes <= high
+    return json_integer_is_bounded(spikes) and low <= spikes <= high
 
 
 def _raster_spike_budget(
