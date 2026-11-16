@@ -140,10 +140,11 @@ class BridgeGateSpikeSlack(unittest.TestCase):
 
     def test_helper_rejects_unbounded_product(self):
         # floor/ceil of a product above the exact-JSON integer bound refuse.
-        huge = Fraction(10**5000)
-        self.assertFalse(_spikes_match_product(1, huge, 1, 1))
-        self.assertFalse(_spikes_match_product(1, 1, huge, 1))
-        self.assertIsNone(_expected_spikes(1, huge, 1))
+        huge_fraction = Fraction(10**5000)
+        self.assertFalse(_spikes_match_product(1, 10**5000, 1, 1))
+        self.assertFalse(_spikes_match_product(1, 1, huge_fraction, 1))
+        self.assertIsNone(_expected_spikes(1, 10**5000, 1))
+        self.assertIsNone(_expected_spikes(1, huge_fraction, 1))
 
     def test_helper_arithmetic_failures_fail_closed(self):
         with mock.patch.object(Fraction, "__mul__", side_effect=OverflowError):
