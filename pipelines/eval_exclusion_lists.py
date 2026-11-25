@@ -200,7 +200,8 @@ def validate_list_document(document: Any, slot: str, sha256: str, where: str) ->
     values = _list_values(body, where)
     if _placeholder_with_entries(status, values):
         raise ExclusionPolicyError(f"{where}: a placeholder list must not carry entries")
-    return ExclusionList(slot, status, *values, sha256)
+    repos, program_ids, task_ids = values
+    return ExclusionList(slot, status, repos, program_ids, task_ids, sha256)
 
 
 def _list_values(body: dict[str, Any], where: str) -> tuple[frozenset[str], ...]:

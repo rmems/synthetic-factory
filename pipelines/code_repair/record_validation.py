@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import re
 import math
-from typing import Any
+from typing import Any, cast
 
 from . import catalog as cat
 from . import records as assembly
@@ -177,7 +177,7 @@ def _recorded_generator_version(record: dict[str, Any]) -> str:
     generator = record.get("generator")
     version = generator.get("version") if isinstance(generator, dict) else None
     _require(isinstance(version, str) and version in cv.REPLAYABLE_GENERATOR_VERSIONS)
-    return version
+    return cast(str, version)
 
 
 def _provenance_shape(provenance: dict, generator_version: str) -> None:
