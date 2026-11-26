@@ -27,6 +27,7 @@ if __package__:
         _raster_energy_field,
         _raster_spike_budget,
         _spike_energy,
+        _spikes_match_product as _numeric_spikes_match_product,
         _valid_routing_entry,
         _validation_state,
     )
@@ -49,6 +50,7 @@ else:
         _raster_energy_field,
         _raster_spike_budget,
         _spike_energy,
+        _spikes_match_product as _numeric_spikes_match_product,
         _valid_routing_entry,
         _validation_state,
     )
@@ -60,6 +62,7 @@ _expected_spikes = _numeric_expected_spikes
 _finite_float = _numeric_finite_float
 _nonnegative_int = _numeric_nonnegative_int
 _positive_int = _numeric_positive_int
+_spikes_match_product = _numeric_spikes_match_product
 
 
 RASTER_WINDOW_MIN_MS = 20
