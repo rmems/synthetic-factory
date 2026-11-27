@@ -98,6 +98,7 @@ class VSetOracleBinderTests(unittest.TestCase):
                 evidence = bind_vset_oracle(record, PACK, oracle_actor=actor)
                 self.assertEqual(evidence["status_supported"], "unbound")
                 self.assertIn(f"conflated with {role}", evidence["reason"])
+        self.assertEqual(evidence["oracle_actor"], actor)
 
     def test_suite_result_hashes_are_deterministic(self) -> None:
         record = self.record()

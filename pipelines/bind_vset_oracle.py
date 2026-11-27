@@ -66,10 +66,16 @@ def _digest_mapping(value: Mapping[str, Any]) -> str:
 
 
 def _valid_suite_item(item: Any) -> str | None:
-    if not isinstance(item, str) or not item.strip():
+    if not isinstance(item, str):
+        return None
+    if not item.strip():
         return None
     path = PurePosixPath(item)
-    if path.is_absolute() or ".." in path.parts or not item.endswith(".py"):
+    if path.is_absolute():
+        return None
+    if ".." in path.parts:
+        return None
+    if not item.endswith(".py"):
         return None
     return path.as_posix()
 
@@ -174,6 +180,8 @@ def _require_patch(
 
 def _role_identity(record: Mapping[str, Any], role: str) -> Mapping[str, Any]:
     actor = record.get(role)
+    if not isinstance(actor, Mapping):
+        raise _Unbound(f"missing or invalid {role} actor identity")
     if not _valid_actor(actor):
         raise _Unbound(f"missing or invalid {role} actor identity")
     return actor
@@ -292,14 +300,16 @@ def _execute_binding(context: _BindingContext) -> dict[str, Any]:
 def _transition_status(evidence: Mapping[str, Any]) -> tuple[str, str | None]:
     p2p = evidence["pass_to_pass"]
     f2p = evidence["fail_to_pass"]
-    if (
-        p2p["before"]["ok"]
-        and p2p["after"]["ok"]
-        and not f2p["before"]["ok"]
-        and f2p["after"]["ok"]
-    ):
-        return "provisional", None
-    return "failed", "F2P/P2P pre/post transition did not satisfy the binder contract"
+    failure = "failed", "F2P/P2P pre/post transition did not satisfy the binder contract"
+    if not p2p["before"]["ok"]:
+        return failure
+    if not p2p["after"]["ok"]:
+        return failure
+    if f2p["before"]["ok"]:
+        return failure
+    if not f2p["after"]["ok"]:
+        return failure
+    return "provisional", None
 
 
 def bind_vset_oracle(
@@ -316,6 +326,8 @@ def bind_vset_oracle(
     """
 
     base: dict[str, Any] = {"schema_version": "oracle_bind_v1", "status_supported": "unbound"}
+    if isinstance(oracle_actor, Mapping):
+        base["oracle_actor"] = dict(oracle_actor)
     try:
         context = _binding_context(record, pack_dir, oracle_actor)
     except _Unbound as refusal:
