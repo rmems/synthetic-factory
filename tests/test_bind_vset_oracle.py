@@ -14,7 +14,7 @@ for _path in (str(_TESTS), str(_PIPELINES)):
         sys.path.insert(0, _path)
 
 import verify_execution
-from bind_vset_oracle import CHILD_ENV, bind_vset_oracle
+from bind_vset_oracle import bind_vset_oracle
 from vset_testutil import ACCEPT, PACK, REJECT, load_record
 
 ACTOR = {"model": "vset-binder", "version": "1", "run_id": "binder-test-1"}
@@ -25,7 +25,7 @@ class VSetOracleBinderTests(unittest.TestCase):
         return load_record(ACCEPT / "issue-patch-validated.json")
 
     def bind(self, record: dict, pack=PACK):
-        return bind_vset_oracle(record, pack, oracle_actor=ACTOR, timeout=10)
+        return bind_vset_oracle(record, pack, oracle_actor=ACTOR)
 
     def test_patch_proves_f2p_and_p2p_pre_and_post(self) -> None:
         record = self.record()
@@ -44,7 +44,7 @@ class VSetOracleBinderTests(unittest.TestCase):
             self.assertTrue(pair["result_hash"].startswith("sha256:"))
             for side in ("before", "after"):
                 self.assertTrue(pair[side]["result_hash"].startswith("sha256:"))
-                self.assertTrue(pair[side]["env_digest"].startswith("sha256:"))
+                self.assertTrue(pair[side]["tests"])
         self.assertEqual(record["oracle"]["status"], "validated")
 
     def test_unpatched_pack_does_not_count_as_f2p(self) -> None:
@@ -58,7 +58,7 @@ class VSetOracleBinderTests(unittest.TestCase):
         self.assertFalse(evidence["fail_to_pass"]["after"]["ok"])
 
     def test_malformed_record_fails_closed(self) -> None:
-        evidence = bind_vset_oracle(None, PACK, oracle_actor=ACTOR, timeout=10)
+        evidence = bind_vset_oracle(None, PACK, oracle_actor=ACTOR)
         self.assertEqual(evidence["status_supported"], "unbound")
         self.assertEqual(evidence["reason"], "record must be an object")
 
@@ -93,15 +93,49 @@ class VSetOracleBinderTests(unittest.TestCase):
                 key: record[role][key] for key in ("model", "version", "run_id")
             }
             with self.subTest(role=role):
-                evidence = bind_vset_oracle(record, PACK, oracle_actor=actor, timeout=10)
+                evidence = bind_vset_oracle(record, PACK, oracle_actor=actor)
                 self.assertEqual(evidence["status_supported"], "unbound")
                 self.assertIn(f"conflated with {role}", evidence["reason"])
 
-    def test_child_environment_is_fixed_and_minimal(self) -> None:
-        self.assertEqual(CHILD_ENV["PYTHONPATH"], "src")
-        self.assertEqual(CHILD_ENV["PYTHONHASHSEED"], "0")
-        self.assertNotIn("HOME", CHILD_ENV)
-        self.assertNotIn("OPENAI_API_KEY", CHILD_ENV)
+    def test_suite_result_hashes_are_deterministic(self) -> None:
+        record = self.record()
+        first = self.bind(record)
+        second = self.bind(record)
+        self.assertEqual(
+            first["pass_to_pass"]["before"]["result_hash"],
+            second["pass_to_pass"]["before"]["result_hash"],
+        )
+        self.assertEqual(
+            first["fail_to_pass"]["after"]["result_hash"],
+            second["fail_to_pass"]["after"]["result_hash"],
+        )
+
+    def test_normalized_run_id_conflation_fails_closed(self) -> None:
+        record = self.record()
+        actor = {
+            "model": "independent-oracle",
+            "version": "1",
+            "run_id": " " + record["solver"]["run_id"] + " ",
+        }
+        evidence = bind_vset_oracle(record, PACK, oracle_actor=actor)
+        self.assertEqual(evidence["status_supported"], "unbound")
+        self.assertIn("conflated with solver", evidence["reason"])
+
+    def test_missing_task_author_or_solver_identity_fails_closed(self) -> None:
+        for role in ("task_author", "solver"):
+            record = self.record()
+            record.pop(role)
+            with self.subTest(role=role):
+                evidence = self.bind(record)
+                self.assertEqual(evidence["status_supported"], "unbound")
+                self.assertIn(f"invalid {role} actor identity", evidence["reason"])
+
+    def test_suite_outside_snapshot_fails_closed(self) -> None:
+        record = self.record()
+        record["oracle"]["hidden_tests"] = ["tasks/test_hidden.py"]
+        evidence = self.bind(record)
+        self.assertEqual(evidence["status_supported"], "unbound")
+        self.assertIn("outside the pinned pack snapshot", evidence["reason"])
 
     def test_vset_record_remains_inconclusive_to_verify_execution(self) -> None:
         status, _reason = verify_execution.verify_record_execution(self.record(), "vset")

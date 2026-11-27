@@ -1,8 +1,10 @@
 """Bind VSET patch evidence to a pinned pack and declared test suites.
 
-This execution surface is deliberately separate from ``validate_vset``'s
-legacy claimed-oracle check. It returns evidence that can support
-``provisional``; it never changes a record or asserts ``validated``.
+This surface delegates suite execution to the reviewed VSET oracle runner:
+unittest grading stays in the parent, candidate code answers calls from an
+isolated child interpreter, and every declared test id must be observed. The
+binder only emits evidence that can support ``provisional``; it never changes
+a record or asserts ``validated``.
 """
 
 from __future__ import annotations
@@ -10,10 +12,8 @@ from __future__ import annotations
 import hashlib
 import json
 import shutil
-import subprocess  # nosec B404
 import sys
 import tempfile
-import time
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
@@ -23,33 +23,20 @@ if __package__:  # pragma: no cover - package-child import path
     from . import _assert_direct_sibling, _expose_package_sibling
 
     _assert_direct_sibling("bind_vset_oracle")
-    from .vset_constants import pack_snapshot_hash
+    from .vset_constants import normalize_identity, pack_snapshot_hash
+    from .vset_oracle_exec import run_oracle
     from .vset_patch import apply_patch, record_patch
 else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
         "bind_vset_oracle"
     )
-    from vset_constants import pack_snapshot_hash
+    from vset_constants import normalize_identity, pack_snapshot_hash
+    from vset_oracle_exec import run_oracle
     from vset_patch import apply_patch, record_patch
-
-
-# Oracle packs are input data, not trusted local code. Their test processes get
-# this fixed environment rather than the operator environment, which can carry
-# credentials or machine-local Python overrides. ``PYTHONPATH`` is relative to
-# the suite subprocess working directory (the copied pack root).
-CHILD_ENV = {
-    "PATH": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
-    "PYTHONPATH": "src",
-    "PYTHONDONTWRITEBYTECODE": "1",
-    "PYTHONHASHSEED": "0",
-    "LC_ALL": "C.UTF-8",
-}
 
 
 @dataclass(frozen=True)
 class _BindingContext:
-    record: Mapping[str, Any]
-    payload: Any
     reference: list[str]
     hidden: list[str]
     pack: Path
@@ -68,11 +55,14 @@ def _hash(value: bytes) -> str:
     return "sha256:" + hashlib.sha256(value).hexdigest()
 
 
-def _env_digest(env: Mapping[str, Any]) -> str:
-    payload = json.dumps(
-        env, ensure_ascii=False, allow_nan=False, sort_keys=True, separators=(",", ":")
+def _canonical(value: Any) -> str:
+    return json.dumps(
+        value, ensure_ascii=False, allow_nan=False, sort_keys=True, separators=(",", ":")
     )
-    return _hash(payload.encode("utf-8"))
+
+
+def _digest_mapping(value: Mapping[str, Any]) -> str:
+    return _hash(_canonical(value).encode("utf-8"))
 
 
 def _valid_suite_item(item: Any) -> str | None:
@@ -93,73 +83,17 @@ def _declared_suites(value: Any) -> list[str] | None:
     return [item for item in result if item is not None]
 
 
-def _decode_output(value: str | bytes | None) -> str:
-    if isinstance(value, bytes):
-        return value.decode("utf-8", "replace")
-    return value or ""
+def _snapshot_covered(relative: str) -> bool:
+    parts = PurePosixPath(relative).parts
+    return bool(parts) and parts[0] not in {"tasks", "PACK.json"}
 
 
-def _clean_output(work: Path, value: str) -> str:
-    # Temporary-copy paths are process noise. Normalizing them keeps the suite
-    # result hash stable for the same pack, patch, code, and interpreter.
-    return value.replace(str(work), "<pack>")
-
-
-def _completed_suite(completed: subprocess.CompletedProcess[str], work: Path) -> dict[str, Any]:
-    return {
-        "exit_code": completed.returncode,
-        "timed_out": False,
-        "stdout": _clean_output(work, completed.stdout),
-        "stderr": _clean_output(work, completed.stderr),
-    }
-
-
-def _timed_out_suite(exc: subprocess.TimeoutExpired, work: Path) -> dict[str, Any]:
-    return {
-        "exit_code": None,
-        "timed_out": True,
-        "stdout": _clean_output(work, _decode_output(exc.stdout)),
-        "stderr": _clean_output(work, _decode_output(exc.stderr)),
-    }
-
-
-def _run_suite_process(work: Path, modules: list[str], timeout: float) -> dict[str, Any]:
-    argv = [sys.executable, "-m", "unittest", *modules]
-    try:
-        completed = subprocess.run(  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit.dangerous-subprocess-use-audit  # nosec B603
-            argv,
-            cwd=work,
-            env=dict(CHILD_ENV),
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-            check=False,
+def _require_snapshot_coverage(suites: list[str], snapshot: str) -> None:
+    if any(not _snapshot_covered(relative) for relative in suites):
+        raise _Unbound(
+            "declared suite is outside the pinned pack snapshot",
+            pack_snapshot_hash=snapshot,
         )
-        outcome = _completed_suite(completed, work)
-    except subprocess.TimeoutExpired as exc:
-        outcome = _timed_out_suite(exc, work)
-    outcome["command"] = argv
-    return outcome
-
-
-def _suite_result(work: Path, suites: list[str], timeout: float) -> dict[str, Any]:
-    modules = [path[:-3].replace("/", ".") for path in suites]
-    started = time.monotonic()
-    outcome = _run_suite_process(work, modules, timeout)
-    command = outcome.pop("command")
-    combined = json.dumps(
-        {"command": command, **outcome},
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(",", ":"),
-    ).encode("utf-8")
-    return {
-        "ok": outcome["exit_code"] == 0 and not outcome["timed_out"],
-        **outcome,
-        "duration_seconds": round(time.monotonic() - started, 6),
-        "result_hash": _hash(combined),
-        "env_digest": _env_digest(CHILD_ENV),
-    }
 
 
 def _tree_hash(root: Path) -> str:
@@ -173,30 +107,18 @@ def _tree_hash(root: Path) -> str:
     return _hash("\n".join(rows).encode("utf-8"))
 
 
-def _actor_identity(actor: Mapping[str, Any]) -> tuple[Any, Any, Any]:
-    return tuple(actor.get(key) for key in ("model", "version", "run_id"))
+def _actor_token(actor: Mapping[str, Any], key: str) -> str:
+    return normalize_identity(actor.get(key))
 
 
-def _conflated_role(record: Mapping[str, Any], oracle_actor: Mapping[str, str]) -> str | None:
-    identity = _actor_identity(oracle_actor)
-    for role in ("task_author", "solver"):
-        other = record.get(role)
-        if isinstance(other, Mapping) and _actor_identity(other) == identity:
-            return role
-    return None
-
-
-def _suite_pair_result_hash(before: Mapping[str, Any], after: Mapping[str, Any]) -> str:
-    pair = before["result_hash"] + after["result_hash"]
-    return _hash(pair.encode("utf-8"))
+def _valid_actor(actor: Any) -> bool:
+    return isinstance(actor, Mapping) and all(
+        _actor_token(actor, key) for key in ("model", "version", "run_id")
+    )
 
 
 def _require_actor(oracle_actor: Any) -> None:
-    valid = isinstance(oracle_actor, Mapping) and all(
-        isinstance(oracle_actor.get(key), str) and oracle_actor[key].strip()
-        for key in ("model", "version", "run_id")
-    )
-    if not valid:
+    if not _valid_actor(oracle_actor):
         raise _Unbound("invalid oracle actor identity")
 
 
@@ -246,10 +168,31 @@ def _require_patch(
     return patch
 
 
+def _role_identity(record: Mapping[str, Any], role: str) -> Mapping[str, Any]:
+    actor = record.get(role)
+    if not _valid_actor(actor):
+        raise _Unbound(f"missing or invalid {role} actor identity")
+    return actor
+
+
+def _conflated_role(record: Mapping[str, Any], oracle_actor: Mapping[str, str]) -> str | None:
+    oracle_run = _actor_token(oracle_actor, "run_id")
+    oracle_key = tuple(_actor_token(oracle_actor, key) for key in ("model", "version", "run_id"))
+    for role in ("task_author", "solver"):
+        other = _role_identity(record, role)
+        other_key = tuple(_actor_token(other, key) for key in ("model", "version", "run_id"))
+        if oracle_run == _actor_token(other, "run_id") or oracle_key == other_key:
+            return role
+    return None
+
+
 def _require_executable_task(
     record: Mapping[str, Any], payload: Any, oracle_actor: Mapping[str, str], snapshot: str
 ) -> None:
-    conflated = _conflated_role(record, oracle_actor)
+    try:
+        conflated = _conflated_role(record, oracle_actor)
+    except _Unbound as exc:
+        raise _Unbound(exc.reason, pack_snapshot_hash=snapshot) from exc
     if conflated is not None:
         raise _Unbound(
             f"oracle actor identity is conflated with {conflated}",
@@ -267,31 +210,46 @@ def _binding_context(
     reference, hidden = _require_declared_suites(oracle)
     pack, snapshot = _require_pack(pack_dir, env)
     declared = set(reference + hidden)
+    _require_snapshot_coverage(reference + hidden, snapshot)
     patch = _require_patch(record_map, pack, declared, snapshot)
     _require_executable_task(record_map, payload, oracle_actor, snapshot)
-    return _BindingContext(record_map, payload, reference, hidden, pack, snapshot, patch)
+    return _BindingContext(reference, hidden, pack, snapshot, patch)
 
 
-def _copy_pack_trees(root: Path, pack: Path, snapshot: str) -> tuple[Path, Path]:
-    before_tree = root / "before"
-    after_tree = root / "after"
-    shutil.copytree(pack, before_tree)
-    shutil.copytree(pack, after_tree)
-    copied = (pack_snapshot_hash(before_tree), pack_snapshot_hash(after_tree))
-    if copied != (snapshot, snapshot):
-        raise _Unbound("copied pack snapshot mismatch", pack_snapshot_hash=snapshot)
-    return before_tree, after_tree
+def _patched_tree_hash(context: _BindingContext) -> str:
+    with tempfile.TemporaryDirectory(prefix="vset-bind-tree-") as tmp:
+        patched = Path(tmp) / "pack"
+        shutil.copytree(context.pack, patched)
+        apply_patch(
+            patched,
+            context.patch,
+            protected=set(context.reference + context.hidden),
+        )
+        return _tree_hash(patched)
 
 
-def _oracle_environment_digest() -> str:
-    return _env_digest(
-        {
-            "python": sys.executable,
-            "version": sys.version,
-            "platform": sys.platform,
-            "child": CHILD_ENV,
-        }
+def _reference_result(
+    pack: Path, suites: list[str], patch: Mapping[str, Any] | None
+) -> dict[str, Any]:
+    execution = run_oracle(pack, patch=patch, reference_tests=suites, hidden_suite=None)
+    return dict(execution["reference"])
+
+
+def _hidden_result(
+    pack: Path, suites: list[str], patch: Mapping[str, Any] | None
+) -> dict[str, Any]:
+    execution = run_oracle(
+        pack,
+        patch=patch,
+        reference_tests=[],
+        hidden_suite={"tests": suites},
     )
+    return dict(execution["hidden"])
+
+
+def _suite_pair_result_hash(before: Mapping[str, Any], after: Mapping[str, Any]) -> str:
+    pair = before["result_hash"] + after["result_hash"]
+    return _hash(pair.encode("utf-8"))
 
 
 def _suite_pair(before: dict[str, Any], after: dict[str, Any]) -> dict[str, Any]:
@@ -302,27 +260,32 @@ def _suite_pair(before: dict[str, Any], after: dict[str, Any]) -> dict[str, Any]
     }
 
 
-def _execute_binding(context: _BindingContext, timeout: float) -> dict[str, Any]:
-    with tempfile.TemporaryDirectory(prefix="vset-bind-") as tmp:
-        before_tree, after_tree = _copy_pack_trees(Path(tmp), context.pack, context.snapshot)
-        before_p2p = _suite_result(before_tree, context.reference, timeout)
-        before_f2p = _suite_result(before_tree, context.hidden, timeout)
-        apply_patch(after_tree, context.patch, protected=set(context.reference + context.hidden))
-        after_p2p = _suite_result(after_tree, context.reference, timeout)
-        after_f2p = _suite_result(after_tree, context.hidden, timeout)
-        return {
-            "patched_tree_hash": _tree_hash(after_tree),
-            "env_digest": _oracle_environment_digest(),
-            "pass_to_pass": _suite_pair(before_p2p, after_p2p),
-            "fail_to_pass": _suite_pair(before_f2p, after_f2p),
+def _oracle_environment_digest() -> str:
+    return _digest_mapping(
+        {
+            "python": sys.executable,
+            "version": sys.version,
+            "platform": sys.platform,
+            "runner": "vset_oracle_exec.run_oracle",
+            "candidate_execution": "isolated child interpreter",
         }
+    )
+
+
+def _execute_binding(context: _BindingContext) -> dict[str, Any]:
+    before_p2p = _reference_result(context.pack, context.reference, None)
+    before_f2p = _hidden_result(context.pack, context.hidden, None)
+    after_p2p = _reference_result(context.pack, context.reference, context.patch)
+    after_f2p = _hidden_result(context.pack, context.hidden, context.patch)
+    return {
+        "patched_tree_hash": _patched_tree_hash(context),
+        "env_digest": _oracle_environment_digest(),
+        "pass_to_pass": _suite_pair(before_p2p, after_p2p),
+        "fail_to_pass": _suite_pair(before_f2p, after_f2p),
+    }
 
 
 def _transition_status(evidence: Mapping[str, Any]) -> tuple[str, str | None]:
-    pairs = (evidence["pass_to_pass"], evidence["fail_to_pass"])
-    runs = [pair[side] for pair in pairs for side in ("before", "after")]
-    if any(run["timed_out"] for run in runs):
-        return "unbound", "declared suite execution timed out"
     p2p = evidence["pass_to_pass"]
     f2p = evidence["fail_to_pass"]
     if (
@@ -340,12 +303,12 @@ def bind_vset_oracle(
     pack_dir: Path | str | None,
     *,
     oracle_actor: Mapping[str, str],
-    timeout: float = 30.0,
 ) -> dict[str, Any]:
     """Run declared suites before and after the record patch, failing closed.
 
-    The binder only reads pack content and record patch/suite declarations. In
-    particular it never consults ``solver.outcome`` or any solver-upgrade flag.
+    The reviewed oracle runner enforces its own fixed child-interpreter
+    timeout; this binder never consults ``solver.outcome`` or any
+    solver-upgrade flag.
     """
 
     base: dict[str, Any] = {"schema_version": "oracle_bind_v1", "status_supported": "unbound"}
@@ -358,7 +321,7 @@ def bind_vset_oracle(
 
     base.update(pack_snapshot_hash=context.snapshot, oracle_actor=dict(oracle_actor))
     try:
-        evidence = _execute_binding(context, timeout)
+        evidence = _execute_binding(context)
     except (OSError, ValueError, TypeError, KeyError, RuntimeError, _Unbound) as exc:
         base["reason"] = f"cannot execute or apply patch: {exc}"
         return base
@@ -375,4 +338,4 @@ if __package__:  # pragma: no cover - package-child import path
     _expose_package_sibling(__name__)
 
 
-__all__ = ["CHILD_ENV", "bind_vset_oracle"]
+__all__ = ["bind_vset_oracle"]
