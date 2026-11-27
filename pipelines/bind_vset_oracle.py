@@ -17,7 +17,7 @@ import tempfile
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
-from typing import Any
+from typing import Any, cast
 
 if __package__:  # pragma: no cover - package-child import path
     from . import _assert_direct_sibling, _expose_package_sibling
@@ -66,17 +66,22 @@ def _digest_mapping(value: Mapping[str, Any]) -> str:
     return _hash(_canonical(value).encode("utf-8"))
 
 
+def _require(condition: object, reason: str, **fields: Any) -> None:
+    if not condition:
+        raise _Unbound(reason, **fields)
+
+
 def _valid_suite_item(item: Any) -> str | None:
     if not isinstance(item, str):
         return None
-    if not item.strip():
-        return None
     path = PurePosixPath(item)
-    if path.is_absolute():
-        return None
-    if ".." in path.parts:
-        return None
-    if not item.endswith(".py"):
+    checks = (
+        bool(item.strip()),
+        not path.is_absolute(),
+        ".." not in path.parts,
+        item.endswith(".py"),
+    )
+    if not all(checks):
         return None
     return path.as_posix()
 
@@ -133,68 +138,64 @@ def _valid_actor(actor: Any) -> bool:
 
 
 def _require_actor(oracle_actor: Any) -> None:
-    if not _valid_actor(oracle_actor):
-        raise _Unbound("invalid oracle actor identity")
+    _require(_valid_actor(oracle_actor), "invalid oracle actor identity")
 
 
 def _record_envelopes(
     record: Any,
 ) -> tuple[Mapping[str, Any], Mapping[str, Any], Mapping[str, Any], Any]:
-    if not isinstance(record, Mapping):
-        raise _Unbound("record must be an object")
+    _require(isinstance(record, Mapping), "record must be an object")
     oracle = record.get("oracle")
     env = record.get("environment")
-    if not isinstance(oracle, Mapping):
-        raise _Unbound("missing oracle or environment envelope")
-    if not isinstance(env, Mapping):
-        raise _Unbound("missing oracle or environment envelope")
-    if oracle.get("status") == "invalid":
-        raise _Unbound("invalid records are not executed")
+    _require(isinstance(oracle, Mapping), "missing oracle or environment envelope")
+    _require(isinstance(env, Mapping), "missing oracle or environment envelope")
+    _require(oracle.get("status") != "invalid", "invalid records are not executed")
     return record, oracle, env, record.get("payload")
 
 
 def _require_declared_suites(oracle: Mapping[str, Any]) -> tuple[list[str], list[str]]:
     reference = _declared_suites(oracle.get("reference_tests"))
     hidden = _declared_suites(oracle.get("hidden_tests"))
-    if reference is None:
-        raise _Unbound("explicit reference_tests and hidden_tests are required")
-    if hidden is None:
-        raise _Unbound("explicit reference_tests and hidden_tests are required")
-    return reference, hidden
+    _require(reference is not None, "explicit reference_tests and hidden_tests are required")
+    _require(hidden is not None, "explicit reference_tests and hidden_tests are required")
+    return cast(list[str], reference), cast(list[str], hidden)
 
 
 def _require_pack(pack_dir: Path | str | None, env: Mapping[str, Any]) -> tuple[Path, str]:
-    if pack_dir is None:
-        raise _Unbound("repo pack is missing")
-    if not Path(pack_dir).is_dir():
-        raise _Unbound("repo pack is missing")
-    pack = Path(pack_dir).resolve()
+    _require(pack_dir is not None, "repo pack is missing")
+    pack_input = cast(Path | str, pack_dir)
+    _require(Path(pack_input).is_dir(), "repo pack is missing")
+    pack = Path(pack_input).resolve()
     try:
         snapshot = pack_snapshot_hash(pack)
     except (OSError, ValueError) as exc:
         raise _Unbound("repo pack snapshot cannot be read") from exc
-    if env.get("repo_snapshot_hash") != snapshot:
-        raise _Unbound("repo snapshot hash mismatch", pack_snapshot_hash=snapshot)
+    _require(
+        env.get("repo_snapshot_hash") == snapshot,
+        "repo snapshot hash mismatch",
+        pack_snapshot_hash=snapshot,
+    )
     return pack, snapshot
 
 
 def _require_patch(
     record: Mapping[str, Any], pack: Path, declared: set[str], snapshot: str
 ) -> Mapping[str, Any]:
-    if any(not (pack / relative).is_file() for relative in declared):
-        raise _Unbound("declared suite is missing from pack", pack_snapshot_hash=snapshot)
+    _require(
+        all((pack / relative).is_file() for relative in declared),
+        "declared suite is missing from pack",
+        pack_snapshot_hash=snapshot,
+    )
     patch = record_patch(record)
-    if not isinstance(patch, Mapping):
-        raise _Unbound("record patch is missing", pack_snapshot_hash=snapshot)
+    _require(isinstance(patch, Mapping), "record patch is missing", pack_snapshot_hash=snapshot)
     return patch
 
 
 def _role_identity(record: Mapping[str, Any], role: str) -> Mapping[str, Any]:
     actor = record.get(role)
-    if not isinstance(actor, Mapping):
-        raise _Unbound(f"missing or invalid {role} actor identity")
-    if not _valid_actor(actor):
-        raise _Unbound(f"missing or invalid {role} actor identity")
+    reason = f"missing or invalid {role} actor identity"
+    _require(isinstance(actor, Mapping), reason)
+    _require(_valid_actor(actor), reason)
     return actor
 
 
