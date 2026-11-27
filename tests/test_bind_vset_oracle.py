@@ -81,6 +81,13 @@ class VSetOracleBinderTests(unittest.TestCase):
         self.assertNotIn("validated", evidence.values())
         self.assertEqual(record["oracle"]["status"], "validated")
 
+    def test_review_remediation_baseline_uses_initial_patch(self) -> None:
+        record = load_record(ACCEPT / "review-remediation-validated.json")
+        record["payload"]["initial_patch"] = copy.deepcopy(record["payload"]["revised_patch"])
+        evidence = self.bind(record)
+        self.assertEqual(evidence["status_supported"], "failed")
+        self.assertTrue(evidence["fail_to_pass"]["before"]["ok"])
+
     def test_invalid_impossible_is_not_executed(self) -> None:
         record = load_record(ACCEPT / "invalid-impossible.json")
         evidence = self.bind(record)

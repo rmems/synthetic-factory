@@ -25,14 +25,14 @@ if __package__:  # pragma: no cover - package-child import path
     _assert_direct_sibling("bind_vset_oracle")
     from .vset_constants import normalize_identity, pack_snapshot_hash
     from .vset_oracle_exec import run_oracle
-    from .vset_patch import apply_patch, record_patch
+    from .vset_patch import apply_patch, pre_patches, record_patch
 else:
     getattr(sys.modules.get("pipelines"), "_join_package_sibling", lambda name: None)(
         "bind_vset_oracle"
     )
     from vset_constants import normalize_identity, pack_snapshot_hash
     from vset_oracle_exec import run_oracle
-    from vset_patch import apply_patch, record_patch
+    from vset_patch import apply_patch, pre_patches, record_patch
 
 
 @dataclass(frozen=True)
@@ -42,6 +42,7 @@ class _BindingContext:
     pack: Path
     snapshot: str
     patch: Mapping[str, Any]
+    pre_patch: Mapping[str, Any] | None
 
 
 class _Unbound(Exception):
@@ -239,7 +240,9 @@ def _binding_context(
     _require_snapshot_coverage(reference + hidden, snapshot)
     patch = _require_patch(record_map, pack, declared, snapshot)
     _require_executable_task(record_map, payload, oracle_actor, snapshot)
-    return _BindingContext(reference, hidden, pack, snapshot, patch)
+    initial = pre_patches(record_map)
+    pre_patch = initial[0] if initial else None
+    return _BindingContext(reference, hidden, pack, snapshot, patch, pre_patch)
 
 
 def _patched_tree_hash(context: _BindingContext) -> str:
@@ -299,8 +302,8 @@ def _oracle_environment_digest() -> str:
 
 
 def _execute_binding(context: _BindingContext) -> dict[str, Any]:
-    before_p2p = _reference_result(context.pack, context.reference, None)
-    before_f2p = _hidden_result(context.pack, context.hidden, None)
+    before_p2p = _reference_result(context.pack, context.reference, context.pre_patch)
+    before_f2p = _hidden_result(context.pack, context.hidden, context.pre_patch)
     after_p2p = _reference_result(context.pack, context.reference, context.patch)
     after_f2p = _hidden_result(context.pack, context.hidden, context.patch)
     return {
