@@ -85,7 +85,11 @@ def _declared_suites(value: Any) -> list[str] | None:
 
 def _snapshot_covered(relative: str) -> bool:
     parts = PurePosixPath(relative).parts
-    return bool(parts) and parts[0] not in {"tasks", "PACK.json"}
+    return (
+        bool(parts)
+        and parts[0] not in {"tasks", "PACK.json"}
+        and "__pycache__" not in parts
+    )
 
 
 def _require_snapshot_coverage(suites: list[str], snapshot: str) -> None:

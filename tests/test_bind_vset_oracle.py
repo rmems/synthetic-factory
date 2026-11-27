@@ -134,7 +134,7 @@ class VSetOracleBinderTests(unittest.TestCase):
 
     def test_suite_outside_snapshot_fails_closed(self) -> None:
         record = self.record()
-        record["oracle"]["hidden_tests"] = ["tasks/test_hidden.py"]
+        record["oracle"]["hidden_tests"] = ["__pycache__/test_hidden.py"]
         evidence = self.bind(record)
         self.assertEqual(evidence["status_supported"], "unbound")
         self.assertIn("outside the pinned pack snapshot", evidence["reason"])
