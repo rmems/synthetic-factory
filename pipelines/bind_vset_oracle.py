@@ -81,7 +81,9 @@ def _valid_suite_item(item: Any) -> str | None:
 
 
 def _declared_suites(value: Any) -> list[str] | None:
-    if not isinstance(value, list) or not value:
+    if not isinstance(value, list):
+        return None
+    if not value:
         return None
     result = [_valid_suite_item(item) for item in value]
     if any(item is None for item in result):
@@ -91,11 +93,11 @@ def _declared_suites(value: Any) -> list[str] | None:
 
 def _snapshot_covered(relative: str) -> bool:
     parts = PurePosixPath(relative).parts
-    return (
-        bool(parts)
-        and parts[0] not in {"tasks", "PACK.json"}
-        and "__pycache__" not in parts
-    )
+    if not parts:
+        return False
+    if parts[0] in {"tasks", "PACK.json"}:
+        return False
+    return "__pycache__" not in parts
 
 
 def _require_snapshot_coverage(suites: list[str], snapshot: str) -> None:
@@ -111,7 +113,9 @@ def _tree_hash(root: Path) -> str:
     for path in sorted(root.rglob("*")):
         if not path.is_file():
             continue
-        if "__pycache__" in path.parts or path.suffix in {".pyc", ".pyo"}:
+        if "__pycache__" in path.parts:
+            continue
+        if path.suffix in {".pyc", ".pyo"}:
             continue
         rows.append(f"{path.relative_to(root).as_posix()}:{_hash(path.read_bytes())}")
     return _hash("\n".join(rows).encode("utf-8"))
@@ -122,9 +126,9 @@ def _actor_token(actor: Mapping[str, Any], key: str) -> str:
 
 
 def _valid_actor(actor: Any) -> bool:
-    return isinstance(actor, Mapping) and all(
-        _actor_token(actor, key) for key in ("model", "version", "run_id")
-    )
+    if not isinstance(actor, Mapping):
+        return False
+    return all(_actor_token(actor, key) for key in ("model", "version", "run_id"))
 
 
 def _require_actor(oracle_actor: Any) -> None:
@@ -139,7 +143,9 @@ def _record_envelopes(
         raise _Unbound("record must be an object")
     oracle = record.get("oracle")
     env = record.get("environment")
-    if not isinstance(oracle, Mapping) or not isinstance(env, Mapping):
+    if not isinstance(oracle, Mapping):
+        raise _Unbound("missing oracle or environment envelope")
+    if not isinstance(env, Mapping):
         raise _Unbound("missing oracle or environment envelope")
     if oracle.get("status") == "invalid":
         raise _Unbound("invalid records are not executed")
@@ -149,13 +155,17 @@ def _record_envelopes(
 def _require_declared_suites(oracle: Mapping[str, Any]) -> tuple[list[str], list[str]]:
     reference = _declared_suites(oracle.get("reference_tests"))
     hidden = _declared_suites(oracle.get("hidden_tests"))
-    if reference is None or hidden is None:
+    if reference is None:
+        raise _Unbound("explicit reference_tests and hidden_tests are required")
+    if hidden is None:
         raise _Unbound("explicit reference_tests and hidden_tests are required")
     return reference, hidden
 
 
 def _require_pack(pack_dir: Path | str | None, env: Mapping[str, Any]) -> tuple[Path, str]:
-    if pack_dir is None or not Path(pack_dir).is_dir():
+    if pack_dir is None:
+        raise _Unbound("repo pack is missing")
+    if not Path(pack_dir).is_dir():
         raise _Unbound("repo pack is missing")
     pack = Path(pack_dir).resolve()
     try:
@@ -193,7 +203,9 @@ def _conflated_role(record: Mapping[str, Any], oracle_actor: Mapping[str, str]) 
     for role in ("task_author", "solver"):
         other = _role_identity(record, role)
         other_key = tuple(_actor_token(other, key) for key in ("model", "version", "run_id"))
-        if oracle_run == _actor_token(other, "run_id") or oracle_key == other_key:
+        if oracle_run == _actor_token(other, "run_id"):
+            return role
+        if oracle_key == other_key:
             return role
     return None
 
@@ -210,7 +222,9 @@ def _require_executable_task(
             f"oracle actor identity is conflated with {conflated}",
             pack_snapshot_hash=snapshot,
         )
-    if isinstance(payload, Mapping) and payload.get("outcome") == "impossible":
+    if not isinstance(payload, Mapping):
+        return
+    if payload.get("outcome") == "impossible":
         raise _Unbound("impossible task is not executed", pack_snapshot_hash=snapshot)
 
 
