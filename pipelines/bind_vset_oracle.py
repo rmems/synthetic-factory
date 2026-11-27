@@ -15,6 +15,7 @@ import sys
 import tempfile
 import time
 from collections.abc import Mapping
+from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any
 
@@ -45,6 +46,24 @@ CHILD_ENV = {
 }
 
 
+@dataclass(frozen=True)
+class _BindingContext:
+    record: Mapping[str, Any]
+    payload: Any
+    reference: list[str]
+    hidden: list[str]
+    pack: Path
+    snapshot: str
+    patch: Mapping[str, Any]
+
+
+class _Unbound(Exception):
+    def __init__(self, reason: str, **fields: Any) -> None:
+        super().__init__(reason)
+        self.reason = reason
+        self.fields = fields
+
+
 def _hash(value: bytes) -> str:
     return "sha256:" + hashlib.sha256(value).hexdigest()
 
@@ -56,18 +75,22 @@ def _env_digest(env: Mapping[str, Any]) -> str:
     return _hash(payload.encode("utf-8"))
 
 
+def _valid_suite_item(item: Any) -> str | None:
+    if not isinstance(item, str) or not item.strip():
+        return None
+    path = PurePosixPath(item)
+    if path.is_absolute() or ".." in path.parts or not item.endswith(".py"):
+        return None
+    return path.as_posix()
+
+
 def _declared_suites(value: Any) -> list[str] | None:
     if not isinstance(value, list) or not value:
         return None
-    result: list[str] = []
-    for item in value:
-        if not isinstance(item, str) or not item.strip():
-            return None
-        path = PurePosixPath(item)
-        if path.is_absolute() or ".." in path.parts or not item.endswith(".py"):
-            return None
-        result.append(path.as_posix())
-    return result
+    result = [_valid_suite_item(item) for item in value]
+    if any(item is None for item in result):
+        return None
+    return [item for item in result if item is not None]
 
 
 def _decode_output(value: str | bytes | None) -> str:
@@ -82,13 +105,29 @@ def _clean_output(work: Path, value: str) -> str:
     return value.replace(str(work), "<pack>")
 
 
-def _suite_result(work: Path, suites: list[str], timeout: float) -> dict[str, Any]:
-    modules = [path[:-3].replace("/", ".") for path in suites]
-    command = [sys.executable, "-m", "unittest", *modules]
-    started = time.monotonic()
+def _completed_suite(completed: subprocess.CompletedProcess[str], work: Path) -> dict[str, Any]:
+    return {
+        "exit_code": completed.returncode,
+        "timed_out": False,
+        "stdout": _clean_output(work, completed.stdout),
+        "stderr": _clean_output(work, completed.stderr),
+    }
+
+
+def _timed_out_suite(exc: subprocess.TimeoutExpired, work: Path) -> dict[str, Any]:
+    return {
+        "exit_code": None,
+        "timed_out": True,
+        "stdout": _clean_output(work, _decode_output(exc.stdout)),
+        "stderr": _clean_output(work, _decode_output(exc.stderr)),
+    }
+
+
+def _run_suite_process(work: Path, modules: list[str], timeout: float) -> dict[str, Any]:
+    argv = [sys.executable, "-m", "unittest", *modules]
     try:
-        completed = subprocess.run(  # nosec B603 - fixed interpreter/module argv, no shell
-            command,
+        completed = subprocess.run(  # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-audit.dangerous-subprocess-use-audit  # nosec B603
+            argv,
             cwd=work,
             env=dict(CHILD_ENV),
             capture_output=True,
@@ -96,33 +135,27 @@ def _suite_result(work: Path, suites: list[str], timeout: float) -> dict[str, An
             timeout=timeout,
             check=False,
         )
-        stdout = _clean_output(work, completed.stdout)
-        stderr = _clean_output(work, completed.stderr)
-        exit_code = completed.returncode
-        timed_out = False
+        outcome = _completed_suite(completed, work)
     except subprocess.TimeoutExpired as exc:
-        stdout = _clean_output(work, _decode_output(exc.stdout))
-        stderr = _clean_output(work, _decode_output(exc.stderr))
-        exit_code = None
-        timed_out = True
+        outcome = _timed_out_suite(exc, work)
+    outcome["command"] = argv
+    return outcome
+
+
+def _suite_result(work: Path, suites: list[str], timeout: float) -> dict[str, Any]:
+    modules = [path[:-3].replace("/", ".") for path in suites]
+    started = time.monotonic()
+    outcome = _run_suite_process(work, modules, timeout)
+    command = outcome.pop("command")
     combined = json.dumps(
-        {
-            "command": command,
-            "exit_code": exit_code,
-            "timed_out": timed_out,
-            "stdout": stdout,
-            "stderr": stderr,
-        },
+        {"command": command, **outcome},
         ensure_ascii=False,
         sort_keys=True,
         separators=(",", ":"),
     ).encode("utf-8")
     return {
-        "ok": exit_code == 0 and not timed_out,
-        "exit_code": exit_code,
-        "timed_out": timed_out,
-        "stdout": stdout,
-        "stderr": stderr,
+        "ok": outcome["exit_code"] == 0 and not outcome["timed_out"],
+        **outcome,
         "duration_seconds": round(time.monotonic() - started, 6),
         "result_hash": _hash(combined),
         "env_digest": _env_digest(CHILD_ENV),
@@ -158,6 +191,150 @@ def _suite_pair_result_hash(before: Mapping[str, Any], after: Mapping[str, Any])
     return _hash(pair.encode("utf-8"))
 
 
+def _require_actor(oracle_actor: Any) -> None:
+    valid = isinstance(oracle_actor, Mapping) and all(
+        isinstance(oracle_actor.get(key), str) and oracle_actor[key].strip()
+        for key in ("model", "version", "run_id")
+    )
+    if not valid:
+        raise _Unbound("invalid oracle actor identity")
+
+
+def _record_envelopes(
+    record: Any,
+) -> tuple[Mapping[str, Any], Mapping[str, Any], Mapping[str, Any], Any]:
+    if not isinstance(record, Mapping):
+        raise _Unbound("record must be an object")
+    oracle = record.get("oracle")
+    env = record.get("environment")
+    if not isinstance(oracle, Mapping) or not isinstance(env, Mapping):
+        raise _Unbound("missing oracle or environment envelope")
+    if oracle.get("status") == "invalid":
+        raise _Unbound("invalid records are not executed")
+    return record, oracle, env, record.get("payload")
+
+
+def _require_declared_suites(oracle: Mapping[str, Any]) -> tuple[list[str], list[str]]:
+    reference = _declared_suites(oracle.get("reference_tests"))
+    hidden = _declared_suites(oracle.get("hidden_tests"))
+    if reference is None or hidden is None:
+        raise _Unbound("explicit reference_tests and hidden_tests are required")
+    return reference, hidden
+
+
+def _require_pack(pack_dir: Path | str | None, env: Mapping[str, Any]) -> tuple[Path, str]:
+    if pack_dir is None or not Path(pack_dir).is_dir():
+        raise _Unbound("repo pack is missing")
+    pack = Path(pack_dir).resolve()
+    try:
+        snapshot = pack_snapshot_hash(pack)
+    except (OSError, ValueError) as exc:
+        raise _Unbound("repo pack snapshot cannot be read") from exc
+    if env.get("repo_snapshot_hash") != snapshot:
+        raise _Unbound("repo snapshot hash mismatch", pack_snapshot_hash=snapshot)
+    return pack, snapshot
+
+
+def _require_patch(
+    record: Mapping[str, Any], pack: Path, declared: set[str], snapshot: str
+) -> Mapping[str, Any]:
+    if any(not (pack / relative).is_file() for relative in declared):
+        raise _Unbound("declared suite is missing from pack", pack_snapshot_hash=snapshot)
+    patch = record_patch(record)
+    if not isinstance(patch, Mapping):
+        raise _Unbound("record patch is missing", pack_snapshot_hash=snapshot)
+    return patch
+
+
+def _require_executable_task(
+    record: Mapping[str, Any], payload: Any, oracle_actor: Mapping[str, str], snapshot: str
+) -> None:
+    conflated = _conflated_role(record, oracle_actor)
+    if conflated is not None:
+        raise _Unbound(
+            f"oracle actor identity is conflated with {conflated}",
+            pack_snapshot_hash=snapshot,
+        )
+    if isinstance(payload, Mapping) and payload.get("outcome") == "impossible":
+        raise _Unbound("impossible task is not executed", pack_snapshot_hash=snapshot)
+
+
+def _binding_context(
+    record: Any, pack_dir: Path | str | None, oracle_actor: Mapping[str, str]
+) -> _BindingContext:
+    _require_actor(oracle_actor)
+    record_map, oracle, env, payload = _record_envelopes(record)
+    reference, hidden = _require_declared_suites(oracle)
+    pack, snapshot = _require_pack(pack_dir, env)
+    declared = set(reference + hidden)
+    patch = _require_patch(record_map, pack, declared, snapshot)
+    _require_executable_task(record_map, payload, oracle_actor, snapshot)
+    return _BindingContext(record_map, payload, reference, hidden, pack, snapshot, patch)
+
+
+def _copy_pack_trees(root: Path, pack: Path, snapshot: str) -> tuple[Path, Path]:
+    before_tree = root / "before"
+    after_tree = root / "after"
+    shutil.copytree(pack, before_tree)
+    shutil.copytree(pack, after_tree)
+    copied = (pack_snapshot_hash(before_tree), pack_snapshot_hash(after_tree))
+    if copied != (snapshot, snapshot):
+        raise _Unbound("copied pack snapshot mismatch", pack_snapshot_hash=snapshot)
+    return before_tree, after_tree
+
+
+def _oracle_environment_digest() -> str:
+    return _env_digest(
+        {
+            "python": sys.executable,
+            "version": sys.version,
+            "platform": sys.platform,
+            "child": CHILD_ENV,
+        }
+    )
+
+
+def _suite_pair(before: dict[str, Any], after: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "before": before,
+        "after": after,
+        "result_hash": _suite_pair_result_hash(before, after),
+    }
+
+
+def _execute_binding(context: _BindingContext, timeout: float) -> dict[str, Any]:
+    with tempfile.TemporaryDirectory(prefix="vset-bind-") as tmp:
+        before_tree, after_tree = _copy_pack_trees(Path(tmp), context.pack, context.snapshot)
+        before_p2p = _suite_result(before_tree, context.reference, timeout)
+        before_f2p = _suite_result(before_tree, context.hidden, timeout)
+        apply_patch(after_tree, context.patch, protected=set(context.reference + context.hidden))
+        after_p2p = _suite_result(after_tree, context.reference, timeout)
+        after_f2p = _suite_result(after_tree, context.hidden, timeout)
+        return {
+            "patched_tree_hash": _tree_hash(after_tree),
+            "env_digest": _oracle_environment_digest(),
+            "pass_to_pass": _suite_pair(before_p2p, after_p2p),
+            "fail_to_pass": _suite_pair(before_f2p, after_f2p),
+        }
+
+
+def _transition_status(evidence: Mapping[str, Any]) -> tuple[str, str | None]:
+    pairs = (evidence["pass_to_pass"], evidence["fail_to_pass"])
+    runs = [pair[side] for pair in pairs for side in ("before", "after")]
+    if any(run["timed_out"] for run in runs):
+        return "unbound", "declared suite execution timed out"
+    p2p = evidence["pass_to_pass"]
+    f2p = evidence["fail_to_pass"]
+    if (
+        p2p["before"]["ok"]
+        and p2p["after"]["ok"]
+        and not f2p["before"]["ok"]
+        and f2p["after"]["ok"]
+    ):
+        return "provisional", None
+    return "failed", "F2P/P2P pre/post transition did not satisfy the binder contract"
+
+
 def bind_vset_oracle(
     record: Mapping[str, Any],
     pack_dir: Path | str | None,
@@ -172,119 +349,25 @@ def bind_vset_oracle(
     """
 
     base: dict[str, Any] = {"schema_version": "oracle_bind_v1", "status_supported": "unbound"}
-    if not isinstance(record, Mapping):
-        base["reason"] = "record must be an object"
-        return base
-    if not isinstance(oracle_actor, Mapping) or any(
-        not isinstance(oracle_actor.get(key), str) or not oracle_actor[key].strip()
-        for key in ("model", "version", "run_id")
-    ):
-        base["reason"] = "invalid oracle actor identity"
-        return base
-
-    oracle = record.get("oracle")
-    env = record.get("environment")
-    payload = record.get("payload")
-    if not isinstance(oracle, Mapping) or not isinstance(env, Mapping):
-        base["reason"] = "missing oracle or environment envelope"
-        return base
-    if oracle.get("status") == "invalid":
-        base["reason"] = "invalid records are not executed"
-        return base
-
-    reference = _declared_suites(oracle.get("reference_tests"))
-    hidden = _declared_suites(oracle.get("hidden_tests"))
-    if reference is None or hidden is None:
-        base["reason"] = "explicit reference_tests and hidden_tests are required"
-        return base
-    if pack_dir is None or not Path(pack_dir).is_dir():
-        base["reason"] = "repo pack is missing"
-        return base
-
-    pack = Path(pack_dir).resolve()
     try:
-        snapshot = pack_snapshot_hash(pack)
-    except (OSError, ValueError):
-        base["reason"] = "repo pack snapshot cannot be read"
-        return base
-    if env.get("repo_snapshot_hash") != snapshot:
-        base.update(pack_snapshot_hash=snapshot, reason="repo snapshot hash mismatch")
+        context = _binding_context(record, pack_dir, oracle_actor)
+    except _Unbound as refusal:
+        base.update(refusal.fields)
+        base["reason"] = refusal.reason
         return base
 
-    declared = set(reference + hidden)
-    if any(not (pack / relative).is_file() for relative in declared):
-        base.update(pack_snapshot_hash=snapshot, reason="declared suite is missing from pack")
-        return base
-    patch = record_patch(record)
-    if not isinstance(patch, Mapping):
-        base.update(pack_snapshot_hash=snapshot, reason="record patch is missing")
-        return base
-
-    base.update(pack_snapshot_hash=snapshot, oracle_actor=dict(oracle_actor))
-    conflated = _conflated_role(record, oracle_actor)
-    if conflated is not None:
-        base["reason"] = f"oracle actor identity is conflated with {conflated}"
-        return base
-    if isinstance(payload, Mapping) and payload.get("outcome") == "impossible":
-        base["reason"] = "impossible task is not executed"
-        return base
-
+    base.update(pack_snapshot_hash=context.snapshot, oracle_actor=dict(oracle_actor))
     try:
-        with tempfile.TemporaryDirectory(prefix="vset-bind-") as tmp:
-            root = Path(tmp)
-            before_tree = root / "before"
-            after_tree = root / "after"
-            shutil.copytree(pack, before_tree)
-            shutil.copytree(pack, after_tree)
-            copied = (pack_snapshot_hash(before_tree), pack_snapshot_hash(after_tree))
-            if copied != (snapshot, snapshot):
-                base["reason"] = "copied pack snapshot mismatch"
-                return base
-
-            before_p2p = _suite_result(before_tree, reference, timeout)
-            before_f2p = _suite_result(before_tree, hidden, timeout)
-            apply_patch(after_tree, patch, protected=declared)
-            after_p2p = _suite_result(after_tree, reference, timeout)
-            after_f2p = _suite_result(after_tree, hidden, timeout)
-            base.update(
-                patched_tree_hash=_tree_hash(after_tree),
-                env_digest=_env_digest(
-                    {
-                        "python": sys.executable,
-                        "version": sys.version,
-                        "platform": sys.platform,
-                        "child": CHILD_ENV,
-                    }
-                ),
-                pass_to_pass={
-                    "before": before_p2p,
-                    "after": after_p2p,
-                    "result_hash": _suite_pair_result_hash(before_p2p, after_p2p),
-                },
-                fail_to_pass={
-                    "before": before_f2p,
-                    "after": after_f2p,
-                    "result_hash": _suite_pair_result_hash(before_f2p, after_f2p),
-                },
-            )
-
-            runs = (before_p2p, before_f2p, after_p2p, after_f2p)
-            if any(run["timed_out"] for run in runs):
-                base["status_supported"] = "unbound"
-                base["reason"] = "declared suite execution timed out"
-            elif (
-                before_p2p["ok"]
-                and after_p2p["ok"]
-                and not before_f2p["ok"]
-                and after_f2p["ok"]
-            ):
-                base["status_supported"] = "provisional"
-            else:
-                base["status_supported"] = "failed"
-                base["reason"] = "F2P/P2P pre/post transition did not satisfy the binder contract"
-    except (OSError, ValueError, TypeError, KeyError, RuntimeError) as exc:
-        base["status_supported"] = "unbound"
+        evidence = _execute_binding(context, timeout)
+    except (OSError, ValueError, TypeError, KeyError, RuntimeError, _Unbound) as exc:
         base["reason"] = f"cannot execute or apply patch: {exc}"
+        return base
+
+    base.update(evidence)
+    status, reason = _transition_status(evidence)
+    base["status_supported"] = status
+    if reason is not None:
+        base["reason"] = reason
     return base
 
 
