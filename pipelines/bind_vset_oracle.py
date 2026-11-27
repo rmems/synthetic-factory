@@ -188,7 +188,7 @@ def _require_patch(
     )
     patch = record_patch(record)
     _require(isinstance(patch, Mapping), "record patch is missing", pack_snapshot_hash=snapshot)
-    return patch
+    return cast(Mapping[str, Any], patch)
 
 
 def _role_identity(record: Mapping[str, Any], role: str) -> Mapping[str, Any]:
@@ -196,7 +196,7 @@ def _role_identity(record: Mapping[str, Any], role: str) -> Mapping[str, Any]:
     reason = f"missing or invalid {role} actor identity"
     _require(isinstance(actor, Mapping), reason)
     _require(_valid_actor(actor), reason)
-    return actor
+    return cast(Mapping[str, Any], actor)
 
 
 def _conflated_role(record: Mapping[str, Any], oracle_actor: Mapping[str, str]) -> str | None:
