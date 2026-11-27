@@ -21,10 +21,12 @@ ACTOR = {"model": "vset-binder", "version": "1", "run_id": "binder-test-1"}
 
 
 class VSetOracleBinderTests(unittest.TestCase):
-    def record(self) -> dict:
+    @staticmethod
+    def record() -> dict:
         return load_record(ACCEPT / "issue-patch-validated.json")
 
-    def bind(self, record: dict, pack=PACK):
+    @staticmethod
+    def bind(record: dict, pack=PACK):
         return bind_vset_oracle(record, pack, oracle_actor=ACTOR)
 
     def test_patch_proves_f2p_and_p2p_pre_and_post(self) -> None:
